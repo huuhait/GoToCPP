@@ -3,27 +3,27 @@
 
 namespace gpkg_main {
 
-int64_t len(gp::string s);
-gp::string panic(gp::string s);
-gp::string print(gp::string a, gp::string b);
-int64_t div(int64_t a, gp::string s);
+int64_t len(const gp::string& s);
+gp::string panic(const gp::string& s);
+gp::string print(const gp::string& a, const gp::string& b);
+int64_t div(int64_t a, const gp::string& s);
 int64_t shl(int64_t x, bool b);
 void main();
 
 #line 9 "$DIR/adl.gp"
-int64_t len(gp::string s) {
+int64_t len(const gp::string& s) {
     return 3;
 }
 
-gp::string panic(gp::string s) {
+gp::string panic(const gp::string& s) {
     return "no panic: "_gs + s;
 }
 
-gp::string print(gp::string a, gp::string b) {
+gp::string print(const gp::string& a, const gp::string& b) {
     return a + b;
 }
 
-int64_t div(int64_t a, gp::string s) {
+int64_t div(int64_t a, const gp::string& s) {
     return a + gpkg_main::len(s);
 }
 

@@ -664,23 +664,23 @@ func TestOrderTemps(t *testing.T) {
 		// in the receiver goes first, a value method through a package pointer copies it first
 		// (the copy holds the object), through a local pointer it doesn't, a read of a package
 		// receiver goes after the calls, and a deferred call stores its receiver.
-		{"gst.inc(f())", "Pt::inc(gp::static_ptr(gst), f());"},
-		{"mkp().inc(f())", "{ auto gp_t0 = mkp(); Pt::inc(gp_t0, f()); }"},
+		{"gst.inc(f())", "Pt::inc(gp::borrow(&gst), f());"},
+		{"mkp().inc(f())", "{ auto gp_t0 = mkp(); Pt::inc(gp::lend(gp_t0), f()); }"},
 		{"fmt.Println(gpp.sum())", "gp::fmt::Println(gp::ptr<Pt>(gpp)->sum());"},
 		{"lp := &gst\n\tfmt.Println(lp.sum())", "gp::fmt::Println(lp->sum());"},
 		{"lp := &gst\n\t_ = lp.sum() + f()", "{ auto gp_t0 = lp->sum(); static_cast<void>(gp_t0 + f()); }"},
-		{"fmt.Println(gpp.inc(f()))", "{ auto gp_t0 = f(); gp::fmt::Println(Pt::inc(gpp, gp_t0)); }"},
+		{"fmt.Println(gpp.inc(f()))", "{ auto gp_t0 = f(); gp::fmt::Println(Pt::inc(gp::lend(gpp), gp_t0)); }"},
 		{"fmt.Println(gst.sum(), f())", "{ auto gp_t0 = gst.sum(); gp::fmt::Println(gp_t0, f()); }"},
 		{"gst.add(f())", "{ auto gp_t0 = f(); gst.add(gp_t0); }"},
-		{"gsts[0].inc(1)", "Pt::inc(gp::ptr<Pt>(gsts.gp_owner(), &gsts[0]), 1);"},
+		{"gsts[0].inc(1)", "Pt::inc(gp::borrow(&gsts[0]), 1);"},
 		{"defer gpp.sum()", "gp_df.gp_push_call([](auto&& gp_a0) { gp_a0.sum(); }, *gpp);"},
-		{"defer gst.inc(f())", "gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { Pt::inc(gp_a0, gp_a1); }, gp::static_ptr(gst), f());"},
+		{"defer gst.inc(f())", "gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { Pt::inc(gp::lend(gp_a0), gp_a1); }, gp::static_ptr(gst), f());"},
 		// Method values (step 3.10b): a copy of the receiver (*gpp for a value method through a
 		// pointer), or the pointer, in the lambda's capture, read after the calls of the scope;
 		// a call of a method expression calls its lambda.
 		{"s := gst.sum\n\t_ = s", "gp::func<int64_t()> s = gp::func<int64_t()>([gp_r = gst](auto&&... gp_a) { return gp_r.sum(gp_a...); });"},
 		{"a := gpp.add\n\t_ = a", "gp::func<int64_t(int64_t)> a = gp::func<int64_t(int64_t)>([gp_r = *gpp](auto&&... gp_a) { return gp_r.add(gp_a...); });"},
-		{"i := gst.inc\n\t_ = i", "gp::func<int64_t(int64_t)> i = gp::func<int64_t(int64_t)>([gp_r = gp::static_ptr(gst)](auto&&... gp_a) { return Pt::inc(gp_r, gp_a...); });"},
+		{"i := gst.inc\n\t_ = i", "gp::func<int64_t(int64_t)> i = gp::func<int64_t(int64_t)>([gp_r = gp::static_ptr(gst)](auto&& gp_a0) { return Pt::inc(gp::lend(gp_r), gp_a0); });"},
 		{"fs := []func() int{gst.sum, mkf()}\n\t_ = fs", "auto gp_t0 = mkf(); gp::slice<gp::func<int64_t()>> fs = gp::slice_of<gp::func<int64_t()>>({gp::func<int64_t()>([gp_r = gst](auto&&... gp_a) { return gp_r.sum(gp_a...); }), gp_t0});"},
 		{"_ = Pt.add(gst, f())", "{ auto gp_t0 = f(); static_cast<void>([](auto&& gp_r, auto&&... gp_a) { return gp_r.add(gp_a...); }(gst, gp_t0)); }"},
 		// Two operations that can panic (step 3.12): the first goes into a temporary when C++

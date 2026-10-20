@@ -4,7 +4,7 @@
 namespace gpkg_main {
 
 int64_t new_(int64_t class_);
-gp::string delete_(gp::string this_, gp::string template_);
+gp::string delete_(const gp::string& this_, const gp::string& template_);
 std::tuple<bool, bool> operator_();
 void main();
 
@@ -19,7 +19,7 @@ int64_t new_(int64_t class_) {
     return class_ + 1;
 }
 
-gp::string delete_(gp::string this_, gp::string template_) {
+gp::string delete_(const gp::string& this_, const gp::string& template_) {
     return this_ + template_;
 }
 

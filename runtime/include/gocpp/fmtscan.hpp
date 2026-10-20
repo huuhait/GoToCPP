@@ -134,6 +134,8 @@ std::tuple<int64_t, gp::error> scanf_stdin(std::string_view format, const arg* a
 // read the file that os.Stdin holds when the program has assigned another file to os.Stdin or
 // closed the original, as Go's do (also when they are used as func values or in a package that does
 // not import os); else, and until the init has run, they read file descriptor 0.
+// Registration starts no worker and does not invoke current; a later scanning thread calls it
+// inline. That thread need not be the registering thread, so this is not a synchronous callback.
 template <typename PVar, typename PFile, typename PFlag, typename F>
 void set_os_stdin(const PVar& var, const PFile& file0, const PFlag& closed, F current) {
     using P = detail::pelem_t<PVar>;

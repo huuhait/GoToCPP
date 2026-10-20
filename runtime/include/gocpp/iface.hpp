@@ -380,6 +380,15 @@ T unbox(const iface& x) {
     return T(x.gp_data(), static_cast<U*>(x.gp_data().get()));
 }
 
+// unbox_borrow<T>(x): unbox<gp::ptr<T>>(x) as a borrowed pointer, for the thunk of a method whose
+// receiver is borrowed (ptr.hpp: bptr): no copy of the pointer. x stays alive while the thunk
+// runs (icall's contract: a stable interface value, or icall_keep's copy), and it holds the
+// object. Nil for a nil pointer inside the interface.
+template <typename T>
+bptr<T> unbox_borrow(const iface& x) noexcept {
+    return bptr<T>(static_cast<T*>(x.gp_data().get()));
+}
+
 namespace detail {
 
 template <typename Sig>

@@ -3,11 +3,11 @@
 
 namespace gpkg_main {
 
-gp::string join(gp::string a, gp::string b);
+gp::string join(const gp::string& a, const gp::string& b);
 void main();
 
 #line 7 "$DIR/strings.gp"
-gp::string join(gp::string a, gp::string b) {
+gp::string join(const gp::string& a, const gp::string& b) {
     return gp::concat(a, "-"_gs, b);
 }
 

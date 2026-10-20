@@ -211,6 +211,11 @@ type orderScope struct {
 	pre   bool         // writing the scope needs statements before it
 	calls []ast.Expr   // the calls in the scope that are not units (len of a local): ordered too
 
+	// snapshots collect Go argument values before a sibling's implicit C++ work can change
+	// their sources. Explicit Go calls keep their usual order before these value reads.
+	snapshots []ast.Expr
+	receiver  *ast.SelectorExpr
+
 	// rank says when Go evaluates the item it, which is not a unit, against the other such
 	// items (nil: all 0): the items of a lower rank come first, and those of one rank are in
 	// post order. The operands of the target of x = v come after v (except their parts that gc
@@ -442,6 +447,39 @@ func (fg *funcGen) analyzeArgs(seq bool, list []ast.Expr, iface int) *orderScope
 	})
 }
 
+// analyzeCallArgs also collects owning Go values when implicit foreign work in a sibling
+// can change their sources. C++ argument evaluation order must not choose which values survive.
+func (fg *funcGen) analyzeCallArgs(list []ast.Expr, iface int) *orderScope {
+	sc := &orderScope{}
+	if fg.foreignWork(list...) {
+		sc.snapshots = list
+		sc.keepPanics = true
+	}
+	sc.copy = func(i int, e ast.Expr) bool {
+		return (i >= iface || fg.toIface(e)) && fg.copied(e)
+	}
+	return fg.analyzeWith(sc, list)
+}
+
+// loweredCall reports whether argument collection belongs to a lowered Go call. calledSig
+// deliberately has narrower interop-conversion rules; ordinary imported Go functions need
+// ordering too, without treating header namespaces or fmt's runtime entry points as Go bodies.
+func (g *gen) loweredCall(c *ast.CallExpr) bool {
+	if g.calledSig(c) != nil {
+		return true
+	}
+	selector, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	fn := g.qualifiedFunc(selector)
+	if fn == nil {
+		return false
+	}
+	other := g.other(fn.Pkg())
+	return other != nil && other.declOf(fn.Origin()) != nil
+}
+
 // toIface reports whether Go converts the value e implicitly to an interface type there
 // (iconv.go): gc copies it like an argument of fmt's ...any.
 func (fg *funcGen) toIface(e ast.Expr) bool {
@@ -658,8 +696,14 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			if x != fg.deferCall {
 				sc.rank = rootRank(1) // the func value, root 0
 			}
+			if fg.foreignWork(x.Args...) {
+				sc.snapshots = list
+				sc.keepPanics = true
+			}
 			args = fg.collectScope(sc, list, func(i int, e ast.Expr) bool { return i == 0 && fg.calleeCopied(e) })
 			args.plan()
+		} else if fg.g.loweredCall(x) {
+			args = fg.analyzeCallArgs(x.Args, iface)
 		} else {
 			args = fg.analyzeArgs(false, x.Args, iface)
 		}
@@ -946,6 +990,15 @@ func (fg *funcGen) calleeCopied(e ast.Expr) bool {
 // no effect of its own but eff: a unit, if it or its operands have an effect, or else an
 // expression that can be evaluated anywhere (its calls are only marked ordered).
 func (fg *funcGen) collectInPlace(sc *orderScope, x *ast.CallExpr, args []ast.Expr, eff effect, root int, up *orderStep) {
+	if sc.snapshots != nil && fg.foreignWork(args...) {
+		// A builtin can hide an implicit foreign copy. Keep that work with its argument
+		// snapshot, rather than running it before earlier argument values are collected.
+		for _, a := range args {
+			fg.collect(sc, a, root, &orderStep{node: x, up: up})
+		}
+		sc.calls = append(sc.calls, x)
+		return
+	}
 	in := fg.analyze(false, args)
 	if eff = eff.or(in.effect()); !eff.any() {
 		sc.calls = append(append(sc.calls, x), in.calls...)
@@ -1072,7 +1125,7 @@ func (sc *orderScope) plan() {
 		}
 	}
 	sc.hoist = units[:n]
-	sc.pre = n > 0 || len(sc.panics) > 0
+	sc.pre = n > 0 || len(sc.panics) > 0 || sc.snapshots != nil || sc.receiver != nil
 	for _, u := range units[n:] {
 		sc.pre = sc.pre || u.inner[0].pre
 	}
@@ -1197,6 +1250,17 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 	for _, c := range sc.calls {
 		fg.ordered[c] = true
 	}
+	if sc.snapshots != nil || sc.receiver != nil {
+		// Only explicit/nonforeign units belong before the argument value reads. A
+		// synthesized container unit can copy foreign values, even if its result is scalar.
+		for _, it := range sc.items {
+			if it.unit {
+				fg.emitBeforeSnapshots(it, pre)
+			}
+		}
+		fg.emitArgumentSnapshots(sc, pre)
+		return
+	}
 	hoisted := make(map[*orderItem]bool, len(sc.hoist))
 	for _, it := range sc.hoist {
 		fg.emitItem(it, pre)
@@ -1206,6 +1270,9 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 		fg.emitPanic(it, pre)
 	}
 	for _, it := range sc.items {
+		if _, collected := fg.temps[it.e]; collected {
+			continue
+		}
 		if it.unit && !hoisted[it] {
 			// It stays in the expression; its own scopes are ordered in front (plan put the
 			// units before it into temporaries).
@@ -1215,11 +1282,128 @@ func (fg *funcGen) emitScope(sc *orderScope, pre *[]cppir.Stmt) {
 			}
 		}
 	}
+	fg.emitArgumentSnapshots(sc, pre)
+}
+
+// emitBeforeSnapshots peels synthesized foreign units without evaluating their implicit work.
+// Their explicit child calls still run in Go order, once, before argument values are collected.
+func (fg *funcGen) emitBeforeSnapshots(it *orderItem, pre *[]cppir.Stmt) {
+	if _, collected := fg.temps[it.e]; collected {
+		return
+	}
+	if !fg.foreignCollectionUnit(it) {
+		fg.emitItem(it, pre)
+		return
+	}
+	for _, inner := range it.inner {
+		for _, child := range inner.items {
+			if child.unit {
+				fg.emitBeforeSnapshots(child, pre)
+			}
+		}
+	}
+}
+
+// foreignCollectionUnit distinguishes synthesized evaluations from explicit calls. This is
+// structural, not a list of literal spellings: slicing, maps, conversions and builtin wrappers
+// can nest arbitrarily. A short-circuit unit controlling calls must retain its conditional flow.
+func (fg *funcGen) foreignCollectionUnit(it *orderItem) bool {
+	if !fg.foreignWork(it.e) {
+		return false
+	}
+	switch x := it.e.(type) {
+	case *ast.CallExpr:
+		if fg.g.info.Types[x.Fun].IsType() || fg.g.pkg.Conversion(x) != nil {
+			return true
+		}
+		if fg.g.unsafeBuiltin(x) != "" || fg.g.pkg.UnsafeWrapper(x) != nil {
+			return true
+		}
+		if id, ok := ast.Unparen(x.Fun).(*ast.Ident); ok {
+			_, builtin := fg.g.info.Uses[id].(*types.Builtin)
+			return builtin
+		}
+		return false
+	case *ast.UnaryExpr:
+		return x.Op != token.ARROW // a receive is an explicit Go operation
+	case *ast.BinaryExpr:
+		if (x.Op == token.LAND || x.Op == token.LOR) && it.eff.call {
+			return false
+		}
+	}
+	return true
+}
+
+// emitCollectionUnits materializes the synthesized units of one argument only when that
+// argument is collected. Earlier argument snapshots therefore already hold their owners.
+func (fg *funcGen) emitCollectionUnits(sc *orderScope, argument ast.Expr, pre *[]cppir.Stmt) {
+	for _, it := range sc.items {
+		if it.unit && within(it.e, argument) {
+			fg.emitItem(it, pre)
+		}
+	}
+}
+
+// emitArgumentSnapshots collects argument values in source order. The resulting owners are
+// inaccessible to foreign callbacks, even while a later argument or the call copies C++ values.
+func (fg *funcGen) emitArgumentSnapshots(sc *orderScope, pre *[]cppir.Stmt) {
+	if sc.receiver != nil {
+		x := sc.receiver
+		fg.emitCollectionUnits(sc, x.X, pre)
+
+		// Receiver checks retain their address-aware semantics, rather than reading a value.
+		selection := fg.g.info.Selections[x]
+		checks := &orderScope{}
+		fg.collectRecv(checks, x, selection, 0, nil)
+		for _, it := range checks.items {
+			it.recv = it.e == x
+		}
+		checks.plan()
+		fg.emitScope(checks, pre)
+
+		r := pathOf(selection)
+		recv, ptr := fg.recvExpr(x, r, false)
+		if ptr && !r.ptrRecv {
+			recv = deref(recv)
+		}
+		name := fg.names.temp("t")
+		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), name, recv))
+		if fg.recvs == nil {
+			fg.recvs = make(map[*ast.SelectorExpr]cppir.Expr)
+		}
+		fg.recvs[x] = cxxName(name)
+	}
+
+	for _, argument := range sc.snapshots {
+		fg.emitCollectionUnits(sc, argument, pre)
+
+		// Restore ordinary check ordering inside this argument, after earlier argument
+		// owners exist. Explicit calls and synthesized units already collected stay named.
+		*pre = append(*pre, fg.order(false, argument)...)
+
+		e := ast.Unparen(argument)
+		if _, hoisted := fg.temps[e]; hoisted {
+			continue
+		}
+		if tv := fg.g.info.Types[e]; tv.Value != nil || tv.IsNil() {
+			continue
+		}
+		x := fg.ownedValue(e, fg.exactExpr(e))
+		name := fg.names.temp("t")
+		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), name, x))
+		fg.temps[e] = name
+		if fg.g.pkg.Opaque.IsOpaque(e) {
+			fg.markAuto(name)
+		}
+	}
 }
 
 // emitItem writes the temporary of one item. The statements have no place of their own:
 // they go on the line of their statement (a Line or an inline Block).
 func (fg *funcGen) emitItem(it *orderItem, pre *[]cppir.Stmt) {
+	if _, collected := fg.temps[it.e]; collected {
+		return
+	}
 	fg.ordered[it.e] = true
 	if lit, ok := it.e.(*ast.CompositeLit); ok && isMap(fg.g.info.TypeOf(lit)) {
 		fg.emitMapLit(it, lit, pre) // maps.go

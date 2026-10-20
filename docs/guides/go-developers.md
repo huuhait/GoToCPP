@@ -33,7 +33,7 @@ their output.
 |---|---|---|---|
 | Memory | a garbage collector | reference counting; a cycle of pointers leaks, `weak.Pointer` breaks it | [D1](../spec/language.md#d1-reference-counting-instead-of-a-garbage-collector) |
 | Goroutines | millions of cheap goroutines | one OS thread each; thousands are fine, millions are not | [D7](../spec/language.md#d7-goroutines-are-os-threads) |
-| Data races | undefined behavior in practice | the same, and a race can corrupt a reference count; `gocpp run -race` finds them | [D10](../spec/language.md#d10-data-races-can-break-reference-counts), [race guide](race.md) |
+| Data races | undefined behavior in practice | the same, and a race can corrupt a reference count; `gocpp run -race` finds them; swap a shared pointer with `atomic.Pointer` or a lock, not with a plain assignment | [D10](../spec/language.md#d10-data-races-can-break-reference-counts), [race guide](race.md) |
 | `reflect` | everything | a subset: enough for `fmt`, `encoding/json`, `sort`, `errors`, `context`; no `MakeFunc`, `Value.Call`, `plugin` | [D6](../spec/language.md#d6-a-reflect-subset-and-no-plugin) |
 | Sizes | `string` 16 bytes, slice 24, pointer 8 | `string` 32, slice 40, pointer 16; `unsafe.Sizeof` shows it | [D15](../spec/language.md#d15-different-sizes) |
 | Word size | 32 or 64 bits | 64 bits only | [D9](../spec/language.md#d9-64-bit-targets-only) |

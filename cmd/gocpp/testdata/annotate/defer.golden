@@ -6,7 +6,7 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-void cleanup(gp::string name);
+void cleanup(const gp::string& name);
 gp::error work(bool fail);
 void main();
 
@@ -18,10 +18,13 @@ void main();
 namespace gpkg_main {
 
 // ---- ./defer.gp:5: func cleanup(name string) { fmt.Println("cleanup", name) }
+// gp[refcount] col 14: name is a const reference: the body never assigns it (a local that no call
+//     can change, or a temporary, is passed as it is: no copy, no count; anything else is copied
+//     first)
 // gp[interfaces] col 29: fmt.Println: the runtime's gp::fmt functions take each operand with the
 //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
 //     non-pointer type with an Error method is, see the allocation note)
-void cleanup(gp::string name) {
+void cleanup(const gp::string& name) {
     gp::fmt::Println("cleanup"_gs, name);
 }
 

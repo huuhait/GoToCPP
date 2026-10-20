@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"maps"
 	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -54,7 +55,7 @@ type funcInfo struct {
 func (f *funcInfo) prepare(g *gen) {
 	f.sig, f.body, f.pos, f.top = f.obj.Signature(), f.decl.Body, f.decl.Pos(), f.decl
 	f.ftype = f.decl.Type
-	f.boxed = boxedVars(g.info, f.decl)
+	f.boxed = maps.Clone(g.boxedOf(f.decl)) // (prepare adds to it)
 	f.names = g.newFuncNames()
 	// A new name must not hide anything that the function refers to (funcNames).
 	ast.Inspect(f.decl, func(n ast.Node) bool {
@@ -97,6 +98,10 @@ func (f *funcInfo) signature(g *gen) {
 		macro = g.macroSig(f.obj) // a function declaration only: a func literal is never a macro
 	}
 	f.params = make([]cppir.Param, sig.Params().Len())
+	var bsum *borrowSum // the parameters that the function borrows (borrow.go)
+	if f.obj != nil {
+		bsum = g.borrowOf(f.obj)
+	}
 	for i := range sig.Params().Len() {
 		p := sig.Params().At(i)
 		f.params[i].Type = g.varType(p, f.pos)
@@ -106,6 +111,10 @@ func (f *funcInfo) signature(g *gen) {
 				g.viewVars = make(map[*types.Var]bool)
 			}
 			g.viewVars[p] = true
+		} else if bsum.borrowed(i) {
+			f.params[i].Type = borrowedType(f.params[i].Type)
+		} else if bsum.isRef(i) {
+			f.params[i].Type = &cppir.Ref{Elem: &cppir.Const{Elem: f.params[i].Type}} // borrow.go
 		}
 		if largeVar(p.Type()) {
 			// A parameter larger than 128 KiB: a copy on the C++ stack could overflow it
@@ -155,6 +164,7 @@ func (g *gen) funcBuild(f *funcInfo) *cppir.Func {
 	g.noteConversions(body, f.sig) // named.go
 	g.markCounts(body)
 	g.noteBoxed(f.boxed)                             // why.go
+	g.noteBorrow(f)                                  // whynotes.go
 	g.numberLits(f.decl, make(map[*ast.FuncLit]int)) // closures.go
 	fg := newFuncGen(g, f.names, f)
 	fn := &cppir.Func{Pos: g.pos(f.pos), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}

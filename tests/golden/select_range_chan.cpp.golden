@@ -33,7 +33,7 @@ static_assert(sizeof(gp_anon_a9e1fb1acaf8c517) == 1 && alignof(gp_anon_a9e1fb1ac
 #endif
 namespace gpkg_main {
 gp::chan<int64_t> src();
-int64_t pick(gp::chan<int64_t> a, gp::chan<int64_t> b);
+int64_t pick(const gp::chan<int64_t>& a, const gp::chan<int64_t>& b);
 void main();
 
 } // namespace gpkg_main
@@ -51,7 +51,7 @@ gp::chan<int64_t> src() {
 #line 12 "$ROOT/tests/golden/select_range_chan.gp"
 }
 
-int64_t pick(gp::chan<int64_t> a, gp::chan<int64_t> b) {
+int64_t pick(const gp::chan<int64_t>& a, const gp::chan<int64_t>& b) {
     {
         gp::sel_recv gp_s0{a};
 #line 18 "$ROOT/tests/golden/select_range_chan.gp"

@@ -135,6 +135,11 @@ func (f *funcInfo) prepareRecv(g *gen) []cppir.Param {
 	}
 	defer g.hideMembers(m.hidden)()
 	p := cppir.Param{Type: g.cxxType(v.Type(), f.decl.Pos())}
+	if bs := g.borrowOf(f.obj); bs.borrowed(-1) {
+		p.Type = borrowedType(p.Type) // the pointer receiver is borrowed (borrow.go)
+	} else if bs.isRef(-1) {
+		p.Type = &cppir.Ref{Elem: &cppir.Const{Elem: p.Type}} // a const reference
+	}
 	if named {
 		p.Name = f.names.declare(v)
 		if f.boxed[v] != 0 {
@@ -389,6 +394,13 @@ func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *select
 	// evaluates first; a pointer method is a static call, T::PM(recv, args).
 	// A deferred call's receiver is an argument of gp_push_call (deferThunk).
 	sc := &orderScope{objFirst: !pathOf(s).ptrRecv && c != fg.deferCall}
+	if fg.foreignWork(append([]ast.Expr{x.X}, c.Args...)...) {
+		sc.snapshots = c.Args
+		sc.keepPanics = true
+		if _, stored := fg.recvs[x]; !stored {
+			sc.receiver = x
+		}
+	}
 	if _, stored := fg.recvs[x]; !stored {
 		fg.collectRecv(sc, x, s, 0, nil)
 		for _, it := range sc.items {
@@ -429,9 +441,11 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *selection
 	fn := s.Obj().(*types.Func)
 	r := pathOf(s)
 	recv, ptr := fg.recvs[x], false // a deferred call's stored receiver (storeRecv)
+	stored := recv != nil
 	if recv == nil {
 		recv, ptr = fg.recvExpr(x, r, true)
 	}
+	sum := fg.g.borrowOf(fn)
 	tuple := len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0]))
 	var args []cppir.Expr
 	var params []cppir.Param
@@ -439,11 +453,28 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *selection
 		// x.M(g()), where g has several results: std::apply calls a lambda with them, which
 		// converts them to M's parameter types where Go does (step 3.9) and puts those of a
 		// variadic parameter in a slice (step 3.11), as tupleArgs.
-		params, args = fg.spreadTuple(c, fn.Signature())
+		params, args = fg.spreadTuple(c, fn.Signature(), fn)
 	} else {
 		args = fg.callArgs(c, fn.Signature()) // closures.go: variadics
+		args = fg.lendArgs(c, fn, x.X, args)  // borrow.go
 	}
-	call := fg.g.callMethod(recv, ptr, fn, r, args, c.Pos())
+	if r.ptrRecv && sum.isRef(-1) && !stored {
+		var how lendHow
+		recv, how = fg.refRecv(x, r, recv, sum.pureV && !fg.hotRecv(x, r) && fg.noCalls(append([]ast.Expr{x.X}, c.Args...)...))
+		fg.g.noteLend(x.X.Pos(), fn, how)
+	}
+	if r.ptrRecv && sum.borrowed(-1) {
+		// The pointer receiver is borrowed: lend it (borrowemit.go).
+		if stored {
+			recv = lendCall(recv) // the deferred call's own copy
+		} else {
+			var how lendHow
+			recv, how = fg.lendRecv(x, r, recv, sum.pure && !fg.hotRecv(x, r) && fg.noCalls(append([]ast.Expr{x.X}, c.Args...)...))
+			fg.g.noteLend(x.X.Pos(), fn, how)
+		}
+	}
+	keep := isInterface(r.end) && !stored && (r.deref || !fg.stableCallee(x.X))
+	call := fg.g.callMethod(recv, ptr, fn, r, args, c.Pos(), keep)
 	if !tuple {
 		return call
 	}
@@ -455,7 +486,7 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *selection
 // a pointer to it when ptr is set, else a value. A value method through a pointer is a member
 // call through ->, which panics for nil; a pointer method is a static call with the pointer,
 // T::PM(p, args).
-func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, args []cppir.Expr, pos token.Pos) cppir.Expr {
+func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, args []cppir.Expr, pos token.Pos, keep bool) cppir.Expr {
 	if weakFunc(fn, "Value") {
 		return weakValue(recv, ptr) // weak.go
 	}
@@ -465,7 +496,13 @@ func (g *gen) callMethod(recv cppir.Expr, ptr bool, fn *types.Func, r recvPath, 
 	}
 	g.noteMethodCall(base, r.ptrRecv, ptr, fn, pos) // why.go
 	if isInterface(base) {
-		// A method of an interface value: the wrapper of its interface struct (ifaces.go).
+		// A method of an interface value: the wrapper of its interface struct (ifaces.go). The
+		// thunk of a method that borrows its receiver uses the object that the interface value
+		// holds, so an interface value that the method could change is copied first (keep;
+		// ADR-086), as the thunk copied the pointer before.
+		if keep {
+			recv = construct(g.cxxType(base, pos), recv)
+		}
 		return &cppir.Call{Fun: &cppir.Member{X: recv, Name: g.ifaceMethodName(base, fn, pos)}, Args: args}
 	}
 	si := g.structOf(base, pos)
@@ -560,9 +597,13 @@ func (fg *funcGen) storeRecv(c *ast.CallExpr, params *[]cppir.Param, values *[]c
 	if x == nil {
 		return func() {}
 	}
-	recv, ptr := fg.recvExpr(x, pathOf(s), false)
-	if ptr && !pathOf(s).ptrRecv {
-		recv = deref(recv) // the value, copied when the frame stores it
+	recv := fg.recvs[x]
+	if recv == nil {
+		var ptr bool
+		recv, ptr = fg.recvExpr(x, pathOf(s), false)
+		if ptr && !pathOf(s).ptrRecv {
+			recv = deref(recv) // the value, copied when the frame stores it
+		}
 	}
 	if isInterface(pathOf(s).end) {
 		// defer i.M(): Go evaluates the method value there, which panics for a nil interface (not
@@ -619,11 +660,37 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda
 	auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
 	args := []cppir.Expr{&cppir.Expand{X: cxxName("gp_a")}}
 	lam := &cppir.Lambda{Params: []cppir.Param{{Type: auto, Pack: true, Name: "gp_a"}}, Body: &cppir.Block{Inline: true}}
+	bsum := fg.g.borrowOf(fn)
+	if bsum.hasBorrowed() || s.Kind() == types.MethodExpr && bsum.hasRef() {
+		// The method borrows a pointer parameter: the lambda names its parameters, which are alive
+		// for the call, and lends the borrowed ones (borrow.go).
+		n := fn.Signature().Params().Len()
+		lam.Params, args = nil, nil
+		for i := range n {
+			name := "gp_a" + strconv.Itoa(i)
+			var ptype cppir.Type = auto
+			if s.Kind() == types.MethodExpr && (bsum.borrowed(i) || bsum.isRef(i)) {
+				// Keep an owning copy with the Go formal type: auto would deduce nullptr_t
+				// for a literal nil, which gp::lend cannot turn into the expected pointer.
+				ptype = fg.g.cxxType(fn.Signature().Params().At(i).Type(), x.Pos())
+			}
+			lam.Params = append(lam.Params, cppir.Param{Type: ptype, Name: name})
+			var a cppir.Expr = cxxName(name)
+			if bsum.borrowed(i) {
+				a = lendCall(a)
+			}
+			args = append(args, a)
+		}
+	}
 	recv := cppir.Expr(cxxName("gp_r"))
 	ptr := false
 	if s.Kind() == types.MethodExpr {
 		// The receiver is the first parameter, of the type before the dot.
-		lam.Params = append([]cppir.Param{{Type: auto, Name: "gp_r"}}, lam.Params...)
+		var rtype cppir.Type = auto
+		if bsum.isRef(-1) || bsum.borrowed(-1) {
+			rtype = fg.g.cxxType(r.t, x.Pos()) // a typed owning copy, including for literal nil
+		}
+		lam.Params = append([]cppir.Param{{Type: rtype, Name: "gp_r"}}, lam.Params...)
 		if isPointer(r.t) && !r.ptrRecv && len(r.path) == 0 {
 			// (*T).M of a value method: Go's wrapper checks the pointer (runtime.panicwrap). A
 			// runtime call, so that -nochecks removes it with the other nil checks.
@@ -636,6 +703,17 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda
 		recv, ptr, ok = fg.recvFrom(recv, r)
 		if !ok {
 			fg.g.errorf(x.Pos(), "internal error: the method expression %s has no pointer for its receiver", types.ExprString(x))
+		}
+		if r.ptrRecv && bsum.borrowed(-1) {
+			// gp_r is a parameter by value: a copy that lives for the call, so it can be lent.
+			pt := types.NewPointer(recvBase(r))
+			if lr, ok := fg.lendFrom(cxxName("gp_r"), r, true, bsum.pure, pt); ok {
+				recv = lr
+			} else {
+				recv = fg.keep(pt, recv)
+			}
+		} else if r.ptrRecv && bsum.isRef(-1) {
+			recv, _ = fg.refFrom(r, recv, bsum.pureV)
 		}
 	} else {
 		// A method value: the receiver now, a copy of a value (*p for a value method through a
@@ -658,12 +736,18 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda
 		}
 		lam.Captures = []cppir.Capture{{Name: "gp_r", Init: value}}
 		ptr = r.ptrRecv
+		if r.ptrRecv && bsum.borrowed(-1) {
+			recv = lendCall(recv) // the closure holds the receiver while it runs
+		}
 	}
 	// The call inside the lambda is not a method call of the program: its notes would say "a static
 	// call" for what is a lambda that binds the receiver (noteMethodValue says it).
 	fg.g.noteMethodValue(x, s, r)
 	var body cppir.Expr
-	fg.g.quiet(func() { body = fg.g.callMethod(recv, ptr, fn, r, args, x.Pos()) })
+	fg.g.quiet(func() {
+		// (A method expression's argument is the caller's own variable: an interface is copied.)
+		body = fg.g.callMethod(recv, ptr, fn, r, args, x.Pos(), s.Kind() == types.MethodExpr && isInterface(r.end))
+	})
 	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: body})
 	return lam
 }

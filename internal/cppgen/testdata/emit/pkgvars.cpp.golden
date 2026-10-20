@@ -48,7 +48,7 @@ struct bigBlock {
 static_assert(sizeof(bigBlock) == 262176 && alignof(bigBlock) == 8);
 
 point scale(int64_t f);
-int64_t next(gp::string name);
+int64_t next(const gp::string& name);
 std::tuple<int64_t, gp::string> pair();
 void gp_init_1();
 void gp_init_2();
@@ -92,7 +92,7 @@ point scale(int64_t f) {
     return point{unit.x * f, unit.y * f, unit.ok};
 }
 
-int64_t next(gp::string name) {
+int64_t next(const gp::string& name) {
     counter = counter + 1;
     gp::println("init"_gs, name, counter);
     return counter * 10;

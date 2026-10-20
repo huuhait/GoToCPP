@@ -10,6 +10,18 @@ the owner of the slice's array, &x.f of a boxed x has x's box. So the object sta
 while any pointer into it exists, and the pointer is never dangling. The annotation says
 where a new owner is made and where one is shared.
 
+A pointer parameter or receiver that the function only reads and writes through, compares,
+or lends on to other borrowing functions is borrowed (ADR-086): the C++ parameter is a
+gp::bptr<T>, a raw pointer without a count, and the call passes the caller's pointer as it
+is (gp::lend(p)), or the address of a field (gp::borrow(&p->f)) instead of an aliasing
+pointer. The caller makes sure that the object stays alive during the call: the pointer is a
+temporary or a local that nothing can change, or the callee drops no pointer (it is pure);
+otherwise the call copies the pointer first. A parameter that is stored, returned, captured,
+converted to an interface or passed to a function that keeps it stays an owning gp::ptr<T>,
+and the annotation says why. A parameter that the body never assigns (a string, slice, map,
+interface, func or such a pointer) is a const T&: the call passes a temporary or a local
+that nothing can change as it is, and copies anything else first.
+
 Values that hold counts also copy them: a slice or a string copies its owner (one
 increment), an interface shares its box, a gp::func shares its closure. A moved value
 (static_cast<T&&>) transfers its count without touching it: the emitter moves where it can

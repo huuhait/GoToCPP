@@ -3,18 +3,18 @@
 
 namespace gpkg_main {
 
-void note(gp::string s);
-int64_t inc(gp::ptr<int64_t> p);
-void show(gp::string tag, int64_t a, int64_t b);
-void set(gp::ptr<int64_t> p, int64_t v);
-void add(gp::ptr<int64_t> p, int64_t v);
+void note(const gp::string& s);
+int64_t inc(gp::bptr<int64_t> p);
+void show(const gp::string& tag, int64_t a, int64_t b);
+void set(gp::bptr<int64_t> p, int64_t v);
+void add(gp::bptr<int64_t> p, int64_t v);
 int64_t named();
 int64_t twice();
 std::tuple<gp::string, bool> bare();
 std::tuple<int64_t, gp::string> pair(int64_t x);
 std::tuple<int64_t, int64_t> swap();
 std::tuple<int64_t, gp::string> forward();
-int64_t early(gp::slice<int64_t> xs);
+int64_t early(const gp::slice<int64_t>& xs);
 gp::string kind(int64_t n);
 void loop();
 void order();
@@ -31,30 +31,30 @@ gp::string joined();
 #line 13 "$DIR/defer.gp"
 constinit gp::slice<gp::string> trail{};
 
-void note(gp::string s) {
+void note(const gp::string& s) {
 #line 15 "$DIR/defer.gp"
     trail = gp::append(static_cast<gp::slice<gp::string>&&>(trail), s);
 #line 15 "$DIR/defer.gp"
 }
 
-int64_t inc(gp::ptr<int64_t> p) {
+int64_t inc(gp::bptr<int64_t> p) {
     (*p)++;
     return *p;
 }
 
-void show(gp::string tag, int64_t a, int64_t b) {
+void show(const gp::string& tag, int64_t a, int64_t b) {
 #line 22 "$DIR/defer.gp"
     gp::fmt::Println(tag, a, b);
 #line 22 "$DIR/defer.gp"
 }
 
-void set(gp::ptr<int64_t> p, int64_t v) {
+void set(gp::bptr<int64_t> p, int64_t v) {
 #line 24 "$DIR/defer.gp"
     *p = v;
 #line 24 "$DIR/defer.gp"
 }
 
-void add(gp::ptr<int64_t> p, int64_t v) {
+void add(gp::bptr<int64_t> p, int64_t v) {
 #line 26 "$DIR/defer.gp"
     *p = *p + v;
 #line 26 "$DIR/defer.gp"
@@ -209,7 +209,7 @@ std::tuple<int64_t, gp::string> forward() {
     gp_ret0:; gp_df.gp_run(); return {gp_r0, gp_r1};
 }
 
-int64_t early(gp::slice<int64_t> xs) {
+int64_t early(const gp::slice<int64_t>& xs) {
 #line 65 "$DIR/defer.gp"
     int64_t gp_r0{};
 #line 65 "$DIR/defer.gp"
@@ -299,10 +299,10 @@ void order() {
 #line 93 "$DIR/defer.gp"
     gp::defer_frame gp_df; try {
         gp::ptr<int64_t> z = gp::new_<int64_t>(1);
-        { auto gp_t0 = gpkg_main::inc(z); gp_df.gp_push(show, "z"_gs, (*z), gp_t0); }
+        { auto gp_t0 = gpkg_main::inc(gp::lend(z)); gp_df.gp_push(show, "z"_gs, (*z), gp_t0); }
         gp::slice<int64_t> g = gp::slice_of<int64_t>({10, 20, 30});
         gp::ptr<int64_t> i = gp::new_<int64_t>(0);
-        { auto gp_t1 = gpkg_main::inc(i); gp_df.gp_push(show, "g"_gs, g[(*i)], gp_t1); }
+        { auto gp_t1 = gpkg_main::inc(gp::lend(i)); gp_df.gp_push(show, "g"_gs, g[(*i)], gp_t1); }
         gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp::fmt::Println("printed"_gs, gp_a0, gp_a1); }, (*z), (*i));
         (*z) = 100; (*i) = 2;
     } catch (gp::panic_error& gp_p) {

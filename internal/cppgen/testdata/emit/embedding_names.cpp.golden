@@ -38,7 +38,7 @@ struct Base {
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::n, "n", false, false));
     gpkg_main::Item Item() const;
     gp::slice<gpkg_main::Pair> Pair() const;
-    static int64_t Take(gp::ptr<Base> b, gpkg_main::Item i, gp::ptr<gpkg_main::Pair> p);
+    static int64_t Take(gp::bptr<Base> b, gpkg_main::Item i, gp::bptr<gpkg_main::Pair> p);
 };
 static_assert(sizeof(Base) == 8 && alignof(Base) == 8);
 
@@ -53,7 +53,7 @@ struct Outer {
     gpkg_main::Item Total() const;
     gpkg_main::Item Item() const;
     gp::slice<gpkg_main::Pair> Pair() const;
-    static int64_t Take(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::ptr<gpkg_main::Pair> gp_a1);
+    static int64_t Take(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::bptr<gpkg_main::Pair> gp_a1);
 };
 static_assert(sizeof(Outer) == 88 && alignof(Outer) == 8);
 
@@ -65,8 +65,8 @@ gp::slice<gpkg_main::Pair> Outer::Pair() const {
     return (*this).Base.Pair();
 }
 
-int64_t Outer::Take(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::ptr<gpkg_main::Pair> gp_a1) {
-    return gpkg_main::Base::Take(gp::field_ptr(gp_p, &Outer::Base), static_cast<decltype(gp_a0)&&>(gp_a0), static_cast<decltype(gp_a1)&&>(gp_a1));
+int64_t Outer::Take(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::bptr<gpkg_main::Pair> gp_a1) {
+    return gpkg_main::Base::Take(gp::borrow(&gp_p->Base), static_cast<decltype(gp_a0)&&>(gp_a0), gp_a1);
 }
 
 extern const gp::type_desc gp_td_Item;
@@ -114,7 +114,7 @@ gp::slice<gpkg_main::Pair> Base::Pair() const {
 }
 
 #line 14 "$DIR/embedding_names.gp"
-int64_t Base::Take(gp::ptr<Base> b, gpkg_main::Item i, gp::ptr<gpkg_main::Pair> p) {
+int64_t Base::Take(gp::bptr<Base> b, gpkg_main::Item i, gp::bptr<gpkg_main::Pair> p) {
 #line 14 "$DIR/embedding_names.gp"
     return i.id + p->a;
 #line 14 "$DIR/embedding_names.gp"
@@ -131,7 +131,7 @@ gpkg_main::Item Outer::Total() const {
 
 void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<gpkg_main::Pair>(gpkg_main::Pair{1, 2})});
-    { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.Pair(); auto gp_t2 = Base::Take(gp::field_ptr(o, &Outer::Base), gpkg_main::Item{1}, (*o).Mine2); auto gp_t3 = (*o).Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, (*o).Arr), (*o).M == nullptr, (*o).F == nullptr); }
+    { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.Pair(); auto gp_t2 = Base::Take(gp::borrow(&(*o).Base), gpkg_main::Item{1}, gp::lend((*o).Mine2)); auto gp_t3 = (*o).Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, (*o).Arr), (*o).M == nullptr, (*o).F == nullptr); }
 }
 
 } // namespace gpkg_main

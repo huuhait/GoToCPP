@@ -63,7 +63,7 @@ The C++ that gocpp emit -annotate writes for it:
             return gp::hash_fields(n);
         }
         static constexpr auto gp_fields = gp::fields(gp::field(&Counter::n, "n", false, false));
-        static void Inc(gp::ptr<Counter> c);
+        static void Inc(gp::bptr<Counter> c);
     };
     static_assert(sizeof(Counter) == 8 && alignof(Counter) == 8);
 
@@ -78,9 +78,12 @@ The C++ that gocpp emit -annotate writes for it:
     namespace gpkg_main {
 
     // ---- ./boxing.gp:7: func (c *Counter) Inc() { c.n++ }
+    // gp[refcount] col 7: c is borrowed: the body only reads and writes through it, compares it or
+    //     lends it on, so the C++ parameter is a raw gp::bptr<T> and a call increments no reference
+    //     count
     // gp[checks] col 29: p.f through a pointer: -> on a gp::ptr checks for nil and panics like Go
     //     (gocpp build -nochecks removes it)
-    void Counter::Inc(gp::ptr<Counter> c) {
+    void Counter::Inc(gp::bptr<Counter> c) {
         c->n++;
     }
 
@@ -109,9 +112,11 @@ The C++ that gocpp emit -annotate writes for it:
         gp::ptr<Counter> local = gp::new_<Counter>();
 
     // ---- ./boxing.gp:16: local.Inc()
+    // gp[refcount] col 2: lent to Inc without a reference count: the box of a variable, which this
+    //     function holds (gp::lend)
     // gp[methods] col 2: pointer method Inc: a static call T::Inc(p, ...), the receiver pointer is the
     //     first argument; no dynamic dispatch
-        Counter::Inc(local);
+        Counter::Inc(gp::lend(local));
 
     // ---- ./boxing.gp:17: x := 41 // nothing sees x after the function: it stays on the stack
         int64_t x = 41;
@@ -123,9 +128,11 @@ The C++ that gocpp emit -annotate writes for it:
         gp::ptr<Counter> p = newCounter();
 
     // ---- ./boxing.gp:20: p.Inc()
+    // gp[refcount] col 2: lent to Inc without a reference count: a temporary, or a variable that no
+    //     call can change, keeps the object alive (gp::lend)
     // gp[methods] col 2: pointer method Inc: a static call T::Inc(p, ...), the receiver pointer is the
     //     first argument; no dynamic dispatch
-        Counter::Inc(p);
+        Counter::Inc(gp::lend(p));
 
     // ---- ./boxing.gp:21: fmt.Println(local.n, x, p.n)
     // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the

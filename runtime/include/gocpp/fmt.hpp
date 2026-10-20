@@ -760,6 +760,8 @@ os_std make_os_std(const PVar& var, const PFile& file0, const PFlag& closed) {
 }
 } // namespace detail
 
+// Registration starts no worker and does not invoke write. The retained callback runs inline
+// on a later printing thread, which can differ from or overlap the registering thread.
 template <typename PVar, typename PFile, typename PFlag, typename W>
 void set_os_stdout(const PVar& var, const PFile& file0, const PFlag& closed, W write) {
     using P = detail::pelem_t<PVar>;

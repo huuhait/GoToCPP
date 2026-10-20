@@ -4,7 +4,7 @@
 #
 #   (lldb) command script import runtime/debug/gocpp_lldb.py       (gocpp debug -debugger lldb does it)
 #
-# Summaries: gp::string, gp::slice, gp::array, gp::map, gp::ptr, gp::chan, gp::func, gp::any
+# Summaries: gp::string, gp::slice, gp::array, gp::map, gp::ptr (and cptr, bptr), gp::chan, gp::func, gp::any
 # and gp::error (and the interface structs), the structs of the program ({X:1 Y:2}). The text is
 # the one that gocpp-gdb.py prints, except where LLDB's own value display is better kept
 # (scalars). `gp print EXPR` prints an expression as Go text. Everything is read from the
@@ -100,6 +100,7 @@ def kind_of(v):
         ("gp::map<", "map"),
         ("gp::ptr<", "ptr"),
         ("gp::cptr<", "ptr"),
+        ("gp::bptr<", "ptr"),
         ("gp::chan<", "chan"),
         ("gp::func<", "func"),
         ("gp::complex<", "complex"),
@@ -245,6 +246,18 @@ def fmt_map(v, depth):
 
 
 def fmt_ptr(v, depth):
+    raw = member(v, "gp_p_")
+    if raw.IsValid():
+        # A gp::bptr: a borrowed pointer, a raw pointer in a pointer receiver or parameter (ADR-086).
+        addr = uint(raw)
+        if addr == 0:
+            return "nil"
+        if depth > 0:
+            return "0x%x" % addr
+        target = raw.Dereference()
+        if not target.IsValid():
+            return "0x%x" % addr
+        return "&%s @0x%x" % (fmt(target, depth + 1), addr)
     sp = member(v, "gp_sp_")
     addr = shared_addr(sp)
     if addr == 0:
@@ -410,7 +423,7 @@ def __lldb_init_module(debugger, internal_dict):
         r"^gp::slice<.*>$",
         r"^gp::array<.*>$",
         r"^gp::map<.*>$",
-        r"^gp::c?ptr<.*>$",
+        r"^gp::[bc]?ptr<.*>$",
         r"^gp::chan<.*>$",
         r"^gp::func<.*>$",
         r"^gp::iface$",

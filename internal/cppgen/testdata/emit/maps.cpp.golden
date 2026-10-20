@@ -3,12 +3,12 @@
 
 namespace gpkg_main {
 
-void sortStrs(gp::slice<gp::string> s);
-void sortInts(gp::slice<int64_t> s);
-void show(gp::map<gp::string, int64_t> m);
-void showInts(gp::map<int64_t, int64_t> m);
-gp::map<gp::string, int64_t> count(gp::slice<gp::string> words);
-void fill(gp::map<gp::string, int64_t> m, int64_t n);
+void sortStrs(const gp::slice<gp::string>& s);
+void sortInts(const gp::slice<int64_t>& s);
+void show(const gp::map<gp::string, int64_t>& m);
+void showInts(const gp::map<int64_t, int64_t>& m);
+gp::map<gp::string, int64_t> count(const gp::slice<gp::string>& words);
+void fill(const gp::map<gp::string, int64_t>& m, int64_t n);
 void main();
 
 #line 16 "$DIR/maps.gp"
@@ -16,7 +16,7 @@ constinit gp::map<gp::string, int64_t> gnil{};
 constinit gp::map<gp::string, int64_t> gm{};
 constinit gp::map<int64_t, int64_t> gcount{};
 
-void sortStrs(gp::slice<gp::string> s) {
+void sortStrs(const gp::slice<gp::string>& s) {
     for (int64_t i = 1; i < gp::len(s); i++) {
         for (int64_t j = i;; j--) {
 #line 22 "$DIR/maps.gp"
@@ -26,7 +26,7 @@ void sortStrs(gp::slice<gp::string> s) {
     }
 }
 
-void sortInts(gp::slice<int64_t> s) {
+void sortInts(const gp::slice<int64_t>& s) {
     for (int64_t i = 1; i < gp::len(s); i++) {
         for (int64_t j = i;; j--) {
 #line 30 "$DIR/maps.gp"
@@ -36,7 +36,7 @@ void sortInts(gp::slice<int64_t> s) {
     }
 }
 
-void show(gp::map<gp::string, int64_t> m) {
+void show(const gp::map<gp::string, int64_t>& m) {
     gp::slice<gp::string> keys{};
     for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) {
 #line 38 "$DIR/maps.gp"
@@ -56,7 +56,7 @@ void show(gp::map<gp::string, int64_t> m) {
     gp::fmt::Println("]"_gs, gp::len(m), m == nullptr);
 }
 
-void showInts(gp::map<int64_t, int64_t> m) {
+void showInts(const gp::map<int64_t, int64_t>& m) {
     gp::slice<int64_t> keys = gp::make_slice<int64_t>(0, gp::len(m));
     for (auto gp_it0 = gp::range_map(m); gp::range_next(gp_it0);) {
 #line 54 "$DIR/maps.gp"
@@ -77,7 +77,7 @@ void showInts(gp::map<int64_t, int64_t> m) {
 }
 
 #line 69 "$DIR/maps.gp"
-gp::map<gp::string, int64_t> count(gp::slice<gp::string> words) {
+gp::map<gp::string, int64_t> count(const gp::slice<gp::string>& words) {
     gp::map<gp::string, int64_t> m = gp::map_of<gp::string, int64_t>({});
     for (auto gp_it0 = gp::range_slice(words); gp::range_next(gp_it0);) {
 #line 71 "$DIR/maps.gp"
@@ -88,7 +88,7 @@ gp::map<gp::string, int64_t> count(gp::slice<gp::string> words) {
 }
 
 #line 78 "$DIR/maps.gp"
-void fill(gp::map<gp::string, int64_t> m, int64_t n) {
+void fill(const gp::map<gp::string, int64_t>& m, int64_t n) {
     for (int64_t gp_i0 = 0, gp_n0 = n; gp_i0 < gp_n0; gp_i0++) {
 #line 79 "$DIR/maps.gp"
         int64_t i = gp_i0;
@@ -98,7 +98,7 @@ void fill(gp::map<gp::string, int64_t> m, int64_t n) {
 
 void main() {
 #line 86 "$DIR/maps.gp"
-    gpkg_main::show(gnil);
+    gpkg_main::show(gp::map<gp::string, int64_t>(gnil));
     gp::fmt::Println(gp::get(gnil, "x"_gs), gp::len(gnil), gnil == nullptr, nullptr != gnil);
     gp::erase(gnil, "x"_gs);
     gp::clear(gnil);
@@ -111,7 +111,7 @@ void main() {
 #line 93 "$DIR/maps.gp"
     bool ok = std::get<1>(gp_t0);
     gp::fmt::Println(v, ok);
-    gpkg_main::show(gm);
+    gpkg_main::show(gp::map<gp::string, int64_t>(gm));
 #line 98 "$DIR/maps.gp"
     gp::map<gp::string, int64_t> m = gp::make_map<gp::string, int64_t>();
     gp::map<gp::string, int64_t> m2 = gp::make_map<gp::string, int64_t>(100);
@@ -260,9 +260,9 @@ void main() {
     gp::map<gp::string, gp::map<gp::string, int64_t>> mm = gp::map_of<gp::string, gp::map<gp::string, int64_t>>({{"a"_gs, gp::map_of<gp::string, int64_t>({{"b"_gs, 1}})}, {"c"_gs, gp::map_of<gp::string, int64_t>({})}});
     gp::set(gp::get(mm, "a"_gs), "z"_gs, 26);
     gp::ref(gp::get(mm, "c"_gs), "d"_gs) += 4;
-    gpkg_main::show(gp::get(mm, "a"_gs));
-    gpkg_main::show(gp::get(mm, "c"_gs));
-    gpkg_main::show(gp::get(mm, "none"_gs));
+    gpkg_main::show(gp::map<gp::string, int64_t>(gp::get(mm, "a"_gs)));
+    gpkg_main::show(gp::map<gp::string, int64_t>(gp::get(mm, "c"_gs)));
+    gpkg_main::show(gp::map<gp::string, int64_t>(gp::get(mm, "none"_gs)));
     gp::map<gp::string, gp::slice<int64_t>> ms = gp::map_of<gp::string, gp::slice<int64_t>>({{"q"_gs, nullptr}, {"p"_gs, gp::slice_of<int64_t>({1, 2, 3})}});
     gp::fmt::Println(gp::len(gp::get(ms, "p"_gs)), gp::get(ms, "q"_gs) == nullptr, gp::len(ms));
 #line 235 "$DIR/maps.gp"
@@ -343,13 +343,13 @@ void main() {
 #line 291 "$DIR/maps.gp"
     gp::set(gm, "three"_gs, 3);
     gp::ref(gm, "one"_gs) += 10;
-    gpkg_main::show(gm);
+    gpkg_main::show(gp::map<gp::string, int64_t>(gm));
     for (int64_t gp_i0 = 0; gp_i0 < 10; gp_i0++) {
 #line 294 "$DIR/maps.gp"
         int64_t i = gp_i0;
         gp::ref(gcount, i % 3)++;
     }
-    gpkg_main::showInts(gcount);
+    gpkg_main::showInts(gp::map<int64_t, int64_t>(gcount));
     gpkg_main::show(gpkg_main::count(gp::slice_of<gp::string>({"a"_gs, "b"_gs, "a"_gs, "c"_gs, "a"_gs})));
     gp::map<gp::string, int64_t> fm = gp::map_of<gp::string, int64_t>({});
     gpkg_main::fill(fm, 3);
@@ -358,14 +358,14 @@ void main() {
     gp::ptr<gp::map<gp::string, int64_t>> pb = boxed;
     gp::ref(*pb, "k"_gs) += 5;
     gp::set(*pb, "j"_gs, 2);
-    gpkg_main::show((*boxed));
+    gpkg_main::show(gp::map<gp::string, int64_t>((*boxed)));
     *pb = nullptr;
     gp::fmt::Println((*boxed) == nullptr, gp::len(*pb));
     gp::ptr<gp::map<int64_t, bool>> pm = gp::new_<gp::map<int64_t, bool>>();
     { auto gp_t11 = *pm == nullptr; gp::fmt::Println(gp_t11, gp::get(*pm, 1)); }
     gnil = gp::map_of<gp::string, int64_t>({});
     gp::set(gnil, "now"_gs, 1);
-    gpkg_main::show(gnil);
+    gpkg_main::show(gp::map<gp::string, int64_t>(gnil));
 }
 
 void gp_var_init() {

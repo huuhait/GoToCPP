@@ -1,0 +1,6 @@
+# gp::bptr in lldb (checked by TestLLDBPrinters).
+breakpoint set -f borrowed.gp -l @recv
+process launch
+#want (?m)stop reason = breakpoint 1\.1
+gp_locals
+#want (?m)^p = &\{X:3 Y:4\} @0xADDR$

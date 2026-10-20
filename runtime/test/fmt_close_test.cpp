@@ -57,16 +57,30 @@ void test_snapshot_last() {
     // The registration lives until process exit, so its mock writer must not retain stack refs.
     static std::atomic<int> closes{0};
     static std::atomic<bool> closed_before_write{false};
+    static std::thread::id close_thread;
+    static std::thread::id write_thread;
     d::register_os_stdout(stream, [](std::shared_ptr<void>, std::string_view) {
+        write_thread = std::this_thread::get_id();
         closed_before_write.store(closes.load() == 1);
         return std::tuple<int64_t, gp::error>{0, gp::error()};
     });
+    const auto registering_thread = std::this_thread::get_id();
     std::thread printer([] { d::print_slow(""); });
+    const auto printing_thread = printer.get_id();
     await(snapshot_stage, 1); // the slow path is counted, but has not examined the snapshot
-    CHECK(gp::fmt::defer_close(true, [&] { closes.fetch_add(1); }));
+    CHECK(gp::fmt::defer_close(true, [&] {
+        close_thread = std::this_thread::get_id();
+        closes.fetch_add(1);
+    }));
     CHECK(closes.load() == 0);
     snapshot_stage.store(2);
     printer.join();
+
+    // Both retained callbacks run on the existing printer, not on their registering caller.
+    CHECK(close_thread == printing_thread);
+    CHECK(write_thread == printing_thread);
+    CHECK(printing_thread != registering_thread);
+
     CHECK((d::stdout_gate.word.load() >> 1) == 0);
     CHECK(closes.load() == 1);
     CHECK(!d::pending_stdout.flag.load());

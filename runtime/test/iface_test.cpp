@@ -850,6 +850,22 @@ double thunk_selfdrop_Area(const gp::iface& self) {
     return r.W + r.H;   // read after: a use after free when the box is gone (ASan finds it)
 }
 
+// unbox_borrow (ADR-086): the pointer in an interface value as a borrowed pointer, no count.
+void test_unbox_borrow() {
+    using namespace gp;
+    ptr<Rect> p = new_<Rect>(Rect{2, 3});
+    any x = to_iface<any>(p, td_pRect());
+    long uses = p.gp_shared().use_count();
+    bptr<Rect> b = unbox_borrow<Rect>(x);
+    CHECK(b == p && b.gp_get() == p.gp_get());
+    CHECK(p.gp_shared().use_count() == uses);
+    b->W = 11;
+    CHECK(p->W == 11);
+    // A nil *Rect inside an interface value is a nil borrowed pointer, not a nil interface.
+    any n = to_iface<any>(ptr<Rect>(), td_pRect());
+    CHECK(n != nullptr && unbox_borrow<Rect>(n) == nullptr);
+}
+
 void test_keep() {
     using namespace gp;
     static const method sm[] = {
@@ -1152,6 +1168,7 @@ void run_tests() {
     test_site_cache();
     test_icall();
     test_keep();
+    test_unbox_borrow();
     test_foreign_values();
     test_hooks_through_iface();
     test_threads();

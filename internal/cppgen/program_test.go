@@ -475,3 +475,183 @@ func (u unionFS) Open(name string) (fs.File, error) {
 	}
 	return nil, err
 }
+
+// TestProgramBorrowHotPaths checks the final C++, not just the thread facts: implicit embedded
+// fields must also prevent raw lends in direct calls, method-expression adapters and forwarders.
+func TestProgramBorrowHotPaths(t *testing.T) {
+	for _, lib := range []bool{false, true} {
+		name, mutate, want := "threaded", "func replace(i *Inner) { h.Inner = i }", 3
+		if lib {
+			name, mutate, want = "library", "", 4 // foreign callers can replace either embedded field
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for path, src := range map[string]string{
+				"gocpp.mod": "module example.com/hotpaths\n\ngo 1.25\n",
+				"main.gp": `package main
+
+type T struct{ n int }
+func (t *T) read() int { return t.n }
+type Inner struct{ *T }
+type Holder struct{ *Inner }
+var h *Holder
+func direct(local *Holder) int { return local.read() }
+func expression(local *Holder) int { return (*Holder).read(local) }
+func main() { go func() {}() }
+` + mutate,
+			} {
+				if err := os.WriteFile(filepath.Join(dir, path), []byte(src), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fset, pkgs := loadProgram(t, dir, nil, nil)
+			files, err := EmitProgram(fset, pkgs, "", Config{Library: lib, AllForwarders: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.ReplaceAll(snapshot(files, dir), "gpkg_main::", "") // T is shadowed by Inner.T
+			if n := strings.Count(got, "T::read(gp::ptr<T>("); n != want {
+				t.Errorf("%d owning receiver copies, want %d (direct, method expression, forwarders):\n%s", n, want, got)
+			}
+		})
+	}
+}
+
+// TestProgramBorrowHotGuard checks copy/lend decisions without the runtime fixtures' mutexes.
+// Each storage/mutation form has a hot case and controls removing either prerequisite, so a
+// synchronization call or unrelated thread source cannot mask a lost defensive-copy guard.
+func TestProgramBorrowHotGuard(t *testing.T) {
+	cfg := "var cfg = &Config{k: 1}\n"
+	cases := []struct {
+		name        string
+		declaration string
+		store       string
+		argument    string
+		call        string
+		prefix      string
+		placement   string
+	}{
+		{"package pointer", cfg, "cfg = &Config{k: 2}", "cfg", "sum(cfg)", "sum", "function"},
+		{"value field", "var hold = struct{ c *Config }{c: &Config{k: 1}}\n",
+			"hold.c = &Config{k: 2}", "hold.c", "sum(hold.c)", "sum", "function"},
+		// Constructing &Server{} would itself expose the fields and mask the cold control.
+		{"heap field", "type Server struct{ cfg *Config }\nvar srv *Server\n",
+			"srv.cfg = &Config{k: 2}", "srv->cfg", "sum(srv.cfg)", "sum", "function"},
+		{"array element", "var cfgs = [2]*Config{nil, &Config{k: 1}}\n",
+			"cfgs[1] = &Config{k: 2}", "cfgs[1]", "sum(cfgs[1])", "sum", "function"},
+		{"pointer receiver", cfg, "cfg = &Config{k: 2}",
+			"cfg", "cfg.total()", "Config::total", "function"},
+		{"closure in main", cfg, "cfg = &Config{k: 2}", "cfg", "sum(cfg)", "sum", "closure-main"},
+		{"closure in init", cfg, "cfg = &Config{k: 2}", "cfg", "sum(cfg)", "sum", "closure-init"},
+		{"init store", cfg, "cfg = &Config{k: 2}", "cfg", "sum(cfg)", "sum", "init"},
+		{"indirect init store", cfg, "cfg = &Config{k: 2}",
+			"cfg", "sum(cfg)", "sum", "init-indirect"},
+		{"init loop store", cfg, "cfg = &Config{k: 2}", "cfg", "sum(cfg)", "sum", "init-loop"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, mode := range []struct {
+				name     string
+				threaded bool
+				mutates  bool
+			}{
+				{"hot replacement", true, true},
+				{"no thread source", false, true},
+				{"no replacement", true, false},
+			} {
+				t.Run(mode.name, func(t *testing.T) {
+					store := ""
+					if mode.mutates {
+						store = tc.store + "\n"
+					}
+					start := ""
+					if mode.threaded {
+						start = "go worker()\n"
+					}
+					main := ""
+					extra := ""
+					switch tc.placement {
+					case "function":
+						extra = "func replace() {\n" + store + "}\n"
+						main = start + main
+					case "closure-main":
+						main = "swap := func() {\n" + store + "}\n_ = swap\n" + start + main
+					case "closure-init":
+						extra = "var reload func()\nfunc init() { reload = func() {\n" +
+							store + "} }\n"
+						main = start + main
+					case "init":
+						extra = "func init() {\n" + start + store + "}\n"
+					case "init-indirect":
+						extra = "func start() {\n" + start + "}\nfunc init() {\nstart()\n" +
+							store + "}\n"
+					case "init-loop":
+						extra = "func init() {\n" + start + "for i := 0; i < 2; i++ {\n" +
+							store + "} }\n"
+					}
+					source := `package main
+					type Config struct{ k int }
+					func sum(c *Config) int { return c.k }
+					func (c *Config) total() int { return c.k }
+					func worker() {}
+					` + tc.declaration + extra + "func sample() { _ = " + tc.call + " }\n" +
+						"func main() {\n" + main + "}\n"
+					directory := t.TempDir()
+					path := filepath.Join(directory, "main.gp")
+					if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					files := emitProgram(t, directory, "")
+					cpp := snapshot(files, directory)
+					cpp = strings.ReplaceAll(cpp, "::gpkg_main::", "")
+					cpp = strings.ReplaceAll(cpp, "gpkg_main::", "")
+					argument := "gp::lend(" + tc.argument + ")"
+					if mode.threaded && mode.mutates {
+						argument = "gp::ptr<Config>(" + tc.argument + ")"
+					}
+					want := tc.prefix + "(" + argument + ")"
+					if !strings.Contains(cpp, want) {
+						t.Fatalf("missing %q:\n%s", want, cpp)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestProgramLibraryBorrow: the exported functions and methods of a library keep owning pointers
+// in their C++ signatures (ADR-086: C++ callers decide how long a pointer lives), the unexported
+// ones borrow, and a program (not a library) borrows everywhere.
+func TestProgramLibraryBorrow(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("testdata", "program", "libborrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := func(lib bool) string {
+		root := filepath.Join(t.TempDir(), "gen")
+		fset, pkgs := loadProgram(t, dir, nil, nil)
+		files, err := EmitProgram(fset, pkgs, root, Config{Library: lib})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files.Files {
+			if strings.HasSuffix(f.Path, "libborrow/lib/pkg.hpp") {
+				return string(f.Data)
+			}
+		}
+		t.Fatal("no lib/pkg.hpp in the emitted files")
+		return ""
+	}
+	lib := header(true)
+	for _, want := range []string{"int64_t Use(gp::ptr<T> t)", "int64_t Get(gp::ptr<T> t)", "int64_t Drop(gp::ptr<T> t)", "int64_t get2(gp::bptr<T> t)", "int64_t unexported(gp::bptr<T> t)"} {
+		if !strings.Contains(lib, want) {
+			t.Errorf("the library header lacks %q:\n%s", want, lib)
+		}
+	}
+	prog := header(false)
+	for _, want := range []string{"int64_t Use(gp::bptr<T> t)", "int64_t Get(gp::bptr<T> t)"} {
+		if !strings.Contains(prog, want) {
+			t.Errorf("the program header lacks %q (the library test would prove nothing):\n%s", want, prog)
+		}
+	}
+}

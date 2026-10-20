@@ -6,7 +6,7 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-void worker(int64_t id, gp::chan<int64_t> done);
+void worker(int64_t id, const gp::chan<int64_t>& done);
 void main();
 
 } // namespace gpkg_main
@@ -17,9 +17,12 @@ void main();
 namespace gpkg_main {
 
 // ---- ./goroutines.gp:5: func worker(id int, done chan<- int) { done <- id * id }
+// gp[refcount] col 21: done is a const reference: the body never assigns it (a local that no call
+//     can change, or a temporary, is passed as it is: no copy, no count; anything else is copied
+//     first)
 // gp[channels] col 40: send: blocks until a receiver is ready or the buffer has room; sending on a
 //     closed channel panics, on a nil channel blocks forever
-void worker(int64_t id, gp::chan<int64_t> done) {
+void worker(int64_t id, const gp::chan<int64_t>& done) {
     gp::send(done, id * id);
 }
 

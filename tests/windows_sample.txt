@@ -164,3 +164,16 @@ os_win_userdirs
 os_win_syscall_dll
 os_win_env_wtf8
 os_win_offset
+borrow_alias
+borrow_embed
+borrow_funcvalues
+borrow_goiface
+borrow_nil
+borrow_refs
+borrow_variadic
+borrow_methodexpr
+borrow_calls
+borrow_ifacebump
+borrow_native_sync
+borrow_conv_arg
+borrow_embedded

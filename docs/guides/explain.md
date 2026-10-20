@@ -78,9 +78,11 @@ void main() {
     gp::ptr<Counter> local = gp::new_<Counter>();
 
 // ---- ./boxing.gp:16: local.Inc()
+// gp[refcount] col 2: lent to Inc without a reference count: the box of a variable, which this
+//     function holds (gp::lend)
 // gp[methods] col 2: pointer method Inc: a static call T::Inc(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Counter::Inc(local);
+    Counter::Inc(gp::lend(local));
 
 // ---- ./boxing.gp:17: x := 41 // nothing sees x after the function: it stays on the stack
     int64_t x = 41;

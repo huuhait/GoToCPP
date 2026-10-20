@@ -19,9 +19,9 @@ struct T {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&T::v, "v", false, false));
     int64_t M() const;
-    static int64_t PM(gp::ptr<T> t);
+    static int64_t PM(gp::bptr<T> t);
     int64_t Add(int64_t a, int64_t b) const;
-    int64_t Sum(gp::slice<int64_t> xs) const;
+    int64_t Sum(const gp::slice<int64_t>& xs) const;
 };
 static_assert(sizeof(T) == 8 && alignof(T) == 8);
 
@@ -62,7 +62,7 @@ struct Inner {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Inner::v, "v", false, false));
     int64_t Get() const;
-    static int64_t Inc(gp::ptr<Inner> i);
+    static int64_t Inc(gp::bptr<Inner> i);
 };
 static_assert(sizeof(Inner) == 8 && alignof(Inner) == 8);
 
@@ -78,8 +78,8 @@ struct Outer {
 static_assert(sizeof(Outer) == 24 && alignof(Outer) == 8);
 
 int64_t f();
-void h(gp::func<int64_t()> a, int64_t b, gp::func<int64_t()> c);
-int64_t apply(gp::func<int64_t(T, int64_t, int64_t)> f, T t);
+void h(const gp::func<int64_t()>& a, int64_t b, const gp::func<int64_t()>& c);
+int64_t apply(const gp::func<int64_t(T, int64_t, int64_t)>& f, T t);
 std::tuple<T, int64_t, int64_t> three();
 void main();
 
@@ -97,7 +97,7 @@ int64_t T::M() const {
 }
 
 #line 15 "$DIR/methodvalues.gp"
-int64_t T::PM(gp::ptr<T> t) {
+int64_t T::PM(gp::bptr<T> t) {
 #line 15 "$DIR/methodvalues.gp"
     t->v++;
 #line 15 "$DIR/methodvalues.gp"
@@ -115,7 +115,7 @@ int64_t T::Add(int64_t a, int64_t b) const {
 }
 
 #line 17 "$DIR/methodvalues.gp"
-int64_t T::Sum(gp::slice<int64_t> xs) const {
+int64_t T::Sum(const gp::slice<int64_t>& xs) const {
 #line 17 "$DIR/methodvalues.gp"
     const T& t = *this;
     int64_t s = t.v;
@@ -138,7 +138,7 @@ int64_t f() {
 #line 28 "$DIR/methodvalues.gp"
 }
 
-void h(gp::func<int64_t()> a, int64_t b, gp::func<int64_t()> c) {
+void h(const gp::func<int64_t()>& a, int64_t b, const gp::func<int64_t()>& c) {
 #line 30 "$DIR/methodvalues.gp"
     { auto gp_t0 = a(); gp::fmt::Println(gp_t0, b, c()); }
 #line 30 "$DIR/methodvalues.gp"
@@ -163,7 +163,7 @@ int64_t Big::N() const {
 }
 
 #line 49 "$DIR/methodvalues.gp"
-int64_t apply(gp::func<int64_t(T, int64_t, int64_t)> f, T t) {
+int64_t apply(const gp::func<int64_t(T, int64_t, int64_t)>& f, T t) {
 #line 49 "$DIR/methodvalues.gp"
     return f(t, 1, 2);
 #line 49 "$DIR/methodvalues.gp"
@@ -185,7 +185,7 @@ int64_t Inner::Get() const {
 }
 
 #line 56 "$DIR/methodvalues.gp"
-int64_t Inner::Inc(gp::ptr<Inner> i) {
+int64_t Inner::Inc(gp::bptr<Inner> i) {
 #line 56 "$DIR/methodvalues.gp"
     i->v++;
 #line 56 "$DIR/methodvalues.gp"
@@ -197,23 +197,23 @@ int64_t Inner::Inc(gp::ptr<Inner> i) {
 void main() {
 #line 63 "$DIR/methodvalues.gp"
     gp::defer_frame gp_df; try {
-        { auto gp_t0 = f(); gpkg_main::h(gp::func<int64_t()>([gp_r = *g](auto&&... gp_a) { return gp_r.M(gp_a...); }), gp_t0, gp::func<int64_t()>([gp_r = gv](auto&&... gp_a) { return gp_r.M(gp_a...); })); }
+        { auto gp_t0 = f(); gpkg_main::h(gp::func<int64_t()>(gp::func<int64_t()>([gp_r = *g](auto&&... gp_a) { return gp_r.M(gp_a...); })), gp_t0, gp::func<int64_t()>(gp::func<int64_t()>([gp_r = gv](auto&&... gp_a) { return gp_r.M(gp_a...); }))); }
         g = gp::new_<T>(T{1});
         gv = T{10};
-        { auto gp_t1 = f(); gpkg_main::h(gp::func<int64_t()>([gp_r = g](auto&&... gp_a) { return T::PM(gp_r, gp_a...); }), gp_t1, gp::func<int64_t()>([gp_r = gp::static_ptr(gv)](auto&&... gp_a) { return T::PM(gp_r, gp_a...); })); }
+        { auto gp_t1 = f(); gpkg_main::h(gp::func<int64_t()>(gp::func<int64_t()>([gp_r = g]() { return T::PM(gp::lend(gp_r)); })), gp_t1, gp::func<int64_t()>(gp::func<int64_t()>([gp_r = gp::static_ptr(gv)]() { return T::PM(gp::lend(gp_r)); }))); }
         gp::fmt::Println(gv.v, g->v);
 #line 70 "$DIR/methodvalues.gp"
         gp::ptr<T> x = gp::new_<T>(T{5});
         gp::func<int64_t()> m = gp::func<int64_t()>([gp_r = (*x)](auto&&... gp_a) { return gp_r.M(gp_a...); });
-        gp::func<int64_t()> pm = gp::func<int64_t()>([gp_r = x](auto&&... gp_a) { return T::PM(gp_r, gp_a...); });
+        gp::func<int64_t()> pm = gp::func<int64_t()>([gp_r = x]() { return T::PM(gp::lend(gp_r)); });
         (*x).v = 7;
         { auto gp_t2 = m(); auto gp_t3 = pm(); gp::fmt::Println(gp_t2, gp_t3, (*x).v, m != nullptr, gp::func<int64_t()>([gp_r = (*x)](auto&&... gp_a) { return gp_r.M(gp_a...); }) == nullptr); }
         gp::func<int64_t(int64_t, int64_t)> add = gp::func<int64_t(int64_t, int64_t)>([gp_r = (*x)](auto&&... gp_a) { return gp_r.Add(gp_a...); });
-        { auto gp_t4 = add(1, 2); auto gp_t5 = [](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); }((*x), 3, 4); auto gp_t6 = [](auto&& gp_r, auto&&... gp_a) { return T::PM(gp_r, gp_a...); }(x); auto gp_t7 = gpkg_main::apply(gp::func<int64_t(T, int64_t, int64_t)>([](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); }), T{100}); gp::fmt::Println(gp_t4, gp_t5, gp_t6, gp_t7, std::apply([](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); }, three())); }
+        { auto gp_t4 = add(1, 2); auto gp_t5 = [](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); }((*x), 3, 4); auto gp_t6 = [](gp::ptr<T> gp_r) { return T::PM(gp::lend(gp_r)); }(x); auto gp_t7 = gpkg_main::apply(gp::func<int64_t(T, int64_t, int64_t)>(gp::func<int64_t(T, int64_t, int64_t)>([](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); })), T{100}); gp::fmt::Println(gp_t4, gp_t5, gp_t6, gp_t7, std::apply([](auto&& gp_r, auto&&... gp_a) { return gp_r.Add(gp_a...); }, three())); }
         gp::func<int64_t(gp::ptr<T>)> e = gp::func<int64_t(gp::ptr<T>)>([](auto&& gp_r, auto&&... gp_a) { gp::check_wrap(gp_r, "value method main.T.M called using nil *T pointer"); return gp_r->M(gp_a...); });
         gp::fmt::Println(e(x));
         gp::func<int64_t(gp::slice<int64_t>)> sum = gp::func<int64_t(gp::slice<int64_t>)>([gp_r = (*x)](auto&&... gp_a) { return gp_r.Sum(gp_a...); });
-        { auto gp_t8 = sum(gp::slice<int64_t>()); auto gp_t9 = sum(gp::slice_of<int64_t>({1, 2, 3})); auto gp_t10 = [](auto&& gp_r, auto&&... gp_a) { return gp_r.Sum(gp_a...); }((*x), gp::slice_of<int64_t>({4})); gp::fmt::Println(gp_t8, gp_t9, gp_t10, [](auto&& gp_r, auto&&... gp_a) { gp::check_wrap(gp_r, "value method main.T.Sum called using nil *T pointer"); return gp_r->Sum(gp_a...); }(x, gp::slice_of<int64_t>({5, 6}))); }
+        { auto gp_t8 = sum(gp::slice<int64_t>()); auto gp_t9 = sum(gp::slice_of<int64_t>({1, 2, 3})); auto gp_t10 = [](auto&& gp_r, gp::slice<int64_t> gp_a0) { return gp_r.Sum(gp_a0); }((*x), gp::slice_of<int64_t>({4})); gp::fmt::Println(gp_t8, gp_t9, gp_t10, [](auto&& gp_r, gp::slice<int64_t> gp_a0) { gp::check_wrap(gp_r, "value method main.T.Sum called using nil *T pointer"); return gp_r->Sum(gp_a0); }(x, gp::slice_of<int64_t>({5, 6}))); }
 #line 82 "$DIR/methodvalues.gp"
         F ff = F(gp::func<int64_t(int64_t)>([]<int = 1>(int64_t i) mutable -> int64_t { return i * 3; }));
         gp::func<int64_t(int64_t)> tw = gp::func<int64_t(int64_t)>([gp_r = ff](auto&&... gp_a) { return gp_r.Twice(gp_a...); });
@@ -230,7 +230,7 @@ void main() {
         Holder hold{.fn = gp::func<int64_t()>([gp_r = gv](auto&&... gp_a) { return gp_r.M(gp_a...); })};
         gv.v = 99;
         gp::fmt::Println(hold.fn());
-        gp::slice<gp::func<int64_t()>> fs = gp::slice_of<gp::func<int64_t()>>({gp::func<int64_t()>([gp_r = (*x)](auto&&... gp_a) { return gp_r.M(gp_a...); }), gp::func<int64_t()>([gp_r = *g](auto&&... gp_a) { return gp_r.M(gp_a...); }), gp::func<int64_t()>([gp_r = gp::static_ptr(gv)](auto&&... gp_a) { return T::PM(gp_r, gp_a...); })});
+        gp::slice<gp::func<int64_t()>> fs = gp::slice_of<gp::func<int64_t()>>({gp::func<int64_t()>([gp_r = (*x)](auto&&... gp_a) { return gp_r.M(gp_a...); }), gp::func<int64_t()>([gp_r = *g](auto&&... gp_a) { return gp_r.M(gp_a...); }), gp::func<int64_t()>([gp_r = gp::static_ptr(gv)]() { return T::PM(gp::lend(gp_r)); })});
         for (auto gp_it0 = gp::range_slice(fs); gp::range_next(gp_it0);) {
 #line 98 "$DIR/methodvalues.gp"
             gp::func<int64_t()> f = gp_it0.gp_v();
@@ -240,11 +240,11 @@ void main() {
         gp::ptr<Outer> o = gp::new_<Outer>(Outer{Inner{1}, gp::new_<Inner>(Inner{10})});
         gp::func<int64_t()> get = gp::func<int64_t()>([gp_r = (*o).Inner](auto&&... gp_a) { return gp_r.Get(gp_a...); });
 #line 103 "$DIR/methodvalues.gp"
-        gp::func<int64_t()> inc = gp::func<int64_t()>([gp_r = gp::field_ptr(o, &Outer::Inner)](auto&&... gp_a) { return Inner::Inc(gp_r, gp_a...); });
+        gp::func<int64_t()> inc = gp::func<int64_t()>([gp_r = gp::field_ptr(o, &Outer::Inner)]() { return Inner::Inc(gp::lend(gp_r)); });
 #line 103 "$DIR/methodvalues.gp"
-        gp::func<int64_t()> pinc = gp::func<int64_t()>([gp_r = (*o).p](auto&&... gp_a) { return Inner::Inc(gp_r, gp_a...); });
+        gp::func<int64_t()> pinc = gp::func<int64_t()>([gp_r = (*o).p]() { return Inner::Inc(gp::lend(gp_r)); });
         (*o).Inner.v = 50;
-        { auto gp_t13 = get(); auto gp_t14 = inc(); auto gp_t15 = pinc(); auto gp_t16 = [](auto&& gp_r, auto&&... gp_a) { return gp_r.Inner.Get(gp_a...); }((*o)); auto gp_t17 = [](auto&& gp_r, auto&&... gp_a) { return Inner::Inc(gp::field_ptr(gp_r, &Outer::Inner), gp_a...); }(o); gp::fmt::Println(gp_t13, gp_t14, gp_t15, gp_t16, gp_t17, (*o).Inner.v); }
+        { auto gp_t13 = get(); auto gp_t14 = inc(); auto gp_t15 = pinc(); auto gp_t16 = [](auto&& gp_r, auto&&... gp_a) { return gp_r.Inner.Get(gp_a...); }((*o)); auto gp_t17 = [](gp::ptr<Outer> gp_r) { return Inner::Inc(gp::borrow(&gp_r->Inner)); }(o); gp::fmt::Println(gp_t13, gp_t14, gp_t15, gp_t16, gp_t17, (*o).Inner.v); }
 #line 107 "$DIR/methodvalues.gp"
         gp_df.gp_push_call([](auto&&...) { gp::fmt::Println("deferred last"_gs); });
         gp::func<int64_t()> d = gp::func<int64_t()>([gp_r = (*x)](auto&&... gp_a) { return gp_r.M(gp_a...); });

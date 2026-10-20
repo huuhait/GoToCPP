@@ -91,6 +91,7 @@ class Types(unittest.TestCase):
             ("gp::map<gp::string, long>", "map[string]int"),
             ("gp::map<gp::string, gp::slice<long> >", "map[string][]int"),
             ("gp::ptr<gpkg_main::Point>", "*main.Point"),
+            ("gp::bptr<gpkg_main::Point>", "*main.Point"),
             ("gp::chan<long>", "chan int"),
             ("gp::array<long, 3>", "[3]int"),
             ("gp::array<long, 2l>", "[2]int"),

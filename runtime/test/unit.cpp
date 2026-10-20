@@ -1171,6 +1171,89 @@ void test_ptr_ownership() {
     CHECK(set.count(h1b) == 1);
 }
 
+void test_ptr_borrowed() {
+    // gp::bptr<T> (ADR-086): a raw pointer with gp::ptr's checks and no count.
+    static_assert(sizeof(gp::bptr<Tracked>) == sizeof(Tracked*));
+    static_assert(std::is_trivially_copyable_v<gp::bptr<Tracked>>);
+    static_assert(std::is_same_v<gp::detail::owning_t<gp::bptr<int64_t>>, gp::ptr<int64_t>>);
+    static_assert(std::is_same_v<gp::detail::owning_t<gp::ptr<int64_t>>, gp::ptr<int64_t>>);
+    static_assert(std::is_same_v<gp::detail::owning_t<int64_t>, int64_t>);
+    static_assert(std::is_same_v<gp::detail::owning_t<const gp::string&>, gp::string>);
+    static_assert(std::is_same_v<gp::detail::owning_t<const gp::ptr<int64_t>&>, gp::ptr<int64_t>>);
+    static_assert(std::is_same_v<gp::detail::owning_t<const gp::bptr<int64_t>&>, gp::ptr<int64_t>>);
+
+    gp::ptr<Point> p = gp::new_<Point>(Point{3, 4});
+    long uses = p.gp_shared().use_count();
+    {
+        gp::bptr<Point> b = gp::lend(p); // no count
+        CHECK_EQ(p.gp_shared().use_count(), uses);
+        CHECK(b == p);
+        CHECK(b != nullptr);
+        CHECK(b.gp_get() == p.gp_get());
+        b->X = 7;
+        CHECK_EQ((*b).Y, INT64_C(4));
+        CHECK_EQ(p->X, INT64_C(7));
+        gp::bptr<Point> c = b;
+        CHECK(c == b);
+        gp::bptr<int64_t> y = gp::borrow(&p->Y); // a field: no aliasing pointer
+        *y = 9;
+        CHECK_EQ(p->Y, INT64_C(9));
+        CHECK_EQ(p.gp_shared().use_count(), uses);
+        gp::bptr<Point> implicit = p; // a gp::ptr converts (C++ callers)
+        CHECK(implicit == b);
+        CHECK(gp::lend(b) == b);
+    }
+    // nil: ==, and the first dereference panics as gp::ptr's does
+    gp::bptr<Point> nil;
+    CHECK(nil == nullptr);
+    CHECK(nil == gp::ptr<Point>());
+    CHECK(gp::bptr<Point>(nullptr) == nil);
+    CHECK(gp::lend(gp::ptr<Point>()) == nullptr);
+    CHECK_PANIC((void)nil->X, nil_msg);
+    CHECK_PANIC((void)*nil, nil_msg);
+    CHECK_PANIC(gp::check_wrap(nil, "value method main.T.M called using nil *T pointer"),
+                "value method main.T.M called using nil *T pointer");
+    // a temporary lives until the end of the full expression
+    auto sum = [](gp::bptr<Point> q) { return q->X + q->Y; };
+    CHECK_EQ(sum(gp::new_<Point>(Point{1, 2})), INT64_C(3));
+    CHECK_EQ(sum(p), INT64_C(16));
+    // the raw pointer for C
+    Point* raw = gp::bptr<Point>(p);
+    CHECK(raw == p.gp_get());
+    // field_ptr of a borrowed pointer: a borrowed pointer to the field, nil panics (the nil check
+    // of a promoted method's receiver)
+    gp::bptr<int64_t> fy = gp::field_ptr(gp::lend(p), &Point::Y);
+    CHECK(fy.gp_get() == &p->Y);
+    CHECK_PANIC((void)*gp::field_ptr(nil, &Point::Y), nil_msg);
+}
+
+int64_t adapt_target(gp::bptr<Point> p, const gp::string& s, int64_t k) {
+    return p->X + gp::len(s) + k;
+}
+void adapt_void(const gp::slice<int64_t>& xs, gp::bptr<Point> p) {
+    p->Y = gp::len(xs);
+}
+
+void test_adapt() {
+    // gp::adapt<&f>::call takes the Go-level parameters of f (ADR-086): an owning pointer for a
+    // borrowed one, a value for a const reference.
+    gp::ptr<Point> p = gp::new_<Point>(Point{3, 4});
+    long uses = p.gp_shared().use_count();
+    auto f = &gp::adapt<&adapt_target>::call;
+    static_assert(std::is_same_v<decltype(f), int64_t (*)(gp::ptr<Point>, gp::string, int64_t)>);
+    CHECK_EQ(f(p, "four"_gs, 10), INT64_C(17));
+    CHECK_EQ(p.gp_shared().use_count(), uses); // the temporary parameter copy is gone again
+    auto g = &gp::adapt<&adapt_void>::call;
+    static_assert(std::is_same_v<decltype(g), void (*)(gp::slice<int64_t>, gp::ptr<Point>)>);
+    g(gp::slice_of<int64_t>({1, 2, 3}), p);
+    CHECK_EQ(p->Y, INT64_C(3));
+    // one adapter for each function: a func value of it has one address
+    CHECK(&gp::adapt<&adapt_target>::call == &gp::adapt<&adapt_target>::call);
+    gp::func<int64_t(gp::ptr<Point>, gp::string, int64_t)> fv =
+        gp::func_of<&gp::adapt<&adapt_target>::call>();
+    CHECK_EQ(fv(p, "ab"_gs, 1), INT64_C(6));
+}
+
 void test_ptr_static() {
     // &global and &global.f share the static owner, which is never freed.
     CHECK(&gp::static_owner() == &gp::static_owner());
@@ -1507,6 +1590,8 @@ void run_tests() {
     test_ptr_nil();
     test_ptr_ownership();
     test_ptr_static();
+    test_ptr_borrowed();
+    test_adapt();
     test_ptr_weak();
     test_ptr_chains();
     if (failures > 0) {

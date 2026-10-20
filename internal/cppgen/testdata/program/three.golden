@@ -59,7 +59,7 @@ inline constexpr std::string_view Label = std::string_view("base", 4);
 int64_t Next();
 gp_anon_acde3221f996bc5c Pair();
 void gp_init_1();
-gp::string Describe(Shape s);
+gp::string Describe(const Shape& s);
 
 extern int64_t Count;
 
@@ -109,7 +109,7 @@ void gp_init_1() {
 namespace gpkg_example_dcom__three__base {
 
 #line 3 "$DIR/base/more.gp"
-gp::string Describe(Shape s) {
+gp::string Describe(const Shape& s) {
     {
 #line 4 "$DIR/base/more.gp"
         auto gp_t0 = gp::assert_type2<Rect>(s, &gp_td_Rect);
@@ -140,7 +140,7 @@ inline int64_t gp_thunk_Rect_Area(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Rect[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_Rect_Area)};
 inline int64_t gp_thunk_pRect_Area(const gp::iface& gp_self) {
-    gp::ptr<Rect> gp_p = gp::unbox<gp::ptr<Rect>>(gp_self);
+    gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method base.Rect.Area called using nil *Rect pointer");
     return gp_p->Area();
 }
@@ -201,13 +201,13 @@ struct Sq {
         return gp::hash_fields(S);
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Sq::S, "S", true, false));
-    static int64_t Area(gp::ptr<Sq> s);
+    static int64_t Area(gp::bptr<Sq> s);
 };
 static_assert(sizeof(Sq) == 8 && alignof(Sq) == 8);
 
 extern const gp::type_desc gp_td_Sq;
 extern const gp::type_desc* const gp_tdp_Sq;
-int64_t Sum(gp::slice<::gpkg_example_dcom__three__base::Shape> ss);
+int64_t Sum(const gp::slice<::gpkg_example_dcom__three__base::Shape>& ss);
 
 extern int64_t Total;
 
@@ -230,13 +230,13 @@ gp::string Box::Label() const {
 }
 
 #line 14 "$DIR/mid/mid.gp"
-int64_t Sq::Area(gp::ptr<Sq> s) {
+int64_t Sq::Area(gp::bptr<Sq> s) {
 #line 14 "$DIR/mid/mid.gp"
     { auto gp_t0 = s->S; return gp_t0 * s->S; }
 #line 14 "$DIR/mid/mid.gp"
 }
 
-int64_t Sum(gp::slice<::gpkg_example_dcom__three__base::Shape> ss) {
+int64_t Sum(const gp::slice<::gpkg_example_dcom__three__base::Shape>& ss) {
     int64_t t = 0;
     for (auto gp_it0 = gp::range_slice(ss); gp::range_next(gp_it0);) {
 #line 18 "$DIR/mid/mid.gp"
@@ -256,7 +256,7 @@ int64_t Sum(gp::slice<::gpkg_example_dcom__three__base::Shape> ss) {
 namespace gpkg_example_dcom__three__mid {
 
 inline int64_t gp_thunk_pSq_Area(const gp::iface& gp_self) {
-    return Sq::Area(gp::unbox<gp::ptr<Sq>>(gp_self));
+    return Sq::Area(gp::unbox_borrow<Sq>(gp_self));
 }
 inline const gp::method gp_pm_Sq[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_pSq_Area)};
 static const gp::type_desc* gp_full_Sq();

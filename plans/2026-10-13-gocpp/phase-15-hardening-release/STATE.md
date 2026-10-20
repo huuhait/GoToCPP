@@ -1,18 +1,18 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1, 15.5, 15.8, 15.9, 15.10, 15.13, 15.14 merged)
+**Status:** `[~]` in progress (15.1, 15.3, 15.5, 15.8-15.11, 15.13-15.15 and 15.17 merged; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 ## Steps
 
 ### Performance
 - [x] 15.1 Benchmark suite (gocpp vs Go vs C++) + per-commit tracking on a fixed machine + 5 % regression gate
 - [ ] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`
-- [ ] 15.3 Receiver and parameter optimizations
-  - [ ] non-escaping pointer methods use `this`; strong reference at the call site unless the receiver is an unchangeable caller local
-  - [ ] `const&` only for caller-local, never-address-taken, uncaptured arguments
-  - [ ] targeted random generators (callee clears the source, closure changes it, method drops its receiver) under ASan
+- [x] 15.3 Receiver and parameter optimizations (whole integrated/test-reliability review clean at `e91d0ced`; manager focused production, fixture and corrected generator checks passed)
+  - [x] non-escaping pointer receivers/parameters use `gp::bptr<T>` rather than `this` (ADR-086); callers retain owners unless stability/purity proves lending safe
+  - [x] `const&` ABI with owning snapshots for mutable/captured sources and implicit foreign work; defer/go collect owning values
+  - [x] targeted pointer/value generators and owner-drop regressions under ASan; corrected real-runner smoke passed, not a full campaign
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
 - [x] 15.5 Swiss-table maps
 - [ ] 15.6 Devirtualization + bounds-check help
@@ -43,6 +43,24 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: Step 15.3 integrated after clean whole-net review at `e91d0ced`, including
+  current native-fmt integration and test reliability. Ownership fixes cover promoted/named
+  receivers, typed nil adapters, implicit foreign side effects, ordered argument/receiver
+  snapshots, intra-argument checks, defer/go ownership, library boundaries and runner status.
+  Retained native fmt callbacks remain conservative thread sources, not purity exemptions.
+  Nineteen hot-load files and one cross-package module are synchronized finite positives;
+  separate startup and copy/lend controls prevent locks from hiding analysis regressions.
+  Manager focused checks passed: build/vet; analysis/classification, ABI and runner tests;
+  collection-type probes on GCC/Clang; 40-check callback tests per compiler; eleven changed
+  goldens; eight selected run cases and seven Go comparisons; two foreign fixtures normally
+  and under ASan on both compilers; nineteen safe runtime cases and nineteen Go comparisons;
+  the cross-package module on both compilers and Go; representative native race checks.
+  The corrected real runner also passed one fixed pointer/value seed (eight cases each),
+  two Go references and four GCC/Clang ASan executions. This is not a large campaign.
+  Earlier benchmark/campaign narratives are historical, not final-tree performance proof.
+  No full CI, broad sweep, new Windows/arm64 run or final full benchmark was performed;
+  v1.0 exit criteria remain open for the user's manual final review.
 
 - 2026-10-13 (audit): `const&` parameters and `this` receivers are only safe for caller locals
   that nothing else can change (reproduced a null `n` and an ASan use-after-free otherwise).

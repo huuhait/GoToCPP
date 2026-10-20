@@ -47,13 +47,11 @@ func (fg *funcGen) callbackValue(e ast.Expr) cppir.Expr {
 	switch x := e.(type) {
 	case *ast.Ident:
 		if fn, ok := fg.g.info.Uses[x].(*types.Func); ok && fn.Signature().Recv() == nil {
-			addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, x.Pos()))}
-			return templateCall("gp::cgo::fn", []cppir.Node{addr})
+			return templateCall("gp::cgo::fn", []cppir.Node{fg.funcAddr(fn, x.Pos())})
 		}
 	case *ast.SelectorExpr:
 		if fn := fg.g.qualifiedFunc(x); fn != nil && fn.Signature().Recv() == nil {
-			addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, x.Pos()))}
-			return templateCall("gp::cgo::fn", []cppir.Node{addr})
+			return templateCall("gp::cgo::fn", []cppir.Node{fg.funcAddr(fn, x.Pos())})
 		}
 	case *ast.FuncLit:
 		sig, _ := fg.g.info.TypeOf(x).(*types.Signature)

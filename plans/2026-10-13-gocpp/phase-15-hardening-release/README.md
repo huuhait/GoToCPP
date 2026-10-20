@@ -53,7 +53,7 @@ decision, so they're isolated and testable):
 | Optimization | What it does |
 |---|---|
 | **Escape analysis** | Go-style: find locals whose address or closure never escapes (not stored on the heap, not returned, not sent on a channel, not captured by an escaping closure or goroutine, not passed to a "leaking" parameter). Unknown code counts as escaping: C/C++ calls, `unsafe.Pointer` conversions, interface method calls that can't be devirtualized. Locals that don't escape stay on the **stack** with a non-owning `gp::ptr`, so there is no allocation and no refcount traffic. Per-function parameter summaries make it inter-procedural. `-gp:m` prints the decisions, like `go build -gcflags=-m` |
-| Pointer receivers as `this` | a non-escaping pointer method becomes a normal member function using `this` (Phase 03 note). **The object must stay alive during the call:** unless the receiver is a caller-local variable whose address is never taken and that no closure captures, the call site holds a strong reference (a copy of the `gp::ptr`) until the call returns. Otherwise the method could drop the last reference itself (`global = nil`) and keep using a freed `this` |
+| Pointer receivers as `this` (*built in 15.3 as borrowed pointers, [ADR-086](../../../docs/adr/086-borrowed-pointer-parameters-and-receivers.md): a raw `gp::bptr<T>`, not `this`*) | a non-escaping pointer method becomes a normal member function using `this` (Phase 03 note). **The object must stay alive during the call:** unless the receiver is a caller-local variable whose address is never taken and that no closure captures, the call site holds a strong reference (a copy of the `gp::ptr`) until the call returns. Otherwise the method could drop the last reference itself (`global = nil`) and keep using a freed `this` |
 | `const&` parameters | large ARC values (strings, slices, maps, pointers) passed by `const&` instead of a copy, **only** when the argument is a caller-local variable whose address is never taken and that no closure captures. Anything else (globals, fields, elements, captured locals) can be changed or freed by the callee or another goroutine while the call runs: the audit reproduced `f(head)` seeing `n` turn null after `head = nil`, and an ASan use-after-free through `f(box->Child)`. Those arguments are still copied |
 | Intrusive refcount (`gp::rc`) | replaces `std::shared_ptr`: string 32 → 24 B, slice 40 → 32 B, cheaper inc/dec. Generated code is unchanged; keep it only if the benchmarks say so |
 | Swiss-table maps | replace `std::unordered_map` (Go 1.24 made the same switch); Go-style iteration without the Phase 03 key snapshot |
@@ -323,7 +323,92 @@ program) and the known differences are in the guide. The 1M-program exit criteri
 job (`go run ./tools/difftest -n 1000000 -j 8`, resumable, about 960 CPU hours) that adds up over
 many nights.
 
-### 3.2 Notes on step 15.15 (the docs site)
+### 3.2 Notes on step 15.3 (borrowed pointers, [ADR-086](../../../docs/adr/086-borrowed-pointer-parameters-and-receivers.md))
+
+**Evidence qualification (2026-10-20):** the performance table and early development reports
+below predate the final ownership, ordering and native-fmt integration fixes; they are not fresh
+measurements of the final integrated tree. Whole-net correctness review is clean at `e91d0ced`.
+The corrected differential runner requires successful generation, Go and candidate execution,
+matching output and no sanitizer diagnostic. A bounded manager smoke used one fixed pointer
+seed and one value seed (eight generated cases each), with four successful GCC/Clang ASan
+executions against two successful Go references. This is not a repeat of the historical campaign
+or completion of the v1.0 fuzzing/benchmark exit criteria. The formerly intentional-race hot-load
+fixtures are now synchronized finite positives, with separate isolated emission controls.
+
+Built: a pointer parameter or receiver that the callee only reads and writes through, compares, or lends on to
+other borrowing callees (it is never stored, returned, captured, converted to an interface, used by `go`/`defer`,
+passed to an owning parameter or reassigned) is a `gp::bptr<T>`, a raw pointer with `gp::ptr`'s nil checks and no
+reference count (`internal/lower/borrow.go`: an intra-procedural analysis of the callee's body with a package-wide
+fixpoint over the call graph, the packages in the order of their imports). The call lends the caller's pointer when
+the object stays alive during the call: a temporary, a local that no call can change, a box, a package variable, the
+address of a field or element of such an object (`gp::borrow(&p->f)`, instead of a `gp::field_ptr` aliasing pointer
+for every promoted method), or any pointer loaded from memory when the callee is *pure* (it stores no pointer,
+slice, map, interface, func or channel except into its locals and runs no unknown code); otherwise it copies the
+pointer first, as every call did (`internal/lower/borrowemit.go`). Interface thunks borrow from the interface value
+(`gp::unbox_borrow`), and a call copies an interface value that the method could change. `go`, `defer`, func values,
+method values and promoted-method forwarders adapt. `gocpp emit -annotate` says for each pointer parameter whether it
+is borrowed and why not, and how each call lends. Tests: `TestBorrow` (the analysis), `tests/run/borrow_*`
+(a callee that drops the last other reference to its receiver or argument while it runs, nil receivers, embedding,
+func values, goroutines, interfaces) and `tests/pkgs/borrow_cross`, under `-asan`, `-race` and on the real Windows
+PC, and mutations of the analysis and of the lending that each fail a test.
+
+Measured on the 15.1 suite (`taskset` on one idle CPU, median of 9 alternating runs, CPU seconds; the machine was
+shared with other jobs at a load of 100 to 180 on 192 cores, so a ratio is good to about 15%; Go 1.25.14). Each
+cell is the time as a multiple of Go's: before 15.3 / after the pointer parameters (15.3) / after the const references
+(15.3b, below):
+
+| benchmark | Go (s) | g++ -O2 | g++ -release | clang++ -O2 | clang++ -release |
+|---|---|---|---|---|---|
+| `embedding` | 0.128 | 21.7 / 3.4 / 3.4 | 20.7 / 3.1 / 3.2 | 24.2 / 3.1 / 3.0 | 22.9 / 2.8 / 3.0 |
+| `iface_call` | 0.393 | 5.9 / 5.0 / 5.1 | 4.4 / 3.2 / 3.2 | 7.1 / 3.7 / 4.1 | 6.1 / 3.0 / 3.4 |
+| `method_value` | 0.362 | 2.8 / 1.5 / 1.4 | 2.7 / 1.5 / 1.5 | 3.0 / 1.4 / 1.4 | 2.8 / 1.2 / 1.1 |
+| `type_switch` | 0.338 | 4.7 / 4.8 / 3.1 | 4.4 / 4.4 / 2.6 | 5.2 / 5.2 / 3.2 | 4.7 / 4.8 / 2.8 |
+| `closures` | 0.189 | 3.2 / 3.1 / 3.4 | 3.4 / 3.3 / 3.3 | 3.6 / 3.7 / 3.6 | 3.2 / 3.3 / 3.6 |
+| `defer_loop` | 0.087 | 7.5 / 7.2 / 6.6 | 6.5 / 5.4 / 4.9 | 8.4 / 8.0 / 7.2 | 6.3 / 6.4 / 5.4 |
+| `bytes_buffer` | 0.157 | 17.0 / 10.0 / 9.5 | 10.4 / 6.4 / 6.2 | 9.1 / 6.1 / 6.0 | 8.4 / 5.8 / 5.1 |
+| `tree_alloc` | 0.279 | 2.0 / 1.5 / 1.5 | 1.9 / 1.5 / 1.4 | 1.4 / 1.4 / 1.3 | 1.5 / 1.3 / 1.7 |
+| `list_alloc` | 0.207 | 1.4 / 1.4 / 1.4 | 1.9 / 1.8 / 1.7 | 2.0 / 1.9 / 2.0 | 1.9 / 2.0 / 1.9 |
+| `binarytrees` | 0.989 | 0.7 / 0.6 / 0.5 | 0.7 / 0.6 / 0.6 | 0.7 / 0.6 / 0.6 | 0.7 / 0.6 / 0.6 |
+
+`embedding` and `method_value` are the pointer-receiver cases. `iface_call` stays at 3.7 to 5 times Go's at `-O2`
+and 3 times in `-release`: the thunk and the method are in different translation units (LTO inlines them in
+`-release`), and the loop copies the interface value out of the slice (`s := shapes[i]`), a count increment and
+decrement that only escape analysis (15.2) can remove. `closures` is about captured variables and `defer_loop` is the
+defer frame; none is a pointer parameter.
+
+Step 15.3b (same ADR, section 5) is the other half of the plan's `const&` row: a string, slice, map, channel, func,
+interface or kept pointer parameter that the body never assigns or returns as it is is a `const T&`, and the call
+passes a temporary, a constant or an unchangeable local as it is and anything else as a copy (or as it is, to a
+callee that stores no string, pointer, slice, map, interface, func or channel). `type_switch` (an `any` parameter)
+and `bytes_buffer` (slices) gain; a parameter that is returned as it is stays by value, because `insert(t.left, k)`
+of a tree moves it out (`tree_alloc` regressed by 15% when that was not so). A func value or a callback of such a
+function is `gp::adapt<&f>::call`, one adapter for each function, so `%p` of the function stays one address.
+
+Fix round of 15.3 (review: two blockers in call-site lowering, both found by the reviewer's random programs). (1) A
+variadic callee's fixed pointer parameters were never lent or copied (`lendArgs` returned early for every variadic
+call), so `use(g, 1, 2)` with a `use` that drops `g` freed the object it was reading; now the fixed positions are
+processed and only the packed trailing arguments are left alone. (2) The lambda of a directly called method
+expression (`(*T).M(&T{}, g)`) bound its `auto&&` parameters to the caller's variables; it now takes the receiver and
+every borrowed or const reference parameter by value. Also: `unsafe.Pointer` is an owner (`mayOwn`), the lldb printer
+knows `gp::bptr`, and the permanent tests `borrow_{variadic,methodexpr,calls,unlink,elems,callpaths,closures,
+ifacebump}` (outputs from real Go; `-asan` and `-race` runs; four are in the Windows sample) plus
+`tools/borrowfuzz` (the early runner reported 80 pointer and 30 value seeds as equal to Go;
+its incomplete stage/failure accounting means that report alone does not establish successful
+execution—see the corrected-runner evidence above). Mutants that survived the first round now fail a test (package variable always stable,
+interface thunk not copying, `pathStable` always true, always lending to an impure callee, no copy of a const
+reference receiver); `noCalls` always true survives by design: `order.go` already moves every call next to a lent
+operand into a temporary, so the guard is unreachable today (logged over the borrow tests, the goldens and 110
+random programs: no site changes) and stays as a guard against a change of the order pass. `map_int` was reported
++17-29% with byte-identical generated C++; re-measured against current dev with the rebased branch (alternating
+builds, 15 runs, two rounds, `-O2`): 70-73 ms against 73-94 ms for dev, no regression, so it was runtime header
+layout noise of the first measurement.
+
+What is left of 15.3 and 15.2: the copy of an interface value or pointer out of a slice element or a range
+variable (`v := vals[i]`, `for _, s := range shapes`) needs the escape analysis of 15.2 (that nothing writes the
+element during the variable's life); natives of the runtime (`sync.Mutex.Lock`) take owning pointers, so a pure
+native allow-list (math, bits, utf8) would make more callees pure; struct and array parameters are still copies.
+
+### 3.3 Notes on step 15.15 (the docs site)
 
 Built: `tools/docsite`, a static site generator in pure Go with no dependency (go.mod and go.sum are
 unchanged, so the flake's `vendorHash` stays). `make docs` writes `site/` (git-ignored), `make docs-check`

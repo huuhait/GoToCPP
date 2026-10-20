@@ -8,7 +8,7 @@ std::tuple<int64_t, int64_t> count(int64_t n);
 std::tuple<gp::string, gp::string> swap(gp::string a, gp::string b);
 std::tuple<gp::string, bool> early(int64_t n);
 int64_t sign(int64_t x);
-int64_t kind(gp::string s);
+int64_t kind(const gp::string& s);
 int64_t firstAbove(int64_t n, int64_t limit);
 gp::string must(bool ok);
 int64_t ladder(int64_t n);
@@ -76,7 +76,7 @@ int64_t sign(int64_t x) {
     return 0;
 }
 
-int64_t kind(gp::string s) {
+int64_t kind(const gp::string& s) {
     {
 #line 56 "$DIR/returns.gp"
         int gp_case0 = -1;

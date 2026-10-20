@@ -68,7 +68,9 @@ import (
 // map reads with such keys (also of a map whose key gc copies among the calls, and reads of a
 // bool-keyed map with an addressable key that the calls change, gmb[gb]) and ordering
 // comparisons of strings (whose operands gc evaluates first), and targets with them in a copied
-// index (s[x & 7]).
+// index (s[x & 7]), and heap objects whose only owner is a variable or an element, which a method or a function
+// drops (it stores a new object there) and then goes on using its receiver or argument (ADR-086, step 15.3: D, dm, df
+// and dk; the pointer must be lent to the call only when it stays alive).
 // It compares what each prints with real Go, on both compilers, also the panic message.
 //
 //	GOCPP_RANDOM_TESTS=1 go test ./internal/cppgen -run TestRandomOrder
@@ -427,10 +429,47 @@ func (n *N) np(tag int) int {
 	return int(*n)
 }
 
+// D is a heap object whose only owner is a variable or an element: dm and df drop that owner (they
+// store a new D into gd and gds) and go on using the receiver or the argument (ADR-086: a pointer
+// receiver or parameter that is lent to the call must not be freed under it).
+type D struct{ a int }
+
+var gd = &D{1}
+var gds = []*D{{2}, {3}}
+
+func (d *D) dm(tag, v int) int {
+	fmt.Print("dm", tag, " ")
+	gd = &D{d.a + tag}
+	gds[tag&1] = &D{d.a * 2}
+	e(tag, v)
+	d.a += v
+	return d.a*3 + len(gds)
+}
+
+func df(d *D, tag int) int {
+	fmt.Print("df", tag, " ")
+	gd = &D{tag}
+	gds[tag&1] = &D{d.a}
+	return d.a + tag
+}
+
+// dk keeps its argument (so the pointer is not borrowed) and drops it too.
+var dkept *D
+
+func dk(d *D, tag int) int {
+	fmt.Print("dk", tag, " ")
+	dkept = d
+	gd = &D{tag}
+	gds[tag&1] = &D{d.a + 1}
+	return d.a * tag
+}
+
 // via calls a method value, viaE a method expression (step 3.10b).
 func via(f func(int, int) int, tag, v int) int { return f(tag, v) }
 
 func viaE(f func(S, int, int) int, s S, tag, v int) int { return f(s, tag, v) }
+
+func viaD(f func(*D, int) int, d *D, tag int) int { return f(d, tag) }
 
 `
 
@@ -541,6 +580,7 @@ func (g *progGen) program() string {
 	g.printf("}")
 	g.printf("fmt.Println(gst, gss[0], gss[1], gsa[0], gsa[1], *pst, lst, *pfa, *lfp, gst == lst, lw, lar[0], lar[1])")
 	g.printf("fmt.Println(gn, gns[0], gns[1], gns[2], gns[3], len(gns))")
+	g.printf("fmt.Println(gd.a, gds[0].a, gds[1].a, dkept != nil)")
 	g.printf("fmt.Println(sb, s8, sa, sp, si)")
 	g.printf("if pc != nil {")
 	g.printf("\tfmt.Println(*pc)")
@@ -1726,6 +1766,25 @@ func (g *progGen) method(depth int) string {
 			return fmt.Sprintf("%s.nv(%d)", recv, tag)
 		}
 		return fmt.Sprintf("%s.np(%d)", recv, tag)
+	}
+	if g.chance(0.25) {
+		// A heap object whose owner the callee drops (ADR-086), as a receiver, an argument, a
+		// method value or a deferred call.
+		d := []string{"gd", "gds[" + g.expr(1) + " & 1]"}[g.r.Intn(2)]
+		switch g.r.Intn(6) {
+		case 0:
+			return fmt.Sprintf("%s.dm(%d, %s)", d, tag, g.expr(depth))
+		case 1:
+			return fmt.Sprintf("via(%s.dm, %d, %s)", d, tag, g.expr(depth))
+		case 2:
+			return fmt.Sprintf("df(%s, %d)", d, tag)
+		case 3:
+			return fmt.Sprintf("dk(%s, %d)", d, tag)
+		case 4:
+			return fmt.Sprintf("viaD(df, %s, %d)", d, tag)
+		default:
+			return fmt.Sprintf("(*D).dm(%s, %d, %s)", d, tag, g.expr(depth))
+		}
 	}
 	recvs := []string{"gst", "pst", "gss[" + g.expr(1) + " & 1]", "gsa[" + g.expr(1) + " & 1]", "(*pst)"}
 	if g.main {

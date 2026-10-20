@@ -16,7 +16,7 @@ struct Acc {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Acc::total, "total", false, false));
     int64_t Get() const;
-    static void Add(gp::ptr<Acc> a, int64_t n);
+    static void Add(gp::bptr<Acc> a, int64_t n);
 };
 static_assert(sizeof(Acc) == 8 && alignof(Acc) == 8);
 
@@ -36,9 +36,12 @@ int64_t Acc::Get() const {
 }
 
 // ---- ./methods.gp:8: func (a *Acc) Add(n int) { a.total += n }
+// gp[refcount] col 7: a is borrowed: the body only reads and writes through it, compares it or
+//     lends it on, so the C++ parameter is a raw gp::bptr<T> and a call increments no reference
+//     count
 // gp[checks] col 30: p.f through a pointer: -> on a gp::ptr checks for nil and panics like Go
 //     (gocpp build -nochecks removes it)
-void Acc::Add(gp::ptr<Acc> a, int64_t n) {
+void Acc::Add(gp::bptr<Acc> a, int64_t n) {
     a->total = a->total + n;
 }
 
@@ -51,9 +54,11 @@ void main() {
     gp::ptr<Acc> a = gp::new_<Acc>(Acc{});
 
 // ---- ./methods.gp:12: a.Add(2)
+// gp[refcount] col 2: lent to Add without a reference count: a temporary, or a variable that no
+//     call can change, keeps the object alive (gp::lend)
 // gp[methods] col 2: pointer method Add: a static call T::Add(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Acc::Add(a, 2);
+    Acc::Add(gp::lend(a), 2);
 
 // ---- ./methods.gp:13: var b Acc
 // gp[boxing] col 6: b is boxed: a pointer-receiver method is called on it, which is (&b).M() and
@@ -61,9 +66,11 @@ void main() {
     gp::ptr<Acc> b = gp::new_<Acc>();
 
 // ---- ./methods.gp:14: b.Add(3)
+// gp[refcount] col 2: lent to Add without a reference count: the box of a variable, which this
+//     function holds (gp::lend)
 // gp[methods] col 2: pointer method Add: a static call T::Add(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Acc::Add(b, 3);
+    Acc::Add(gp::lend(b), 3);
 
 // ---- ./methods.gp:15: fmt.Println(a.Get(), b.Get())
 // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the

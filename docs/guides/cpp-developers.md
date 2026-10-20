@@ -65,7 +65,9 @@ func main() {
 ```
 
 The type becomes a struct, a value method a `const` member and a pointer method a `static`
-function that takes the receiver as a `gp::ptr`:
+function that takes the receiver as a `gp::bptr`, a raw pointer that borrows the caller's `gp::ptr`
+when the method only uses it (`gp::lend(p)`; a method that keeps the pointer takes a `gp::ptr`, and a
+parameter that a function does not assign is a `const` reference):
 
 <!-- emitted: mapping -->
 ```cpp
@@ -75,7 +77,7 @@ struct Point {
     bool operator==(const Point&) const = default;
     ...
     Point Add(Point q) const;
-    static void Scale(gp::ptr<Point> p, int64_t k);
+    static void Scale(gp::bptr<Point> p, int64_t k);
 };
 static_assert(sizeof(Point) == 16 && alignof(Point) == 8);
 ```
@@ -103,7 +105,7 @@ it, results are unpacked from the tuple, and slices and maps are runtime types.
 ```cpp
 void main() {
     gp::ptr<Point> p = gp::new_<Point>(Point{1, 2});
-    Point::Scale(p, 3);
+    Point::Scale(gp::lend(p), 3);
     auto gp_t0 = divmod(7, 2);
     int64_t q = std::get<0>(gp_t0);
     int64_t r = std::get<1>(gp_t0);
@@ -246,7 +248,7 @@ catches, runs the deferred calls for, and passes on or stops at `recover`:
 
 <!-- emitted: shapes2 -->
 ```cpp
-gp::error open(gp::string name) {
+gp::error open(const gp::string& name) {
     gp::error gp_r0{};
     gp::defer_frame gp_df; try {
         gp_df.gp_push_call([](auto&& gp_a0) { gp::fmt::Println("closing"_gs, gp_a0); }, name);

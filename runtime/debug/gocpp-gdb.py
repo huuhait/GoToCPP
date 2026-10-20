@@ -2,7 +2,7 @@
 #
 # What it gives you:
 #   - pretty printers for the runtime's values: gp::string, gp::slice, gp::array, gp::map,
-#     gp::ptr (and cptr, weak_ptr), gp::iface and every interface struct (gp::any, gp::error),
+#     gp::ptr (and cptr, bptr, weak_ptr), gp::iface and every interface struct (gp::any, gp::error),
 #     gp::chan, gp::func, named types over them (gp::newtype), and the structs that gocpp
 #     writes for Go structs (printed as {X:1 Y:2}, with their Go field names);
 #   - Go names in backtraces (main.f, main.(*T).Inc, main.main.func1) through a frame filter
@@ -168,7 +168,7 @@ def go_type(name):
         return go_type(name[:-1])
     if name in GO_BASIC:
         return GO_BASIC[name]
-    for prefix, fmt in (("gp::slice", "[]%s"), ("gp::ptr", "*%s"), ("gp::cptr", "*%s"), ("gp::weak_ptr", "weak.Pointer[%s]")):
+    for prefix, fmt in (("gp::slice", "[]%s"), ("gp::ptr", "*%s"), ("gp::bptr", "*%s"), ("gp::cptr", "*%s"), ("gp::weak_ptr", "weak.Pointer[%s]")):
         a = _angle(name, prefix)
         if a is not None:
             return fmt % go_type(a)
@@ -831,7 +831,7 @@ def classify(t):
         kind = "array"
     elif tag.startswith("gp::map<"):
         kind = "map"
-    elif tag.startswith("gp::ptr<") or tag.startswith("gp::cptr<"):
+    elif tag.startswith("gp::ptr<") or tag.startswith("gp::cptr<") or tag.startswith("gp::bptr<"):
         kind = "ptr"
     elif tag.startswith("gp::weak_ptr<"):
         kind = "weak"
@@ -1087,7 +1087,11 @@ def fmt_map(v, t, depth):
 
 
 def ptr_target(v):
-    """(address, value of the pointee or None) of a gp::ptr."""
+    """(address, value of the pointee or None) of a gp::ptr, or of a gp::bptr (a borrowed pointer:
+    a raw pointer in a pointer receiver or parameter, ADR-086)."""
+    if any(f.name == "gp_p_" for f in unwrap(v.type).fields()):
+        raw = v["gp_p_"]
+        return int(raw), None if int(raw) == 0 else raw.dereference()
     sp = v["gp_sp_"]
     addr = shared_ptr_addr(sp)
     return addr, None if addr == 0 else sp["_M_ptr"].dereference()

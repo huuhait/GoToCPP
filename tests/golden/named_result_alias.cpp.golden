@@ -4,8 +4,8 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-std::tuple<int64_t, int64_t> plain(gp::slice<int64_t> xs);
-std::tuple<int64_t, gp::any> hidden(gp::slice<int64_t> xs, int64_t v);
+std::tuple<int64_t, int64_t> plain(const gp::slice<int64_t>& xs);
+std::tuple<int64_t, gp::any> hidden(const gp::slice<int64_t>& xs, int64_t v);
 int64_t boxed();
 void main();
 
@@ -18,7 +18,7 @@ void main();
 namespace gpkg_main {
 
 #line 8 "$ROOT/tests/golden/named_result_alias.gp"
-std::tuple<int64_t, int64_t> plain(gp::slice<int64_t> xs) {
+std::tuple<int64_t, int64_t> plain(const gp::slice<int64_t>& xs) {
 #line 8 "$ROOT/tests/golden/named_result_alias.gp"
     int64_t i{};
 #line 8 "$ROOT/tests/golden/named_result_alias.gp"
@@ -47,7 +47,7 @@ std::tuple<int64_t, int64_t> plain(gp::slice<int64_t> xs) {
     gp_ret0:; gp_df.gp_run(); return {i, n};
 }
 
-std::tuple<int64_t, gp::any> hidden(gp::slice<int64_t> xs, int64_t v) {
+std::tuple<int64_t, gp::any> hidden(const gp::slice<int64_t>& xs, int64_t v) {
 #line 16 "$ROOT/tests/golden/named_result_alias.gp"
     int64_t i{};
 #line 16 "$ROOT/tests/golden/named_result_alias.gp"

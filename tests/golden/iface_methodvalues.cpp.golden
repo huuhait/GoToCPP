@@ -94,7 +94,7 @@ int64_t Sq::Area() const {
 void main() {
     Shape s = gp::to_iface<Shape>(Sq{3}, &gp_td_Sq);
     gp::func<int64_t()> f = gp::func<int64_t()>(gp::aware([gp_r = gp::method_recv(s)](auto&&... gp_a) { return gp_r.Area(gp_a...); }));
-    gp::func<int64_t(Shape)> e = gp::func<int64_t(Shape)>(gp::aware([](auto&& gp_r, auto&&... gp_a) { return gp_r.Area(gp_a...); }));
+    gp::func<int64_t(Shape)> e = gp::func<int64_t(Shape)>(gp::aware([](auto&& gp_r, auto&&... gp_a) { return Shape(gp_r).Area(gp_a...); }));
     Holder h{s};
     gp::func<int64_t()> g = gp::func<int64_t()>(gp::aware([gp_r = gp::method_recv(h.Shape)](auto&&... gp_a) { return gp_r.Area(gp_a...); }));
     gp::map<Key, int64_t> m = gp::map_of<Key, int64_t>({{Key{1, gp::to_iface<gp::any>("a"_gs, &gp::td_string)}, 1}});
@@ -117,7 +117,7 @@ inline int64_t gp_thunk_Sq_Area(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Sq[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_Sq_Area)};
 inline int64_t gp_thunk_pSq_Area(const gp::iface& gp_self) {
-    gp::ptr<Sq> gp_p = gp::unbox<gp::ptr<Sq>>(gp_self);
+    gp::bptr<Sq> gp_p = gp::unbox_borrow<Sq>(gp_self);
     gp::check_wrap(gp_p, "value method main.Sq.Area called using nil *Sq pointer");
     return gp_p->Area();
 }

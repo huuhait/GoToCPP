@@ -3,9 +3,9 @@
 
 namespace gpkg_main {
 
-void show(gp::slice<int64_t> s);
-void showStrs(gp::slice<gp::string> s);
-std::tuple<int64_t, gp::slice<int64_t>> sum(gp::slice<int64_t> s);
+void show(const gp::slice<int64_t>& s);
+void showStrs(const gp::slice<gp::string>& s);
+std::tuple<int64_t, gp::slice<int64_t>> sum(const gp::slice<int64_t>& s);
 gp::slice<int64_t> build(int64_t n);
 void main();
 
@@ -15,7 +15,7 @@ constinit gp::slice<gp::string> gzero{};
 constinit gp::slice<int64_t> glit{};
 constinit gp::slice<uint8_t> gbytes{};
 
-void show(gp::slice<int64_t> s) {
+void show(const gp::slice<int64_t>& s) {
     gp::fmt::Print("["_gs);
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {
 #line 21 "$DIR/slices.gp"
@@ -28,7 +28,7 @@ void show(gp::slice<int64_t> s) {
     gp::fmt::Println("]"_gs, gp::len(s), gp::cap(s) >= gp::len(s), s == nullptr);
 }
 
-void showStrs(gp::slice<gp::string> s) {
+void showStrs(const gp::slice<gp::string>& s) {
     gp::fmt::Print(gp::len(s), ":"_gs);
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {
 #line 32 "$DIR/slices.gp"
@@ -39,7 +39,7 @@ void showStrs(gp::slice<gp::string> s) {
 }
 
 #line 39 "$DIR/slices.gp"
-std::tuple<int64_t, gp::slice<int64_t>> sum(gp::slice<int64_t> s) {
+std::tuple<int64_t, gp::slice<int64_t>> sum(const gp::slice<int64_t>& s) {
     int64_t t = 0;
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {
 #line 41 "$DIR/slices.gp"
@@ -61,9 +61,9 @@ gp::slice<int64_t> build(int64_t n) {
 }
 
 void main() {
-    gpkg_main::show(gnil);
-    gpkg_main::showStrs(gzero);
-    gpkg_main::show(glit);
+    gpkg_main::show(gp::slice<int64_t>(gnil));
+    gpkg_main::showStrs(gp::slice<gp::string>(gzero));
+    gpkg_main::show(gp::slice<int64_t>(glit));
     gp::fmt::Println(gp::to_string(gbytes), gp::len(gbytes));
 #line 63 "$DIR/slices.gp"
     gp::slice<int64_t> n{};
@@ -181,7 +181,7 @@ void main() {
     { auto gp_t9 = *p; gp::fmt::Println(gp_t9, *q); }
     gp::ptr<int64_t> pg = gp::ptr<int64_t>(glit.gp_owner(), &glit[0]);
     *pg = 100;
-    gpkg_main::show(glit);
+    gpkg_main::show(gp::slice<int64_t>(glit));
 #line 177 "$DIR/slices.gp"
     gp::slice<int64_t> r = gp::slice_of<int64_t>({1, 2, 3});
     for (auto gp_it4 = gp::range_slice(r); gp::range_next(gp_it4);) {
@@ -244,8 +244,8 @@ void main() {
     *pb = gp::append(static_cast<gp::slice<int64_t>&&>(*pb), 2);
     (*pb)[0] = 5;
     (*bx) = gp::append(static_cast<gp::slice<int64_t>&&>((*bx)), 3);
-    gpkg_main::show((*bx));
-    gpkg_main::show(*pb);
+    gpkg_main::show(gp::slice<int64_t>((*bx)));
+    gpkg_main::show(gp::slice<int64_t>(*pb));
 }
 
 void gp_var_init() {

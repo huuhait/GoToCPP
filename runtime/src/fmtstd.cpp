@@ -182,6 +182,9 @@ void std_closing(bool is_stdout) noexcept {
         .word.fetch_or(1, std::memory_order_seq_cst);
 }
 
+// No worker is started: an in-flight Print/Scan's existing thread claims the retained callback
+// in finish_close. It may do so as soon as this function releases the lock, before its caller
+// resumes, so retaining the callback is not a synchronous-callback guarantee.
 bool defer_close(bool is_stdout, gp::func<void()> close) {
     detail::std_gate& g = is_stdout ? detail::stdout_gate : detail::stdin_gate;
     g.word.fetch_or(1, std::memory_order_seq_cst);

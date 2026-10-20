@@ -317,11 +317,23 @@ func (fg *funcGen) captureVars(nodes []ast.Node, in func(pos token.Pos) bool, by
 // funcRef returns the C++ of the function fn of the package as a func value:
 // gp::func_of<&gpkg_main::f>(), which needs no allocation.
 func (fg *funcGen) funcRef(fn *types.Func, pos token.Pos) cppir.Expr {
-	addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, pos))}
+	addr := fg.funcAddr(fn, pos)
 	if fg.g.awareFunc(fn) {
 		return templateCall("gp::func_of_aware", []cppir.Node{addr}) // recover.go
 	}
 	return templateCall("gp::func_of", []cppir.Node{addr})
+}
+
+// funcAddr returns &f, the address of the function fn of the program, as C++ takes it for a func
+// value or a callback: for a function that borrows pointers or takes const references (borrow.go)
+// the address of its adapter, gp::adapt<&f>::call, which takes the Go-level parameters (an owning
+// pointer, a value). It is one function for each f, so a func value of f has one address.
+func (fg *funcGen) funcAddr(fn *types.Func, pos token.Pos) cppir.Expr {
+	addr := &cppir.Unary{Op: "&", X: cxxName(fg.funcName(fn, pos))}
+	if s := fg.g.borrowOf(fn); s.hasBorrowed() || s.hasRef() {
+		return &cppir.Unary{Op: "&", X: cxxName("gp::adapt<" + cppir.ExprString(addr) + ">::call")}
+	}
+	return addr
 }
 
 // funcValueCall reports whether the call c calls a func value: a variable or a field of func
@@ -406,7 +418,7 @@ func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 			callee = construct(fg.g.funcType(sig, c.Pos()), callee)
 		}
 		arg := fg.expr(c.Args[0])
-		if x := fg.tupleArgs(c, sig, callee, true); x != nil {
+		if x := fg.tupleArgs(c, sig, callee, true, nil); x != nil {
 			callee = x
 		}
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{callee, arg}}
@@ -523,7 +535,7 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 		// variadic slice: tupleArgs).
 		auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
 		var spread cppir.Expr = cxxName("gp_f")
-		if x := fg.tupleArgs(c, sig, spread, true); x != nil {
+		if x := fg.tupleArgs(c, sig, spread, true, nil); x != nil {
 			spread = x
 		}
 		apply := &cppir.Lambda{

@@ -195,6 +195,12 @@ type gen struct {
 	awareBodies map[*ast.BlockStmt]bool
 	funcDecls   map[*types.Func]*ast.FuncDecl
 
+	// borrow is the result of the borrowed-parameter analysis (borrow.go), by function.
+	borrow   map[*types.Func]*borrowSum
+	borrowC  map[types.Type]bool                        // cached foreign-type boundary
+	boxCache map[*ast.FuncDecl]map[*types.Var]boxReason // boxedOf
+	thr      *threadInfo                                // the thread facts of a package lowered alone (threads.go)
+
 	// inTemplate counts the C++ template arguments being lowered (ctypes.go: templateArg),
 	// in which the package's types are fully qualified.
 	inTemplate int

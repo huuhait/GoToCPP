@@ -304,6 +304,172 @@ private:
 
 static_assert(sizeof(ptr<int>) == 16, "gp::ptr is 16 bytes, like std::shared_ptr (D15)");
 
+// bptr<T> is a borrowed pointer: the parameter type of a function or method whose pointer
+// parameter provably does not outlive the call (internal/lower borrow.go, ADR-086). It is a raw
+// T* with Go's nil checks (8 bytes, trivially copyable, no reference count). It owns nothing:
+// the caller keeps the object alive for the whole call. The compiler passes one only when the
+// argument is a temporary (it lives to the end of the full-expression), a local variable that
+// nothing can change during the call, a pointer into such an object, or when the callee can't
+// release any pointer (no stores of pointers, no calls of unknown code). So *p, p->f, p == q
+// and p == nil mean the same as for gp::ptr, and a nil dereference panics the same way.
+//
+// The conversions say who keeps the object alive:
+//
+//     bptr(p)               implicit, from a pointer that the caller keeps alive for the call
+//                           (a temporary lives until the end of the full-expression)
+//     lend(p)               the generated code's spelling for an lvalue that is known to be stable
+//     bptr<T>(&x)           the address of an object that is alive for the call
+//
+// A bptr can't become a gp::ptr again (there is no owner to share): a function that stores,
+// returns or captures its pointer takes a gp::ptr<T>.
+template <typename T>
+class bptr {
+public:
+    constexpr bptr() noexcept = default;
+    constexpr bptr(std::nullptr_t) noexcept {}
+    constexpr explicit bptr(T* raw) noexcept : gp_p_(raw) {}
+
+    // From a pointer: for the call that the argument is in. C++ code calls a borrowing function
+    // with its own gp::ptr (the caller keeps it alive, as for any C++ reference); the generated
+    // code writes every borrow of a named pointer as gp::lend(p) or copies it first (ADR-086), so
+    // that it is visible which pointers a call relies on.
+    bptr(const ptr<T>& p) noexcept : gp_p_(p.gp_get()) {}
+
+    constexpr bptr(const bptr&) noexcept = default;
+    constexpr bptr& operator=(const bptr&) noexcept = default;
+
+    std::add_lvalue_reference_t<T> operator*() const
+        requires(!std::is_void_v<T>)
+    {
+        return *gp_checked();
+    }
+    T* operator->() const
+        requires(!std::is_void_v<T>)
+    {
+        return gp_checked();
+    }
+
+    friend bool operator==(const bptr& a, const bptr& b) noexcept { return a.gp_p_ == b.gp_p_; }
+    friend bool operator==(const bptr& a, std::nullptr_t) noexcept { return a.gp_p_ == nullptr; }
+    friend bool operator==(const bptr& a, const ptr<T>& b) noexcept {
+        return a.gp_p_ == b.gp_get();
+    }
+
+    // The raw pointer, for C and C++ functions (borrowed, as gp::ptr's): see ptr::operator T*.
+    operator T*() const noexcept { return gp_p_; }
+    operator bool() const = delete;
+    operator const volatile T*() const = delete;
+
+    T* gp_get() const noexcept { return gp_p_; }
+
+private:
+    T* gp_checked() const {
+#ifndef GOCPP_NOCHECKS
+        if (gp_p_ == nullptr) [[unlikely]] {
+            panic_nil();
+        }
+#endif
+        return gp_p_;
+    }
+
+    T* gp_p_ = nullptr;
+};
+
+static_assert(sizeof(bptr<int>) == sizeof(int*), "gp::bptr is a raw pointer");
+static_assert(std::is_trivially_copyable_v<bptr<int>>);
+
+// lend(p): p as a borrowed pointer, for the call that the caller makes next. The caller must be
+// sure that p's object stays alive until the call returns (see bptr).
+template <typename T>
+bptr<T> lend(const ptr<T>& p) noexcept {
+    return bptr<T>(p.gp_get());
+}
+template <typename T>
+bptr<T> lend(bptr<T> p) noexcept {
+    return p;
+}
+
+namespace detail {
+
+// owning_t<P>: the Go-level value collected for defer/go, before any frame or tuple is built.
+// Strip references here, not just in the eventual storage: sibling argument copies can call
+// back into Go before collection finishes. A borrowed gp::bptr<T> needs an owning gp::ptr<T>.
+template <typename P>
+struct owning {
+    using type = P;
+};
+template <typename T>
+struct owning<bptr<T>> {
+    using type = ptr<T>;
+};
+template <typename P>
+using owning_t = typename owning<std::remove_cvref_t<P>>::type;
+
+} // namespace detail
+
+namespace detail {
+
+// The Go-level parameter type of a C++ parameter type: what a gp::func of the function's Go
+// signature passes. A borrowed gp::bptr<T> is a gp::ptr<T> there, and a const reference X (ADR-086)
+// is an X.
+template <typename P>
+struct go_param {
+    using type = P;
+};
+template <typename T>
+struct go_param<bptr<T>> {
+    using type = ptr<T>;
+};
+template <typename X>
+struct go_param<const X&> {
+    using type = X;
+};
+template <typename P>
+using go_param_t = typename go_param<P>::type;
+
+template <typename P>
+inline constexpr bool is_bptr = false;
+template <typename T>
+inline constexpr bool is_bptr<bptr<T>> = true;
+
+// pass_param<P>(a): the argument that the function takes as P, made from its Go-level parameter a
+// (a named parameter of the adapter): lent for a borrowed pointer, the parameter itself for a const
+// reference (it lives for the call), moved otherwise.
+template <typename P, typename A>
+decltype(auto) pass_param(A& a) {
+    if constexpr (is_bptr<P>) {
+        return lend(a);
+    } else if constexpr (std::is_lvalue_reference_v<P>) {
+        return (a);
+    } else {
+        return static_cast<P&&>(a);
+    }
+}
+
+template <typename Fn, Fn F>
+struct adapt_for;
+template <typename R, typename... P, R (*F)(P...)>
+struct adapt_for<R (*)(P...), F> {
+    static R call(go_param_t<P>... a) { return F(pass_param<P>(a)...); }
+};
+
+} // namespace detail
+
+// adapt<&f>::call is the function that takes f's Go-level parameters (an owning gp::ptr<T> for a
+// borrowed gp::bptr<T>, a value for a const reference X) and calls f: the entry of a gp::func made
+// from a function that borrows or takes references (gp::func_of<&gp::adapt<&f>::call>()). One
+// function for each f, so a func value of f has one code address wherever it is made.
+template <auto F>
+using adapt = detail::adapt_for<decltype(F), F>;
+
+// borrow(&x): the address of an object that stays alive for the call (a field of the object a
+// borrowed or lent pointer points to, a package variable, a boxed variable), as a borrowed
+// pointer.
+template <typename T>
+bptr<T> borrow(T* p) noexcept {
+    return bptr<T>(p);
+}
+
 // new_<T>(): Go's new(T), a pointer to a new zero T. new_<T>(v): &T{...}, a pointer to a new
 // T made from v, and also a boxed variable (Phase 03 §2.2: the box of a variable whose address
 // is taken). One allocation holds the value and its reference count.
@@ -532,6 +698,14 @@ template <typename T, typename F>
 ptr<F> field_ptr(ptr<T> p, F T::* f) {
     F* q = &((*p).*f);
     return ptr<F>(std::move(p), q);
+}
+
+// field_ptr(p, &T::f) for a borrowed p: the borrowed pointer to the field (a nil p panics like Go).
+// The order of evaluation uses it for the nil check of a promoted method's receiver (`*field_ptr`);
+// a borrowed pointer owns nothing, so the result owns nothing either.
+template <typename T, typename F>
+bptr<F> field_ptr(bptr<T> p, F T::* f) {
+    return bptr<F>(&((*p).*f));
 }
 
 // ptr_cast<U>(p): Go's conversion (*U)(p) between pointer types whose base types have

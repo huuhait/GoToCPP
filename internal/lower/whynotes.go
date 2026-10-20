@@ -707,3 +707,75 @@ func (g *gen) noteOrder(pos token.Pos, t string, shape int) {
 		g.why(pos, WhyOrder, t+" holds the result of a call (or a value that a later call could change): Go evaluates it first, in order, where C++ leaves the order of the operands unspecified")
 	}
 }
+
+// noteLend records how a call lends a pointer to the borrowed parameter or receiver of fn (borrow.go,
+// borrowemit.go).
+func (g *gen) noteLend(pos token.Pos, fn *types.Func, how lendHow) {
+	if !g.noting() {
+		return
+	}
+	name := fn.Name()
+	switch how {
+	case lendTemp:
+		g.why(pos, WhyRefcount, "lent to "+name+" without a reference count: a temporary, or a variable that no call can change, keeps the object alive (gp::lend)")
+	case lendBox:
+		g.why(pos, WhyRefcount, "lent to "+name+" without a reference count: the box of a variable, which this function holds (gp::lend)")
+	case lendRaw:
+		g.why(pos, WhyRefcount, "lent to "+name+" as the raw address of a part of an object that stays alive during the call: no aliasing pointer, no reference count (gp::borrow)")
+	case lendPure:
+		g.why(pos, WhyRefcount, "lent to "+name+" without a copy: "+name+" drops no pointer while it runs (it is pure), so what the pointer was loaded from cannot lose the object")
+	case lendCopy:
+		g.why(pos, WhyRefcount, "copied for "+name+": the pointer is loaded from memory that the call could change, so the call holds its own reference (one count increment)")
+	}
+}
+
+// noteBorrow records, for a function and each of its pointer parameters, whether the parameter
+// is borrowed (a raw gp::bptr<T>) and if not, why.
+func (g *gen) noteBorrow(f *funcInfo) {
+	if !g.noting() || f.obj == nil {
+		return
+	}
+	s := g.borrowOf(f.obj)
+	if s == nil {
+		return
+	}
+	sig := f.obj.Signature()
+	one := func(v *types.Var, i int, isPtr bool) {
+		if v == nil {
+			return
+		}
+		name := v.Name()
+		if name == "" || name == "_" {
+			return
+		}
+		ref := ""
+		if s.isRef(i) {
+			ref = "; it is passed by const reference (a local that no call can change, or a temporary, is passed as it is: no copy, no count; anything else is copied first)"
+		}
+		if !isPtr {
+			if ref != "" {
+				g.why(v.Pos(), WhyRefcount, name+" is a const reference: the body never assigns it"+strings.TrimPrefix(ref, "; it is passed by const reference"))
+			}
+			return
+		}
+		if s.borrowed(i) {
+			g.why(v.Pos(), WhyRefcount, name+" is borrowed: the body only reads and writes through it, compares it or lends it on, so the C++ parameter is a raw gp::bptr<T> and a call increments no reference count")
+			return
+		}
+		why := s.why[i]
+		if why == "" {
+			why = s.notBorrowed
+		}
+		if why == "" {
+			why = "it is used as a value"
+		}
+		g.why(v.Pos(), WhyRefcount, name+" keeps an owning gp::ptr<T> (copying it is one count increment): "+why+ref)
+	}
+	if r := sig.Recv(); r != nil {
+		one(r, -1, g.borrowType(r.Type()))
+	}
+	for i := range sig.Params().Len() {
+		p := sig.Params().At(i)
+		one(p, i, g.borrowType(p.Type()))
+	}
+}

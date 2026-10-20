@@ -170,6 +170,506 @@ func TestCNames(t *testing.T) {
 	}
 }
 
+// TestBorrowForeignEmission checks that implicit foreign operations preserve the call's owners,
+// for both a borrowed pointer and a const-reference value. The signatures can still optimize.
+func TestBorrowForeignEmission(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"local", `var v std.vector[int]
+		_ = v`},
+		{"aggregate", `var v Foreign
+		_ = v`},
+		{"array", `var v [1]Foreign
+		_ = v`},
+		{"slice", `v := make([]Foreign, 1)
+		_ = v`},
+		{"copy", `var v Foreign
+		copied := v
+		_ = copied`},
+		{"assignment", `var first Foreign
+		var second Foreign
+		first = second
+		_ = first`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `package main
+			import "<vector>"
+			type Node struct{ val int }
+			type Foreign struct{ v std.vector[int] }
+			var global *Node
+			var text string
+			func read(p *Node, s string) int {
+				` + tt.body + `
+				return p.val + len(s)
+			}
+			func main() { _ = read(global, text) }
+			`
+			fset, pkg, _ := checkInterop(t, src)
+			kinds := map[string]interop.Kind{
+				"std":         interop.Namespace,
+				"std::vector": interop.Template,
+			}
+			file, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cpp := string(cppir.Print(file, ""))
+			for _, want := range []string{
+				"read(gp::bptr<Node> p, const gp::string& s)",
+				"read(gp::ptr<Node>(global), gp::string(text))",
+			} {
+				if !strings.Contains(cpp, want) {
+					t.Errorf("no %q in the C++:\n%s", want, cpp)
+				}
+			}
+		})
+	}
+}
+
+func TestBorrowNamedMethodValueEmission(t *testing.T) {
+	cpp := borrowForeignCPP(t, `package main
+	type Scalar int
+	func (s *Scalar) Read() int { return int(*s) }
+	func bind(p *Scalar) func() int { return (*p).Read }
+	func main() { _ = bind(new(Scalar)) }
+	`)
+	if !strings.Contains(cpp, "bind(const gp::ptr<Scalar>& p)") {
+		t.Fatalf("retained scalar method receiver is not an owning pointer:\n%s", cpp)
+	}
+	if strings.Contains(cpp, "bind(gp::bptr<Scalar> p)") {
+		t.Fatalf("returned method value captured a borrowed receiver:\n%s", cpp)
+	}
+}
+
+func TestBorrowSiblingForeignEmission(t *testing.T) {
+	tests := []struct {
+		name string
+		call string
+	}{
+		{"slice construction", "read(global, text, len([]Foreign{foreign}))"},
+		{"aggregate conversion", "read(global, text, len([]Foreign{Foreign(foreign)}))"},
+		{"method receiver", "global.read(text, len([]Foreign{foreign}))"},
+		{"func value", "fn(global, text, len([]Foreign{foreign}))"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `package main
+			import "<vector>"
+			type Node struct{ val int }
+			type Foreign struct{ value std.vector[int] }
+			var global *Node
+			var text string
+			var foreign Foreign
+			func read(p *Node, s string, n int) int { return p.val + len(s) + n }
+			func (p *Node) read(s string, n int) int { return p.val + len(s) + n }
+			var fn = read
+			func main() { _ = ` + tt.call + ` }
+			`
+			cpp := borrowForeignCPP(t, src)
+			main := cpp[strings.Index(cpp, "void main() {"):]
+			pointer := strings.Index(main, " = global;")
+			text := strings.Index(main, " = text;")
+			foreign := strings.Index(main, "gp::slice_of<Foreign>")
+			if pointer < 0 || text <= pointer || foreign <= text {
+				t.Fatalf("argument owners were not collected before foreign copies:\n%s", main)
+			}
+			if strings.Contains(main, "gp::lend(global)") {
+				t.Fatalf("foreign sibling retained a raw lend of the source:\n%s", main)
+			}
+		})
+	}
+}
+
+func TestBorrowNestedForeignSnapshots(t *testing.T) {
+	tests := []struct {
+		name     string
+		argument string
+	}{
+		{"map literal", "len(map[int]Foreign{0: foreign})"},
+		{"slice expression", "len([]Foreign{foreign}[:])"},
+		{"bounded slice", "len([]Foreign{foreign}[0:1])"},
+		{"nested slices", "len([]Foreign{foreign}[:][:])"},
+		{"append", "len(append([]Foreign{}, foreign))"},
+		{"map key call", "len(map[int]Foreign{change(): foreign})"},
+		{"slice bound call", "len([]Foreign{foreign}[:change()+1])"},
+		{"call after map", "len(map[int]Foreign{0: foreign}) + change()"},
+		{"call before slice", "change() + len([]Foreign{foreign}[:])"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `package main
+			import "<vector>"
+			type Node struct{ value int }
+			type Foreign struct{ value std.vector[int] }
+			var pointer *Node
+			var text string
+			var foreign Foreign
+			func change() int {
+				text = "after"
+				return 0
+			}
+			func read(p *Node, s string, n int) int { return p.value + len(s) + n }
+			func main() { _ = read(pointer, text, ` + tt.argument + `) }
+			`
+			cpp := borrowForeignCPP(t, src)
+			main := cpp[strings.Index(cpp, "void main() {"):]
+			pointer := strings.Index(main, " = pointer;")
+			text := strings.Index(main, " = text;")
+			foreign := strings.Index(main, "foreign")
+			if pointer < 0 || text <= pointer || foreign <= text {
+				t.Fatalf("nested implicit work preceded argument owners:\n%s", main)
+			}
+			if strings.Contains(tt.argument, "change()") {
+				changed := strings.Index(main, "change()")
+				if changed < 0 || changed >= pointer || strings.Count(main, "change()") != 1 {
+					t.Fatalf("explicit nested/sibling call must run first and exactly once:\n%s", main)
+				}
+			}
+		})
+	}
+}
+
+func TestBorrowForeignDeferredEmission(t *testing.T) {
+	for _, statement := range []string{"defer", "go"} {
+		t.Run(statement, func(t *testing.T) {
+			src := `package main
+			import "<vector>"
+			type Foreign struct{ value std.vector[int] }
+			var text string
+			var foreign Foreign
+			func show(s string, v Foreign) { println(s) }
+			func main() { ` + statement + ` show(text, foreign) }
+			`
+			cpp := borrowForeignCPP(t, src)
+			main := cpp[strings.Index(cpp, "void main() {"):]
+			text := strings.Index(main, " = text;")
+			foreign := strings.Index(main, " = foreign;")
+			if text < 0 || foreign <= text {
+				t.Fatalf("defer/go collection copied a foreign sibling before the string:\n%s", main)
+			}
+			if strings.Contains(main, "show, text, foreign") {
+				t.Fatalf("defer/go collection still binds the source variables:\n%s", main)
+			}
+		})
+	}
+}
+
+func TestBorrowForeignSiblingKeepsExplicitCallOrder(t *testing.T) {
+	src := `package main
+	import "<vector>"
+	type Node struct{ val int }
+	type Foreign struct{ value std.vector[int] }
+	var global *Node
+	var text string
+	var foreign Foreign
+	func change() int {
+		text = "after"
+		return 1
+	}
+	func read(p *Node, s string, n int) int { return p.val + len(s) + n }
+	func main() { _ = read(global, text, len([]Foreign{foreign}) + change()) }
+	`
+	cpp := borrowForeignCPP(t, src)
+	main := cpp[strings.Index(cpp, "void main() {"):]
+	changed := strings.Index(main, "change();")
+	text := strings.Index(main, " = text;")
+	if changed < 0 || text <= changed {
+		t.Fatalf("explicit Go call must still precede the argument's value read:\n%s", main)
+	}
+}
+
+func TestBorrowSnapshotArgumentChecks(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		first    string
+		second   string
+		receiver bool
+		explicit bool
+	}{
+		{"map key bounds", "s[i] + m[a[j]]", "a[j]", "s[i]", false, false},
+		{"map key nil", "s[i] + m[*index]", "*index", "s[i]", false, false},
+		{"map key field nil", "s[i] + m[holder.value]", "holder->value", "s[i]", false, false},
+		{"map key division", "s[i] + m[1/divisor]", "gp::div(", "s[i]", false, false},
+		{"ordinary bounds", "s[i] + s[j]", "s[i]", "s[j]", false, false},
+		{"ordinary nil", "*index + *otherIndex", "*index", "*otherIndex", false, false},
+		{"field before bounds", "holder.value + s[i]", "holder->value", "s[i]", false, false},
+		{"explicit call once", "s[next()] + m[a[j]]", "a[j]", "s[gp_t", false, true},
+		{"receiver checks", "s[i] + m[a[j]]", "a[j]", "s[i]", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			call := func(trailing string) string {
+				if tt.receiver {
+					return "holders[" + tt.value + "].gather(0, " + trailing + ")"
+				}
+				return "gather(" + tt.value + ", " + trailing + ")"
+			}
+			src := `package main
+			import "<vector>"
+			type Foreign struct{ value std.vector[int] }
+			type Checked struct{ value int }
+			func (p *Checked) gather(value int, count int) int { return p.value + value + count }
+			var foreign Foreign
+			var s = []int{1}
+			var a = [1]int{0}
+			var m = map[int]int{0: 1}
+			var index *int
+			var otherIndex *int
+			var holder *Checked
+			var holders []*Checked
+			func gather(value int, count int) int { return value + count }
+			func next() int { return 0 }
+			func plain(i, j, divisor int) int { return ` + call("0") + ` }
+			func withForeign(i, j, divisor int) int {
+				return ` + call("len([]Foreign{foreign})") + `
+			}
+			func main() {}
+			`
+			cpp := borrowForeignCPP(t, src)
+			for _, name := range []string{"plain", "withForeign"} {
+				t.Run(name, func(t *testing.T) {
+					signature := "int64_t " + name + "(int64_t i, int64_t j, int64_t divisor) {"
+					start := strings.Index(cpp, signature)
+					if start < 0 {
+						t.Fatalf("missing %s body:\n%s", name, cpp)
+					}
+					body, _, _ := strings.Cut(cpp[start:], "\n}")
+					first := strings.Index(body, tt.first)
+					second := strings.Index(body, tt.second)
+					if first < 0 || second <= first || !strings.Contains(body[first:second], ";") {
+						t.Fatalf("intra-argument checks are not sequenced in Go order:\n%s", body)
+					}
+					if tt.explicit && strings.Count(body, "next()") != 1 {
+						t.Fatalf("explicit call was evaluated more than once:\n%s", body)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestBorrowHotCrossThreadAndLending has no fmt, mutex, Once or indirect Hook call: only the
+// other package's go statement supplies the thread fact. The controls isolate both prerequisites.
+func TestBorrowHotCrossThreadAndLending(t *testing.T) {
+	for _, mode := range []struct {
+		name     string
+		threaded bool
+		mutates  bool
+	}{
+		{"cross-package hot replacement", true, true},
+		{"no thread source", false, true},
+		{"no replacement", true, false},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			start := "worker()"
+			if mode.threaded {
+				start = "go worker()"
+			}
+			store := ""
+			if mode.mutates {
+				store = "cfg = &Config{k: 2}"
+			}
+			program := borrowForeignProgram(t, map[string]string{
+				"gocpp.mod": "module example.com/hotguard\n",
+				"bg/bg.gp":  "package bg\nfunc worker() {}\nfunc StartWorker() { " + start + " }\n",
+				"main.gp": `package main
+				import "example.com/hotguard/bg"
+				type Config struct{ k int }
+				var cfg = &Config{k: 1}
+				func sum(c *Config) int { return c.k }
+				func replace() { ` + store + ` }
+				func main() {
+					_ = bg.StartWorker
+					_ = sum(cfg)
+				}
+				`,
+			})
+			var root *gen
+			for _, g := range program.gens {
+				if g.pkg.Types.Name() == "main" {
+					root = g
+				}
+			}
+			if root == nil {
+				t.Fatal("no main package")
+			}
+			facts := root.threads()
+			if facts.threaded != mode.threaded || facts.initThreads {
+				t.Fatalf("threaded/initThreads = %v/%v, want %v/false",
+					facts.threaded, facts.initThreads, mode.threaded)
+			}
+			cfg := root.pkg.Types.Scope().Lookup("cfg").(*types.Var)
+			hot := mode.threaded && mode.mutates
+			if facts.mutGlobals[cfg] != hot {
+				t.Fatalf("hot cfg = %v, want %v", facts.mutGlobals[cfg], hot)
+			}
+			fn := root.pkg.Types.Scope().Lookup("sum").(*types.Func)
+			summary := root.borrowOf(fn)
+			if summary == nil || !summary.pure || !summary.borrowed(0) {
+				t.Fatalf("sum must remain a pure borrowed callee: %+v", summary)
+			}
+
+			files, err := program.Lower()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output strings.Builder
+			for _, file := range files {
+				output.Write(cppir.Print(file.Header, ""))
+				for _, unit := range file.Units {
+					output.Write(cppir.Print(unit.File, ""))
+				}
+			}
+			cpp := strings.ReplaceAll(output.String(), "::"+root.ns+"::", "")
+			cpp = strings.ReplaceAll(cpp, root.ns+"::", "")
+			want := "sum(gp::lend(cfg))"
+			if hot {
+				want = "sum(gp::ptr<Config>(cfg))"
+			}
+			if !strings.Contains(cpp, want) {
+				t.Fatalf("missing %q:\n%s", want, cpp)
+			}
+		})
+	}
+}
+
+func TestBorrowQualifiedForeignSnapshots(t *testing.T) {
+	for _, form := range []string{"ordinary", "defer", "go"} {
+		t.Run(form, func(t *testing.T) {
+			statement := "_ = "
+			if form != "ordinary" {
+				statement = form + " "
+			}
+			src := `package main
+			import (
+				"example.com/borrow/lib"
+				"<vector>"
+			)
+			type Foreign struct{ value std.vector[int] }
+			var pointer *lib.Node
+			var text string
+			var foreign Foreign
+			func change() int {
+				text = "after"
+				return 0
+			}
+			func main() {
+				` + statement + `lib.Read(pointer, text, len([]Foreign{foreign}) + change())
+			}
+			`
+			cpp := borrowForeignProgramCPP(t, map[string]string{
+				"gocpp.mod": "module example.com/borrow\n",
+				"main.gp":   src,
+				"lib/lib.gp": `package lib
+				type Node struct{ Value int }
+				func Read(p *Node, s string, n int) int { return p.Value + len(s) + n }
+				`,
+			})
+			main := cpp[strings.Index(cpp, "void main() {"):]
+			changed := strings.Index(main, "change();")
+			pointer := strings.Index(main, " = pointer;")
+			text := strings.Index(main, " = text;")
+			foreign := strings.Index(main, "gp::slice_of<Foreign>")
+			if changed < 0 || pointer <= changed || text <= pointer || foreign <= text {
+				t.Fatalf("qualified collection lost explicit-call/snapshot order:\n%s", main)
+			}
+		})
+	}
+}
+
+func borrowForeignProgram(t *testing.T, sources map[string]string) *Program {
+	t.Helper()
+	directory := t.TempDir()
+	for name, source := range sources {
+		path := filepath.Join(directory, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	program := load.Load(load.Config{
+		Dir:    directory,
+		Stdlib: stdlib.FS(),
+		GoStd:  stdlib.IsStd,
+		GOOS:   "linux",
+		GOARCH: "amd64",
+	}, ".")
+	result := check.Check(program, check.Config{
+		Phase: check.LastPhase,
+		CXX:   func(context.Context) (build.CXX, error) { return build.CXX{}, nil },
+		Probe: func(
+			_ context.Context,
+			_ build.CXX,
+			_ string,
+			_, _, candidates []string,
+		) (interop.Result, error) {
+			kinds := make(map[string]interop.Kind)
+			for _, candidate := range candidates {
+				kinds[candidate] = interop.Namespace
+			}
+			return interop.Result{Kinds: kinds}, nil
+		},
+	})
+	if program.Errors.HasErrors() {
+		t.Fatalf("load errors: %v", program.Errors.Diagnostics())
+	}
+	var inputs []PackageInput
+	for _, loaded := range program.Packages {
+		pkg := result.Package(loaded)
+		if pkg.Errors.HasErrors() {
+			t.Fatalf("check errors: %v", pkg.Errors.Diagnostics())
+		}
+		if loaded.Std {
+			continue
+		}
+		inputs = append(inputs, PackageInput{
+			Pkg: pkg,
+			Interop: fakeInterop(pkg, map[string]interop.Kind{
+				"std":         interop.Namespace,
+				"std::vector": interop.Template,
+			}),
+		})
+	}
+	return NewProgram(result.Fset, inputs, Options{})
+}
+
+func borrowForeignProgramCPP(t *testing.T, sources map[string]string) string {
+	t.Helper()
+	files, err := borrowForeignProgram(t, sources).Lower()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	for _, file := range files {
+		output.Write(cppir.Print(file.Header, ""))
+		for _, unit := range file.Units {
+			output.Write(cppir.Print(unit.File, ""))
+		}
+	}
+	return output.String()
+}
+
+func borrowForeignCPP(t *testing.T, src string) string {
+	t.Helper()
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{
+		"std":         interop.Namespace,
+		"std::vector": interop.Template,
+	}
+	file, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(cppir.Print(file, ""))
+}
+
 // TestCNameErrors checks the errors for the names that the probes found nothing for.
 func TestCNameErrors(t *testing.T) {
 	tests := []struct {

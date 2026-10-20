@@ -295,10 +295,27 @@ go func() { s = append(s, 4) }() // writes s
 fmt.Println(len(s))              // reads s at the same time: a data race
 ```
 
-- **Go:** a program with a data race has undefined behavior.
-- **gocpp:** the same. On top of that, a race on a pointer, a slice or a string can corrupt its
-  reference count, so memory can be freed too early or never. Find races with `-race`
+- **Go:** data races violate the memory model; an implementation may report the race and terminate.
+  If it continues, single-word racy reads still have constraints (they must observe a value actually written),
+  whereas races on multiword values can corrupt memory. This is not C++'s blanket undefined-behavior rule.
+- **gocpp:** generated C++ has no data-race safety guarantee. A race on a pointer, slice or string can
+  corrupt its reference count, so memory can be freed too early or never. Find races with `-race`
   (ThreadSanitizer). `-race` works on Linux only.
+- **Hot-swapped pointers.** A pointer that one goroutine replaces while another reads it
+  (`cfg = newConfig()` or `srv.cfg = ...` against `use(cfg)`, no lock) is a race that mostly works in Go,
+  because the collector keeps the old object. In gocpp a callee that only reads its pointer parameter gets
+  the caller's pointer without a count (ADR-086), so the replacement could free the object under it. In a
+  program that can run a second thread (a `go` statement, `time.AfterFunc`, `sync.WaitGroup.Go`,
+  `context.AfterFunc` or `runtime.SetFinalizer`, anywhere in the program or in the standard code it reaches;
+  unknown func/interface calls and native callbacks also count; a library build always) the compiler therefore
+  keeps its own reference to a pointer loaded through an assigned package variable, field or slice/map/array
+  element for the whole call. Implicit promoted fields count too; only proven thread-free initialization is
+  exempt. A program proved to have no second thread has no such copies. **The copy is not atomic and does
+  not make a racing load/store safe.** Not covered: writes through `reflect` or `unsafe`, aliases held by C or
+  C++, foreign threads, and threads that a linked library starts without a visible callback. Library builds
+  conservatively copy visible field/element loads and exported-variable loads, but do not analyse foreign
+  aliases. Use `atomic.Pointer[T]`, a lock or a channel to hand a pointer to another goroutine, as
+  Go's memory model asks; see [ADR-086](../adr/086-borrowed-pointer-parameters-and-receivers.md#4-soundness).
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#21-one-ownership-system-for-everything-v1)
   (reference counts), [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#29-cli-after-this-phase)
   (the `-race` flag), [08](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md)

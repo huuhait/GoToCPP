@@ -3,12 +3,12 @@
 
 namespace gpkg_main {
 
-bool digit(gp::string s, int64_t i);
+bool digit(const gp::string& s, int64_t i);
 uint8_t add8(uint8_t a, uint8_t b);
 void main();
 
 #line 8 "$DIR/smallint.gp"
-bool digit(gp::string s, int64_t i) {
+bool digit(const gp::string& s, int64_t i) {
     return uint8_t(s[i] - 48) <= 9;
 }
 

@@ -6,7 +6,7 @@
 namespace gpkg_main {
 std::tuple<int64_t, int64_t> divmod(int64_t a, int64_t b);
 std::tuple<gp::string, gp::string> swap(gp::string a, gp::string b);
-int64_t trace(gp::string name, int64_t v);
+int64_t trace(const gp::string& name, int64_t v);
 int64_t sum(int64_t a, int64_t b, int64_t c);
 void main();
 
@@ -33,7 +33,7 @@ std::tuple<gp::string, gp::string> swap(gp::string a, gp::string b) {
     return {b, a};
 }
 
-int64_t trace(gp::string name, int64_t v) {
+int64_t trace(const gp::string& name, int64_t v) {
     gp::fmt::Println("eval"_gs, name);
     return v;
 }

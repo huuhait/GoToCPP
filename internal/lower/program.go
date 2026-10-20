@@ -34,6 +34,7 @@ type Program struct {
 	byPkg map[*types.Package]*gen // by the package that go/types made
 	byLoc map[string]*gen         // by import path
 	main  *gen                    // the main package
+	thr   *threadInfo             // the whole-program thread facts (threads.go), computed on first use
 
 	// The unnamed struct and interface types, one C++ type each in the whole program (shared.go).
 	anonStructs map[string]*structInfo

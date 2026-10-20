@@ -14,30 +14,30 @@ extern const gp::type_desc gp_td_Celsius;
 
 inline const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64));
 
-void show(gp::any p, gp::slice<int64_t> rest);
-void all(gp::any p, gp::slice<gp::any> rest);
-void mid(gp::any p, int64_t n, gp::slice<gp::string> rest);
+void show(const gp::any& p, const gp::slice<int64_t>& rest);
+void all(const gp::any& p, const gp::slice<gp::any>& rest);
+void mid(const gp::any& p, int64_t n, const gp::slice<gp::string>& rest);
 void main();
 
 #line 17 "$DIR/variadic_iface_noextra.gp"
 constinit double gf = 3.25;
 
 #line 9 "$DIR/variadic_iface_noextra.gp"
-void show(gp::any p, gp::slice<int64_t> rest) {
+void show(const gp::any& p, const gp::slice<int64_t>& rest) {
 #line 9 "$DIR/variadic_iface_noextra.gp"
     gp::fmt::Println(p, gp::len(rest));
 #line 9 "$DIR/variadic_iface_noextra.gp"
 }
 
 #line 10 "$DIR/variadic_iface_noextra.gp"
-void all(gp::any p, gp::slice<gp::any> rest) {
+void all(const gp::any& p, const gp::slice<gp::any>& rest) {
 #line 10 "$DIR/variadic_iface_noextra.gp"
     gp::fmt::Println(p, gp::len(rest));
 #line 10 "$DIR/variadic_iface_noextra.gp"
 }
 
 #line 11 "$DIR/variadic_iface_noextra.gp"
-void mid(gp::any p, int64_t n, gp::slice<gp::string> rest) {
+void mid(const gp::any& p, int64_t n, const gp::slice<gp::string>& rest) {
     gp::fmt::Println(p, n, gp::len(rest));
 }
 
@@ -47,14 +47,14 @@ void main() {
     int64_t i = 2;
     gpkg_main::show(gp::to_iface<gp::any>(x, &gp::td_float64), gp::slice<int64_t>());
     gpkg_main::show(gp::to_iface<gp::any>(i, &gp::td_int), gp::slice<int64_t>());
-    gpkg_main::show(gp::to_iface<gp::any>(gf, &gp::td_float64), gp::slice<int64_t>());
+    gpkg_main::show(gp::any(gp::to_iface<gp::any>(gf, &gp::td_float64)), gp::slice<int64_t>());
     gpkg_main::show(gp::to_iface<gp::any>(Celsius(7.0), &gp_td_Celsius), gp::slice<int64_t>());
     gpkg_main::show(gp::to_iface<gp::any>(x, &gp::td_float64), gp::slice_of<int64_t>({1, 2}));
     gpkg_main::all(gp::to_iface<gp::any>(x, &gp::td_float64), gp::slice<gp::any>());
     gpkg_main::all(gp::to_iface<gp::any>(i, &gp::td_int), gp::slice_of<gp::any>({gp::to_iface<gp::any>(i, &gp::td_int)}));
     gpkg_main::mid(gp::to_iface<gp::any>(x, &gp::td_float64), 1, gp::slice<gp::string>());
     gpkg_main::mid(gp::to_iface<gp::any>(i, &gp::td_int), 2, gp::slice_of<gp::string>({"a"_gs}));
-    gpkg_main::show(gp::to_iface<gp::any>(gf, &gp::td_float64), gp::slice_of<int64_t>({4, 5}));
+    gpkg_main::show(gp::any(gp::to_iface<gp::any>(gf, &gp::td_float64)), gp::slice_of<int64_t>({4, 5}));
 }
 
 } // namespace gpkg_main

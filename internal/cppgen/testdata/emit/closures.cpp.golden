@@ -18,19 +18,19 @@ struct ops {
 };
 static_assert(sizeof(ops) == 56 && alignof(ops) == 8);
 
-int64_t visit(gp::slice<int64_t> xs, Visitor v);
+int64_t visit(const gp::slice<int64_t>& xs, const Visitor& v);
 std::tuple<int64_t, int64_t> pair();
 int64_t double_(int64_t x);
-gp::slice<int64_t> apply(gp::slice<int64_t> xs, gp::func<int64_t(int64_t)> f);
-gp::func<int64_t(int64_t)> compose(gp::func<int64_t(int64_t)> f, gp::func<int64_t(int64_t)> g);
+gp::slice<int64_t> apply(const gp::slice<int64_t>& xs, const gp::func<int64_t(int64_t)>& f);
+gp::func<int64_t(int64_t)> compose(const gp::func<int64_t(int64_t)>& f, const gp::func<int64_t(int64_t)>& g);
 std::tuple<gp::func<void()>, gp::func<int64_t()>> adder(int64_t step);
-int64_t sum(gp::slice<int64_t> nums);
-gp::string join(gp::string sep, gp::slice<gp::string> parts);
-gp::slice<int64_t> push(gp::slice<int64_t> s, gp::slice<int64_t> xs);
-void zero(gp::slice<int64_t> xs);
+int64_t sum(const gp::slice<int64_t>& nums);
+gp::string join(const gp::string& sep, const gp::slice<gp::string>& parts);
+gp::slice<int64_t> push(gp::slice<int64_t> s, const gp::slice<int64_t>& xs);
+void zero(const gp::slice<int64_t>& xs);
 int64_t named();
 void deferred();
-void print3(gp::slice<int64_t> xs);
+void print3(const gp::slice<int64_t>& xs);
 int64_t setHandler();
 void main();
 
@@ -42,7 +42,7 @@ constinit gp::func<int64_t()> counterAt{};
 constinit gp::func<int64_t(int64_t)> handler{};
 
 #line 29 "$DIR/closures.gp"
-int64_t visit(gp::slice<int64_t> xs, Visitor v) {
+int64_t visit(const gp::slice<int64_t>& xs, const Visitor& v) {
     int64_t n = 0;
     for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 31 "$DIR/closures.gp"
@@ -67,7 +67,7 @@ int64_t double_(int64_t x) {
 #line 46 "$DIR/closures.gp"
 }
 
-gp::slice<int64_t> apply(gp::slice<int64_t> xs, gp::func<int64_t(int64_t)> f) {
+gp::slice<int64_t> apply(const gp::slice<int64_t>& xs, const gp::func<int64_t(int64_t)>& f) {
     gp::slice<int64_t> out = gp::make_slice<int64_t>(0, gp::len(xs));
     for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 50 "$DIR/closures.gp"
@@ -77,7 +77,7 @@ gp::slice<int64_t> apply(gp::slice<int64_t> xs, gp::func<int64_t(int64_t)> f) {
     return out;
 }
 
-gp::func<int64_t(int64_t)> compose(gp::func<int64_t(int64_t)> f, gp::func<int64_t(int64_t)> g) {
+gp::func<int64_t(int64_t)> compose(const gp::func<int64_t(int64_t)>& f, const gp::func<int64_t(int64_t)>& g) {
     return gp::func<int64_t(int64_t)>([g, f]<int = 1>(int64_t x) mutable -> int64_t { return g(f(x)); });
 }
 
@@ -86,7 +86,7 @@ std::tuple<gp::func<void()>, gp::func<int64_t()>> adder(int64_t step) {
     return {gp::func<void()>([total, step]<int = 1>() mutable -> void { (*total) = (*total) + step; }), gp::func<int64_t()>([total]<int = 2>() mutable -> int64_t { return (*total); })};
 }
 
-int64_t sum(gp::slice<int64_t> nums) {
+int64_t sum(const gp::slice<int64_t>& nums) {
     int64_t total = 0;
     for (auto gp_it0 = gp::range_slice(nums); gp::range_next(gp_it0);) {
 #line 67 "$DIR/closures.gp"
@@ -96,7 +96,7 @@ int64_t sum(gp::slice<int64_t> nums) {
     return total;
 }
 
-gp::string join(gp::string sep, gp::slice<gp::string> parts) {
+gp::string join(const gp::string& sep, const gp::slice<gp::string>& parts) {
     gp::string s = ""_gs;
     for (auto gp_it0 = gp::range_slice(parts); gp::range_next(gp_it0);) {
 #line 75 "$DIR/closures.gp"
@@ -109,7 +109,7 @@ gp::string join(gp::string sep, gp::slice<gp::string> parts) {
     return s;
 }
 
-gp::slice<int64_t> push(gp::slice<int64_t> s, gp::slice<int64_t> xs) {
+gp::slice<int64_t> push(gp::slice<int64_t> s, const gp::slice<int64_t>& xs) {
     for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 85 "$DIR/closures.gp"
         int64_t x = gp_it0.gp_v();
@@ -118,7 +118,7 @@ gp::slice<int64_t> push(gp::slice<int64_t> s, gp::slice<int64_t> xs) {
     return s;
 }
 
-void zero(gp::slice<int64_t> xs) {
+void zero(const gp::slice<int64_t>& xs) {
     for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 92 "$DIR/closures.gp"
         int64_t i = gp_it0.gp_i;
@@ -169,7 +169,7 @@ void deferred() {
 #line 107 "$DIR/closures.gp"
 }
 
-void print3(gp::slice<int64_t> xs) {
+void print3(const gp::slice<int64_t>& xs) {
     for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 110 "$DIR/closures.gp"
         int64_t x = gp_it0.gp_v();
@@ -195,8 +195,8 @@ void main() {
     inc();
     gp::fmt::Println("total"_gs, get());
 #line 129 "$DIR/closures.gp"
-    gpkg_main::print3(gpkg_main::apply(gp::slice_of<int64_t>({1, 2, 3}), gp::func_of<&gpkg_main::double_>()));
-    gpkg_main::print3(gpkg_main::apply(gp::slice_of<int64_t>({1, 2, 3}), gpkg_main::compose(gp::func_of<&gpkg_main::double_>(), gp::func<int64_t(int64_t)>([]<int = 1>(int64_t x) mutable -> int64_t { return x + 1; }))));
+    gpkg_main::print3(gpkg_main::apply(gp::slice_of<int64_t>({1, 2, 3}), gp::func<int64_t(int64_t)>(gp::func_of<&gpkg_main::double_>())));
+    gpkg_main::print3(gpkg_main::apply(gp::slice_of<int64_t>({1, 2, 3}), gpkg_main::compose(gp::func<int64_t(int64_t)>(gp::func_of<&gpkg_main::double_>()), gp::func<int64_t(int64_t)>([]<int = 1>(int64_t x) mutable -> int64_t { return x + 1; }))));
 #line 132 "$DIR/closures.gp"
     gp::func<void()> fn{};
     gp::fmt::Println(fn == nullptr, inc != nullptr, nullptr == get);
@@ -286,7 +286,7 @@ void main() {
     { auto gp_t12 = nums[0]; auto gp_t13 = nums[1]; gp::fmt::Println(gp_t12, gp_t13, nums[2]); }
     gp::slice<int64_t> grown = gpkg_main::push(nullptr, gp::slice_of<int64_t>({1, 2}));
     { auto gp_t14 = grown[0]; gp::fmt::Println(gp::len(grown), gp_t14, grown[1]); }
-    gp::func<int64_t(gp::slice<int64_t>)> vf = gp::func_of<&gpkg_main::sum>();
+    gp::func<int64_t(gp::slice<int64_t>)> vf = gp::func_of<&gp::adapt<&gpkg_main::sum>::call>();
     gp::fmt::Println(vf(gp::slice_of<int64_t>({7, 8})));
 #line 202 "$DIR/closures.gp"
     { auto gp_t15 = std::apply([](auto&& gp_e0, auto&& gp_e1) { return gpkg_main::sum(gp::slice_of<int64_t>({gp_e0, gp_e1})); }, pair()); auto gp_t16 = gpkg_main::visit(nums, nullptr); gp::fmt::Println(gp_t15, gp_t16, gpkg_main::visit(gp::slice_of<int64_t>({1, 2, 3}), Visitor(gp::func<bool(int64_t)>([]<int = 11>(int64_t x) mutable -> bool { return x > 1; })))); }

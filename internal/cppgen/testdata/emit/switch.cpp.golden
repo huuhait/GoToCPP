@@ -4,7 +4,7 @@
 namespace gpkg_main {
 
 gp::string tag(gp::string s);
-int64_t val(gp::string name, int64_t v);
+int64_t val(const gp::string& name, int64_t v);
 gp::string describe(int64_t n);
 int64_t last(int64_t n);
 void main();
@@ -17,7 +17,7 @@ gp::string tag(gp::string s) {
     return s;
 }
 
-int64_t val(gp::string name, int64_t v) {
+int64_t val(const gp::string& name, int64_t v) {
     gp::fmt::Print(name, " "_gs);
     return v;
 }

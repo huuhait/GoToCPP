@@ -9,7 +9,7 @@ struct Builder;
 struct Builder {
     gp::slice<uint8_t> buf;
     static constexpr auto gp_fields = gp::fields(gp::field(&Builder::buf, "buf", false, false));
-    static gp::string String(gp::ptr<Builder> b);
+    static gp::string String(gp::bptr<Builder> b);
 };
 static_assert(sizeof(Builder) == 40 && alignof(Builder) == 8);
 
@@ -29,7 +29,7 @@ void main();
 
 namespace gpkg_main {
 
-gp::string Builder::String(gp::ptr<Builder> b) {
+gp::string Builder::String(gp::bptr<Builder> b) {
     { auto gp_t0 = gp::unsafe_slice_data(b->buf); return gp::unsafe_string(gp_t0, gp::len(b->buf)); }
 }
 

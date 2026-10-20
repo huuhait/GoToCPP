@@ -33,7 +33,7 @@ struct Rect {
     static constexpr auto gp_fields = gp::fields(gp::field(&Rect::W, "W", true, false), gp::field(&Rect::H, "H", true, false));
     double Area() const;
     gp::string Name() const;
-    static void Scale(gp::ptr<Rect> r, double k);
+    static void Scale(gp::bptr<Rect> r, double k);
 };
 static_assert(sizeof(Rect) == 16 && alignof(Rect) == 8);
 
@@ -58,7 +58,7 @@ inline const gp::type_desc* Namer::gp_desc() {
     return gp::icall<gp::string()>(*this, 1);
 }
 
-gp::string describe(gp::any x);
+gp::string describe(const gp::any& x);
 void main();
 
 } // namespace gpkg_main
@@ -88,13 +88,13 @@ gp::string Rect::Name() const {
 }
 
 #line 21 "$ROOT/tests/golden/interfaces.gp"
-void Rect::Scale(gp::ptr<Rect> r, double k) {
+void Rect::Scale(gp::bptr<Rect> r, double k) {
 #line 21 "$ROOT/tests/golden/interfaces.gp"
     r->W = r->W * k;
 #line 21 "$ROOT/tests/golden/interfaces.gp"
 }
 
-gp::string describe(gp::any x) {
+gp::string describe(const gp::any& x) {
     {
 #line 24 "$ROOT/tests/golden/interfaces.gp"
         const gp::any& gp_x0 = x;
@@ -147,17 +147,17 @@ inline gp::string gp_thunk_Rect_Name(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area), gp::method_of<gp::string()>("Name", nullptr, "func() string", &gp_thunk_Rect_Name)};
 inline double gp_thunk_pRect_Area(const gp::iface& gp_self) {
-    gp::ptr<Rect> gp_p = gp::unbox<gp::ptr<Rect>>(gp_self);
+    gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method main.Rect.Area called using nil *Rect pointer");
     return gp_p->Area();
 }
 inline gp::string gp_thunk_pRect_Name(const gp::iface& gp_self) {
-    gp::ptr<Rect> gp_p = gp::unbox<gp::ptr<Rect>>(gp_self);
+    gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method main.Rect.Name called using nil *Rect pointer");
     return gp_p->Name();
 }
 inline void gp_thunk_pRect_Scale(const gp::iface& gp_self, double gp_a0) {
-    Rect::Scale(gp::unbox<gp::ptr<Rect>>(gp_self), static_cast<double&&>(gp_a0));
+    Rect::Scale(gp::unbox_borrow<Rect>(gp_self), static_cast<double&&>(gp_a0));
 }
 inline const gp::method gp_pm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pRect_Area), gp::method_of<gp::string()>("Name", nullptr, "func() string", &gp_thunk_pRect_Name), gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &gp_thunk_pRect_Scale)};
 static const gp::type_desc* gp_full_Rect();

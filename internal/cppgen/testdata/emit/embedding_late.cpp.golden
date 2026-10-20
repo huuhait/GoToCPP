@@ -46,7 +46,7 @@ struct Base {
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::n, "n", false, false));
     gpkg_main::Item Item() const;
     gp::slice<gpkg_main::Pair> Pair() const;
-    static int64_t Take(gp::ptr<Base> b, gpkg_main::Item i, gp::ptr<gpkg_main::Pair> p);
+    static int64_t Take(gp::bptr<Base> b, gpkg_main::Item i, gp::bptr<gpkg_main::Pair> p);
 };
 static_assert(sizeof(Base) == 8 && alignof(Base) == 8);
 
@@ -58,10 +58,10 @@ struct Outer {
     gp::func<gpkg_main::Pair(gpkg_main::Item)> F;
     static constexpr auto gp_fields = gp::fields(gp::field(&Outer::Base, "Base", true, true), gp::field(&Outer::Mine, "Mine", true, false), gp::field(&Outer::Mine2, "Mine2", true, false), gp::field(&Outer::Arr, "Arr", true, false), gp::field(&Outer::F, "F", true, false));
     gpkg_main::Item Total() const;
-    static gpkg_main::Pair Use(gp::ptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair p);
+    static gpkg_main::Pair Use(gp::bptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair p);
     gpkg_main::Item Item() const;
     gp::slice<gpkg_main::Pair> Pair() const;
-    static int64_t Take(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::ptr<gpkg_main::Pair> gp_a1);
+    static int64_t Take(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::bptr<gpkg_main::Pair> gp_a1);
 };
 static_assert(sizeof(Outer) == 72 && alignof(Outer) == 8);
 
@@ -73,8 +73,8 @@ gp::slice<gpkg_main::Pair> Outer::Pair() const {
     return (*this).Base.Pair();
 }
 
-int64_t Outer::Take(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::ptr<gpkg_main::Pair> gp_a1) {
-    return gpkg_main::Base::Take(gp::field_ptr(gp_p, &Outer::Base), static_cast<decltype(gp_a0)&&>(gp_a0), static_cast<decltype(gp_a1)&&>(gp_a1));
+int64_t Outer::Take(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0, gp::bptr<gpkg_main::Pair> gp_a1) {
+    return gpkg_main::Base::Take(gp::borrow(&gp_p->Base), static_cast<decltype(gp_a0)&&>(gp_a0), gp_a1);
 }
 
 inline const gp::imethod gp_im_Taker[]{gp::imethod("Take", nullptr, "func(main.Item, *main.Pair) int")};
@@ -102,21 +102,21 @@ inline Item gp_thunk_Outer_Total(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Outer[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_Outer_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_Outer_Pair), gp::method_of<Item()>("Total", nullptr, "func() main.Item", &gp_thunk_Outer_Total)};
 inline Item gp_thunk_pOuter_Item(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<Outer>>(gp_self)->Item();
+    return gp::unbox_borrow<Outer>(gp_self)->Item();
 }
 inline gp::slice<Pair> gp_thunk_pOuter_Pair(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<Outer>>(gp_self)->Pair();
+    return gp::unbox_borrow<Outer>(gp_self)->Pair();
 }
 inline int64_t gp_thunk_pOuter_Take(const gp::iface& gp_self, Item gp_a0, gp::ptr<Pair> gp_a1) {
-    return Outer::Take(gp::unbox<gp::ptr<Outer>>(gp_self), static_cast<Item&&>(gp_a0), static_cast<gp::ptr<Pair>&&>(gp_a1));
+    return Outer::Take(gp::unbox_borrow<Outer>(gp_self), static_cast<Item&&>(gp_a0), gp::lend(static_cast<gp::ptr<Pair>&&>(gp_a1)));
 }
 inline Item gp_thunk_pOuter_Total(const gp::iface& gp_self) {
-    gp::ptr<Outer> gp_p = gp::unbox<gp::ptr<Outer>>(gp_self);
+    gp::bptr<Outer> gp_p = gp::unbox_borrow<Outer>(gp_self);
     gp::check_wrap(gp_p, "value method main.Outer.Total called using nil *Outer pointer");
     return gp_p->Total();
 }
 inline Pair gp_thunk_pOuter_Use(const gp::iface& gp_self, Item gp_a0, Pair gp_a1) {
-    return Outer::Use(gp::unbox<gp::ptr<Outer>>(gp_self), static_cast<Item&&>(gp_a0), static_cast<Pair&&>(gp_a1));
+    return Outer::Use(gp::unbox_borrow<Outer>(gp_self), static_cast<Item&&>(gp_a0), static_cast<Pair&&>(gp_a1));
 }
 inline const gp::method gp_pm_Outer[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_pOuter_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_pOuter_Pair), gp::method_of<int64_t(Item, gp::ptr<Pair>)>("Take", nullptr, "func(main.Item, *main.Pair) int", &gp_thunk_pOuter_Take), gp::method_of<Item()>("Total", nullptr, "func() main.Item", &gp_thunk_pOuter_Total), gp::method_of<Pair(Item, Pair)>("Use", nullptr, "func(main.Item, main.Pair) main.Pair", &gp_thunk_pOuter_Use)};
 inline const gp::type_desc* gp_full_Outer();
@@ -136,17 +136,17 @@ inline gp::slice<Pair> gp_thunk_Base_Pair(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Base[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_Base_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_Base_Pair)};
 inline Item gp_thunk_pBase_Item(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Item called using nil *Base pointer");
     return gp_p->Item();
 }
 inline gp::slice<Pair> gp_thunk_pBase_Pair(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Pair called using nil *Base pointer");
     return gp_p->Pair();
 }
 inline int64_t gp_thunk_pBase_Take(const gp::iface& gp_self, Item gp_a0, gp::ptr<Pair> gp_a1) {
-    return Base::Take(gp::unbox<gp::ptr<Base>>(gp_self), static_cast<Item&&>(gp_a0), static_cast<gp::ptr<Pair>&&>(gp_a1));
+    return Base::Take(gp::unbox_borrow<Base>(gp_self), static_cast<Item&&>(gp_a0), gp::lend(static_cast<gp::ptr<Pair>&&>(gp_a1)));
 }
 inline const gp::method gp_pm_Base[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_pBase_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_pBase_Pair), gp::method_of<int64_t(Item, gp::ptr<Pair>)>("Take", nullptr, "func(main.Item, *main.Pair) int", &gp_thunk_pBase_Take)};
 inline const gp::type_desc* gp_full_Base();
@@ -202,7 +202,7 @@ gp::slice<gpkg_main::Pair> Base::Pair() const {
 }
 
 #line 15 "$DIR/embedding_late.gp"
-int64_t Base::Take(gp::ptr<Base> b, gpkg_main::Item i, gp::ptr<gpkg_main::Pair> p) {
+int64_t Base::Take(gp::bptr<Base> b, gpkg_main::Item i, gp::bptr<gpkg_main::Pair> p) {
 #line 15 "$DIR/embedding_late.gp"
     return i.id + p->a;
 #line 15 "$DIR/embedding_late.gp"
@@ -218,7 +218,7 @@ gpkg_main::Item Outer::Total() const {
 }
 
 #line 28 "$DIR/embedding_late.gp"
-gpkg_main::Pair Outer::Use(gp::ptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair p) {
+gpkg_main::Pair Outer::Use(gp::bptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair p) {
 #line 28 "$DIR/embedding_late.gp"
     return gpkg_main::Pair{i.id, p.a + o->Mine.id};
 #line 28 "$DIR/embedding_late.gp"
@@ -227,7 +227,7 @@ gpkg_main::Pair Outer::Use(gp::ptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair 
 void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<Pair>(Pair{1, 2})});
     Taker m = gp::to_iface<Taker>(o, gp_tdp_Outer);
-    { auto gp_t0 = o->Base.Item(); auto gp_t1 = m.Take(gpkg_main::Item{1}, o->Mine2); auto gp_t2 = o->Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp_t1, gp::fmt::as(&gp_td_Item, gp_t2), gp::fmt::as(&gp_td_Pair, Outer::Use(o, gpkg_main::Item{1}, Pair{2, 3}))); }
+    { auto gp_t0 = o->Base.Item(); auto gp_t1 = m.Take(gpkg_main::Item{1}, o->Mine2); auto gp_t2 = o->Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp_t1, gp::fmt::as(&gp_td_Item, gp_t2), gp::fmt::as(&gp_td_Pair, Outer::Use(gp::lend(o), gpkg_main::Item{1}, Pair{2, 3}))); }
 }
 
 } // namespace gpkg_main

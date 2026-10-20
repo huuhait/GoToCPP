@@ -8,7 +8,7 @@
 namespace gpkg_main {
 extern const gp::type_desc* const gp_tdc_0;
 extern const gp::type_desc* const gp_tdc_1;
-int64_t f(gp::string name, int64_t v);
+int64_t f(const gp::string& name, int64_t v);
 void main();
 
 extern gp::slice<gp::string> trace;
@@ -21,7 +21,10 @@ extern gp::slice<gp::string> trace;
 namespace gpkg_main {
 
 // ---- ./order.gp:7: func f(name string, v int) int {
-int64_t f(gp::string name, int64_t v) {
+// gp[refcount] col 8: name is a const reference: the body never assigns it (a local that no call
+//     can change, or a temporary, is passed as it is: no copy, no count; anything else is copied
+//     first)
+int64_t f(const gp::string& name, int64_t v) {
 
 // ---- ./order.gp:8: trace = append(trace, name)
 // gp[allocation] col 10: append: writes in place when the capacity is enough, else allocates a
@@ -41,13 +44,21 @@ void main() {
 // ---- ./order.gp:13: x := f("a", 1) + f("b", 2)*f("c", 3)
 // gp[order] col 7: gp_t0 holds the result of a call (or a value that a later call could change): Go
 //     evaluates it first, in order, where C++ leaves the order of the operands unspecified
+// gp[refcount] col 9: lent to f without a reference count: a temporary, or a variable that no call
+//     can change, keeps the object alive (gp::lend)
 // gp[order] col 19: gp_t1 holds the result of a call (or a value that a later call could change):
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
+// gp[refcount] col 21: lent to f without a reference count: a temporary, or a variable that no call
+//     can change, keeps the object alive (gp::lend)
+// gp[refcount] col 31: lent to f without a reference count: a temporary, or a variable that no call
+//     can change, keeps the object alive (gp::lend)
     auto gp_t0 = gpkg_main::f("a"_gs, 1); auto gp_t1 = gpkg_main::f("b"_gs, 2); int64_t x = gp_t0 + gp_t1 * gpkg_main::f("c"_gs, 3);
 
 // ---- ./order.gp:14: m := map[string]int{"k": f("d", 4)}
 // gp[maps] col 21: map literal: gp::map_of builds the map from the entries in gc's order (the
 //     constant keys first)
+// gp[refcount] col 29: lent to f without a reference count: a temporary, or a variable that no call
+//     can change, keeps the object alive (gp::lend)
     gp::map<gp::string, int64_t> m = gp::map_of<gp::string, int64_t>({{"k"_gs, gpkg_main::f("d"_gs, 4)}});
 
 // ---- ./order.gp:15: fmt.Println(x, m, trace)

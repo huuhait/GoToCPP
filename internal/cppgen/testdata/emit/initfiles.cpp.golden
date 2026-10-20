@@ -6,7 +6,7 @@ namespace gpkg_main {
 void gp_init_1();
 void main();
 void gp_init_2();
-int64_t note(gp::string name, int64_t v);
+int64_t note(const gp::string& name, int64_t v);
 void gp_init_3();
 int64_t twice();
 void gp_init_4();
@@ -34,7 +34,7 @@ void gp_init_2() {
 }
 
 #line 9 "$DIR/initfiles/b.gp"
-int64_t note(gp::string name, int64_t v) {
+int64_t note(const gp::string& name, int64_t v) {
     steps++;
     gp::fmt::Println("var"_gs, name, "="_gs, v, "step"_gs, steps);
     return v;

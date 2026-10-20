@@ -146,9 +146,15 @@ func (g *gen) forwarderNames(si *structInfo) []string {
 func (g *gen) fwdSig(fn *types.Func, pos token.Pos) ([]cppir.Param, cppir.Type) {
 	sig := fn.Signature()
 	params := make([]cppir.Param, sig.Params().Len())
+	bsum := g.borrowOf(fn) // the forwarder borrows what the method borrows
 	for i := range params {
 		p := sig.Params().At(i)
 		params[i] = cppir.Param{Type: g.varType(p, pos), Name: "gp_a" + strconv.Itoa(i)}
+		if bsum.borrowed(i) {
+			params[i].Type = borrowedType(params[i].Type)
+		} else if bsum.isRef(i) {
+			params[i].Type = &cppir.Ref{Elem: &cppir.Const{Elem: params[i].Type}} // a const reference
+		}
 		if largeVar(p.Type()) {
 			params[i].Type = &cppir.Ref{Elem: &cppir.Const{Elem: params[i].Type}} // as prepare does
 		}
@@ -165,7 +171,7 @@ func (g *gen) fwdDecls(si *structInfo) []cppir.Decl {
 		d := &cppir.Func{Result: result, Name: f.name, Params: params}
 		if f.static {
 			d.Specs = []string{"static"}
-			d.Params = append([]cppir.Param{g.fwdRecv(si)}, params...)
+			d.Params = append([]cppir.Param{g.fwdRecv(si, fn)}, params...)
 		} else {
 			d.Quals = []string{"const"}
 		}
@@ -174,9 +180,16 @@ func (g *gen) fwdDecls(si *structInfo) []cppir.Decl {
 	return decls
 }
 
-// fwdRecv returns the pointer parameter of a static forwarder: gp::ptr<T> gp_p.
-func (g *gen) fwdRecv(si *structInfo) cppir.Param {
-	return cppir.Param{Type: ptrType(g.structType(si.t, token.NoPos)), Name: "gp_p"}
+// fwdRecv returns the pointer parameter of a static forwarder: gp::ptr<T> gp_p, or a gp::bptr<T>
+// when the method it forwards to borrows its receiver (borrow.go).
+func (g *gen) fwdRecv(si *structInfo, fn *types.Func) cppir.Param {
+	t := ptrType(g.structType(si.t, token.NoPos))
+	if bs := g.borrowOf(fn); bs.borrowed(-1) {
+		t = borrowedType(t)
+	} else if bs.isRef(-1) {
+		t = &cppir.Ref{Elem: &cppir.Const{Elem: t}}
+	}
+	return cppir.Param{Type: t, Name: "gp_p"}
 }
 
 // forwardDefs returns the definitions of the forwarders of si, out of line after all the structs
@@ -197,15 +210,19 @@ func (g *gen) forwardDefs(si *structInfo) []cppir.Decl {
 		fg := newFuncGen(g, g.newFuncNames(), nil)
 		var base cppir.Expr // where the path starts: the pointer gp_p (to *T), or *this (a T)
 		if f.static {
-			d.Params = append([]cppir.Param{g.fwdRecv(si)}, params...)
+			d.Params = append([]cppir.Param{g.fwdRecv(si, fn)}, params...)
 			base = cxxName("gp_p")
 		} else {
 			d.Quals = []string{"const"}
 			base = deref(lit("this"))
 		}
+		bsum := g.borrowOf(fn)
 		args := make([]cppir.Expr, len(params))
 		for i, p := range params {
 			args[i] = cxxName(p.Name)
+			if bsum.borrowed(i) || bsum.isRef(i) {
+				continue // a gp::bptr is trivially copied; a const reference is passed on as it is
+			}
 			if t := fn.Signature().Params().At(i).Type(); !largeVar(t) && !plainValue(t) {
 				args[i] = movedName(p.Name)
 			}
@@ -215,11 +232,23 @@ func (g *gen) forwardDefs(si *structInfo) []cppir.Decl {
 			g.errorf(token.NoPos, "internal error: the forwarder %s of %s has no pointer for its receiver", f.name, si.name)
 			return nil
 		}
+		if r.ptrRecv && bsum.borrowed(-1) {
+			// The receiver is borrowed: gp_p (a borrowed pointer, or *this) stays alive for the call; a
+			// pointer loaded from an embedded field is copied unless the callee is pure.
+			pt := types.NewPointer(recvBase(r))
+			if lr, ok := fg.lendFrom(base, r, true, bsum.pure, pt); ok {
+				recv = lr
+			} else {
+				recv = fg.keep(pt, recv)
+			}
+		} else if r.ptrRecv && bsum.isRef(-1) {
+			recv, _ = fg.refFrom(r, recv, bsum.pureV)
+		}
 		// A value method through an embedded pointer: -> (gp::ptr's) panics for nil, and the method
 		// copies its receiver at its entry, so no copy of the pointer is needed to hold the object
 		// (a call in the program makes one for the arguments' evaluation: methodCall; the arguments
 		// here are parameters).
-		x := g.callMethod(recv, ptr, fn, r, args, token.NoPos)
+		x := g.callMethod(recv, ptr, fn, r, args, token.NoPos, isInterface(r.end)) // (a field of the object: copied)
 		var body cppir.Stmt = &cppir.Return{X: x}
 		if sig := fn.Signature(); sig.Results().Len() == 0 {
 			body = &cppir.ExprStmt{X: x}

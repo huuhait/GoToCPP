@@ -15,6 +15,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Small follow-ups (give them to the next job that touches the file)
 
+- [ ] 15.3 follow-ups (integrated 2026-10-20, ADR-086): final-tree full performance, Windows/arm64 and large corrected-generator campaigns remain unverified. Historical benchmark/old all-OK runner claims are explicitly qualified. Escape-analysis work (15.2) is still needed for copies from slice/range values; arbitrary foreign-code and race-safety guarantees are not implied by bounded review. No full CI or sweep was run.
+
 - [ ] LSP follow-ups (2026-10-20, ADR-112): beat-gopls-every-row target still open; normal loading is parallel and the reviewed restricted rename binding proof avoids declaration-package rechecks for eligible exported nongeneric functions. Type checking and fallback rename forms remain targets; run a fresh matched gopls comparison rather than infer a win from historical numbers. Complete diagnostic range/metadata comparison and deterministic dependent-diagnostic synchronization. Selected checks are not all-budget or combined-11.13 acceptance. Legacy raw-configuration benchmark JSON must not be republished; new reports use configuration fingerprints.
 
 - [ ] Native-fmt audit follow-ups (9.7a integrated 2026-10-20): pre-existing nonblocking-stdin cancellation and ErrClosed differences; Windows fmtdiff interruption not separately verified. Upstream/full fmt runs remain part of the user's manual final review (9.10), not a completed sweep. The old 5.11 fmt list below is historical: `go fmt.Fprintln`, live spread operands and fmt function values are now covered by the native audit.

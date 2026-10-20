@@ -196,8 +196,8 @@ inline const gp::type_desc* gp_full_Moved() {
 Fahrenheit toF(Celsius c);
 gp::string colorName(Color c);
 gp::slice<int64_t> ints();
-int64_t count(IDs ids);
-int64_t sum(gp::slice<int64_t> s);
+int64_t count(const IDs& ids);
+int64_t sum(const gp::slice<int64_t>& s);
 gp_anon_b659807402d3b6d8 anon();
 Point point();
 std::tuple<IDs, gp_anon_b659807402d3b6d8> two();
@@ -237,11 +237,11 @@ gp::slice<int64_t> ints() {
     return gp::slice_of<int64_t>({1, 2, 3});
 }
 
-int64_t count(IDs ids) {
+int64_t count(const IDs& ids) {
     return gp::len(ids);
 }
 
-int64_t sum(gp::slice<int64_t> s) {
+int64_t sum(const gp::slice<int64_t>& s) {
 #line 85 "$DIR/namedtypes.gp"
     int64_t t{};
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {

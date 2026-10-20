@@ -3,13 +3,13 @@
 
 namespace gpkg_main {
 
-void inc(gp::ptr<int64_t> p);
-void swap(gp::ptr<int64_t> a, gp::ptr<int64_t> b);
+void inc(gp::bptr<int64_t> p);
+void swap(gp::bptr<int64_t> a, gp::bptr<int64_t> b);
 std::tuple<gp::ptr<int64_t>, gp::ptr<gp::string>> grow(int64_t n, gp::string s);
 std::tuple<int64_t, gp::ptr<int64_t>> named();
 gp::ptr<int64_t> pick(gp::ptr<int64_t> p);
 void main();
-int64_t bump(gp::ptr<int64_t> p);
+int64_t bump(gp::bptr<int64_t> p);
 
 #line 11 "$DIR/pointers.gp"
 constinit int64_t g = 3;
@@ -17,11 +17,11 @@ constinit gp::ptr<int64_t> gptr{};
 constinit gp::ptr<int64_t> gnew{};
 constinit gp::ptr<int64_t> gaddr{};
 
-void inc(gp::ptr<int64_t> p) {
+void inc(gp::bptr<int64_t> p) {
     (*p)++;
 }
 
-void swap(gp::ptr<int64_t> a, gp::ptr<int64_t> b) {
+void swap(gp::bptr<int64_t> a, gp::bptr<int64_t> b) {
     { auto gp_t0 = *a; *a = *b; *b = gp_t0; }
 }
 
@@ -57,13 +57,13 @@ void main() {
     gp::ptr<int64_t> x = gp::new_<int64_t>(1);
     gp::ptr<gp::ptr<int64_t>> p = gp::new_<gp::ptr<int64_t>>(x);
     *(*p) = 10;
-    gpkg_main::inc((*p));
+    gpkg_main::inc(gp::lend((*p)));
     gp::ptr<int64_t> q = (*p);
     *q = *q * 2;
     { auto gp_t0 = (*p) == q; auto gp_t1 = (*p) == x; auto gp_t2 = (*p) != nullptr; auto gp_t3 = *(*p); gp::fmt::Println((*x), gp_t3, *q, gp_t0, gp_t1, gp_t2); }
 #line 53 "$DIR/pointers.gp"
     gp::ptr<int64_t> y = gp::new_<int64_t>(2);
-    gpkg_main::swap(x, y);
+    gpkg_main::swap(gp::lend(x), gp::lend(y));
     gp::fmt::Println((*x), (*y));
 #line 57 "$DIR/pointers.gp"
     auto gp_t4 = gpkg_main::grow(21, "hi"_gs);
@@ -146,10 +146,10 @@ void main() {
     }
     gp::fmt::Println((*cnt));
 #line 113 "$DIR/pointers.gp"
-    { auto gp_t12 = gpkg_main::bump((*p)); gp::fmt::Println((*x) + gp_t12, (*x)); }
+    { auto gp_t12 = gpkg_main::bump(gp::lend((*p))); gp::fmt::Println((*x) + gp_t12, (*x)); }
 }
 
-int64_t bump(gp::ptr<int64_t> p) {
+int64_t bump(gp::bptr<int64_t> p) {
     *p = *p + 1000;
     return 1;
 }

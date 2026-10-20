@@ -696,11 +696,11 @@ func (fg *funcGen) varOwner(e ast.Expr) bool {
 
 // mayOwn reports whether a value of type t can hold a pointer to a heap block (an owner): a
 // pointer, a slice, a map, a func, a channel or an interface, or an array or a struct with one.
-// A string owns only its own bytes.
+// A string owns only its own bytes. An unsafe.Pointer is an owning gp::ptr<void>.
 func mayOwn(t types.Type) bool {
 	switch u := under(t).(type) {
 	case *types.Basic:
-		return false
+		return u.Kind() == types.UnsafePointer
 	case *types.Array:
 		return mayOwn(u.Elem())
 	case *types.Struct:

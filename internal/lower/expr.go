@@ -416,6 +416,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 	}
 	var callee string
 	var sig *types.Signature // of a function of the package
+	var calleeFn *types.Func // the function of the package that is called by name (borrow.go)
 	template := false        // the callee is a runtime template, which deduces its argument types
 	inst := fg.instRef(c.Fun)
 	var calleeArgs []cppir.Node // template arguments of an instance that is a function template
@@ -477,6 +478,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				break
 			}
 			sig = obj.Signature()
+			calleeFn = obj
 			callee = fg.cname(obj, fun.Pos())
 			switch {
 			case strings.HasPrefix(callee, "::"):
@@ -504,6 +506,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		}
 		if fn := fg.g.qualifiedFunc(fun); fn != nil {
 			sig = fn.Signature() // pkg.F(...), F a function of another package of the program
+			calleeFn = fn
 			callee = fg.cname(fn, fun.Pos())
 			break
 		}
@@ -552,7 +555,7 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("auto")}}, Pack: true, Name: "gp_a"}},
 				Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
 			}
-		} else if x := fg.tupleArgs(c, sig, fn, false); x != nil {
+		} else if x := fg.tupleArgs(c, sig, fn, false, calleeFn); x != nil {
 			fn = x // results that Go converts to the parameters' types (step 3.9, named.go), or variadic
 		}
 		return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, arg}}
@@ -561,7 +564,11 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 		if inst != nil {
 			fg.markRawLits(c, inst) // the closures of a macro are passed as lambdas (generics.go: callableParam)
 		}
-		return &cppir.Call{Fun: &cppir.Name{Name: callee, Args: calleeArgs}, Args: fg.callArgs(c, sig)} // closures.go: variadics
+		args := fg.callArgs(c, sig) // closures.go: variadics
+		if calleeFn != nil && inst == nil {
+			args = fg.lendArgs(c, calleeFn, nil, args) // borrow.go
+		}
+		return &cppir.Call{Fun: &cppir.Name{Name: callee, Args: calleeArgs}, Args: args}
 	}
 	if template {
 		return &cppir.Call{Fun: cxxName(callee), Args: fg.printArgs(c.Args)} // print, println: fmtcall.go

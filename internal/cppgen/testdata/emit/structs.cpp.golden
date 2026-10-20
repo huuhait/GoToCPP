@@ -373,7 +373,7 @@ gp::ptr<Point> pick(gp::ptr<Point> p);
 int64_t area(Rect r);
 Rect grow(Rect r, int64_t d);
 int64_t sum(const Big& b);
-gp::ptr<Node> push(gp::ptr<Node> n, int64_t v);
+gp::ptr<Node> push(const gp::ptr<Node>& n, int64_t v);
 void local();
 void local2();
 void main();
@@ -419,7 +419,7 @@ int64_t sum(const Big& b) {
 #line 117 "$DIR/structs.gp"
 }
 
-gp::ptr<Node> push(gp::ptr<Node> n, int64_t v) {
+gp::ptr<Node> push(const gp::ptr<Node>& n, int64_t v) {
     return gp::new_<Node>(Node{.next = n, .val = v});
 }
 

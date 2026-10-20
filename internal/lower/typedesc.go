@@ -579,11 +579,26 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 	}
 	ptrType := ptrType(typ)
 	unboxPtr := templateCall("gp::unbox", []cppir.Node{ptrType}, cxxName("gp_self"))
+	// The object stays alive while the thunk runs (icall's contract), so a value method through a
+	// *T needs no copy of the pointer either (iface.hpp: unbox_borrow).
+	unboxBorrow := templateCall("gp::unbox_borrow", []cppir.Node{typ}, cxxName("gp_self"))
+	bsum := g.borrowOf(m.fn)
+	for k := range args {
+		if bsum.borrowed(k) && k < len(params) {
+			args[k] = lendCall(args[k]) // the thunk's parameter is alive for the call (borrow.go)
+		}
+	}
 	var invoke cppir.Expr
 	switch {
 	case m.ptrRecv:
 		// A pointer method: only in the table of *T.
-		invoke = &cppir.Call{Fun: cxxName(nd.si.name + "::" + member), Args: append([]cppir.Expr{unboxPtr}, args...)}
+		recv := unboxPtr
+		if bsum.borrowed(-1) {
+			// A borrowed receiver: the interface value holds the object while the thunk runs
+			// (icall's contract), so no copy of the pointer (iface.hpp: unbox_borrow).
+			recv = unboxBorrow
+		}
+		invoke = &cppir.Call{Fun: cxxName(nd.si.name + "::" + member), Args: append([]cppir.Expr{recv}, args...)}
 	case !ptr:
 		val := templateCall("gp::unbox", []cppir.Node{typ}, cxxName("gp_self"))
 		invoke = &cppir.Call{Fun: &cppir.Member{X: val, Name: member}, Args: args}
@@ -592,11 +607,11 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 		// dereference there, whatever the method's receiver is.)
 		// A promoted value method through a *T: Go's wrapper reaches the embedded field through the
 		// pointer, so a nil *T is an ordinary nil dereference (->), not panicwrap's message.
-		invoke = &cppir.Call{Fun: &cppir.Member{X: unboxPtr, Arrow: true, Name: member}, Args: args}
+		invoke = &cppir.Call{Fun: &cppir.Member{X: unboxBorrow, Arrow: true, Name: member}, Args: args}
 	default:
 		// A value method through a *T: Go's wrapper checks for nil.
 		fn.Body.Stmts = append(fn.Body.Stmts,
-			varDecl(cppir.Pos{}, ptrType, "gp_p", unboxPtr),
+			varDecl(cppir.Pos{}, borrowedType(ptrType), "gp_p", unboxBorrow),
 			&cppir.ExprStmt{X: call("gp::check_wrap", cxxName("gp_p"), lit(cppir.CString(
 				"value method "+g.canonName(nd.t)+"."+m.fn.Name()+" called using nil *"+g.shortName(nd.t)+" pointer")))})
 		invoke = &cppir.Call{Fun: &cppir.Member{X: cxxName("gp_p"), Arrow: true, Name: member}, Args: args}

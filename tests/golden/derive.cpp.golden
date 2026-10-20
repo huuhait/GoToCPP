@@ -245,7 +245,7 @@ inline gp::string gp_thunk_Level_String(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Level[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Level_String)};
 inline gp::string gp_thunk_pLevel_String(const gp::iface& gp_self) {
-    gp::ptr<Level> gp_p = gp::unbox<gp::ptr<Level>>(gp_self);
+    gp::bptr<Level> gp_p = gp::unbox_borrow<Level>(gp_self);
     gp::check_wrap(gp_p, "value method main.Level.String called using nil *Level pointer");
     return gp_p->String();
 }

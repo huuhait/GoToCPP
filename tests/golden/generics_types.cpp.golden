@@ -47,7 +47,7 @@ inline int64_t gp_thunk_gp_inst_e0e468d0_Stack_Len(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_gp_inst_e0e468d0_Stack[]{gp::method_of<int64_t()>("Len", nullptr, "func() int", &gp_thunk_gp_inst_e0e468d0_Stack_Len)};
 inline int64_t gp_thunk_pgp_inst_e0e468d0_Stack_Len(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<gp_inst_e0e468d0_Stack>>(gp_self)->Len();
+    return gp::unbox_borrow<gp_inst_e0e468d0_Stack>(gp_self)->Len();
 }
 inline void gp_thunk_pgp_inst_e0e468d0_Stack_Push(const gp::iface& gp_self, int64_t gp_a0) {
     gp_inst_e0e468d0_Stack::Push(gp::unbox<gp::ptr<gp_inst_e0e468d0_Stack>>(gp_self), static_cast<int64_t&&>(gp_a0));

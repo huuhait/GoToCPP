@@ -24,9 +24,9 @@ struct Base {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::ID, "ID", true, false));
     int64_t Get() const;
-    static void Touch(gp::ptr<Base> b);
+    static void Touch(gp::bptr<Base> b);
     std::tuple<int64_t, gp::string> Pair(int64_t k) const;
-    static int64_t Sum(gp::ptr<Base> b, gp::slice<int64_t> xs);
+    static int64_t Sum(gp::bptr<Base> b, const gp::slice<int64_t>& xs);
     int64_t Wide(const gp::array<int64_t, 20000>& w) const;
 };
 static_assert(sizeof(Base) == 8 && alignof(Base) == 8);
@@ -51,7 +51,7 @@ struct Mid {
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid::Base, "Base", true, true), gp::field(&Mid::M, "M", true, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    int64_t Sum(gp::slice<int64_t> gp_a0) const;
+    int64_t Sum(const gp::slice<int64_t>& gp_a0) const;
     void Touch() const;
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
@@ -67,7 +67,7 @@ struct Top {
     static constexpr auto gp_fields = gp::fields(gp::field(&Top::Mid, "Mid", true, true), gp::field(&Top::z, "z", false, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    int64_t Sum(gp::slice<int64_t> gp_a0) const;
+    int64_t Sum(const gp::slice<int64_t>& gp_a0) const;
     void Touch() const;
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
@@ -82,8 +82,8 @@ struct Holder {
     static constexpr auto gp_fields = gp::fields(gp::field(&Holder::Base, "Base", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    static int64_t Sum(gp::ptr<Holder> gp_p, gp::slice<int64_t> gp_a0);
-    static void Touch(gp::ptr<Holder> gp_p);
+    static int64_t Sum(gp::bptr<Holder> gp_p, const gp::slice<int64_t>& gp_a0);
+    static void Touch(gp::bptr<Holder> gp_p);
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
 static_assert(sizeof(Holder) == 8 && alignof(Holder) == 8);
@@ -97,7 +97,7 @@ struct Mid2 {
     static constexpr auto gp_fields = gp::fields(gp::field(&Mid2::Holder, "Holder", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    int64_t Sum(gp::slice<int64_t> gp_a0) const;
+    int64_t Sum(const gp::slice<int64_t>& gp_a0) const;
     void Touch() const;
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
@@ -112,7 +112,7 @@ struct Deep {
     static constexpr auto gp_fields = gp::fields(gp::field(&Deep::Mid2, "Mid2", true, true));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    int64_t Sum(gp::slice<int64_t> gp_a0) const;
+    int64_t Sum(const gp::slice<int64_t>& gp_a0) const;
     void Touch() const;
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
@@ -128,8 +128,8 @@ struct User {
     static constexpr auto gp_fields = gp::fields(gp::field(&User::Base, "Base", true, true), gp::field(&User::Name, "Name", true, false));
     int64_t Get() const;
     std::tuple<int64_t, gp::string> Pair(int64_t gp_a0) const;
-    static int64_t Sum(gp::ptr<User> gp_p, gp::slice<int64_t> gp_a0);
-    static void Touch(gp::ptr<User> gp_p);
+    static int64_t Sum(gp::bptr<User> gp_p, const gp::slice<int64_t>& gp_a0);
+    static void Touch(gp::bptr<User> gp_p);
     int64_t Wide(const gp::array<int64_t, 20000>& gp_a0) const;
 };
 static_assert(sizeof(User) == 40 && alignof(User) == 8);
@@ -173,7 +173,7 @@ struct Node {
         return gp::hash_fields(Node_, v);
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Node::Node_, "Node", true, true), gp::field(&Node::v, "v", false, false));
-    static int64_t Val(gp::ptr<Node> n);
+    static int64_t Val(gp::bptr<Node> n);
 };
 static_assert(sizeof(Node) == 24 && alignof(Node) == 8);
 
@@ -185,12 +185,12 @@ std::tuple<int64_t, gp::string> Mid::Pair(int64_t gp_a0) const {
     return (*this).Base->Pair(gp_a0);
 }
 
-int64_t Mid::Sum(gp::slice<int64_t> gp_a0) const {
-    return gpkg_main::Base::Sum((*this).Base, static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t Mid::Sum(const gp::slice<int64_t>& gp_a0) const {
+    return gpkg_main::Base::Sum(gp::lend((*this).Base), gp_a0);
 }
 
 void Mid::Touch() const {
-    gpkg_main::Base::Touch((*this).Base);
+    gpkg_main::Base::Touch(gp::lend((*this).Base));
 }
 
 int64_t Mid::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -205,12 +205,12 @@ std::tuple<int64_t, gp::string> Top::Pair(int64_t gp_a0) const {
     return (*this).Mid.Base->Pair(gp_a0);
 }
 
-int64_t Top::Sum(gp::slice<int64_t> gp_a0) const {
-    return Base::Sum((*this).Mid.Base, static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t Top::Sum(const gp::slice<int64_t>& gp_a0) const {
+    return Base::Sum(gp::lend((*this).Mid.Base), gp_a0);
 }
 
 void Top::Touch() const {
-    Base::Touch((*this).Mid.Base);
+    Base::Touch(gp::lend((*this).Mid.Base));
 }
 
 int64_t Top::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -225,12 +225,12 @@ std::tuple<int64_t, gp::string> Holder::Pair(int64_t gp_a0) const {
     return (*this).Base.Pair(gp_a0);
 }
 
-int64_t Holder::Sum(gp::ptr<Holder> gp_p, gp::slice<int64_t> gp_a0) {
-    return gpkg_main::Base::Sum(gp::field_ptr(gp_p, &Holder::Base), static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t Holder::Sum(gp::bptr<Holder> gp_p, const gp::slice<int64_t>& gp_a0) {
+    return gpkg_main::Base::Sum(gp::borrow(&gp_p->Base), gp_a0);
 }
 
-void Holder::Touch(gp::ptr<Holder> gp_p) {
-    gpkg_main::Base::Touch(gp::field_ptr(gp_p, &Holder::Base));
+void Holder::Touch(gp::bptr<Holder> gp_p) {
+    gpkg_main::Base::Touch(gp::borrow(&gp_p->Base));
 }
 
 int64_t Holder::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -245,12 +245,12 @@ std::tuple<int64_t, gp::string> Mid2::Pair(int64_t gp_a0) const {
     return (*this).Holder->Base.Pair(gp_a0);
 }
 
-int64_t Mid2::Sum(gp::slice<int64_t> gp_a0) const {
-    return Base::Sum(gp::field_ptr((*this).Holder, &gpkg_main::Holder::Base), static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t Mid2::Sum(const gp::slice<int64_t>& gp_a0) const {
+    return Base::Sum(gp::borrow(&(*this).Holder->Base), gp_a0);
 }
 
 void Mid2::Touch() const {
-    Base::Touch(gp::field_ptr((*this).Holder, &gpkg_main::Holder::Base));
+    Base::Touch(gp::borrow(&(*this).Holder->Base));
 }
 
 int64_t Mid2::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -265,12 +265,12 @@ std::tuple<int64_t, gp::string> Deep::Pair(int64_t gp_a0) const {
     return (*this).Mid2.Holder->Base.Pair(gp_a0);
 }
 
-int64_t Deep::Sum(gp::slice<int64_t> gp_a0) const {
-    return Base::Sum(gp::field_ptr((*this).Mid2.Holder, &Holder::Base), static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t Deep::Sum(const gp::slice<int64_t>& gp_a0) const {
+    return Base::Sum(gp::borrow(&(*this).Mid2.Holder->Base), gp_a0);
 }
 
 void Deep::Touch() const {
-    Base::Touch(gp::field_ptr((*this).Mid2.Holder, &Holder::Base));
+    Base::Touch(gp::borrow(&(*this).Mid2.Holder->Base));
 }
 
 int64_t Deep::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -285,12 +285,12 @@ std::tuple<int64_t, gp::string> User::Pair(int64_t gp_a0) const {
     return (*this).Base.Pair(gp_a0);
 }
 
-int64_t User::Sum(gp::ptr<User> gp_p, gp::slice<int64_t> gp_a0) {
-    return gpkg_main::Base::Sum(gp::field_ptr(gp_p, &User::Base), static_cast<decltype(gp_a0)&&>(gp_a0));
+int64_t User::Sum(gp::bptr<User> gp_p, const gp::slice<int64_t>& gp_a0) {
+    return gpkg_main::Base::Sum(gp::borrow(&gp_p->Base), gp_a0);
 }
 
-void User::Touch(gp::ptr<User> gp_p) {
-    gpkg_main::Base::Touch(gp::field_ptr(gp_p, &User::Base));
+void User::Touch(gp::bptr<User> gp_p) {
+    gpkg_main::Base::Touch(gp::borrow(&gp_p->Base));
 }
 
 int64_t User::Wide(const gp::array<int64_t, 20000>& gp_a0) const {
@@ -313,7 +313,7 @@ int64_t Base::Get() const {
 }
 
 #line 10 "$DIR/embedding.gp"
-void Base::Touch(gp::ptr<Base> b) {
+void Base::Touch(gp::bptr<Base> b) {
 #line 10 "$DIR/embedding.gp"
     b->ID++;
 #line 10 "$DIR/embedding.gp"
@@ -329,7 +329,7 @@ std::tuple<int64_t, gp::string> Base::Pair(int64_t k) const {
 }
 
 #line 12 "$DIR/embedding.gp"
-int64_t Base::Sum(gp::ptr<Base> b, gp::slice<int64_t> xs) {
+int64_t Base::Sum(gp::bptr<Base> b, const gp::slice<int64_t>& xs) {
 #line 12 "$DIR/embedding.gp"
     int64_t total{};
 #line 12 "$DIR/embedding.gp"
@@ -377,7 +377,7 @@ double Celsius::F() const {
 }
 
 #line 62 "$DIR/embedding.gp"
-int64_t Node::Val(gp::ptr<Node> n) {
+int64_t Node::Val(gp::bptr<Node> n) {
 #line 62 "$DIR/embedding.gp"
     return n->v;
 #line 62 "$DIR/embedding.gp"
@@ -385,19 +385,19 @@ int64_t Node::Val(gp::ptr<Node> n) {
 
 void main() {
     gp::ptr<User> u = gp::new_<User>(User{.Name = "ann"_gs});
-    Base::Touch(gp::field_ptr(u, &User::Base));
+    Base::Touch(gp::borrow(&u->Base));
     Mid m{gp::new_<Base>(Base{5}), 1};
-    Base::Touch(m.Base);
-    { auto gp_t0 = u->Base.Get(); auto gp_t1 = gp::ptr<Base>(m.Base)->Get(); auto gp_t2 = Base::Sum(m.Base, gp::slice_of<int64_t>({1, 2})); auto gp_t3 = u->Base.Get(); auto gp_t4 = u->Base.ID; gp::fmt::Println(gp_t4, gp_t0, m.Base->ID, gp_t1, gp_t2, gp_t3); }
+    Base::Touch(gp::lend(m.Base));
+    { auto gp_t0 = u->Base.Get(); auto gp_t1 = gp::ptr<Base>(m.Base)->Get(); auto gp_t2 = Base::Sum(gp::lend(m.Base), gp::slice_of<int64_t>({1, 2})); auto gp_t3 = u->Base.Get(); auto gp_t4 = u->Base.ID; gp::fmt::Println(gp_t4, gp_t0, m.Base->ID, gp_t1, gp_t2, gp_t3); }
     gp::ptr<Both> b = gp::new_<Both>();
-    Base::Touch(gp::field_ptr(gp::ptr<User>(b, &(*b).User), &User::Base));
+    Base::Touch(gp::borrow(&(*b).User.Base));
     (*b).Mid.Base = gp::new_<Base>(Base{});
-    Base::Touch((*b).Mid.Base);
+    Base::Touch(gp::lend((*b).Mid.Base));
     { auto gp_t5 = (*b).Get(); auto gp_t6 = (*b).User.Base.Get(); auto gp_t7 = gp::ptr<Base>((*b).Mid.Base)->Get(); gp::fmt::Println(gp_t5, gp_t6, gp_t7, (*b).Own); }
     Temp t{Celsius(100.0), "C"_gs};
     { auto gp_t8 = t.Celsius.F(); gp::fmt::Println(gp_t8, Base2{Base{3}}.Base.Get()); }
     gp::ptr<Node> n = gp::new_<Node>(Node{gp::new_<Node>(Node{nullptr, 2}), 1});
-    { auto gp_t9 = Node::Val(n); gp::fmt::Println(gp_t9, Node::Val(n->Node_)); }
+    { auto gp_t9 = Node::Val(gp::lend(n)); gp::fmt::Println(gp_t9, Node::Val(gp::lend(n->Node_))); }
     gp::ptr<gp::array<int64_t, 20000>> wide = gp::new_<gp::array<int64_t, 20000>>();
     (*wide)[0] = 4;
     { auto gp_t10 = u->Base.Wide((*wide)); gp::fmt::Println(gp_t10, gp::ptr<Base>(m.Base)->Wide((*wide))); }
@@ -408,10 +408,10 @@ void main() {
     gp::string s = std::get<1>(gp_t11);
     gp::fmt::Println(k, s);
     Top top{Mid{gp::new_<Base>(Base{9}), 1}, 2};
-    Base::Touch(top.Mid.Base);
-    { auto gp_t12 = gp::ptr<Base>(top.Mid.Base)->Get(); auto gp_t13 = Base::Sum(top.Mid.Base, gp::slice_of<int64_t>({1})); gp::fmt::Println(top.Mid.Base->ID, gp_t12, gp_t13); }
+    Base::Touch(gp::lend(top.Mid.Base));
+    { auto gp_t12 = gp::ptr<Base>(top.Mid.Base)->Get(); auto gp_t13 = Base::Sum(gp::lend(top.Mid.Base), gp::slice_of<int64_t>({1})); gp::fmt::Println(top.Mid.Base->ID, gp_t12, gp_t13); }
     Deep deep{Mid2{gp::new_<Holder>(Holder{Base{20}})}};
-    Base::Touch(gp::field_ptr(deep.Mid2.Holder, &Holder::Base));
+    Base::Touch(gp::borrow(&deep.Mid2.Holder->Base));
     { auto gp_t14 = deep.Mid2.Holder->Base.Get(); gp::fmt::Println(deep.Mid2.Holder->Base.ID, gp_t14); }
 }
 

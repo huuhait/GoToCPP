@@ -35,6 +35,10 @@ const (
 // concurrency family.
 var concurrencyRx = regexp.MustCompile(`(?m)^[ \t]*go |go func|make\(chan|select \{|"sync|"time"`)
 
+// racyRx marks a program of tests/run that has a data race on purpose (its header says
+// "// race: intentional"): the race job leaves it out, as concurrency.sh does.
+var racyRx = regexp.MustCompile(`(?m)^// race: intentional$`)
+
 // A Selection says which programs a run takes.
 type Selection struct {
 	Root    string   // the repository root
@@ -141,7 +145,7 @@ func (s Selection) files() ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			if concurrencyRx.Match(b) {
+			if concurrencyRx.Match(b) && !racyRx.Match(b) {
 				out = append(out, rel)
 			}
 		}

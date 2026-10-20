@@ -74,7 +74,7 @@ inline double gp_thunk_Celsius_F(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Celsius[]{gp::method_of<double()>("F", nullptr, "func() float64", &gp_thunk_Celsius_F)};
 inline double gp_thunk_pCelsius_F(const gp::iface& gp_self) {
-    gp::ptr<Celsius> gp_p = gp::unbox<gp::ptr<Celsius>>(gp_self);
+    gp::bptr<Celsius> gp_p = gp::unbox_borrow<Celsius>(gp_self);
     gp::check_wrap(gp_p, "value method main.Celsius.F called using nil *Celsius pointer");
     return gp_p->F();
 }

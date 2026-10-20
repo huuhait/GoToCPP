@@ -7,7 +7,7 @@ std::tuple<int64_t, int64_t> pair(int64_t a, int64_t b);
 std::tuple<gp::string, double, bool> three();
 int64_t sum(int64_t a, int64_t b);
 std::tuple<int64_t, int64_t> forward();
-void noResults(gp::string s);
+void noResults(const gp::string& s);
 void main();
 
 #line 7 "$DIR/results.gp"
@@ -27,7 +27,7 @@ std::tuple<int64_t, int64_t> forward() {
     return pair(1, 2);
 }
 
-void noResults(gp::string s) {
+void noResults(const gp::string& s) {
     gp::println("noResults"_gs, s);
 }
 

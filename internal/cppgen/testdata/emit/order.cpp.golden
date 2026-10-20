@@ -8,7 +8,7 @@ int64_t inc();
 uint64_t count();
 int64_t grow();
 int64_t g(int64_t a, int64_t b);
-bool t(gp::string name, bool v);
+bool t(const gp::string& name, bool v);
 std::tuple<int64_t, int64_t> pair();
 int64_t both(int64_t a, int64_t b);
 std::tuple<int64_t, int64_t> ret();
@@ -55,7 +55,7 @@ int64_t g(int64_t a, int64_t b) {
     return a * 10 + b;
 }
 
-bool t(gp::string name, bool v) {
+bool t(const gp::string& name, bool v) {
     gp::fmt::Print(name, " "_gs);
     return v;
 }

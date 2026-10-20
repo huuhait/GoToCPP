@@ -42,7 +42,7 @@ struct Base {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::ID, "ID", true, false));
     int64_t Get() const;
-    static void Set(gp::ptr<Base> b, int64_t v);
+    static void Set(gp::bptr<Base> b, int64_t v);
 };
 static_assert(sizeof(Base) == 8 && alignof(Base) == 8);
 
@@ -55,7 +55,7 @@ struct User {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&User::Base, "Base", true, true), gp::field(&User::Name, "Name", true, false));
     int64_t Get() const;
-    static void Set(gp::ptr<User> gp_p, int64_t gp_a0);
+    static void Set(gp::bptr<User> gp_p, int64_t gp_a0);
 };
 static_assert(sizeof(User) == 40 && alignof(User) == 8);
 
@@ -98,7 +98,7 @@ struct gp_anon_775a7fd3da06e5a1 {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&gp_anon_775a7fd3da06e5a1::Base, "Base", true, true), gp::field(&gp_anon_775a7fd3da06e5a1::tag, "tag", false, false));
     int64_t Get() const;
-    static void Set(gp::ptr<gp_anon_775a7fd3da06e5a1> gp_p, int64_t gp_a0);
+    static void Set(gp::bptr<gp_anon_775a7fd3da06e5a1> gp_p, int64_t gp_a0);
 };
 static_assert(sizeof(gp_anon_775a7fd3da06e5a1) == 40 && alignof(gp_anon_775a7fd3da06e5a1) == 8);
 
@@ -106,8 +106,8 @@ int64_t User::Get() const {
     return (*this).Base.Get();
 }
 
-void User::Set(gp::ptr<User> gp_p, int64_t gp_a0) {
-    gpkg_main::Base::Set(gp::field_ptr(gp_p, &User::Base), gp_a0);
+void User::Set(gp::bptr<User> gp_p, int64_t gp_a0) {
+    gpkg_main::Base::Set(gp::borrow(&gp_p->Base), gp_a0);
 }
 
 int64_t PUser::Get() const {
@@ -115,19 +115,19 @@ int64_t PUser::Get() const {
 }
 
 void PUser::Set(int64_t gp_a0) const {
-    gpkg_main::Base::Set((*this).Base, gp_a0);
+    gpkg_main::Base::Set(gp::lend((*this).Base), gp_a0);
 }
 
 gp::string Loud::Speak() const {
-    return (*this).Speaker.Speak();
+    return gpkg_main::Speaker((*this).Speaker).Speak();
 }
 
 int64_t gp_anon_775a7fd3da06e5a1::Get() const {
     return (*this).Base.Get();
 }
 
-void gp_anon_775a7fd3da06e5a1::Set(gp::ptr<gp_anon_775a7fd3da06e5a1> gp_p, int64_t gp_a0) {
-    gpkg_main::Base::Set(gp::field_ptr(gp_p, &gp_anon_775a7fd3da06e5a1::Base), gp_a0);
+void gp_anon_775a7fd3da06e5a1::Set(gp::bptr<gp_anon_775a7fd3da06e5a1> gp_p, int64_t gp_a0) {
+    gpkg_main::Base::Set(gp::borrow(&gp_p->Base), gp_a0);
 }
 
 inline const gp::imethod gp_im_Getter[]{gp::imethod("Get", nullptr, "func() int")};
@@ -168,10 +168,10 @@ inline int64_t gp_thunk_User_Get(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_User[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_User_Get)};
 inline int64_t gp_thunk_pUser_Get(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<User>>(gp_self)->Get();
+    return gp::unbox_borrow<User>(gp_self)->Get();
 }
 inline void gp_thunk_pUser_Set(const gp::iface& gp_self, int64_t gp_a0) {
-    User::Set(gp::unbox<gp::ptr<User>>(gp_self), static_cast<int64_t&&>(gp_a0));
+    User::Set(gp::unbox_borrow<User>(gp_self), static_cast<int64_t&&>(gp_a0));
 }
 inline const gp::method gp_pm_User[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pUser_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pUser_Set)};
 inline const gp::type_desc* gp_full_User();
@@ -185,10 +185,10 @@ inline void gp_thunk_PUser_Set(const gp::iface& gp_self, int64_t gp_a0) {
 }
 inline const gp::method gp_vm_PUser[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_PUser_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_PUser_Set)};
 inline int64_t gp_thunk_pPUser_Get(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<PUser>>(gp_self)->Get();
+    return gp::unbox_borrow<PUser>(gp_self)->Get();
 }
 inline void gp_thunk_pPUser_Set(const gp::iface& gp_self, int64_t gp_a0) {
-    gp::unbox<gp::ptr<PUser>>(gp_self)->Set(static_cast<int64_t&&>(gp_a0));
+    gp::unbox_borrow<PUser>(gp_self)->Set(static_cast<int64_t&&>(gp_a0));
 }
 inline const gp::method gp_pm_PUser[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pPUser_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pPUser_Set)};
 inline const gp::type_desc* gp_full_PUser();
@@ -199,7 +199,7 @@ inline gp::string gp_thunk_Dog_Speak(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Dog[]{gp::method_of<gp::string()>("Speak", nullptr, "func() string", &gp_thunk_Dog_Speak)};
 inline gp::string gp_thunk_pDog_Speak(const gp::iface& gp_self) {
-    gp::ptr<Dog> gp_p = gp::unbox<gp::ptr<Dog>>(gp_self);
+    gp::bptr<Dog> gp_p = gp::unbox_borrow<Dog>(gp_self);
     gp::check_wrap(gp_p, "value method main.Dog.Speak called using nil *Dog pointer");
     return gp_p->Speak();
 }
@@ -212,7 +212,7 @@ inline gp::string gp_thunk_Loud_Speak(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Loud[]{gp::method_of_aware<gp::string()>("Speak", nullptr, "func() string", &gp_thunk_Loud_Speak)};
 inline gp::string gp_thunk_pLoud_Speak(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<Loud>>(gp_self)->Speak();
+    return gp::unbox_borrow<Loud>(gp_self)->Speak();
 }
 inline const gp::method gp_pm_Loud[]{gp::method_of_aware<gp::string()>("Speak", nullptr, "func() string", &gp_thunk_pLoud_Speak)};
 inline const gp::type_desc* gp_full_Loud();
@@ -223,12 +223,12 @@ inline int64_t gp_thunk_Base_Get(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Base[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_Base_Get)};
 inline int64_t gp_thunk_pBase_Get(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Get called using nil *Base pointer");
     return gp_p->Get();
 }
 inline void gp_thunk_pBase_Set(const gp::iface& gp_self, int64_t gp_a0) {
-    Base::Set(gp::unbox<gp::ptr<Base>>(gp_self), static_cast<int64_t&&>(gp_a0));
+    Base::Set(gp::unbox_borrow<Base>(gp_self), static_cast<int64_t&&>(gp_a0));
 }
 inline const gp::method gp_pm_Base[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pBase_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pBase_Set)};
 inline const gp::type_desc* gp_full_Base();
@@ -239,10 +239,10 @@ inline int64_t gp_thunk_gp_anon_775a7fd3da06e5a1_Get(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_gp_anon_775a7fd3da06e5a1[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_gp_anon_775a7fd3da06e5a1_Get)};
 inline int64_t gp_thunk_pgp_anon_775a7fd3da06e5a1_Get(const gp::iface& gp_self) {
-    return gp::unbox<gp::ptr<gp_anon_775a7fd3da06e5a1>>(gp_self)->Get();
+    return gp::unbox_borrow<gp_anon_775a7fd3da06e5a1>(gp_self)->Get();
 }
 inline void gp_thunk_pgp_anon_775a7fd3da06e5a1_Set(const gp::iface& gp_self, int64_t gp_a0) {
-    gp_anon_775a7fd3da06e5a1::Set(gp::unbox<gp::ptr<gp_anon_775a7fd3da06e5a1>>(gp_self), static_cast<int64_t&&>(gp_a0));
+    gp_anon_775a7fd3da06e5a1::Set(gp::unbox_borrow<gp_anon_775a7fd3da06e5a1>(gp_self), static_cast<int64_t&&>(gp_a0));
 }
 inline const gp::method gp_pm_gp_anon_775a7fd3da06e5a1[]{gp::method_of<int64_t()>("Get", nullptr, "func() int", &gp_thunk_pgp_anon_775a7fd3da06e5a1_Get), gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &gp_thunk_pgp_anon_775a7fd3da06e5a1_Set)};
 static const gp::type_desc* const gp_tdp_User = gp::td_ptr<User>(&gp_td_User);
@@ -291,7 +291,7 @@ int64_t Base::Get() const {
 }
 
 #line 11 "$DIR/embedding_iface.gp"
-void Base::Set(gp::ptr<Base> b, int64_t v) {
+void Base::Set(gp::bptr<Base> b, int64_t v) {
 #line 11 "$DIR/embedding_iface.gp"
     b->ID = v;
 #line 11 "$DIR/embedding_iface.gp"
@@ -317,7 +317,7 @@ void main() {
     { auto gp_t0 = g.Get(); auto gp_t1 = sp.Speak(); gp::fmt::Println(gp_t0, (*u).Base.ID, p.Base->ID, gp_t1); }
     gp::any a = gp::to_iface<gp::any>(gp_anon_775a7fd3da06e5a1{Base{3}, "a"_gs}, gp_tdc_1);
 #line 45 "$DIR/embedding_iface.gp"
-    gp::fmt::Println(gp::assert_iface<Getter>(a).Get());
+    gp::fmt::Println(Getter(gp::assert_iface<Getter>(a)).Get());
 }
 
 } // namespace gpkg_main

@@ -27,12 +27,12 @@ inline const gp::type_desc* gp_anon_i3bf4b72cbb7c329e::gp_desc() {
 
 #endif
 namespace gpkg_main {
-std::tuple<int64_t, gp::error> atoi(gp::string s);
-std::tuple<int64_t, gp::error> load(gp::string s);
-std::tuple<int64_t, gp::error> twice(gp::string s);
-std::tuple<int64_t, gp::error> count(gp::string s, int64_t limit);
-int64_t must(gp::string s);
-gp::error closing(gp_anon_i3bf4b72cbb7c329e c);
+std::tuple<int64_t, gp::error> atoi(const gp::string& s);
+std::tuple<int64_t, gp::error> load(const gp::string& s);
+std::tuple<int64_t, gp::error> twice(const gp::string& s);
+std::tuple<int64_t, gp::error> count(const gp::string& s, int64_t limit);
+int64_t must(const gp::string& s);
+gp::error closing(const gp_anon_i3bf4b72cbb7c329e& c);
 gp::error must_main();
 void main();
 
@@ -45,7 +45,7 @@ void main();
 namespace gpkg_main {
 
 #line 7 "$ROOT/tests/golden/must.gp"
-std::tuple<int64_t, gp::error> atoi(gp::string s) {
+std::tuple<int64_t, gp::error> atoi(const gp::string& s) {
     if (s == ""_gs) {
         return {0, gp::fmt::Errorf("empty"_gs)};
     }
@@ -53,7 +53,7 @@ std::tuple<int64_t, gp::error> atoi(gp::string s) {
 }
 
 #line 15 "$ROOT/tests/golden/must.gp"
-std::tuple<int64_t, gp::error> load(gp::string s) {
+std::tuple<int64_t, gp::error> load(const gp::string& s) {
     auto gp_t0 = gpkg_main::atoi(s);
 #line 16 "$ROOT/tests/golden/must.gp"
     int64_t n = std::get<0>(gp_t0);
@@ -82,7 +82,7 @@ std::tuple<int64_t, gp::error> load(gp::string s) {
 }
 
 #line 22 "$ROOT/tests/golden/must.gp"
-std::tuple<int64_t, gp::error> twice(gp::string s) {
+std::tuple<int64_t, gp::error> twice(const gp::string& s) {
     auto gp_t0 = gpkg_main::load(s);
 #line 23 "$ROOT/tests/golden/must.gp"
     int64_t a = std::get<0>(gp_t0);
@@ -98,7 +98,7 @@ std::tuple<int64_t, gp::error> twice(gp::string s) {
 }
 
 #line 28 "$ROOT/tests/golden/must.gp"
-std::tuple<int64_t, gp::error> count(gp::string s, int64_t limit) {
+std::tuple<int64_t, gp::error> count(const gp::string& s, int64_t limit) {
 #line 28 "$ROOT/tests/golden/must.gp"
     int64_t n{};
 #line 28 "$ROOT/tests/golden/must.gp"
@@ -145,7 +145,7 @@ std::tuple<int64_t, gp::error> count(gp::string s, int64_t limit) {
 }
 
 #line 36 "$ROOT/tests/golden/must.gp"
-int64_t must(gp::string s) {
+int64_t must(const gp::string& s) {
     {
 #line 37 "$ROOT/tests/golden/must.gp"
         auto gp_t0 = gpkg_main::atoi(s);
@@ -166,7 +166,7 @@ int64_t must(gp::string s) {
 }
 
 #line 41 "$ROOT/tests/golden/must.gp"
-gp::error closing(gp_anon_i3bf4b72cbb7c329e c) {
+gp::error closing(const gp_anon_i3bf4b72cbb7c329e& c) {
 #line 41 "$ROOT/tests/golden/must.gp"
     gp::ptr<gp::error> err = gp::new_<gp::error>();
 #line 41 "$ROOT/tests/golden/must.gp"

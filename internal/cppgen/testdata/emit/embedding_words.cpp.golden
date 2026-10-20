@@ -37,7 +37,7 @@ struct Base {
     }
     static constexpr auto gp_fields = gp::fields(gp::field(&Base::n, "n", false, false));
     gpkg_main::Item Item() const;
-    static void SetItem(gp::ptr<Base> b, gpkg_main::Item i);
+    static void SetItem(gp::bptr<Base> b, gpkg_main::Item i);
     int64_t errno_() const;
     int64_t assert_() const;
     int64_t NULL_() const;
@@ -85,7 +85,7 @@ struct Outer {
     static gp::ptr<gpkg_main::Base> PSelf(gp::ptr<Outer> gp_p);
     gpkg_main::Pair Pair() const;
     gpkg_main::Base Self() const;
-    static void SetItem(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0);
+    static void SetItem(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0);
     int64_t abs() const;
     int64_t and_() const;
     int64_t assert_() const;
@@ -138,8 +138,8 @@ gpkg_main::Base Outer::Self() const {
     return (*this).Base.Self();
 }
 
-void Outer::SetItem(gp::ptr<Outer> gp_p, gpkg_main::Item gp_a0) {
-    gpkg_main::Base::SetItem(gp::field_ptr(gp_p, &Outer::Base), static_cast<decltype(gp_a0)&&>(gp_a0));
+void Outer::SetItem(gp::bptr<Outer> gp_p, gpkg_main::Item gp_a0) {
+    gpkg_main::Base::SetItem(gp::borrow(&gp_p->Base), static_cast<decltype(gp_a0)&&>(gp_a0));
 }
 
 int64_t Outer::abs() const {
@@ -344,17 +344,17 @@ inline int64_t gp_thunk_Base_xor_(const gp::iface& gp_self) {
 }
 inline const gp::method gp_vm_Base[]{gp::method_of<int64_t()>("EOF", nullptr, "func() int", &gp_thunk_Base_EOF_), gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_Base_Item), gp::method_of<int64_t()>("NULL", nullptr, "func() int", &gp_thunk_Base_NULL_), gp::method_of<Pair()>("Pair", nullptr, "func() main.Pair", &gp_thunk_Base_Pair), gp::method_of<Base()>("Self", nullptr, "func() main.Base", &gp_thunk_Base_Self), gp::method_of<int64_t()>("abs", "main", "func() int", &gp_thunk_Base_abs), gp::method_of<int64_t()>("and", "main", "func() int", &gp_thunk_Base_and_), gp::method_of<int64_t()>("assert", "main", "func() int", &gp_thunk_Base_assert_), gp::method_of<int64_t()>("default_", "main", "func() int", &gp_thunk_Base_default__), gp::method_of<int64_t()>("errno", "main", "func() int", &gp_thunk_Base_errno_), gp::method_of<int64_t()>("explicit", "main", "func() int", &gp_thunk_Base_explicit_), gp::method_of<int64_t()>("gp", "main", "func() int", &gp_thunk_Base_gp), gp::method_of<int64_t()>("int64_t", "main", "func() int", &gp_thunk_Base_int64_t_), gp::method_of<int64_t()>("linux", "main", "func() int", &gp_thunk_Base_linux), gp::method_of<int64_t()>("main", "main", "func() int", &gp_thunk_Base_main), gp::method_of<int64_t()>("major", "main", "func() int", &gp_thunk_Base_major), gp::method_of<int64_t(int64_t, int64_t)>("max", "main", "func(int, int) int", &gp_thunk_Base_max), gp::method_of<int64_t()>("not", "main", "func() int", &gp_thunk_Base_not_), gp::method_of<int64_t()>("putchar", "main", "func() int", &gp_thunk_Base_putchar), gp::method_of<int64_t()>("size_t", "main", "func() int", &gp_thunk_Base_size_t), gp::method_of<int64_t()>("sizeof", "main", "func() int", &gp_thunk_Base_sizeof_), gp::method_of<int64_t()>("std", "main", "func() int", &gp_thunk_Base_std), gp::method_of<int64_t()>("stderr", "main", "func() int", &gp_thunk_Base_stderr_), gp::method_of<int64_t()>("stdin", "main", "func() int", &gp_thunk_Base_stdin_), gp::method_of<int64_t()>("string", "main", "func() int", &gp_thunk_Base_string), gp::method_of<int64_t()>("this", "main", "func() int", &gp_thunk_Base_this_), gp::method_of<int64_t()>("typename", "main", "func() int", &gp_thunk_Base_typename_), gp::method_of<int64_t()>("unix", "main", "func() int", &gp_thunk_Base_unix), gp::method_of<int64_t()>("virtual", "main", "func() int", &gp_thunk_Base_virtual_), gp::method_of<int64_t()>("xor", "main", "func() int", &gp_thunk_Base_xor_)};
 inline int64_t gp_thunk_pBase_EOF_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.EOF called using nil *Base pointer");
     return gp_p->EOF_();
 }
 inline Item gp_thunk_pBase_Item(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Item called using nil *Base pointer");
     return gp_p->Item();
 }
 inline int64_t gp_thunk_pBase_NULL_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.NULL called using nil *Base pointer");
     return gp_p->NULL_();
 }
@@ -362,140 +362,140 @@ inline gp::ptr<Base> gp_thunk_pBase_PSelf(const gp::iface& gp_self) {
     return Base::PSelf(gp::unbox<gp::ptr<Base>>(gp_self));
 }
 inline Pair gp_thunk_pBase_Pair(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Pair called using nil *Base pointer");
     return gp_p->Pair();
 }
 inline Base gp_thunk_pBase_Self(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Self called using nil *Base pointer");
     return gp_p->Self();
 }
 inline void gp_thunk_pBase_SetItem(const gp::iface& gp_self, Item gp_a0) {
-    Base::SetItem(gp::unbox<gp::ptr<Base>>(gp_self), static_cast<Item&&>(gp_a0));
+    Base::SetItem(gp::unbox_borrow<Base>(gp_self), static_cast<Item&&>(gp_a0));
 }
 inline int64_t gp_thunk_pBase_abs(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.abs called using nil *Base pointer");
     return gp_p->abs();
 }
 inline int64_t gp_thunk_pBase_and_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.and called using nil *Base pointer");
     return gp_p->and_();
 }
 inline int64_t gp_thunk_pBase_assert_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.assert called using nil *Base pointer");
     return gp_p->assert_();
 }
 inline int64_t gp_thunk_pBase_default__(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.default_ called using nil *Base pointer");
     return gp_p->default__();
 }
 inline int64_t gp_thunk_pBase_errno_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.errno called using nil *Base pointer");
     return gp_p->errno_();
 }
 inline int64_t gp_thunk_pBase_explicit_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.explicit called using nil *Base pointer");
     return gp_p->explicit_();
 }
 inline int64_t gp_thunk_pBase_gp(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.gp called using nil *Base pointer");
     return gp_p->gp();
 }
 inline int64_t gp_thunk_pBase_int64_t_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.int64_t called using nil *Base pointer");
     return gp_p->int64_t_();
 }
 inline int64_t gp_thunk_pBase_linux(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.linux called using nil *Base pointer");
     return gp_p->linux();
 }
 inline int64_t gp_thunk_pBase_main(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.main called using nil *Base pointer");
     return gp_p->main();
 }
 inline int64_t gp_thunk_pBase_major(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.major called using nil *Base pointer");
     return gp_p->major();
 }
 inline int64_t gp_thunk_pBase_max(const gp::iface& gp_self, int64_t gp_a0, int64_t gp_a1) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.max called using nil *Base pointer");
     return gp_p->max(static_cast<int64_t&&>(gp_a0), static_cast<int64_t&&>(gp_a1));
 }
 inline int64_t gp_thunk_pBase_not_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.not called using nil *Base pointer");
     return gp_p->not_();
 }
 inline int64_t gp_thunk_pBase_putchar(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.putchar called using nil *Base pointer");
     return gp_p->putchar();
 }
 inline int64_t gp_thunk_pBase_size_t(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.size_t called using nil *Base pointer");
     return gp_p->size_t();
 }
 inline int64_t gp_thunk_pBase_sizeof_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.sizeof called using nil *Base pointer");
     return gp_p->sizeof_();
 }
 inline int64_t gp_thunk_pBase_std(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.std called using nil *Base pointer");
     return gp_p->std();
 }
 inline int64_t gp_thunk_pBase_stderr_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.stderr called using nil *Base pointer");
     return gp_p->stderr_();
 }
 inline int64_t gp_thunk_pBase_stdin_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.stdin called using nil *Base pointer");
     return gp_p->stdin_();
 }
 inline int64_t gp_thunk_pBase_string(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.string called using nil *Base pointer");
     return gp_p->string();
 }
 inline int64_t gp_thunk_pBase_this_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.this called using nil *Base pointer");
     return gp_p->this_();
 }
 inline int64_t gp_thunk_pBase_typename_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.typename called using nil *Base pointer");
     return gp_p->typename_();
 }
 inline int64_t gp_thunk_pBase_unix(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.unix called using nil *Base pointer");
     return gp_p->unix();
 }
 inline int64_t gp_thunk_pBase_virtual_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.virtual called using nil *Base pointer");
     return gp_p->virtual_();
 }
 inline int64_t gp_thunk_pBase_xor_(const gp::iface& gp_self) {
-    gp::ptr<Base> gp_p = gp::unbox<gp::ptr<Base>>(gp_self);
+    gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.xor called using nil *Base pointer");
     return gp_p->xor_();
 }
@@ -533,7 +533,7 @@ gpkg_main::Item Base::Item() const {
 }
 
 #line 13 "$DIR/embedding_words.gp"
-void Base::SetItem(gp::ptr<Base> b, gpkg_main::Item i) {
+void Base::SetItem(gp::bptr<Base> b, gpkg_main::Item i) {
 #line 13 "$DIR/embedding_words.gp"
     b->n = i.id;
 #line 13 "$DIR/embedding_words.gp"
@@ -818,7 +818,7 @@ void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{Base{3}, 1});
     { auto gp_t0 = (*o).Base.Item(); auto gp_t1 = (*o).Base.errno_(); auto gp_t2 = (*o).Base.assert_(); auto gp_t3 = (*o).Base.NULL_(); auto gp_t4 = (*o).Base.stdin_(); auto gp_t5 = (*o).Base.max(3, 4); auto gp_t6 = (*o).Base.abs(); auto gp_t7 = (*o).Base.main(); auto gp_t8 = (*o).Base.typename_(); auto gp_t9 = (*o).Base.and_(); auto gp_t10 = (*o).Base.not_(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp_t1, gp_t2, gp_t3, gp_t4, gp_t5, gp_t6, gp_t7, gp_t8, gp_t9, gp_t10, (*o).Base.xor_()); }
     { auto gp_t11 = (*o).Base.default__(); auto gp_t12 = (*o).Base.explicit_(); auto gp_t13 = (*o).Base.virtual_(); auto gp_t14 = (*o).Base.gp(); auto gp_t15 = (*o).Base.std(); auto gp_t16 = (*o).Base.string(); auto gp_t17 = (*o).Base.Pair(); auto gp_t18 = (*o).Base.int64_t_(); auto gp_t19 = (*o).Base.size_t(); auto gp_t20 = (*o).Base.this_(); auto gp_t21 = (*o).Base.sizeof_(); auto gp_t22 = (*o).Base.unix(); auto gp_t23 = (*o).Base.linux(); auto gp_t24 = (*o).Base.major(); auto gp_t25 = (*o).Base.EOF_(); auto gp_t26 = (*o).Base.stderr_(); gp::fmt::Println(gp_t11, gp_t12, gp_t13, gp_t14, gp_t15, gp_t16, gp::fmt::as(&gp_td_Pair, gp_t17), gp_t18, gp_t19, gp_t20, gp_t21, gp_t22, gp_t23, gp_t24, gp_t25, gp_t26, (*o).Base.putchar()); }
-    Base::SetItem(gp::field_ptr(o, &Outer::Base), gpkg_main::Item{9});
+    Base::SetItem(gp::borrow(&(*o).Base), gpkg_main::Item{9});
     { auto gp_t27 = (*o).Base.Self(); auto gp_t28 = Base::PSelf(gp::field_ptr(o, &Outer::Base)); gp::fmt::Println(gp::fmt::as(&gp_td_Base, gp_t27), gp_t28 == gp::ptr<Base>(o, &(*o).Base)); }
 }
 

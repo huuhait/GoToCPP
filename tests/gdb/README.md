@@ -44,6 +44,7 @@ of values.gdb.
 | `robust.gp` | bad memory and the daily commands: a string with a negative length and an interface with a damaged descriptor (`set var`) still print and `gp locals` goes on; boxed variables (`count (int)`, also in a closure); Go expressions in `gp print` (`acc.n`, `*acc`, `len(grid)`, `grid[1][2]`); a 300x300 `[][]int` stays small; float map keys sort by value; `$gp_blocked()` without goroutines is 0; the skip rules (on at load, once, `off`); `step` never stops in the C++ library; a deferred call's `bt` has no helper frames |
 | `chans.gp` | channels: nil, buffered, unbuffered, closed, in an `any`, a slice and a map |
 | `goroutines.gp` | `gp goroutines`: goroutines blocked in a receive, a send, a select and a `select {}`; the breakpoint (`$gp_blocked() == 6`) waits until all six are blocked, so the list never depends on timing; a failing condition ends the program after 40 s, so a broken `$gp_blocked` fails fast; the backtrace of a goroutine thread ends at its Go function |
+| `borrowed.gp` | borrowed pointers (`gp::bptr`, ADR-086): a pointer receiver and a pointer parameter that the function only uses print like owning pointers (`borrowed.lldb` only: lldb session) |
 
 The runtime's frames are filtered out of the golden files (`#filter`): their line numbers change with
 the runtime.

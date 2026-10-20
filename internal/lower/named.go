@@ -391,12 +391,12 @@ func (fg *funcGen) tupleReturn(p cppir.Pos, e ast.Expr) []cppir.Stmt {
 // }; or nil if f itself can be the callable. sig is f's signature, callee the C++ of f: the
 // qualified name of a function of the package, or a func value (closures.go), which the lambda
 // captures by reference (it runs at once).
-func (fg *funcGen) tupleArgs(c *ast.CallExpr, sig *types.Signature, callee cppir.Expr, value bool) cppir.Expr {
+func (fg *funcGen) tupleArgs(c *ast.CallExpr, sig *types.Signature, callee cppir.Expr, value bool, fn *types.Func) cppir.Expr {
 	tuple, ok := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
 	if !ok || !sig.Variadic() && !tupleConvs(tuple, sig.Params()) {
 		return nil
 	}
-	params, args := fg.spreadTuple(c, sig)
+	params, args := fg.spreadTuple(c, sig, fn)
 	body := &cppir.Return{X: &cppir.Call{Fun: callee, Args: args}}
 	lam := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
 	if value {
@@ -409,7 +409,7 @@ func (fg *funcGen) tupleArgs(c *ast.CallExpr, sig *types.Signature, callee cppir
 // in f(g()), gp_e0, gp_e1, ..., and the arguments of f made from them (tupleArgs): each
 // converted to its parameter's type where Go converts it, and those of a variadic parameter in
 // a slice (nil for none). sig is f's signature.
-func (fg *funcGen) spreadTuple(c *ast.CallExpr, sig *types.Signature) ([]cppir.Param, []cppir.Expr) {
+func (fg *funcGen) spreadTuple(c *ast.CallExpr, sig *types.Signature, fn *types.Func) ([]cppir.Param, []cppir.Expr) {
 	tuple := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
 	n := sig.Params().Len()
 	var elem types.Type // of the variadic parameter
@@ -426,7 +426,11 @@ func (fg *funcGen) spreadTuple(c *ast.CallExpr, sig *types.Signature) ([]cppir.P
 		if elem != nil && i >= n-1 {
 			rest = append(rest, fg.g.convertTo(tuple.At(i).Type(), elem, cxxName(name), c.Pos()))
 		} else {
-			args = append(args, fg.g.convertTo(tuple.At(i).Type(), sig.Params().At(i).Type(), cxxName(name), c.Pos()))
+			a := fg.g.convertTo(tuple.At(i).Type(), sig.Params().At(i).Type(), cxxName(name), c.Pos())
+			if fg.g.borrowOf(fn).borrowed(i) {
+				a = lendCall(a) // the lambda's parameter is alive for the call (borrow.go)
+			}
+			args = append(args, a)
 		}
 	}
 	if elem != nil {

@@ -296,14 +296,21 @@ std::tuple<int64_t, bool> add(int64_t a, int64_t b) {
     return {a + b, a + b > 10};
 }
 
-int64_t count(gp::slice<gp::string> names) {
+int64_t count(const gp::slice<gp::string>& names) {
     return gp::len(names);
 }
 ```
 
 - A Go function becomes a C++ function in the package namespace. **Prototypes come first**,
   because C++ needs a declaration before use and Go doesn't.
-- **Parameters are passed by value**, as real copies, as in Go.
+- **Parameters are real copies**, as in Go: a number is passed by value. A string, slice, map,
+  channel, func, interface or pointer (that is not [borrowed](#borrowed-pointers-adr-086)) that the
+  body never assigns is a `const T&`: the call passes a temporary, a constant or a local variable that
+  nothing can change as it is, with no reference count, and a copy of anything else (a package variable,
+  a field, an element, a boxed variable), unless the callee drops no string, pointer, slice, map,
+  interface or func. So `f(x)` where `f` changes `x` through a pointer, a package variable or a field
+  still sees the value it was called with. A parameter that the body assigns (`s += "x"`) is a real
+  by-value copy, and so is one larger than 128 KiB (a `const T&` that the function copies into a box).
 - **Variables get explicit C++ types:** `x := e` becomes `int64_t x = e;`. Only compiler
   temporaries and opaque C/C++ values use `auto`. `var x T` becomes `T x{};` (the Go zero value).
 - **Variadic** `names ...string` is a `gp::slice<gp::string>`. A call `count("a", "b")` becomes
@@ -481,7 +488,7 @@ struct Vec2 {
     double X = 0;
     double Y = 0;
     double Len() const;                           // value receiver
-    static void Scale(gp::ptr<Vec2> v, double k); // pointer receiver
+    static void Scale(gp::bptr<Vec2> v, double k); // pointer receiver (borrowed: v is only read and written)
     bool operator==(const Vec2&) const = default;
 };
 
@@ -490,8 +497,8 @@ double Vec2::Len() const {
     return ::gpkg_math::Sqrt(v.X * v.X + v.Y * v.Y);
 }
 
-void Vec2::Scale(gp::ptr<Vec2> v, double k) {
-    v->X *= k;   // gp::ptr panics on nil like Go
+void Vec2::Scale(gp::bptr<Vec2> v, double k) {
+    v->X *= k;   // gp::bptr panics on nil like gp::ptr and Go
     v->Y *= k;
 }
 ```
@@ -499,12 +506,12 @@ void Vec2::Scale(gp::ptr<Vec2> v, double k) {
 | Go | C++ |
 |---|---|
 | `func (v T) M(a int) int` (value receiver) | a `const` member function that starts with `T v = *this;`. Go gives a value receiver **its own copy**. A `const T&` would see writes made through other pointers while the method runs, and could dangle. A reference is used only when the body provably can't write memory or call unknown code |
-| `func (p *T) M()` (pointer receiver) | `static void M(gp::ptr<T> p);`: the method needs an owning pointer that can escape |
+| `func (p *T) M()` (pointer receiver) | `static void M(gp::bptr<T> p);` when the body cannot keep `p` past the call (it only reads and writes through it, compares it, or lends it to borrowing callees): a raw pointer, no reference count. Otherwise `static void M(gp::ptr<T> p);`, an owning pointer that can escape: stored, returned, captured, converted to an interface, passed to an owning parameter ([Borrowed pointers](#borrowed-pointers-adr-086)) |
 | `p.M()`, value method, `p` a pointer | `p->M()`: auto-deref with a nil check. If `p` is not a local of the caller (a global, a field or an element), the caller first copies it into a local, so the object can't be freed while the method runs |
-| `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)) |
+| `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)): `gp::lend(x)` for a boxed `x` (or `gp::borrow(&x)` for a package variable) when `PM` borrows its receiver, else the box or `gp::static_ptr(x)` |
 | `f := x.M` (method value) | `gp::func<Sig>([gp_r = x](auto&&... gp_a) { return gp_r.M(gp_a...); })`: the receiver is copied **now** (Go evaluates it when the method value is made); `p.M` copies `*p` now, and panics now for a nil `p`; `x.PM` captures the pointer (`&x`, x boxed) |
 | `T.M`, `(*T).PM`, `(*T).M` (method expressions) | `gp::func<Sig>([](auto&& gp_r, auto&&... gp_a) { return gp_r.M(gp_a...); })`, the receiver the first parameter; `(*T).M` of a value method first panics for a nil pointer with Go's `value method main.T.M called using nil *T pointer`; a call `T.M(x, a)` calls the lambda at once, without a `gp::func` |
-| `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))`: the path that `go/types` gives, written out (embedding is allowed from Phase 05; the [forwarding members](#embedding) below are for C++ callers and the method tables, not for these calls) |
+| `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::borrow(&o->Inner))` (`Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))` when `PM` takes an owning pointer): the path that `go/types` gives, written out (embedding is allowed from Phase 05; the [forwarding members](#embedding) below are for C++ callers and the method tables, not for these calls) |
 | `defer x.M(a)` | `gp_df.gp_push_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.M(gp_a1); }, x, a);`: the receiver is stored at the defer statement, a copy of the value for a value method (`defer p.M()` copies `*p` there, and panics there for a nil `p`) |
 
 What the C++ looks like (step 3.10, internal/lower/methods.go):
@@ -523,6 +530,8 @@ What the C++ looks like (step 3.10, internal/lower/methods.go):
   only `len`, `cap`, `min`, `max`, `new`, `make`, `print`, `println`, `panic` and conversions,
   takes no address, has no `defer`, `go` or func literal, and assigns only its own variables
   (or their parts), not `v`. A receiver without a name (or `_`) is not copied.
+- A **borrowed** receiver or parameter (`gp::bptr<T>`, [below](#borrowed-pointers-adr-086)) is a raw pointer that the
+  caller keeps alive; the call writes `gp::lend(p)`, `gp::borrow(&p->f)` or an owning copy.
 - Go's order: the receiver is evaluated with the arguments, as gc does (it makes the receiver the
   first argument): its calls run before the arguments' calls (`h().M(f())` calls `h` first), its
   reads after all of them (`g.M(f())`, where `f` changes `g`, calls `M` on the new `g`, and for a
@@ -543,8 +552,56 @@ What the C++ looks like (step 3.10, internal/lower/methods.go):
 
 Sources: [Phase 03 §2.5](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#25-methods),
 and the example of the [root README §2](../../plans/2026-10-13-gocpp/README.md#2-what-it-looks-like)
-(here with `math.Sqrt` instead of the C++ `std.sqrt`). Phase 15 may turn pointer methods that
-don't escape into normal member functions on `this`.
+(here with `math.Sqrt` instead of the C++ `std.sqrt`). Phase 15 step 15.3 borrows the pointers that don't
+escape ([ADR-086](../adr/086-borrowed-pointer-parameters-and-receivers.md)).
+
+### Borrowed pointers (ADR-086)
+
+A pointer parameter or receiver that the callee only reads and writes through, compares, or lends on is
+`gp::bptr<T>` (`gp::ptr<T>` converts to it implicitly): a raw `T*` with `->`, `*`, `==` and Go's nil checks, 8
+bytes, no reference count.
+
+```go
+type base struct{ n int }
+func (b *base) add(k int) { b.n += k }          // b is only used through: borrowed
+type mid struct{ base; k int }
+func (m *mid) add(k int) { m.base.add(k * 2) }  // passes the address of its field: borrowed too
+type top struct{ *mid }
+func main() {
+	t := top{&mid{}}
+	t.add(1)                                    // the pointer is loaded from a field: lent, the callee is pure
+}
+```
+
+```cpp
+void base::add(gp::bptr<base> b, int64_t k) { b->n = b->n + k; }
+void mid::add(gp::bptr<mid> m, int64_t k) { base::add(gp::borrow(&m->base), k * 2); }  // no aliasing pointer
+void main() {
+    gp::ptr<top> t = gp::new_<top>(top{.mid = gp::new_<mid>(mid{})});
+    mid::add(gp::lend((*t).mid), 1);
+}
+```
+
+- **Callee** (`internal/lower/borrow.go`): `p` is borrowed unless it escapes: stored (also `x := p`), returned,
+  captured by a func literal, converted to an interface, sent, used by `go` or `defer`, passed to a parameter
+  that is not borrowed, an interface method, a func value or C/C++, reassigned, address-taken, a method value,
+  converted, or `&p.f`/`p.arr[:]` that does not go straight into a borrowed parameter. A generic function, a
+  method of a generic type, an aware function (`recover`), an `//export` function and, in a library build, an
+  exported function keep owning pointers.
+- **Caller** (`borrowemit.go`): the object must be alive until the call returns. `gp::lend(x)` passes a
+  temporary, a local that is not boxed, a borrowed parameter, a box, or the address of a part of such an object
+  (`gp::borrow(&x->f)`, `gp::borrow(&pkgVar)`); a pointer loaded from a field, an element, a package variable
+  or a box is lent as it is only to a **pure** callee (it stores no pointer, slice, map, interface or func
+  outside its locals, runs no unknown code) while no other argument runs code; anything else is copied first,
+  `gp::ptr<T>(x)`, as every call was. `go` and `defer` store owning copies and call such a function through a
+  lambda that lends them; func values and method values of it are lambdas that lend their parameters.
+- **Const references** (step 15.3b): a parameter that is not borrowed and that the body never assigns is
+  a `const T&` (strings, slices, maps, channels, funcs, interfaces, pointers that are kept); `refStable`
+  in `borrowemit.go` says when the call passes its argument as it is. Func values and callbacks of such a
+  function are `gp::func_of<&gp::adapt<&f>::call>()`, the adapter that takes the Go-level parameters.
+- **Interfaces**: the thunk of a pointer method with a borrowed receiver calls
+  `T::M(gp::unbox_borrow<T>(gp_self), ...)`, no copy; the call site copies an interface value that the method
+  could change (`Shape(x).M()` for a field, element, package or boxed variable).
 
 ## Structs and named types
 
@@ -921,10 +978,10 @@ struct User {
     gp::string Name;
     ...
     int64_t Get() const;                    // forwarders of the promoted methods (below)
-    static void Touch(gp::ptr<User> gp_p);
+    static void Touch(gp::bptr<User> gp_p);   // Touch borrows its receiver, so does its forwarder
 };
 int64_t User::Get() const { return (*this).Base.Get(); }
-void User::Touch(gp::ptr<User> gp_p) { gpkg_main::Base::Touch(gp::field_ptr(gp_p, &User::Base)); }
+void User::Touch(gp::bptr<User> gp_p) { gpkg_main::Base::Touch(gp::borrow(&gp_p->Base)); }
 ```
 
 - An embedded field is a data member named after its type (`Base`; for a pointer or an alias the name of
@@ -1807,12 +1864,12 @@ inline const gp::type_desc* Shape::gp_desc() { return &gp_td_Shape; }
 // one thunk per method of each named type: R(const gp::iface& self, Args...)
 inline double gp_thunk_Rect_Area(const gp::iface& self) { return gp::unbox<Rect>(self).Area(); }
 inline double gp_thunk_pRect_Area(const gp::iface& self) {   // the same method through a *Rect
-    gp::ptr<Rect> p = gp::unbox<gp::ptr<Rect>>(self);
+    gp::bptr<Rect> p = gp::unbox_borrow<Rect>(self);   // the interface value holds the object: no copy
     gp::check_wrap(p, "value method main.Rect.Area called using nil *Rect pointer");
     return p->Area();
 }
 inline void gp_thunk_pRect_Scale(const gp::iface& self, double k) {
-    Rect::Scale(gp::unbox<gp::ptr<Rect>>(self), k);
+    Rect::Scale(gp::unbox_borrow<Rect>(self), k);       // Scale borrows its receiver (ADR-086)
 }
 
 // the method tables, sorted (exported names by name, then unexported ones by name and package)

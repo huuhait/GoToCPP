@@ -93,19 +93,7 @@ func (g *gen) awareFunc(fn *types.Func) bool {
 		}
 		return false
 	}
-	if g.funcDecls == nil {
-		g.funcDecls = make(map[*types.Func]*ast.FuncDecl)
-		for _, f := range g.pkg.Load.Files {
-			for _, d := range f.AST.Decls {
-				if d, ok := d.(*ast.FuncDecl); ok && d.Body != nil {
-					if obj, ok := g.info.Defs[d.Name].(*types.Func); ok {
-						g.funcDecls[obj] = d
-					}
-				}
-			}
-		}
-	}
-	d := g.funcDecls[fn.Origin()]
+	d := g.declOf(fn.Origin())
 	return d != nil && g.awareBody(d.Body)
 }
 
