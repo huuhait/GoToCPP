@@ -1,14 +1,33 @@
 # gocpp · TODO
 
 **Legend:** `[ ]` todo · `[~]` doing · `[x]` done
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-20
 
 Keep this list short: only what is next. The full step lists live in each phase's `STATE.md`.
 Every item is built through the manager → coder → reviewer loop in [WORKFLOW.md](WORKFLOW.md).
 
 ---
 
-## Now: Phase 01 (front-end)
+## Now: resumed jobs (2026-10-20)
+
+- [~] 11.14: fix the round-2 line-mapping diagnostic mismatch, then re-review. Every-row gopls and final-HEAD performance acceptance remain open.
+- [~] 12.14: independent re-review after removing the unsound smaller preamble and fixing
+  prefetch cancellation while preserving the independent PCH improvements.
+  Keep cold first-run performance separate from a run that retains a precompiled header;
+  the < 0.5 s exit criterion is not yet met for every example.
+- [~] 15.2: independent whole-net re-review after fixes for local-array element references,
+  shared stack budgets and generic-instance integration; manager checks still pending.
+- [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
+- [~] 15.7a: independently check compiler-cache launcher support and measure a small real-cache workflow; remaining 15.7 generic-body/module work stays open.
+- [ ] Next: 12.13 typed-interop editor support and 9.13 release-candidate prerequisites;
+  then 15.6, 15.7 and 15.4 in dependency order.
+
+At most five active workers, including reviewers; start the next review as its coder releases a slot.
+Only necessary focused checks. No `make ci`, `verify.sh` or full sweeps by any worker or
+manager. The user owns the final manual broad verification. Review findings are handed
+back together after each round; workers report only at completion or a genuine blocker.
+
+## Historical front-end checklist
 
 - [x] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check` — done 2026-10-19: internal/load and internal/check exist (Phase 01 done: steps 1.9, 1.10)
 - [x] After M1: language server v0 (Phase 11 early track: diagnostics, hover, go-to-definition, completion, formatting; about 2 weeks, see STATE timeline) — done 2026-10-14

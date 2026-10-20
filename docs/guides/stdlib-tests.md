@@ -100,9 +100,15 @@ and counts as a hang. The columns:
 98.2 % of the selected functions pass (1606 of the 1635 that remain without the 26 divergences), and 90.8 % of all the 1769 functions of Go's test files for these packages.
 
 **`os` is the weak row, and the headline needs that qualifier.** `os` is 91.1 % of its selected functions but only **58.6 % of all its 278 functions** (57.6 % before the review of step 9.10
-took `exec_unix_test.go` and half of `TestHostname` into the selection). The budget is met on the selected files only because `os.Root`, deadlines, processes and fifo/zero-copy are not built:
-their 98 functions are in files that are not taken, and the 15 functions cut out of selected files count as not passing. Do not read the table as "every package is over 90 %" without that:
+took `exec_unix_test.go` and half of `TestHostname` into the selection). The budget is met on the selected files only; 98 functions are in files that are not taken (Root, deadlines, processes and
+fifo/zero-copy coverage), and the 15 functions cut out of selected files count as not passing. Do not read the table as "every package is over 90 %" without that:
 every package is over 90 % of its *selected* functions, and `os` is the one where the selection leaves out the most. No other package is below 86 % of all its functions.
+
+**Selection is not current API status.** The committed `os` conversion excludes the upstream deadline files with
+historical “blocking-mode internal/poll” reasons. Linux pollable files now implement deadlines and close-wakeup
+(`stdlib/internal/poll/PORT.md`, `tests/run/os_poll_*.gp`); Windows still returns `ErrNoDeadline`.
+This guide reports the unchanged manifest selection and recorded results, not a rerun that adds those tests.
+See the [current library status](stdlib.md#what-differs-from-go) before treating an exclusion reason as a missing API.
 
 ## What fails, and why
 
@@ -110,7 +116,7 @@ Every function that does not pass is listed with its reason by `go run ./tools/s
 
 - **Allocation counts** (`AllocsPerRun`; 25 functions, class `divergence`): gocpp counts C++ `operator new`, and a `string(bytes)` or `append(s, make(S, n)...)` allocates a temporary
   where Go does not. The allocation checks are not patched out: a test with one counts as a divergence as a whole, so no pass comes from a test with its check removed.
-- **Not in gocpp**: `os.StartProcess`, `os/exec` and `os/signal` (the tests that start processes), `os.Root`, read and write deadlines, the zero-copy `ReadFrom` and `WriteTo`
+- **Unavailable APIs or excluded coverage**: `os.StartProcess`, `os/exec` and `os/signal` (the tests that start processes), `os.Root`, the upstream read/write deadline files (see the selection caveat above), the zero-copy `ReadFrom` and `WriteTo`
   (`copy_file_range`, `splice`, `sendfile`), `internal/syscall/unix` (nonblocking opens), `syscall.Mmap`, package `net` (sockets, `net.IP`), `net/http`, `encoding/gob`, `testing/synctest`,
   `runtime.AddCleanup`, `GODEBUG=asynctimerchan`, and the `GOROOT/lib/time/zoneinfo.zip` that Go's `time` tests read (they read the zone database of the machine here).
 - **Bugs of gocpp that the tests found** (not fixed; each has a reason in its manifest): a slice of zero-size elements (`[]struct{}`) with a huge length costs one byte for each element, so

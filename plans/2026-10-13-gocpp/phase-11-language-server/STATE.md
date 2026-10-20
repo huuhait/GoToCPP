@@ -29,6 +29,7 @@
 - [x] 11.11 Benchmark harness + 3 reference projects + CI gate + gopls side-by-side table
 - [x] 11.12 Profiling/tracing/slow-request log + random-edit differential test
 - [x] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro (whole-current-net review clean at `c69600da`; manager focused and receiver-integration checks passed)
+- [~] 11.14 Fresh-typing and completion speed pass (ADR-115): round-2 review found a quick-publication mismatch with existing line mappings; conservative decline and regression fixes underway. Historical all-round results do not meet the every-row gopls goal, and final-HEAD performance remains unmeasured.
 
 ## Exit criteria
 

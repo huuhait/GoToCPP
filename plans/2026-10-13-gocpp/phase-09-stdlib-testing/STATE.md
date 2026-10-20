@@ -1,6 +1,6 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1-9.11 and 9.7a merged; open: 9.12, 9.13)
+**Status:** `[~]` in progress (9.1-9.12 and 9.7a merged; open: 9.13 and remaining exit criteria)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -26,7 +26,7 @@
 - [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
 - [x] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule (merged 2026-10-20, ADR-113; `go run ./tools/stdgocount -check`; guide docs/guides/stdlib-tests.md)
 - [x] 9.11 Tier-2 packages (`encoding/json` first)
-- [ ] 9.12 Docs (package list, differences, porting guide)
+- [x] 9.12 Docs (package list, differences, porting guide): independent round-2 review clean; manager inventory, links, snippets and whitespace checks passed
 - [ ] 9.13 v0.1 release candidate
 
 ## Exit criteria
@@ -39,6 +39,16 @@
 - [ ] `encoding/json` round-trips like Go
 
 ## Decisions / notes
+
+- 2026-10-20: 9.12 integrated from reviewed source `b5c96982`. The checked inventory covers
+  51 public and 20 internal packages; target columns describe source selection, not platform
+  conformance, and manifest columns count selected/all functions, not passing functions.
+  The guide documents current Go differences and an exercised offline `path` porting example.
+  Round-1 review found a raw-pointer ownership overstatement; the guide and language spec now
+  distinguish ordinary addresses from owner recovery for registered, still-live C++ boxes.
+  Independent round-2 review is clean. Manager checks passed: inventory/claims tests,
+  docsite (219 pages, no broken link), documentation snippets and whitespace. No full suite,
+  new Windows run or release tag; 9.13 and other Phase 09 exit criteria remain open.
 
 - 2026-10-20: 9.10 merged after two review rounds. Decisions: whole-file `skip_file` with a written
   reason is acceptable under §2.8 when the headline also gives the all-functions number (os 58.6 %);

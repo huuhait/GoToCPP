@@ -61,6 +61,7 @@ guides/llvm-tools.md | LLVM tools
 guides/generics-compile-time.md | Compile time of generics
 
 # Standard library
+guides/stdlib.md | Packages and Go differences
 stdlib/index.html | Reference
 ~ stdlib/*.html
 ~ stdlib/*/*.html

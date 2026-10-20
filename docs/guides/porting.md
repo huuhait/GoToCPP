@@ -2,7 +2,8 @@
 
 Most of gocpp's standard library is Go's own source, copied by `tools/portstd` (ADR-018, Phase 09 README section 2.1).
 This guide says how to run the tool, what it changes, and how to add a package. What blocks each tier-1 package is in
-[porting-blockers.md](porting-blockers.md).
+[porting-blockers.md](porting-blockers.md). For what is actually shipped (as opposed to what an upstream
+package needs), start with the [stdlib inventory and Go differences](stdlib.md).
 
 ```sh
 go run ./tools/portstd                     # port every package of tools/portstd/ports.txt into stdlib/
@@ -118,8 +119,13 @@ sync.runtime_Foo      TODO: written by 8.7      # no native yet: the port is ref
 
 The key is the target of the function's `//go:linkname` (`runtime.nanotime`), or the package-qualified name of the function
 (`sync.runtime_Semacquire`) when it has none. The marker goes at the end of the doc comment, after a `//` line, as ADR-027 shows.
-A function-typed parameter is a `gp::func<...>` and a handle that the native owns is a `uintptr` (`iter`'s coroutines, ADR-078: `patches/iter.rules` turns Go's `*coro` into one). The argument-less form (`local`) is the one Phase 09 reserves: the loader still rejects it (`internal/load/native.go`); step 9.2,
-the first step that writes natives with bodies in `.cpp` files (`internal/bytealg`), builds it.
+A function-typed parameter is a `gp::func<...>` and a handle that the native owns is a `uintptr` (`iter`'s coroutines, ADR-078: `patches/iter.rules` turns Go's `*coro` into one).
+**Only the named form works today.** The tool accepts `local` and emits an argument-less marker,
+but `internal/load/native.go` rejects it with `usage: //gocpp:native C++function`. It is not a way
+to build a package-local `.cpp` implementation. Existing natives (including `internal/bytealg`)
+name runtime functions declared in a header included by `gocpp/rt.hpp` and implemented in
+`runtime/src/`. The marker is standard-library-only, on a plain bodyless function: no methods or
+generic functions. Keep a generic wrapper in `.gp` when it needs a non-generic native hook.
 
 ## Patch files: `tools/portstd/patches/<import path with / as __>.rules`
 
@@ -177,13 +183,87 @@ A `patches/*.rules` file whose package is not in `ports.txt` is ignored with a w
 
 ## Adding a package
 
-1. `go run ./tools/portstd -list <pkg>`: the files, the imports and what blocks it. Everything it imports that is not ported must
-   exist first (`-list` prints the order; `boundary.txt` says who provides the packages that are never ported: `runtime`,
-   `syscall`, `internal/bytealg`, `sync`, `reflect`, ...).
-2. Add a line to `ports.txt` (with `os=`/`tags=` if the default does not fit) and run the tool. Fix each blocker: an entry in
-   `natives.txt`, a patch rule with a reason, or a shim package.
-3. Write a test program in `tests/run/` (`// phase: 09`, compared with real Go: `GOCPP_RUN_VS_GO=1`) that imports the package.
-4. `go run ./tools/portstd -check -fetch`, commit `stdlib/<pkg>/`, `stdlib/PORTED.txt`, the `ports.txt` line and the rules.
+1. **Inventory the dependency closure.** Run `go run ./tools/portstd -list <pkg>` for the target
+   selection. Every imported package must be present first (`-list` prints the order;
+   `boundary.txt` identifies providers such as `runtime`, `syscall`, `internal/bytealg`, `sync`
+   and `reflect`). Check actual exported APIs too: a shim can import successfully without
+   implementing the operation the new package needs. Compare with the [current inventory](stdlib.md),
+   not just the upstream blocker table.
+2. **Select files deliberately.** Add a line to `ports.txt`; specify `os=linux,windows` where
+   OS-specific source is needed, and `arch=`/`tags=` only with a reason. Check the union of files
+   in `PORT.md`, not just the Linux build. The usual `generic` architecture plus `purego` avoids
+   assembly; changing to `amd64` can reintroduce assembly declarations. Keep the pinned tarball
+   and hash of `PINS`, not a copy of the machine's GOROOT.
+3. **Resolve each boundary.** Use `natives.txt` for runtime-provided operations and `.rules` for
+   exact, reasoned source changes. A shim must preserve the API/semantics needed by its consumers;
+   do not call a no-op a complete port. Distinguish Go-runtime layout assumptions, reference
+   cycles under ARC, and unavailable OS operations. `portstd` refuses unresolved blockers;
+   `-force` is an inspection aid, not a finished port.
+4. **Generate and review.** Run `go run ./tools/portstd <pkg>`. Review every selected/skipped file,
+   patch and native in `PORT.md`. Commit the `.gp` files, `PORT.md`, `PORTED.txt`,
+   `PORTED.sha256`, configuration and patches together. If replacing a stub, also do the steps
+   in [Replacing a stub](#replacing-a-stub-or-a-hand-written-package).
+5. **Test a consumer and Go's tests.** Add a small `tests/run/` program (`// phase: 09`, output
+   compared with real Go using `GOCPP_RUN_VS_GO=1`). For the upstream test suite, add a
+   `tools/portstd/gotests/std/<pkg with / as __>.py` specification and use
+   `convert_std.py`, not the older `convert.py` fixture-copy route. The converted tests must
+   exercise the shipped package through `GOCPP_TEST_STDLIB`, not an independent copy of its
+   implementation. [The test guide](stdlib-tests.md) explains test-only helpers, `SHIMS`,
+   `EXTRA`, exact patches and expected failures.
+6. **Count honestly and check regeneration.** Run `tools/stdgocount -check -detail` for that
+   package. A skip, dropped test, excluded file or known compiler bug is not a pass. The budget
+   is passed / (selected - documented divergences); also report passed / all, so excluding a
+   difficult file cannot hide reduced coverage. Refresh the [inventory](stdlib.md#reading-the-inventory),
+   run the focused test(s) and the offline port check, then review the generated diff.
 
-If the ported code does not compile with gocpp, that is a compiler bug (or an unsupported construct): record it as
-`file:line: construct: error`, not as a patch, unless Go's code really needs a different shape.
+If the ported code does not compile with gocpp, record `file:line: construct: error` and determine
+whether it is a compiler bug or an unsupported construct. Do not silently rewrite a failing
+assertion into success. A necessary adaptation belongs in a patch with its reason; an unsupported
+test belongs in the manifest with its reason and remains visible in the count.
+
+## Worked example: regenerate and test `path`
+
+`path` is already shipped, small and portable; this exercise adds no dependency or new upstream
+package. It uses the pinned Go 1.25.14 tarball already in the portstd cache. If the source is not
+cached, the offline command stops: populate the cache with the approved source download first
+(`go run ./tools/portstd -check -fetch` without `GOCPP_OFFLINE=1`), rather than falling back to
+GOROOT. Run from the repository root in `nix develop`.
+
+The following commands were exercised on Linux/amd64. The output directory is disposable;
+none of them rewrites the shipped port or the committed converted tests.
+
+```sh
+work=$(mktemp -d)
+go run ./tools/portstd -offline -o "$work/stdlib" path
+cmp stdlib/path/path.gp "$work/stdlib/path/path.gp"
+cmp stdlib/path/match.gp "$work/stdlib/path/match.gp"
+cmp stdlib/path/PORT.md "$work/stdlib/path/PORT.md"
+
+GOCPP_TEST_STDGO_OUT="$work/stdgo" python3 tools/portstd/gotests/convert_std.py path
+cmp tests/stdgo/manifest/path.json "$work/stdgo/manifest/path.json"
+go build -o "$work/gocpp" ./cmd/gocpp
+
+GOCPP_GATE_PHASE=09 GOCPP_MODCACHE=off GOCPP_OFFLINE=1 XDG_CACHE_HOME="$work/cache" \
+  go run ./tools/stdgocount -gocpp "$work/gocpp" -stdgo "$work/stdgo" \
+  -work "$work/count" -j 1 -timeout 1m -check -detail path
+
+GOCPP_GATE_PHASE=09 GOCPP_MODCACHE=off GOCPP_OFFLINE=1 XDG_CACHE_HOME="$work/cache" \
+  GOCPP_TEST_STDLIB="$work/stdgo" "$work/gocpp" test -v -timeout 1m path
+```
+
+The port command reported `path: 2 file(s)`; all three source/provenance comparisons and the
+manifest comparison were identical. `PORT.md` records `path.go` and `match.go`, `os=linux`,
+`arch=generic`, `purego`, no patches and no natives. `std/path.py` is simply
+`FILES = ['all']`; it selects three test files. `stdgocount` reported **17 selected, 17 passed,
+0 failed/skipped/dropped/divergences, 100% selected and overall**. The direct `gocpp test`
+confirmed the same nine tests and eight examples.
+
+One important qualification: `TestCleanMallocs` prints “skipping AllocsPerRun checks;
+GOMAXPROCS>1” and returns normally on this machine. The top-level function passes, but that is
+**not evidence of Go-identical allocation counts**. Read the test log as well as the percentage.
+The general allocation divergence is described in the [test guide](stdlib-tests.md#what-fails-and-why).
+
+The tests run against the compiler's embedded `stdlib/path`, whose generated files were just
+compared with the regenerated port. The overlay contains tests, not a second production
+implementation. To port another package, follow the checklist above instead of copying
+`path`'s lack of patches: runtime hooks, OS selection and test exclusions vary by package.

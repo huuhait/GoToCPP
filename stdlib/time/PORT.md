@@ -22,5 +22,6 @@ Ported by hand from go1.25.14's `src/time` (`format.go`, `format_rfc3339.go`, `s
   `stopTimer` and `resetTimer` of Go's runtime are `startChan` or `startFunc`, `stopTimer` and `resetTimer` here. `sendTime` takes
   the channel, not an `any`, and sends with `trySend` (Go: a `select` with `default`). `Sleep(d)` calls the native `sleep(int64(d))`.
 - **Zone sources**: `platformZoneSources` is Go's list without the NixOS patch's store path (`/usr/share/zoneinfo/`,
-  `/usr/share/lib/zoneinfo/`, `/usr/lib/locale/TZ/`, `/etc/zoneinfo`); `zoneinfo_windows.gp` is a stub until Phase 14
-  (UTC; `ZONEINFO` still works). `sys.gp` has no build tag (the natives are standard C++).
+  `/usr/share/lib/zoneinfo/`, `/usr/lib/locale/TZ/`, `/etc/zoneinfo`); `zoneinfo_windows.gp` still uses UTC for `Local`,
+  with no Windows registry zone discovery (`ZONEINFO` works for named zones). `sys.gp` has no build tag
+  (the natives are standard C++).

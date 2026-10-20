@@ -8,7 +8,7 @@
 
 ### Performance
 - [x] 15.1 Benchmark suite (gocpp vs Go vs C++) + per-commit tracking on a fixed machine + 5 % regression gate
-- [ ] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`
+- [~] 15.2 Escape analysis (unknown code = escaping) + `-gp:m`: review fixes and focused coder checks complete in `job/15.2`; independent whole-net re-review underway, manager checks pending
 - [x] 15.3 Receiver and parameter optimizations (whole integrated/test-reliability review clean at `e91d0ced`; manager focused production, fixture and corrected generator checks passed)
   - [x] non-escaping pointer receivers/parameters use `gp::bptr<T>` rather than `this` (ADR-086); callers retain owners unless stability/purity proves lending safe
   - [x] `const&` ABI with owning snapshots for mutable/captured sources and implicit foreign work; defer/go collect owning values
@@ -16,7 +16,10 @@
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
 - [x] 15.5 Swiss-table maps
 - [ ] 15.6 Devirtualization + bounds-check help
-- [ ] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
+- [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
+  - [~] 15.7a External compiler-cache integration and evidence: existing launcher workflow,
+    focused correctness checks, and a small cache-hit measurement; independent review pending
+  - [ ] Generic-type body placement and C++20 modules evaluation remain separate, unstarted work
 
 ### Robustness
 - [x] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)

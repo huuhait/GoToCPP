@@ -33,8 +33,8 @@ What is different (a goroutine is an OS thread, memory is reference counted, ADR
 - `TypeAssertionError` and `PanicNilError` are the types of the panics that the runtime makes. The runtime makes
   them before the package is loaded (a program that does not import `runtime` never names them), and `init` of the
   package hands it the package's own values (`gp::runtime::set_panic_values`) so `r.(*runtime.PanicNilError)` works.
-- `GOOS` and `GOARCH` are the constants `linux` and `amd64`, whatever the target: a Phase 15 task when other targets
-  build programs.
+- `GOOS` and `GOARCH` are `goos.GOOS` and `goarch.GOARCH`, selected from `internal/goos` and `internal/goarch`
+  for the compilation target (step 14.3), not necessarily the host running the compiler.
 - `Pinner` does nothing (memory does not move).
 
 Not built: `AddCleanup`, `Breakpoint`, `CPUProfile`, `MemProfile`, `BlockProfile`, `MutexProfile`, `GoroutineProfile`,

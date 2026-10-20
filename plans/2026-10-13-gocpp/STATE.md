@@ -1,7 +1,7 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** Phases 00-05 and 07 done. Nearly done: 06 (open: 6.4 `gp::lazy<T>`, 6.14 plugin test) and 08 (open: one TSan run of `tests/race`). Under way: 09 (open: 9.12, 9.13; native-fmt audit and tier-2 packages merged), 10 (10.11-10.13), 11 (11.13 editor support merged; final performance vs gopls and editor acceptance still open), 12 (12.13, cold probing), 13 (13.3b missing vet analyzers), 14 (14.2 follow-ups, 14.8 docs, exit criteria), 15 (15.2, 15.4, 15.6, 15.7, 15.12, 15.16; receiver/parameter optimization merged). See [HANDOFF.md](HANDOFF.md).
+**Current focus:** Continue 11.14 (LSP line-mapping review fix), 12.14 (cold-probing re-review), 15.2 (escape-analysis re-review) and 15.7a (compiler-cache integration), with at most five active workers. Step 9.12 documentation is integrated after clean review and manager focused checks; 9.13 preparation is next. Phases 00-05 and 07 are done. Nearly done: 06 (6.4, 6.14) and 08 (TSan exit criterion). Other open work: 9.13; 10.11-10.13; 11 final performance vs gopls and editor acceptance; 12.13; 13.3b; 14.2 follow-ups, 14.8 and exit criteria; 15.4, 15.6, 15.7, 15.12 and 15.16. Steps 9.10, 12.12 and 14.6 are merged. No full verification is claimed; broad final checks remain the user's manual work. See [HANDOFF.md](HANDOFF.md).
 **Last updated:** 2026-10-20
 **Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 

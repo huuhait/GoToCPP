@@ -508,17 +508,22 @@ func sum(data []byte) C.uint {
 - **Go:** an `unsafe.Pointer` keeps its target alive, because the garbage collector sees it.
 - **gocpp:** the same for gocpp objects. `unsafe.Pointer` is an owning pointer, and
   `unsafe.String`, `unsafe.Slice` and `unsafe.SliceData` keep the owner too. But:
-  - a pointer that comes **from C** owns nothing (and so does `unsafe.Pointer(uintptr)`, which
-    has no object to share: the pattern `unsafe.Pointer(uintptr(p) + off)` still works, since `p`
-    keeps the object alive);
+  - an ordinary raw pointer from C, or `unsafe.Pointer(uintptr)` at an unregistered address,
+    does not recover the original owner. There is a specific exception: conversion at the exact
+    address of a registered, still-live gocpp-owned C/C++ box recovers and shares that box's owner
+    (`unsafe_from_addr` / `raw_owned` in [the runtime](../../runtime/include/gocpp/unsafe.hpp) and
+    [the box registry](../../runtime/include/gocpp/ptr.hpp)). A `uintptr` itself never owns memory;
+    keep an owning reference alive across the raw-address interval. Arbitrary or interior addresses
+    have no such owner-recovery guarantee;
   - `(*T)(p)` of a misaligned `unsafe.Pointer` ends the program ("fatal error: checkptr:
     misaligned pointer conversion", as Go's `-race` or `-d=checkptr` modes report it), where Go
     reads it without a word on amd64: in C++ the read would be undefined behavior. The natural
     false failure is a packed C struct (`#pragma pack(1)`): `(*C.int)(unsafe.Pointer(&r.x))` of
     its unaligned field, and `unsafe.Pointer(uintptr(buf) + 1)` read as a `uint32`;
   - `unsafe.Pointer(uintptr(unsafe.Pointer(&x)) + off)` in one expression is Go's valid pattern and
-    points into the object that `x` keeps alive; a stored result owns nothing, so it doesn't keep
-    `x` alive after `x` and `p` are gone, where Go's garbage collector would;
+    points into the object that `x` keeps alive. Unless the exact-address box recovery above applies,
+    storing the reconstructed pointer does not retain `x`'s owner, unlike Go's garbage collector:
+    keep an owning reference to `x` for as long as the reconstructed pointer is used;
   - a `*T` of a C/C++ type that gocpp code declares (a variable, parameter, result, field or
     element) is a `gp::cptr<T>`: it owns or aliases what it points to, as Go's pointer does, and
     converts to the raw `T*` that C takes (so `&T{...}`, `&s.f` and `&xs[i]` can be returned, stored

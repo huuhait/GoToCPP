@@ -1,8 +1,8 @@
 # Phase 12: Typed C++ Interop via Clang · STATE
 
-**Status:** `[~]` in progress (12.1-12.12 merged; open: 12.13 and exit criteria: cold probing, clang 17-20, Windows)
+**Status:** `[~]` in progress (12.1-12.12 merged; 12.14 cold-probing improvements in review-fix round; 12.13 and full exit criteria remain open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 ## Steps
 
@@ -35,6 +35,10 @@
   - [ ] member completion on C++ values (`-Xclang -code-completion-at` fallback)
   - [ ] hover + go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
+- [~] 12.14 Cold typed-probing improvements (ADR-117): round-3 fixes remove the smaller
+  preamble and its stale decision cache and make prefetch cancellation-aware. Independent
+  re-review underway. Current raylib cold overhead is about 0.85 s; retained-PCH overhead is
+  about 0.65 s, not a cold first run. Every-example cold < 0.5 s remains unmet.
 
 ## Exit criteria
 

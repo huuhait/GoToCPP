@@ -1,6 +1,42 @@
 # Handoff: where the work is
 
-## Resume checkpoint — 2026-10-20
+## Active continuation — 2026-10-20
+
+This section supersedes the older checkpoints below. The user asked to continue the work
+and plan, keeping the latest limit of **five active workers total**, including reviewers.
+
+`dev` is `94c4a6d9`, synchronized with `origin/dev` at recovery. The most recent completed
+jobs are 12.12 (typed-interop tests), 9.10 (Go's own tests), and 14.6 (Windows debugging and
+target-aware typed probes), plus the environment-variable listing fix. The main checkout
+has no tracked pending changes; user-owned `c4/` remains untracked and untouched.
+
+| Job | Existing worktree / branch | Resume gate |
+|---|---|---|
+| 11.14 LSP speed pass | `../GoToCPP-11.14` / `job/11.14` | Round-2 review found quick diagnostics mishandling existing line mappings; coder is adding a conservative decline and regression tests. Historical measurements do not establish an every-row gopls win or final-HEAD performance. |
+| 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Round-3 fixes remove the smaller-preamble shortcut and make prefetch cancellation-aware while retaining PCH work. Independent re-review underway. Current raylib evidence still misses cold < 0.5 s; other measurements are historical. |
+| 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Review fixes and focused coder checks complete on `455eba4b` plus staged binary deletions and uncommitted fixes. Independent whole-net re-review underway; no clean approval yet. |
+| 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
+| 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Independent build-driver subtask started from a clean fast-forward to `94c4a6d9`; inspect/test existing launcher support before adding any mechanism. Generic-body/module work remains unstarted. |
+
+One coder and one independent reviewer per job, sequentially: no subject edits during review,
+no delegation by workers, and final reports only except genuinely blocked decisions. Five
+workers are now active, including the independent 15.7a build-driver subtask. Start the next
+review when its coder finishes and releases a slot; never fill slots with blocked work.
+After these jobs, resume 12.13 editor integration and the 9.13 release-candidate prerequisites,
+then 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is not waived by merging
+an independently reviewed partial improvement.
+
+Only necessary focused checks may run. Nobody runs `make ci`, `verify.sh`, full test,
+interop, phase or sanitizer sweeps; final broad verification belongs to the user. Heavy work
+uses the existing `testslot.sh`, bounded timeouts and isolated caches. Windows testing uses
+the real PC over SSH, never Wine. Never delete another job's temporary files. The manager
+pushes `origin dev` after every dev commit, never force-pushing.
+
+The manager's local recovery notes retain the original tickets, test receipts and review
+findings. The previous queue stopped updating before the four resumed jobs were launched;
+use this checkpoint and the latest reviewed state rather than its historical worker list.
+
+## Earlier resume checkpoint — 2026-10-20
 
 This checkpoint supersedes the historical focus, resource and validation instructions below.
 At recovery, `dev` is `69364ffc` (9.11 merged); `origin/dev` has no local commit difference.

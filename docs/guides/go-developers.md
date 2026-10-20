@@ -111,7 +111,16 @@ Three additions, each of them optional and each of them off unless you write the
   implementation yet.
 
   <!-- stdlib: native-stubs fmt weak -->
-  `fmt` and `weak` are stubs too, but the runtime implements them itself.
+  `fmt` and `weak` have declaration stubs too, but the compiler/runtime implements them itself.
+
+  `fmt` is deliberately a native print/scan engine, not a port of Go's package through `reflect`
+  ([ADR-100](../adr/100-fmt-stays-native-decision-9-7-a.md)).
+
+  The [stdlib status guide](stdlib.md) lists every public and internal package with its source,
+  target selection, tier and Go-test manifest coverage. It also describes the smaller `runtime`
+  and `os` surfaces, fixed stacks, timezone sources, and other [library differences](stdlib.md#what-differs-from-go).
+  A package being present does not imply that every Go API is implemented; in particular
+  `os.Root` and process creation are not built. Use the [porting guide](porting.md) for adding a package.
 
   The [feature matrix](../spec/feature-matrix.md) says from which phase each package works; several
   of them (for example `strings` and `bufio`) need `GOCPP_GATE_PHASE=09` today.

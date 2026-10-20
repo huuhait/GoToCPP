@@ -68,9 +68,9 @@ stat_linux.go stat_unix.go sys.go sys_linux.go sys_unix.go tempfile.go types.go 
 - `dir.go`: `CopyFS` uses `io/fs.WalkDir` (ported); `ReadDir` sorts with `sortDirEntries`.
 - `Root`, `OpenRoot` and `OpenInRoot` (Go 1.24's `os.Root`) are **not built** (`root*.go` need `openat2` and the `*at`
   system calls); `stubPackage.Missing` in `tools/stubgen` lists them.
-- `os.Stdout`, `os.Stderr` and `os.Stdin` are `NewFile` values as in Go. `fmt.Print*` still writes to descriptor 1 directly
-  (the `fmt` shim, until step 9.7 ports Go's `fmt`), so assigning `os.Stdout` redirects `fmt.Fprint*(os.Stdout, ...)` and not
-  `fmt.Println`.
+- `os.Stdout`, `os.Stderr` and `os.Stdin` are `NewFile` values as in Go. The native `fmt` engine follows reassignment of
+  `os.Stdout` and `os.Stdin` through the registered hooks described above; it was not replaced by a Go-source port
+  ([ADR-100](../../docs/adr/100-fmt-stays-native-decision-9-7-a.md)).
 
 ## Findings
 
@@ -104,7 +104,7 @@ later). `os.Args` is the runtime's (Go's `init` splits `GetCommandLine`; the run
 What the tests found about Windows that a Linux programmer would not expect (all the same as real Go's): `Remove` of an open file fails
 (sharing violation), `Rename` over an open file is `Access is denied`, names are case-insensitive and lose trailing dots, `a:b` makes an NTFS stream,
 `Chmod` is the read-only attribute, `Mode` is `-rw-rw-rw-`/`-r--r--r--`/`drwxrwxrwx`, `Getuid` is -1, `SameFile` compares volume and file index,
-`Close` of a pipe wakes a blocked `Read` (`CancelIoEx`; on Linux the reader stays blocked), and a program without the long-path manifest cannot
+`Close` of a pipe wakes a blocked `Read` (`CancelIoEx`; Linux pollable pipes use the wake descriptor described above), and a program without the long-path manifest cannot
 `Chdir` into a path of more than 260 characters (Go's linker writes the manifest, gocpp's driver does not yet: step 14.2).
 
 Differences from Go 1.25.14 that remain (`tests/run/os_win_*.gp` compare with Go 1.25.14 built for Windows and run on the same PC): `CanUseLongPaths` is
