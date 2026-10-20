@@ -1,6 +1,7 @@
 // gocpp/fmt.hpp: Go's package fmt (Phase 05 step 5.11, ADR 028): Print, Println, Printf, Sprint,
 // Sprintln, Sprintf, Fprint, Fprintln, Fprintf, Append, Appendln, Appendf and Errorf, with the
-// interfaces fmt.Stringer, fmt.GoStringer, fmt.Formatter and fmt.State.
+// interfaces fmt.Stringer, fmt.GoStringer, fmt.Formatter and fmt.State. The Scan functions,
+// fmt.Scanner and fmt.ScanState are in gocpp/fmtscan.hpp, included at the end of this file.
 //
 // The formatting is a port of Go 1.25's fmt/print.go and fmt/format.go (and of strconv's float and
 // quote formatting) in runtime/src/fmt.cpp, driven by TYPE DESCRIPTORS (gocpp/type.hpp), the way
@@ -61,6 +62,9 @@
 
 #include <concepts>
 #include <cstddef>
+#include <atomic>
+#include <memory>
+#include <mutex>
 #include <cstdint>
 #include <cstring>
 #include <iosfwd>
@@ -219,6 +223,20 @@ struct value {
 };
 using arg = value;
 
+// live_span is the []any of a call `f(a...)`: its elements are the operands, and the printer reads
+// them while it prints, as Go does, so a String method that stores into the slice changes the
+// operands that come after it. Empty (data is null) when the call has no such slice.
+struct live_span {
+    const iface* data = nullptr;
+};
+
+// no_live is what with_operands passes for a call without a final a...: there is nothing to read
+// again, and the plain functions below run (no live-operand code). It converts to an empty
+// live_span for the callers that do not care.
+struct no_live {
+    constexpr operator live_span() const noexcept { return {}; }
+};
+
 // ptr_like<T>: T is a gp::ptr (a Go pointer or unsafe.Pointer).
 template <typename T>
 concept ptr_like = requires(const T& v) {
@@ -280,6 +298,16 @@ inline value from_iface(const iface& x) {
     v.t = x.gp_type();
     v.p = x.gp_data().get();
     v.own = x.gp_data();
+    if ((v.t->gp_kind == kind::Pointer || v.t->gp_kind == kind::UnsafePointer) && v.t->gp_named &&
+        v.t != &td_unsafe_pointer && v.t->gp_ops != nullptr && v.t->gp_ops->gp_target != nullptr) {
+        // A named pointer type (type P *T): the box holds the pointer, not its target (an unnamed
+        // pointer shares the owner of its target as the box).
+        v.p = v.t->gp_ops->gp_target(v.p);
+        v.own = v.t->gp_ops->gp_owner(x.gp_data().get());
+        if (v.own == nullptr) {
+            v.own = x.gp_data();
+        }
+    }
     return v;
 }
 
@@ -376,10 +404,21 @@ void sprintln(std::string& out, const arg* args, std::size_t n);
 void sprintf(std::string& out, std::string_view format, const arg* args, std::size_t n);
 // errorf formats like sprintf (with %w allowed) and returns the error of fmt.Errorf.
 gp::error errorf(std::string_view format, const arg* args, std::size_t n);
+// The same for a call with a final a... (live_span): the operands are the elements of that slice,
+// read again as each one is printed.
+void sprint_live(std::string& out, const arg* args, std::size_t n, live_span lv);
+void sprintln_live(std::string& out, const arg* args, std::size_t n, live_span lv);
+void sprintf_live(std::string& out, std::string_view format, const arg* args, std::size_t n,
+                  live_span lv);
+gp::error errorf_live(std::string_view format, const arg* args, std::size_t n, live_span lv);
 
 // write_stdout and write_stderr write the bytes with one write, after gp::detail::flush_c_stdio.
 // A broken pipe ends the program with SIGPIPE, as Go's os.Stdout does.
 void write_stdout(std::string_view s);
+// write_stdout_checked is write_stdout that reports a failed write: null, or the text of the error
+// ("write /dev/stdout: bad file descriptor").
+const char* write_stdout_checked(std::string_view s);
+const char* empty_write_error();
 void write_stderr(std::string_view s);
 // write_state calls the Write method of f.
 std::tuple<int64_t, gp::error> write_state(const State& f, std::string_view s);
@@ -405,28 +444,46 @@ void cxx_type_name(std::string& out, const std::type_info& t);
 // stream_text appends what put writes to a std::ostream: put(os, v) is os << *v for v's type.
 void stream_text(std::string& out, void (*put)(std::ostream&, const void*), const void* v);
 
-// with_operands calls f(operands, count) with the operands of args: one for each argument, and for
-// a final spread (`a...`) one for each element of the slice.
+// spread_data is the data of the slice of the final spread argument of args, or null.
+template <typename T, typename... Ts>
+const iface* spread_data(const T& x, const Ts&... rest) {
+    if constexpr (is_spread<T>) {
+        return x.gp_s.gp_data();
+    } else if constexpr (sizeof...(Ts) > 0) {
+        return spread_data(rest...);
+    } else {
+        return nullptr;
+    }
+}
+
+// with_operands calls f(operands, count, live) with the operands of args: one for each argument,
+// and for a final spread (`a...`) one for each element of the slice. live is a live_span for a call
+// with such a slice, and no_live for the others.
 template <typename F, typename... Ts>
 auto with_operands(F&& f, const Ts&... args) {
     if constexpr ((is_spread<Ts> || ...)) {
         std::vector<arg> v;
         (add_operands(v, args), ...);
-        return f(v.data(), v.size());
+        return f(v.data(), v.size(), live_span{spread_data(args...)});
     } else if constexpr (sizeof...(Ts) > 0) {
         const arg a[] = {make_arg(args)...};
-        return f(a, sizeof...(Ts));
+        return f(a, sizeof...(Ts), no_live{});
     } else {
-        return f(static_cast<const arg*>(nullptr), std::size_t(0));
+        return f(static_cast<const arg*>(nullptr), std::size_t(0), no_live{});
     }
 }
 
 template <typename... Ts>
-std::string run(void (*f)(std::string&, const arg*, std::size_t), const Ts&... args) {
+std::string run(void (*f)(std::string&, const arg*, std::size_t),
+                void (*fl)(std::string&, const arg*, std::size_t, live_span), const Ts&... args) {
     std::string out;
     detail::with_operands(
-        [&](const arg* a, std::size_t n) {
-            f(out, a, n);
+        [&](const arg* a, std::size_t n, auto lv) {
+            if constexpr (std::is_same_v<decltype(lv), no_live>) {
+                f(out, a, n);
+            } else {
+                fl(out, a, n, lv);
+            }
             return 0;
         },
         args...);
@@ -437,8 +494,12 @@ template <typename... Ts>
 std::string run_f(std::string_view format, const Ts&... args) {
     std::string out;
     detail::with_operands(
-        [&](const arg* a, std::size_t n) {
-            detail::sprintf(out, format, a, n);
+        [&](const arg* a, std::size_t n, auto lv) {
+            if constexpr (std::is_same_v<decltype(lv), no_live>) {
+                detail::sprintf(out, format, a, n);
+            } else {
+                detail::sprintf_live(out, format, a, n, lv);
+            }
             return 0;
         },
         args...);
@@ -449,6 +510,80 @@ inline std::tuple<int64_t, gp::error> written(const std::string& s) {
     return {static_cast<int64_t>(s.size()), gp::error()};
 }
 
+// --- Print, Println and Printf: os.Stdout ---
+//
+// They write to file descriptor 1 themselves, one write, unless the program changed os.Stdout (the
+// variable, or the file in it) or closed the original: then they write through the *os.File that
+// the variable holds. Bit 0 of a std_gate is set (and stays set) when the program may have changed
+// it; the higher bits count the calls of the slow path that write directly.
+//
+// File.Close of the original os.Stdout must not run while a Print is between its check and its
+// write (descriptor 1 could be reused by the next file, and the text would go there). The fast path
+// announces itself in a slot of its own thread (a plain store: no atomic read-modify-write on every
+// Print), and Close sets bit 0, then makes all threads pass a memory barrier
+// (gp::os::process_barrier), then waits for the slots and the counter to drain: a Print either sees
+// bit 0 and takes the slow path, or Close sees its slot. Where the system has no such barrier, bit
+// 0 is set from the start and every Print takes the counted slow path. The calls that change the
+// variable are the lowering's: an assignment to os.Stdout, os.Stdin or os.Stderr is
+// gp::fmt::store_std, and File.Close of the original streams calls std_closing.
+struct std_gate {
+    std::atomic<uint32_t> word{0};
+};
+extern std_gate stdout_gate;
+extern std_gate stdin_gate;
+
+struct print_slot {
+    std::atomic<uint32_t> inflight{0};
+    print_slot* next = nullptr;
+};
+inline thread_local print_slot* tls_print_slot = nullptr;
+print_slot* register_print_slot();
+
+// A Close of the original stream with prints (or scans) in flight does not close the descriptor:
+// the last one out does (finish_close), as with Go's descriptor reference counts.
+// pending_close.flag announces the close before its process-wide barrier starts, so a Print
+// leaving during that barrier cannot miss it. The mutex protects the callback AND its readiness:
+// a last user must not claim the close until defer_close has finished the barrier. Only these cold
+// close paths lock it; the ordinary Print fast path still just tests flag.
+struct pending_close {
+    std::atomic<bool> flag{false};
+    std::mutex mu;
+    gp::func<void()> close;
+};
+extern pending_close pending_stdout;
+extern pending_close pending_stdin;
+bool slots_drained() noexcept;
+bool close_drained(bool is_stdout) noexcept;
+void finish_close(bool is_stdout);
+
+// The cold paths (runtime/src/fmtstd.cpp, fmt.cpp).
+std::tuple<int64_t, gp::error> print_slow(const std::string& s);
+// write_failed is the (0, error) of a Print whose write failed: "write /dev/stdout: <what>".
+std::tuple<int64_t, gp::error> write_failed(const char* what, const std::string& s);
+
+// print_out writes the text of Print, Println and Printf to os.Stdout.
+inline std::tuple<int64_t, gp::error> print_out(const std::string& s) {
+    print_slot* sl = tls_print_slot;
+    if (sl == nullptr) [[unlikely]] {
+        sl = register_print_slot();
+    }
+    sl->inflight.store(1, std::memory_order_relaxed);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    if (stdout_gate.word.load(std::memory_order_relaxed) & 1) [[unlikely]] {
+        sl->inflight.store(0, std::memory_order_relaxed);
+        return print_slow(s);
+    }
+    const char* failed = write_stdout_checked(s);
+    sl->inflight.store(0, std::memory_order_release);
+    if (pending_stdout.flag.load(std::memory_order_relaxed)) [[unlikely]] {
+        finish_close(true);
+    }
+    if (failed != nullptr) [[unlikely]] {
+        return write_failed(failed, s);
+    }
+    return written(s);
+}
+
 } // namespace detail
 
 // --- the functions ---
@@ -456,13 +591,13 @@ inline std::tuple<int64_t, gp::error> written(const std::string& s) {
 // Sprint is fmt.Sprint: it adds a space between two arguments when neither is a string.
 template <typename... Ts>
 gp::string Sprint(Ts... args) {
-    return gp::string::gp_copy(detail::run(&detail::sprint, args...));
+    return gp::string::gp_copy(detail::run(&detail::sprint, &detail::sprint_live, args...));
 }
 
 // Sprintln is fmt.Sprintln: a space between all arguments, and a newline at the end.
 template <typename... Ts>
 gp::string Sprintln(Ts... args) {
-    return gp::string::gp_copy(detail::run(&detail::sprintln, args...));
+    return gp::string::gp_copy(detail::run(&detail::sprintln, &detail::sprintln_live, args...));
 }
 
 // Sprintf is fmt.Sprintf.
@@ -474,25 +609,19 @@ gp::string Sprintf(gp::string format, Ts... args) {
 // Print is fmt.Print.
 template <typename... Ts>
 std::tuple<int64_t, gp::error> Print(Ts... args) {
-    std::string s = detail::run(&detail::sprint, args...);
-    detail::write_stdout(s);
-    return detail::written(s);
+    return detail::print_out(detail::run(&detail::sprint, &detail::sprint_live, args...));
 }
 
 // Println is fmt.Println.
 template <typename... Ts>
 std::tuple<int64_t, gp::error> Println(Ts... args) {
-    std::string s = detail::run(&detail::sprintln, args...);
-    detail::write_stdout(s);
-    return detail::written(s);
+    return detail::print_out(detail::run(&detail::sprintln, &detail::sprintln_live, args...));
 }
 
 // Printf is fmt.Printf.
 template <typename... Ts>
 std::tuple<int64_t, gp::error> Printf(gp::string format, Ts... args) {
-    std::string s = detail::run_f(format.gp_view(), args...);
-    detail::write_stdout(s);
-    return detail::written(s);
+    return detail::print_out(detail::run_f(format.gp_view(), args...));
 }
 
 // The writers that Fprint, Fprintln and Fprintf take: os.Stdout and os.Stderr (the emitter writes
@@ -535,12 +664,12 @@ std::tuple<int64_t, gp::error> write_to(const W& w, const std::string& s) {
 
 template <typename W, typename... Ts>
 std::tuple<int64_t, gp::error> Fprint(const W& w, Ts... args) {
-    return detail::write_to(w, detail::run(&detail::sprint, args...));
+    return detail::write_to(w, detail::run(&detail::sprint, &detail::sprint_live, args...));
 }
 
 template <typename W, typename... Ts>
 std::tuple<int64_t, gp::error> Fprintln(const W& w, Ts... args) {
-    return detail::write_to(w, detail::run(&detail::sprintln, args...));
+    return detail::write_to(w, detail::run(&detail::sprintln, &detail::sprintln_live, args...));
 }
 
 template <typename W, typename... Ts>
@@ -551,14 +680,14 @@ std::tuple<int64_t, gp::error> Fprintf(const W& w, gp::string format, Ts... args
 // Append, Appendln and Appendf: the text appended to b.
 template <typename... Ts>
 gp::slice<uint8_t> Append(gp::slice<uint8_t> b, Ts... args) {
-    return gp::append_slice(std::move(b),
-                            gp::string::gp_copy(detail::run(&detail::sprint, args...)));
+    return gp::append_slice(std::move(b), gp::string::gp_copy(detail::run(
+                                              &detail::sprint, &detail::sprint_live, args...)));
 }
 
 template <typename... Ts>
 gp::slice<uint8_t> Appendln(gp::slice<uint8_t> b, Ts... args) {
-    return gp::append_slice(std::move(b),
-                            gp::string::gp_copy(detail::run(&detail::sprintln, args...)));
+    return gp::append_slice(std::move(b), gp::string::gp_copy(detail::run(
+                                              &detail::sprintln, &detail::sprintln_live, args...)));
 }
 
 template <typename... Ts>
@@ -567,11 +696,124 @@ gp::slice<uint8_t> Appendf(gp::slice<uint8_t> b, gp::string format, Ts... args) 
                             gp::string::gp_copy(detail::run_f(format.gp_view(), args...)));
 }
 
+// --- the standard streams of package os (stdlib/os/gocpp_helpers.gp) ---
+//
+// set_os_stdout is called by the init of package os with &os.Stdout, the *os.file that os.Stdout
+// holds, the flag that File.Close sets for the original and a function that writes to a *os.File.
+// The slow path of Print, Println and Printf (std_gate) takes an atomic snapshot of the variable
+// and writes to the file in the snapshot, so a goroutine that swaps os.Stdout (store_std) while
+// others print cannot free the file under them.
+namespace detail {
+// pelem_t<gp::ptr<X>> is X.
+template <typename T>
+struct pelem {};
+template <typename X>
+struct pelem<gp::ptr<X>> {
+    using gp_type = X;
+};
+template <typename T>
+using pelem_t = typename pelem<T>::gp_type;
+
+// os_std describes os.Stdout or os.Stdin: the variable (a gp::ptr<File>), a function that takes an
+// atomic snapshot of it, and what it held at the start.
+struct os_std {
+    const void* var = nullptr;
+    std::shared_ptr<void> (*load)(const void*) = nullptr;
+    const void* v0 = nullptr;         // the *os.File at the start
+    const void* file0 = nullptr;      // the *os.file inside it (the first word of an os.File)
+    const uint32_t* closed = nullptr; // the flag that File.Close sets for the original
+    // replaced: the snapshot is another file (or nil), a File whose contents were replaced
+    // (*os.Stdout = *w), or the original is closed.
+    bool replaced(const std::shared_ptr<void>& snap) const noexcept {
+        return snap.get() != v0 || *static_cast<const void* const*>(snap.get()) != file0 ||
+               __atomic_load_n(closed, __ATOMIC_SEQ_CST) != 0;
+    }
+};
+void register_os_stdout(
+    const os_std& d,
+    gp::func<std::tuple<int64_t, gp::error>(std::shared_ptr<void>, std::string_view)> write);
+void register_os_stdin(const os_std& d, gp::func<gp::any(std::shared_ptr<void>)> current);
+void check_os_file_layout(const void* v0, const void* file0);
+
+// snapshot_loader<P>::load atomically copies the gp::ptr<File> object at v.
+template <typename P>
+std::shared_ptr<void> snapshot_of(const void* v) {
+    using File = detail::pelem_t<P>;
+    auto* sp = const_cast<std::shared_ptr<File>*>(&static_cast<const P*>(v)->gp_shared());
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    return std::atomic_load(sp);
+#pragma GCC diagnostic pop
+}
+
+template <typename PVar, typename PFile, typename PFlag>
+os_std make_os_std(const PVar& var, const PFile& file0, const PFlag& closed) {
+    using P = detail::pelem_t<PVar>; // gp::ptr<File>
+    os_std d;
+    d.var = var.gp_get();
+    d.load = &snapshot_of<P>;
+    d.v0 = static_cast<const P*>(d.var)->gp_get();
+    d.file0 = file0.gp_get();
+    d.closed = reinterpret_cast<const uint32_t*>(closed.gp_get());
+    check_os_file_layout(d.v0, d.file0);
+    return d;
+}
+} // namespace detail
+
+template <typename PVar, typename PFile, typename PFlag, typename W>
+void set_os_stdout(const PVar& var, const PFile& file0, const PFlag& closed, W write) {
+    using P = detail::pelem_t<PVar>;
+    using File = detail::pelem_t<P>;
+    detail::register_os_stdout(
+        detail::make_os_std(var, file0, closed),
+        [write = std::move(write)](std::shared_ptr<void> snap, std::string_view s) {
+            auto b = gp::make_slice<uint8_t>(static_cast<int64_t>(s.size()));
+            if (!s.empty()) {
+                std::memcpy(b.gp_data(), s.data(), s.size());
+            }
+            return write(P(std::static_pointer_cast<File>(snap)), std::move(b));
+        });
+}
+
+// store_std is the assignment os.Stdout = v (and os.Stdin, os.Stderr): an atomic store, and from
+// then on fmt takes its slow paths. std_changed is the same for the other stores that the lowering
+// sees
+// (*os.Stdout = *w).
+void std_changed() noexcept;
+template <typename P, typename V>
+void store_std(P& var, V&& v) {
+    P tmp(std::forward<V>(v));
+    auto& sp = const_cast<std::shared_ptr<detail::pelem_t<P>>&>(var.gp_shared());
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    std::atomic_store(&sp, tmp.gp_shared());
+#pragma GCC diagnostic pop
+    std_changed();
+}
+template <typename T>
+void std_changed_after(T&&) noexcept {
+    std_changed();
+}
+
+// std_closing is called by File.Close of the original os.Stdout (true) or os.Stdin (false), after
+// the closed flag is set: from then on the slow paths run. defer_close is called when the file's
+// descriptor is about to be closed (the close hook of package os, with the function that closes
+// it): if a print or scan is in flight it keeps the function and returns true (the last one out
+// closes, finish_close), else it returns false and the caller closes at once.
+void std_closing(bool is_stdout) noexcept;
+bool defer_close(bool is_stdout, gp::func<void()> close);
+
 // Errorf is fmt.Errorf.
 template <typename... Ts>
 gp::error Errorf(gp::string format, Ts... args) {
     return detail::with_operands(
-        [&](const detail::arg* a, std::size_t n) { return detail::errorf(format.gp_view(), a, n); },
+        [&](const detail::arg* a, std::size_t n, auto lv) {
+            if constexpr (std::is_same_v<decltype(lv), detail::no_live>) {
+                return detail::errorf(format.gp_view(), a, n);
+            } else {
+                return detail::errorf_live(format.gp_view(), a, n, lv);
+            }
+        },
         args...);
 }
 
@@ -835,3 +1077,5 @@ constexpr std::tuple<F...> fields(F... f) noexcept {
 }
 
 } // namespace gp
+
+#include <gocpp/fmtscan.hpp>

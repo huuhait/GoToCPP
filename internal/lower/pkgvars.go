@@ -37,8 +37,8 @@ func (g *gen) constLit(init *types.Initializer) cppir.Expr {
 		return nil
 	}
 	from, to := g.info.TypeOf(cl), init.Lhs[0].Type()
-	if !plainType(from) || isStruct(from) && needsConversion(from, to) {
-		return nil // (gp::convert of a struct is not constexpr)
+	if !plainType(from) || isStruct(from) && needsConversion(from, to) || isInterface(to) {
+		return nil // (gp::convert of a struct is not constexpr, and neither is gp::to_iface of an array)
 	}
 	x := g.constLitOf(cl)
 	if x == nil {

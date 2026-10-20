@@ -1435,8 +1435,31 @@ return gp::fmt::Errorf("read %s: %w"_gs, name, err);
   value with a `Write([]byte) (int, error)` method: an `io.Writer`, a `*os.File` (`os.Stdout` is the
   variable of package `os`, since step 9.6, so assigning it redirects the call), a `*strings.Builder`. A
   value that is no interface is converted to `io.Writer` first; the call makes one `Write` call with the
-  whole text (`gp::fmt::write_to`). `Print`, `Println` and `Printf` flush C's stdio first and
-  write once to descriptor 1 ([interop](interop.md#printing-cc-values)).
+  whole text (`gp::fmt::write_to`). The call needs the package `io` (the type `io.Writer`); Go's `fmt` imports
+  it, so the build adds `io` to a program that calls a `Fprint` function with a writer of its own (not with a
+  `fmt.State`) and does not import it. `fmt.Fprintf` and the other functions work as func values too, and with
+  `import . "fmt"`. `Print`, `Println` and `Printf` flush C's stdio first and write once to the file that the
+  variable `os.Stdout` holds when the program has assigned another file to it (`os.Stdout = w`, the usual way to
+  capture output), copied one over it (`*os.Stdout = *w`) or closed the original, else once to descriptor 1
+  ([interop](interop.md#printing-cc-values)); a failed write returns `(0, error)` as Go's. The assignments to `os.Stdout`, `os.Stdin` and
+  `os.Stderr` are atomic stores (`gp::fmt::store_std`), so a goroutine that swaps them while others print cannot
+  free a file under a printer, and `File.Close` of the original stream leaves its descriptor open until the prints in flight have ended
+  ([ADR-100](../adr/100-fmt-stays-native-decision-9-7-a.md) lists what this does not cover).
+- **Scanning**: `Scan`, `Scanln`, `Scanf`, `Sscan`, `Sscanln`, `Sscanf`, `Fscan`, `Fscanln` and `Fscanf` are the
+  runtime's too (`gocpp/fmtscan.hpp`, `runtime/src/fmtscan.cpp`: a port of Go's `fmt/scan.go`, driven by the type
+  descriptors of the pointer arguments as the printer is driven by the descriptors of its operands). The texts of the
+  errors, the rules for spaces and newlines, the verbs and the widths are Go's. A pointer to a named type is scanned by
+  the kind of the type, as Go's reflection does. `fmt.Scanner` (a `Scan(state fmt.ScanState, verb rune) error`
+  method, found in the method table of the argument) and `fmt.ScanState` (`gp::fmt::ScanState`, a runtime interface
+  over the scanner, with `Fscan` on it for scans inside scans) are runtime interface structs like `fmt.State`.
+  `Fscan` reads through the `ReadRune` and `UnreadRune` methods of the reader when it has them and a byte at a time
+  through `Read` when it has not (one rune of look-ahead is lost between two calls, as in Go). `Scan`, `Scanln` and
+  `Scanf` read file descriptor 0 themselves, a byte at a time and unbuffered, until the program assigns another file to the
+  variable `os.Stdin` (or copies one over it, or closes the original): they read what `os.Stdin` holds then, in every package and
+  through func values (`gp::fmt::set_os_stdin`). `io.EOF` and `io.ErrUnexpectedEOF` are the runtime's
+  two values (package `io`'s variables are set from them), so `err == io.EOF` holds for the scanner's errors. Number
+  errors have Go's texts (`strconv.ParseInt: parsing "9999999999999999999": value out of range`) but are plain
+  errors, not `*strconv.NumError`.
 - **Errorf**: without `%w` the result is a `*errors.errorString`, with one `%w` a `*fmt.wrapError`
   (`Unwrap() error`), with several a `*fmt.wrapErrors` (`Unwrap() []error`): the runtime's own types
   (`runtime/src/fmt.cpp`), whose names `%T` prints as Go does.
@@ -1448,8 +1471,10 @@ return gp::fmt::Errorf("read %s: %w"_gs, name, err);
   addresses of the types, which is unspecified). A C++ class held in an `any` prints through its
   `std::formatter` or `operator<<` only if a `fmt` call in the program names its type
   (`gp::cgo::fmt_arg`); an exception from that text, or from a method, prints as
-  `%!v(PANIC=String method: C++ exception ...)`.
-- **A final `a...`** (a `[]any`, as in `logf(f string, a ...any) { fmt.Printf(f, a...) }`) is `gp::fmt::spread(a)`: its elements are the operands, not one operand; the slice is held for the call.
+  `%!v(PANIC=String method: C++ exception ...)`. The structs of package `sync` and `sync/atomic` are flatter than Go's, so
+  `%+v` of a struct that holds a `sync.Mutex` shows `{state:0 sema:0}` where Go 1.25 shows `{_:{} mu:{state:0 sema:0}}`.
+  Allocation counts (`testing.AllocsPerRun` of a `Sprintf`) are not Go's.
+- **A final `a...`** (a `[]any`, as in `logf(f string, a ...any) { fmt.Printf(f, a...) }`) is `gp::fmt::spread(a)`: its elements are the operands, not one operand; the slice is held for the call, and the printer reads each element when it prints it (`live_span`), so a `String` method that stores into the slice changes the operands after it, as in Go.
 - **A call with several results**, `fmt.Println(f())`, goes through `std::apply` and a lambda that
   describes each result.
 - **Arguments are values at the call**: `fmt` takes each argument by value, as Go copies it

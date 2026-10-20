@@ -391,6 +391,7 @@ var winUnitPrograms = []prog{
 	{src: "test/map_swiss_test.cpp", weight: 30},
 	{src: "test/map_portable_test.cpp", weight: 30},
 	{src: "test/fmt_test.cpp", weight: 14},
+	{src: "test/fmt_close_test.cpp", weight: 3},
 	{src: "test/interop_test.cpp", weight: 15},
 	{src: "test/array_test.cpp", weight: 7},
 	{src: "test/slice_test.cpp", weight: 7},

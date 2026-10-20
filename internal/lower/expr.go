@@ -342,6 +342,9 @@ func (fg *funcGen) ident(id *ast.Ident) cppir.Expr {
 		}
 		return cxxName(fg.cname(obj, id.Pos()))
 	case *types.Func:
+		if obj.Pkg() != nil && obj.Pkg().Path() == "fmt" && obj.Parent() == obj.Pkg().Scope() {
+			return fg.stdMemberValueAt(id.Pos(), id.Name, obj) // import . "fmt": Println as a value (fmtcall.go)
+		}
 		return fg.funcRef(obj, id.Pos()) // a function of the package as a value (closures.go)
 	case *types.Nil:
 		// A nil pointer, slice, map or func: C++ converts nullptr to gp::ptr<T>, gp::slice<T>,
@@ -463,6 +466,16 @@ func (fg *funcGen) call(c *ast.CallExpr) cppir.Expr {
 				return placeholder
 			}
 		case *types.Func:
+			if obj.Pkg() != nil && obj.Pkg().Path() == "fmt" && obj.Parent() == obj.Pkg().Scope() {
+				// import . "fmt": Println(...) is the runtime's, as fmt.Println(...) (fmtcall.go)
+				if !fmtFuncs[obj.Name()] {
+					fg.g.unsupported(c.Pos(), "the call of fmt."+obj.Name())
+					return placeholder
+				}
+				callee = "gp::fmt::" + obj.Name()
+				template = true
+				break
+			}
 			sig = obj.Signature()
 			callee = fg.cname(obj, fun.Pos())
 			switch {

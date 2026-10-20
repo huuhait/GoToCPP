@@ -531,6 +531,10 @@ type target struct {
 	gcVar   *types.Var
 	gcMem   bool
 	gcDefer bool
+
+	// std is set for a store to os.Stdin, os.Stdout or os.Stderr, or to what they point to: the
+	// store tells fmt (stdstore.go).
+	std stdStoreKind
 }
 
 // varTarget returns the target of the existing variable whose C++ name is name.
@@ -567,6 +571,7 @@ func (fg *funcGen) lhs(e ast.Expr) target {
 	case *ast.SelectorExpr:
 		t.field = x
 	}
+	t.std = fg.stdStoreKind(e)
 	fg.gcTarget(&t, e)
 	if rhs, ok := fg.memberStores[ast.Unparen(e)]; ok {
 		t.keep = fg.keepOf(e, rhs)
@@ -749,6 +754,12 @@ func (t target) assignExpr(value cppir.Expr) cppir.Expr {
 	}
 	if t.mapX != nil {
 		return call("gp::set", t.mapX, t.mapK, value)
+	}
+	switch t.std {
+	case stdVar:
+		return call("gp::fmt::store_std", t.x, value) // os.Stdout = f (stdstore.go)
+	case stdDeref:
+		return call("gp::fmt::std_changed_after", &cppir.Assign{Op: "=", X: t.x, Y: value})
 	}
 	if t.keep != nil {
 		args := []cppir.Expr{t.keep.owner, t.x, value}

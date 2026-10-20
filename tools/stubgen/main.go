@@ -123,7 +123,7 @@ var packages = []stubPackage{
 	{Path: "io/fs", Phase: 9, Real: true},
 	{Path: "context", Phase: 9, Real: true},
 	{Path: "embed", Phase: 10},
-	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with a basic fmt, and Phase 09 with Go's."},
+	{Path: "fmt", Phase: 5, Later: "Phase 05 replaces it with the runtime's fmt (kept by decision 9.7, ADR-100: see PORT.md)."},
 	{Path: "maps", Phase: 7, Real: true},
 	{Path: "slices", Phase: 7, Real: true},
 	{Path: "strconv", Phase: 9, Real: true},

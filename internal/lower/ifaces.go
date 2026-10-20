@@ -112,8 +112,8 @@ func runtimeIfaceOf(t types.Type) (runtimeIface, bool) {
 	}
 	if n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "fmt" {
 		switch n.Obj().Name() {
-		case "Stringer", "GoStringer", "State", "Formatter":
-			lower := map[string]string{"Stringer": "td_stringer", "GoStringer": "td_gostringer", "State": "td_state", "Formatter": "td_formatter"}
+		case "Stringer", "GoStringer", "State", "Formatter", "ScanState", "Scanner":
+			lower := map[string]string{"Stringer": "td_stringer", "GoStringer": "td_gostringer", "State": "td_state", "Formatter": "td_formatter", "ScanState": "td_scanstate", "Scanner": "td_scanner"}
 			return runtimeIface{"gp::fmt::" + n.Obj().Name(), "gp::fmt::" + lower[n.Obj().Name()]}, true
 		}
 	}

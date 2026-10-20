@@ -252,9 +252,13 @@ ran. A map before its initialisation printed as `map[...] (Cannot access memory 
 
 Each line was checked on the PC unless it says otherwise.
 
+The native `fmt.Scan*`, `fmt.Fscan*` and `fmt.Sscan*` families are now available on Windows
+(ADR-100). Six focused scanner/lowering regressions passed on the real Windows PC after the
+native-fmt audit; this is not a claim that the full Windows or upstream fmt suite has run.
+
 | What | State |
 |---|---|
-| `os/exec`, `os.StartProcess`, `os/signal`, `net`, `fmt.Scan*` | **not available yet on any platform**, not only on Windows (Phase 9): `package os/exec is not available yet (Phase 09)`, `os.StartProcess` returns `fork/exec x: function not implemented`, `fmt.Scan` is `not supported yet: the call of fmt.Scan`. Reading standard input works: `bufio.Scanner(os.Stdin)` from a pipe was checked on the PC. Files, directories, environment, links, `os.Exit` and the other parts of `os` work |
+| `os/exec`, `os.StartProcess`, `os/signal`, `net` | **not available yet on any platform**, not only on Windows (Phase 9): `package os/exec is not available yet (Phase 09)`, `os.StartProcess` returns `fork/exec x: function not implemented`. Reading standard input works: `bufio.Scanner(os.Stdin)` from a pipe was checked on the PC. Files, directories, environment, links, `os.Exit` and the other parts of `os` work |
 | time zones | `time.Local` is UTC and `time.LoadLocation` has no Windows data (Go reads the registry; gocpp does not yet) |
 | `-race` | not for Windows: `gocpp build: -race is not supported for windows`. ThreadSanitizer does not exist for MinGW |
 | `-asan` | not for Windows: `gocpp build: -asan is not supported for windows`. The MinGW GCC of WinLibs has no libsanitizer (`cannot read spec file 'libsanitizer.spec'`). Sanitizers run on Linux. clang's MinGW target has AddressSanitizer; gocpp has not tried it |

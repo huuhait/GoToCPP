@@ -1,8 +1,8 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1-9.6, 9.8, 9.9 merged; open: 9.7 (decision: port Go's `fmt` or keep the native engine of 5.11), 9.10, 9.11, 9.12, 9.13; `stdlib/flag` is still a declaration stub, so `wc` and `grep-lite` stay pending)
+**Status:** `[~]` in progress (9.1-9.9, 9.7a native-fmt audit and 9.11 merged; open: 9.10, 9.12, 9.13)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 ## Steps
 
@@ -20,7 +20,8 @@
 - [x] 9.4 Port tier-1 pure packages (9.4a unicode, strconv, errors merged 2026-10-20; 9.4b io, io/fs, path, strings, bytes, bufio, context merged 2026-10-20; sort, regexp/syntax, regexp merged 2026-10-20 (9.4c)) (`unicode/utf8`, `unicode`, `strings`, `bytes`, `strconv`, `errors`, `sort`, `math/bits`, `io`, `bufio`, `context`, `regexp`)
 - [x] 9.5 `math` (native + bit-exact pure-Go where needed)
 - [x] 9.6 `os` (interop + native, Go error types)
-- [x] 9.7 `fmt`: NOT ported. Decision 2026-10-19: keep the native engine of 5.11 as the product (fast, handles C++ values, 210 run tests compared with real Go); an audit against Go's own fmt tests through the 9.10 harness follows
+- [x] 9.7 `fmt`: NOT ported. Decision 2026-10-19: keep the native engine of 5.11 as the product (fast, handles C++ values, 210 run tests compared with real Go).
+- [x] 9.7a Native-fmt audit (ADR-100): Scan family, live operands, standard-stream ownership and close ordering, upstream test fixtures and differential tooling; clean whole-diff review at `16dcf25d`, followed by passing manager focused integration checks on 2026-10-20.
 - [x] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
 - [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
 - [ ] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule
@@ -38,6 +39,18 @@
 - [ ] `encoding/json` round-trips like Go
 
 ## Decisions / notes
+
+- 2026-10-20: Native-fmt audit (9.7a, ADR-100) integrated after coder/reviewer fix loops and
+  clean whole-diff review at `16dcf25d`. The three deferred-close/identity findings and seven
+  Scan/lowering/tool-cleanup findings are fixed. Manager verification on the integrated tree:
+  build and focused vet; standard-stream store checks; cleanup tests under Go's race detector;
+  ten run fixtures on GCC and Clang and ten real-Go comparisons (zero comparison skips);
+  37-check close tests on both compilers at O0/O2/ASan+UBSan and TSan; merged port hashes.
+  Source-branch evidence also covers six corrected fixtures on the real Windows PC, zero skips.
+  No full CI, upstream fmt sweep or phase sweep was run: final broad review remains manual.
+  Remaining limits: pre-existing nonblocking-stdin cancellation/ErrClosed differences;
+  Windows fmtdiff interruption is not separately verified. Only whitespace was normalized
+  during integration; untracked `c4/` was not touched.
 
 - 2026-10-13: `reflect` is provided as a subset built on the compiler's type descriptors.
   Divergence D6 is updated.

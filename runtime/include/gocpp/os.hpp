@@ -51,6 +51,25 @@ enum class write_result {
 // written.
 write_result write(int fd, const char* data, std::size_t n) noexcept;
 
+// write_empty makes the system call that Go's File.Write makes for an empty slice (Linux: write(fd,
+// p, 0), which fails for a closed descriptor or /dev/full; Windows: nothing), and reports it like
+// write.
+write_result write_empty(int fd) noexcept;
+
+// write_error is the text of the error of the last write of the calling thread that reported
+// failed, as Go's syscall.Errno prints it ("bad file descriptor", "no space left on device").
+const char* write_error() noexcept;
+
+// read reads up to n bytes from the file descriptor fd into data, with one system call (it retries
+// when a signal interrupts it, and waits when fd is non-blocking and empty). It returns the number
+// of bytes read, 0 at the end of the file, and -1 on an error. fmt's Scan functions read os.Stdin
+// through it when the program does not import package os.
+std::int64_t read(int fd, char* data, std::size_t n) noexcept;
+
+// read_error is the text of the error of the last read of the calling thread that returned -1, as
+// Go's syscall.Errno prints it ("bad file descriptor", "is a directory", "input/output error").
+const char* read_error() noexcept;
+
 // die_of_sigpipe ends the program with SIGPIPE, as Go does after a write to a broken pipe on
 // stdout or stderr: with the default action and the signal unblocked, whatever the parent set
 // (a shell's `trap '' PIPE` leaves it ignored).
@@ -297,5 +316,53 @@ struct fault_info {
 using fault_hook = void (*)(const fault_info&) noexcept;
 fault_hook set_fault_hook(fault_hook hook) noexcept;
 #endif
+
+// process_barrier_init prepares process_barrier and reports whether the system has one.
+// process_barrier makes every running thread of the process execute a full memory barrier before it
+// returns (Linux: membarrier(2) with the private expedited command, Windows:
+// FlushProcessWriteBuffers), so that a thread that only pairs its stores with a compiler barrier is
+// ordered against the caller's: the slow side of an asymmetric Dekker protocol (gp::fmt: the
+// in-flight Print calls of os.Stdout).
+bool process_barrier_init() noexcept;
+void process_barrier() noexcept;
+
+// --- seams for the runtime's own tests (runtime/test): only they call these ---
+//
+// The runtime's tests may not include OS headers, so the OS layer gives them the few system calls
+// that a test of the readers of standard input needs. Every function says whether the system
+// has it (Windows: no, and the test skips).
+namespace testing {
+
+// stdin_pipe puts the read end of a new pipe on descriptor 0 (saving the old one for
+// restore_stdin) and returns the write end, or -1. nonblocking makes the read end non-blocking.
+int stdin_pipe(bool nonblocking) noexcept;
+
+// stdin_directory puts an open directory on descriptor 0 (a read of it fails with EISDIR); false
+// when the system has none.
+bool stdin_directory() noexcept;
+
+// stdin_closed closes descriptor 0 (a read of it fails with EBADF).
+bool stdin_closed() noexcept;
+
+// restore_stdin puts back the descriptor 0 that the first of the functions above saved.
+void restore_stdin() noexcept;
+
+// barrier_calls counts completed process_barrier calls (a test sees that a Close made the barrier).
+unsigned long barrier_calls() noexcept;
+
+// set_barrier_hook installs a test-only pause just before the OS barrier, returning the old hook.
+// It lets the close tests hold that boundary while another thread finishes a Print.
+using barrier_hook = void (*)() noexcept;
+barrier_hook set_barrier_hook(barrier_hook hook) noexcept;
+
+// fd_write writes the bytes to fd and fd_close closes it.
+void fd_write(int fd, const char* data, std::size_t n) noexcept;
+void fd_close(int fd) noexcept;
+
+// interrupt_in arms a timer that, after ms milliseconds, interrupts the calling thread's system
+// call with a signal that is not restarted (EINTR); false when the system has none.
+bool interrupt_in(int ms) noexcept;
+
+} // namespace testing
 
 } // namespace gp::os

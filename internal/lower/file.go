@@ -129,6 +129,7 @@ type gen struct {
 	consts   []*types.Const // the exported constants, in source order
 	funcs    []*funcInfo    // the functions with bodies, in source order
 	vars     []*types.Var   // the package variables, in source order (without _)
+	varExprs []ast.Expr     // the initial values of the package variables (their closures declare local types)
 	initFns  []string       // the C++ names of the init functions, in source order
 	varInits bool           // gp_var_init is needed
 	lazyVars []string       // the gp::lazy storage of the package variables of C/C++ classes (lazyVar), in source order
@@ -507,6 +508,7 @@ func (g *gen) collectGen(d *ast.GenDecl) {
 		g.collectTypes(d) // typedecl.go
 	case token.VAR:
 		for _, spec := range d.Specs {
+			g.varExprs = append(g.varExprs, spec.(*ast.ValueSpec).Values...)
 			for _, id := range spec.(*ast.ValueSpec).Names {
 				if id.Name == "_" {
 					continue

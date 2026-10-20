@@ -96,6 +96,9 @@ func (g *gen) noConvArgs(c *ast.CallExpr) bool {
 				return true
 			}
 		}
+		// import . "fmt": Println(...)
+		fn, ok := g.info.Uses[fun].(*types.Func)
+		return ok && fn.Pkg() != nil && fn.Pkg().Path() == "fmt" && fn.Parent() == fn.Pkg().Scope()
 	case *ast.SelectorExpr:
 		if g.info.Selections[fun] == nil {
 			fn, ok := g.info.Uses[fun.Sel].(*types.Func)

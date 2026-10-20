@@ -135,6 +135,14 @@ void die_of_sigpipe() noexcept {
     exit_now(2);
 }
 
+write_result write_empty(int) noexcept {
+    return write_result::ok;
+}
+
+const char* write_error() noexcept {
+    return "input/output error";
+}
+
 write_result write(int fd, const char* data, std::size_t n) noexcept {
     HANDLE h = handle_of(fd);
     if (h == nullptr || h == INVALID_HANDLE_VALUE) {
@@ -160,6 +168,24 @@ write_result write(int fd, const char* data, std::size_t n) noexcept {
         n -= done;
     }
     return write_result::ok;
+}
+
+const char* read_error() noexcept {
+    return "input/output error";
+}
+
+std::int64_t read(int fd, char* data, std::size_t n) noexcept {
+    HANDLE h = handle_of(fd);
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
+        return -1;
+    }
+    DWORD want = n > (std::size_t(1) << 30) ? DWORD(1) << 30 : static_cast<DWORD>(n);
+    DWORD done = 0;
+    if (!ReadFile(h, data, want, &done, nullptr)) {
+        // A pipe whose writer has gone reports ERROR_BROKEN_PIPE: the end of the input, as in Go.
+        return GetLastError() == ERROR_BROKEN_PIPE ? 0 : -1;
+    }
+    return static_cast<std::int64_t>(done);
 }
 
 void exit(int code) noexcept {
@@ -294,5 +320,50 @@ mem_stats mem_info() noexcept {
 void trim_memory() noexcept {
     // Nothing to give back that Go's FreeOSMemory would reach: the heap returns pages itself.
 }
+
+bool process_barrier_init() noexcept {
+    return true;
+}
+
+namespace {
+std::atomic<unsigned long> barrier_count{0};
+std::atomic<testing::barrier_hook> before_barrier{nullptr};
+} // namespace
+
+void process_barrier() noexcept {
+    if (auto hook = before_barrier.load(std::memory_order_acquire)) {
+        hook();
+    }
+    FlushProcessWriteBuffers();
+    barrier_count.fetch_add(1, std::memory_order_release);
+}
+
+namespace testing {
+
+unsigned long barrier_calls() noexcept {
+    return barrier_count.load(std::memory_order_acquire);
+}
+
+barrier_hook set_barrier_hook(barrier_hook hook) noexcept {
+    return before_barrier.exchange(hook, std::memory_order_acq_rel);
+}
+
+int stdin_pipe(bool) noexcept {
+    return -1;
+}
+bool stdin_directory() noexcept {
+    return false;
+}
+bool stdin_closed() noexcept {
+    return false;
+}
+void restore_stdin() noexcept {}
+void fd_write(int, const char*, std::size_t) noexcept {}
+void fd_close(int) noexcept {}
+bool interrupt_in(int) noexcept {
+    return false;
+}
+
+} // namespace testing
 
 } // namespace gp::os

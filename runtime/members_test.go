@@ -58,6 +58,8 @@ var runtimeInterfaces = map[string][]string{
 	"gp::fmt::GoStringer": {"gp::fmt::GoStringer::GoString"},
 	"gp::fmt::Formatter":  {"gp::fmt::Formatter::Format"},
 	"gp::fmt::State":      {"gp::fmt::State::Flag", "gp::fmt::State::Precision", "gp::fmt::State::Width", "gp::fmt::State::Write"},
+	"gp::fmt::ScanState":  {"gp::fmt::ScanState::Read", "gp::fmt::ScanState::ReadRune", "gp::fmt::ScanState::SkipSpace", "gp::fmt::ScanState::Token", "gp::fmt::ScanState::UnreadRune", "gp::fmt::ScanState::Width"},
+	"gp::fmt::Scanner":    {"gp::fmt::Scanner::Scan"},
 }
 
 // TestNoPlainMembersFinds checks the check itself, on a header with every kind of member.

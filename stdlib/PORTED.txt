@@ -22,7 +22,7 @@ hash go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 hash/crc32 go1.25.14 os=linux arch=generic tags=purego files=4 natives=0 patches=0
 hash/fnv go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0
 internal/chacha8rand go1.25.14 os=linux arch=generic tags=purego files=2 natives=0 patches=3
-io go1.25.14 os=linux arch=generic tags=purego files=3 natives=0 patches=0
+io go1.25.14 os=linux arch=generic tags=purego files=3 natives=2 patches=2
 io/fs go1.25.14 os=linux arch=generic tags=purego files=9 natives=0 patches=0
 iter go1.25.14 os=linux arch=generic tags=purego files=1 natives=2 patches=2
 log go1.25.14 os=linux arch=generic tags=purego files=1 natives=0 patches=0

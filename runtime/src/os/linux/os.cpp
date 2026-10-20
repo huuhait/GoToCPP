@@ -13,8 +13,12 @@
 #include <cstring>
 
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <malloc.h>
 #include <poll.h>
+#include <sys/syscall.h>
+#include <sys/time.h>
+#include <ctime>
 #include <unistd.h>
 
 #if defined(GOCPP_LSAN)
@@ -56,6 +60,21 @@ bool wait_writable(int fd) noexcept {
     }
 }
 
+// wait_readable waits until fd has bytes to read (for a non-blocking fd). It returns false on an
+// error.
+bool wait_readable(int fd) noexcept {
+    for (;;) {
+        pollfd p{fd, POLLIN, 0};
+        int r = ::poll(&p, 1, -1);
+        if (r > 0) {
+            return true;
+        }
+        if (r < 0 && errno != EINTR) {
+            return false;
+        }
+    }
+}
+
 } // namespace
 
 void start() noexcept {
@@ -80,6 +99,31 @@ void die_of_sigpipe() noexcept {
     ::_exit(2); // not reached: like Go when the signal doesn't kill
 }
 
+namespace {
+thread_local int last_write_errno = EIO;
+} // namespace
+
+const char* write_error() noexcept {
+    switch (last_write_errno) {
+    case EBADF:
+        return "bad file descriptor";
+    case ENOSPC:
+        return "no space left on device";
+    case EFBIG:
+        return "file too large";
+    case EINVAL:
+        return "invalid argument";
+    case EFAULT:
+        return "bad address";
+    case EPERM:
+        return "operation not permitted";
+    case EDQUOT:
+        return "disk quota exceeded";
+    default:
+        return "input/output error";
+    }
+}
+
 write_result write(int fd, const char* data, std::size_t n) noexcept {
     while (n > 0) {
         ssize_t w = ::write(fd, data, n);
@@ -91,8 +135,10 @@ write_result write(int fd, const char* data, std::size_t n) noexcept {
                 if (wait_writable(fd)) {
                     continue;
                 }
+                last_write_errno = errno;
                 return write_result::failed;
             }
+            last_write_errno = errno;
             return errno == EPIPE ? write_result::broken_pipe : write_result::failed;
         }
         if (w == 0) {
@@ -102,6 +148,57 @@ write_result write(int fd, const char* data, std::size_t n) noexcept {
         n -= static_cast<std::size_t>(w);
     }
     return write_result::ok;
+}
+
+write_result write_empty(int fd) noexcept {
+    for (;;) {
+        if (::write(fd, "", 0) >= 0) {
+            return write_result::ok;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        last_write_errno = errno;
+        return errno == EPIPE ? write_result::broken_pipe : write_result::failed;
+    }
+}
+
+namespace {
+thread_local int last_read_errno = EIO;
+} // namespace
+
+const char* read_error() noexcept {
+    switch (last_read_errno) {
+    case EBADF:
+        return "bad file descriptor";
+    case EISDIR:
+        return "is a directory";
+    case EINVAL:
+        return "invalid argument";
+    case EFAULT:
+        return "bad address";
+    default:
+        return "input/output error";
+    }
+}
+
+std::int64_t read(int fd, char* data, std::size_t n) noexcept {
+    for (;;) {
+        ssize_t r = ::read(fd, data, n);
+        if (r >= 0) {
+            return static_cast<std::int64_t>(r);
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (wait_readable(fd)) {
+                continue;
+            }
+        }
+        last_read_errno = errno;
+        return -1;
+    }
 }
 
 void exit(int code) noexcept {
@@ -215,5 +312,127 @@ std::vector<std::string> environment() {
     }
     return env;
 }
+
+bool process_barrier_init() noexcept {
+#ifdef SYS_membarrier
+    // MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED = 1 << 4
+    return ::syscall(SYS_membarrier, 1 << 4, 0, 0) == 0;
+#else
+    return false;
+#endif
+}
+
+namespace {
+std::atomic<unsigned long> barrier_count{0};
+std::atomic<testing::barrier_hook> before_barrier{nullptr};
+} // namespace
+
+void process_barrier() noexcept {
+    if (auto hook = before_barrier.load(std::memory_order_acquire)) {
+        hook();
+    }
+#ifdef SYS_membarrier
+    // MEMBARRIER_CMD_PRIVATE_EXPEDITED = 1 << 3
+    ::syscall(SYS_membarrier, 1 << 3, 0, 0);
+#endif
+    barrier_count.fetch_add(1, std::memory_order_release);
+}
+
+namespace testing {
+
+unsigned long barrier_calls() noexcept {
+    return barrier_count.load(std::memory_order_acquire);
+}
+
+barrier_hook set_barrier_hook(barrier_hook hook) noexcept {
+    return before_barrier.exchange(hook, std::memory_order_acq_rel);
+}
+
+namespace {
+int saved_stdin = -1;
+void save_stdin() noexcept {
+    if (saved_stdin < 0) {
+        saved_stdin = ::dup(0);
+    }
+}
+void on_alarm(int) {}
+} // namespace
+
+int stdin_pipe(bool nonblocking) noexcept {
+    int fds[2];
+    if (::pipe(fds) != 0) {
+        return -1;
+    }
+    if (nonblocking) {
+        ::fcntl(fds[0], F_SETFL, ::fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+    }
+    save_stdin();
+    ::dup2(fds[0], 0);
+    ::close(fds[0]);
+    return fds[1];
+}
+
+bool stdin_directory() noexcept {
+    int d = ::open(".", O_RDONLY);
+    if (d < 0) {
+        return false;
+    }
+    save_stdin();
+    ::dup2(d, 0);
+    ::close(d);
+    return true;
+}
+
+bool stdin_closed() noexcept {
+    save_stdin();
+    return ::close(0) == 0;
+}
+
+void restore_stdin() noexcept {
+    if (saved_stdin >= 0) {
+        ::dup2(saved_stdin, 0);
+        ::close(saved_stdin);
+        saved_stdin = -1;
+    }
+}
+
+void fd_write(int fd, const char* data, std::size_t n) noexcept {
+    while (n > 0) {
+        ssize_t w = ::write(fd, data, n);
+        if (w <= 0) {
+            return;
+        }
+        data += w;
+        n -= static_cast<std::size_t>(w);
+    }
+}
+
+void fd_close(int fd) noexcept {
+    ::close(fd);
+}
+
+bool interrupt_in(int ms) noexcept {
+    struct sigaction sa{};
+    sa.sa_handler = on_alarm;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; // no SA_RESTART: the read fails with EINTR
+    if (sigaction(SIGALRM, &sa, nullptr) != 0) {
+        return false;
+    }
+    struct sigevent sev{};
+    sev.sigev_notify = SIGEV_THREAD_ID;
+    sev.sigev_signo = SIGALRM;
+    sev._sigev_un._tid = ::gettid();
+    timer_t id;
+    if (timer_create(CLOCK_MONOTONIC, &sev, &id) != 0) {
+        return false;
+    }
+    struct itimerspec its{};
+    its.it_value.tv_sec = ms / 1000;
+    its.it_value.tv_nsec = static_cast<long>(ms % 1000) * 1000000;
+    return timer_settime(id, 0, &its, nullptr) == 0;
+}
+
+} // namespace testing
 
 } // namespace gp::os

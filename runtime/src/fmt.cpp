@@ -6,6 +6,9 @@
 #include <gocpp/os.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -509,14 +512,25 @@ void append_quote(std::string& out, std::string_view s) {
     append_quoted(out, s, false);
 }
 
-void write_stdout(std::string_view s) {
+const char* write_stdout_checked(std::string_view s) {
     // What C or C++ code printf'd before comes first (fmt.hpp): C's stdout has a buffer.
     gp::detail::flush_c_stdio();
-    // fmt writes through os.Stdout, which ends the program with SIGPIPE on a broken pipe.
-    if (!s.empty() &&
-        os::write(os::stdout_fd, s.data(), s.size()) == os::write_result::broken_pipe) {
-        os::die_of_sigpipe();
+    if (s.empty()) {
+        return empty_write_error();
     }
+    switch (os::write(os::stdout_fd, s.data(), s.size())) {
+    case os::write_result::ok:
+        return nullptr;
+    case os::write_result::broken_pipe:
+        // fmt writes through os.Stdout, which ends the program with SIGPIPE on a broken pipe.
+        os::die_of_sigpipe();
+    default:
+        return os::write_error();
+    }
+}
+
+void write_stdout(std::string_view s) {
+    write_stdout_checked(s);
 }
 
 void write_stderr(std::string_view s) {
@@ -954,8 +968,21 @@ State make_state(pp& p);
 // state of the printer.
 struct pp {
     explicit pp(std::string& out) : buf(out) {}
+    pp(const pp&) = delete;
+    pp& operator=(const pp&) = delete;
+    // A State that a Format method kept outlives the call: it stops pointing at the printer.
+    [[gnu::always_inline]] ~pp() {
+        if (state != nullptr) [[unlikely]] {
+            release_state();
+        }
+    }
 
     std::string& buf;
+    // The State that the Format methods of this printer get (make_state): one for the whole call,
+    // made by the first of them, so that every Format sees the same State, as in Go.
+    // (A raw pointer to a pointer: a gp::ptr member would put its destructor on every path.)
+    gp::ptr<pp_state>* state = nullptr;
+    [[gnu::noinline]] void release_state() noexcept;
 
     // fmt's flags.
     bool wid_present = false;
@@ -975,6 +1002,7 @@ struct pp {
     bool panicking = false;
     bool erroring = false;
     bool wrap_errs = false;
+    live_span lv; // the []any of a call f(a...), read while printing (live_span)
     std::vector<int> wrapped_errs;
 
     // The current operand, for badVerb (Go's arg and value).
@@ -1533,6 +1561,29 @@ struct pp {
     }
     std::tuple<std::size_t, std::size_t, bool>
     arg_number(std::size_t arg_num, std::string_view format, std::size_t i, std::size_t num_args);
+    // The operands of a call with a final a... (lv) are read again as each one is printed. The
+    // reading is in these cold functions; the plain calls (almost all) run none of it.
+    [[gnu::noinline, gnu::cold]] void print_live(std::size_t i, char32_t verb);
+    [[gnu::noinline, gnu::cold]] std::tuple<int, bool, std::size_t> int_live(std::size_t arg_num);
+    [[gnu::noinline, gnu::cold]] void extra_live(std::size_t k);
+    [[gnu::noinline, gnu::cold]] void do_print_live(std::size_t n);
+    [[gnu::noinline, gnu::cold]] void do_println_live(std::size_t n);
+    [[gnu::noinline, gnu::cold]] void extra_args(const value* a, std::size_t n,
+                                                 std::size_t arg_num);
+    void print_nth(const value* a, std::size_t i, char32_t verb) {
+        if (lv.data != nullptr) [[unlikely]] {
+            print_live(i, verb);
+            return;
+        }
+        print_arg(a[i], verb);
+    }
+    // int_arg is int_from_arg for the operand arg_num, read as it is now.
+    std::tuple<int, bool, std::size_t> int_arg(const value* a, std::size_t n, std::size_t arg_num) {
+        if (lv.data != nullptr && arg_num < n) [[unlikely]] {
+            return int_live(arg_num);
+        }
+        return int_from_arg(a, n, arg_num);
+    }
     void do_printf(std::string_view format, const value* a, std::size_t n);
     void do_print(const value* a, std::size_t n);
     void do_println(const value* a, std::size_t n);
@@ -1571,12 +1622,20 @@ gp::string call_string(const value& v, const method* m) {
     return reinterpret_cast<thunk_t<gp::string()>*>(m->gp_fn)(self);
 }
 
-pp& state_pp(const iface& self) {
-    return *unbox<gp::ptr<pp_state>>(self)->p;
+// state_pp is the printer of the State self, or null when the call that made it is over (Go's
+// State is then a printer back in its pool: it reads the flags of the next call, which is a
+// mistake of the program; here Width and Precision say "not set", the flags are off and Write
+// discards).
+pp* state_pp(const iface& self) {
+    return unbox<gp::ptr<pp_state>>(self)->p;
 }
 
 bool st_flag(const iface& self, int64_t b) {
-    pp& p = state_pp(self);
+    pp* pq = state_pp(self);
+    if (pq == nullptr) {
+        return false;
+    }
+    pp& p = *pq;
     switch (b) {
     case '-':
         return p.minus;
@@ -1593,24 +1652,32 @@ bool st_flag(const iface& self, int64_t b) {
     }
 }
 std::tuple<int64_t, bool> st_precision(const iface& self) {
-    pp& p = state_pp(self);
-    return {p.prec, p.prec_present};
+    pp* p = state_pp(self);
+    if (p == nullptr) {
+        return {0, false};
+    }
+    return {p->prec, p->prec_present};
 }
 std::tuple<int64_t, bool> st_width(const iface& self) {
-    pp& p = state_pp(self);
-    return {p.wid, p.wid_present};
+    pp* p = state_pp(self);
+    if (p == nullptr) {
+        return {0, false};
+    }
+    return {p->wid, p->wid_present};
 }
 std::tuple<int64_t, gp::error> st_write(const iface& self, gp::slice<uint8_t> b) {
-    pp& p = state_pp(self);
-    if (b.gp_len() > 0) {
-        p.buf.append(reinterpret_cast<const char*>(b.gp_data()),
-                     static_cast<std::size_t>(b.gp_len()));
+    pp* p = state_pp(self);
+    if (p != nullptr && b.gp_len() > 0) {
+        p->buf.append(reinterpret_cast<const char*>(b.gp_data()),
+                      static_cast<std::size_t>(b.gp_len()));
     }
     return {b.gp_len(), gp::error()};
 }
 std::tuple<int64_t, gp::error> st_write_string(const iface& self, gp::string s) {
-    pp& p = state_pp(self);
-    p.buf += s.gp_view();
+    pp* p = state_pp(self);
+    if (p != nullptr) {
+        p->buf += s.gp_view();
+    }
     return {static_cast<int64_t>(s.gp_view().size()), gp::error()};
 }
 
@@ -1633,7 +1700,16 @@ const type_desc* td_pp_ptr() {
 }
 
 State make_state(pp& p) {
-    return to_iface<State>(gp::new_<pp_state>(pp_state{&p}), td_pp_ptr());
+    if (p.state == nullptr) {
+        p.state = new gp::ptr<pp_state>(gp::new_<pp_state>(pp_state{&p}));
+    }
+    return to_iface<State>(*p.state, td_pp_ptr());
+}
+
+void pp::release_state() noexcept {
+    (*state)->p = nullptr; // the States that Format methods kept stop pointing at this printer
+    delete state;
+    state = nullptr;
 }
 
 void pp::bad_verb(char32_t verb) {
@@ -1948,6 +2024,11 @@ void pp::print_reflect_value(const value& a, char32_t verb) {
     print_value(inner, verb, 0, (flag & flag_embed_ro) != 0 ? access::embed_ro : access::sticky_ro);
 }
 
+// is_plain_bytes: t is the unnamed type []byte, which Go's type switch prints as bytes.
+[[gnu::noinline]] static bool is_plain_bytes(const type_desc* t) {
+    return t->gp_kind == kind::Slice && !t->gp_named && full(t)->gp_elem == &td_uint8;
+}
+
 // print_arg is printArg.
 void pp::print_arg(const value& a, char32_t verb) {
     cur = &a;
@@ -1981,7 +2062,10 @@ void pp::print_arg(const value& a, char32_t verb) {
     }
     // Some types can be done without reflection: the predeclared ones, which have no methods.
     // If the type is not simple, it might have methods.
-    if ((verb == 'w' || t->gp_nmethods != 0) && handle_methods(a, verb)) {
+    // (Go's type switch has the unnamed []byte too: it does not call handleMethods, so %w of it is
+    // a bad verb for each element.)
+    if ((verb == 'w' || t->gp_nmethods != 0) && !(verb == 'w' && is_plain_bytes(t)) &&
+        handle_methods(a, verb)) {
         return;
     }
     cur = &a;
@@ -2429,6 +2513,61 @@ pp::arg_number(std::size_t arg_num, std::string_view format, std::size_t i, std:
     return {arg_num, i + wid_, ok};
 }
 
+void pp::print_live(std::size_t i, char32_t verb) {
+    print_arg(from_iface(lv.data[i]), verb);
+}
+
+std::tuple<int, bool, std::size_t> pp::int_live(std::size_t arg_num) {
+    value t = from_iface(lv.data[arg_num]);
+    auto [num, ok, next] = int_from_arg(&t, 1, 0);
+    (void)next;
+    return {num, ok, arg_num + 1};
+}
+
+void pp::extra_live(std::size_t k) {
+    value ak = from_iface(lv.data[k]);
+    if (ak.t == nullptr) {
+        buf += "<nil>";
+    } else {
+        buf += type_string(ak.t);
+        buf += '=';
+        print_arg(ak, 'v');
+    }
+}
+
+void pp::do_print_live(std::size_t n) {
+    bool prev_string = false;
+    for (std::size_t i = 0; i < n; i++) {
+        value ai = from_iface(lv.data[i]);
+        bool is_string = is_string_kind(ai);
+        if (i > 0 && !is_string && !prev_string) {
+            buf += ' ';
+        }
+        print_arg(ai, 'v');
+        prev_string = is_string;
+    }
+}
+
+void pp::extra_args(const value* a, std::size_t n, std::size_t arg_num) {
+    clearflags();
+    buf += "%!(EXTRA ";
+    for (std::size_t k = arg_num; k < n; k++) {
+        if (k > arg_num) {
+            buf += ", ";
+        }
+        if (lv.data != nullptr) [[unlikely]] {
+            extra_live(k);
+        } else if (a[k].t == nullptr) {
+            buf += "<nil>";
+        } else {
+            buf += type_string(a[k].t);
+            buf += '=';
+            print_arg(a[k], 'v');
+        }
+    }
+    buf += ')';
+}
+
 void pp::do_printf(std::string_view format, const value* a, std::size_t n) {
     std::size_t end = format.size();
     std::size_t arg_num = 0;  // we process one argument per non-trivial format
@@ -2478,7 +2617,7 @@ void pp::do_printf(std::string_view format, const value* a, std::size_t n) {
                         plus_v = plus;
                         plus = false;
                     }
-                    print_arg(a[arg_num], static_cast<char32_t>(c));
+                    print_nth(a, arg_num, static_cast<char32_t>(c));
                     arg_num++;
                     i++;
                     simple_done = true;
@@ -2495,7 +2634,7 @@ void pp::do_printf(std::string_view format, const value* a, std::size_t n) {
         // Do we have width?
         if (i < end && format[i] == '*') {
             i++;
-            std::tie(wid, wid_present, arg_num) = int_from_arg(a, n, arg_num);
+            std::tie(wid, wid_present, arg_num) = int_arg(a, n, arg_num);
             if (!wid_present) {
                 buf += "%!(BADWIDTH)";
             }
@@ -2521,7 +2660,7 @@ void pp::do_printf(std::string_view format, const value* a, std::size_t n) {
             std::tie(arg_num, i, after_index) = arg_number(arg_num, format, i, n);
             if (i < end && format[i] == '*') {
                 i++;
-                std::tie(prec, prec_present, arg_num) = int_from_arg(a, n, arg_num);
+                std::tie(prec, prec_present, arg_num) = int_arg(a, n, arg_num);
                 // Negative precision arguments don't make sense
                 if (prec < 0) {
                     prec = 0;
@@ -2566,32 +2705,22 @@ void pp::do_printf(std::string_view format, const value* a, std::size_t n) {
                 plus_v = plus;
                 plus = false;
             }
-            print_arg(a[arg_num], verb);
+            print_nth(a, arg_num, verb);
             arg_num++;
         }
     }
     // Check for extra arguments unless the call accessed the arguments out of order, in which
     // case it's too expensive to detect if they've all been used and arguably OK if they're not.
-    if (!reordered && arg_num < n) {
-        clearflags();
-        buf += "%!(EXTRA ";
-        for (std::size_t k = arg_num; k < n; k++) {
-            if (k > arg_num) {
-                buf += ", ";
-            }
-            if (a[k].t == nullptr) {
-                buf += "<nil>";
-            } else {
-                buf += type_string(a[k].t);
-                buf += '=';
-                print_arg(a[k], 'v');
-            }
-        }
-        buf += ')';
+    if (!reordered && arg_num < n) [[unlikely]] {
+        extra_args(a, n, arg_num);
     }
 }
 
 void pp::do_print(const value* a, std::size_t n) {
+    if (lv.data != nullptr) [[unlikely]] {
+        do_print_live(n);
+        return;
+    }
     bool prev_string = false;
     for (std::size_t i = 0; i < n; i++) {
         bool is_string = is_string_kind(a[i]);
@@ -2605,11 +2734,25 @@ void pp::do_print(const value* a, std::size_t n) {
 }
 
 void pp::do_println(const value* a, std::size_t n) {
+    if (lv.data != nullptr) [[unlikely]] {
+        do_println_live(n);
+        return;
+    }
     for (std::size_t i = 0; i < n; i++) {
         if (i > 0) {
             buf += ' ';
         }
         print_arg(a[i], 'v');
+    }
+    buf += '\n';
+}
+
+void pp::do_println_live(std::size_t n) {
+    for (std::size_t i = 0; i < n; i++) {
+        if (i > 0) {
+            buf += ' ';
+        }
+        print_arg(from_iface(lv.data[i]), 'v');
     }
     buf += '\n';
 }
@@ -2743,8 +2886,20 @@ void sprint(std::string& out, const arg* args, std::size_t n) {
     p.do_print(args, n);
 }
 
+void sprint_live(std::string& out, const arg* args, std::size_t n, live_span lv) {
+    pp p(out);
+    p.lv = lv;
+    p.do_print(args, n);
+}
+
 void sprintln(std::string& out, const arg* args, std::size_t n) {
     pp p(out);
+    p.do_println(args, n);
+}
+
+void sprintln_live(std::string& out, const arg* args, std::size_t n, live_span lv) {
+    pp p(out);
+    p.lv = lv;
     p.do_println(args, n);
 }
 
@@ -2753,9 +2908,27 @@ void sprintf(std::string& out, std::string_view format, const arg* args, std::si
     p.do_printf(format, args, n);
 }
 
-gp::error errorf(std::string_view format, const arg* a, std::size_t n) {
+void sprintf_live(std::string& out, std::string_view format, const arg* args, std::size_t n,
+                  live_span lv) {
+    pp p(out);
+    p.lv = lv;
+    p.do_printf(format, args, n);
+}
+
+namespace {
+
+// operand_of is the operand arg_num of an Errorf call, as it is now when the call has a slice a....
+[[gnu::noinline]] value operand_live(const pp& p, std::size_t arg_num) {
+    return from_iface(p.lv.data[arg_num]);
+}
+inline value operand_of(const pp& p, const arg* a, std::size_t arg_num) {
+    return p.lv.data != nullptr ? operand_live(p, arg_num) : a[arg_num];
+}
+
+gp::error errorf_impl(std::string_view format, const arg* a, std::size_t n, live_span lv) {
     std::string s;
     pp p(s);
+    p.lv = lv;
     p.wrap_errs = true;
     p.do_printf(format, a, n);
     gp::error err;
@@ -2767,7 +2940,7 @@ gp::error errorf(std::string_view format, const arg* a, std::size_t n) {
     case 1: {
         wrap_error_t w;
         w.gp_msg = gp::string::gp_copy(s);
-        w.gp_err = as_error(a[p.wrapped_errs[0]]);
+        w.gp_err = as_error(operand_of(p, a, static_cast<std::size_t>(p.wrapped_errs[0])));
         err = to_iface<gp::error>(gp::new_<wrap_error_t>(std::move(w)), td_wrap_error_ptr());
         break;
     }
@@ -2781,7 +2954,7 @@ gp::error errorf(std::string_view format, const arg* a, std::size_t n) {
             if (i > 0 && p.wrapped_errs[i - 1] == arg_num) {
                 continue;
             }
-            gp::error e = as_error(a[arg_num]);
+            gp::error e = as_error(operand_of(p, a, static_cast<std::size_t>(arg_num)));
             if (e != nullptr) {
                 errs = gp::append(std::move(errs), std::move(e));
             }
@@ -2795,6 +2968,16 @@ gp::error errorf(std::string_view format, const arg* a, std::size_t n) {
     return err;
 }
 
+} // namespace
+
+gp::error errorf(std::string_view format, const arg* a, std::size_t n) {
+    return errorf_impl(format, a, n, live_span{});
+}
+
+gp::error errorf_live(std::string_view format, const arg* a, std::size_t n, live_span lv) {
+    return errorf_impl(format, a, n, lv);
+}
+
 // state_call calls the method in the slot of the itab of the fmt.State s (not icall, whose nil
 // check names gp::panic_nil, which a -nochecks runtime object must not refer to).
 template <typename R, typename... A>
@@ -2805,6 +2988,13 @@ R state_call(const State& s, std::size_t slot, A... a) {
             "runtime error: invalid memory address or nil pointer dereference"));
     }
     return reinterpret_cast<thunk_t<R(A...)>*>(t->gp_fun[slot])(s, a...);
+}
+
+std::tuple<int64_t, gp::error> write_failed(const char* what, const std::string& s) {
+    (void)s;
+    return {0, to_iface<gp::error>(gp::new_<error_string_t>(error_string_t{gp::string::gp_copy(
+                                       std::string("write /dev/stdout: ") + what)}),
+                                   td_error_string_ptr())};
 }
 
 std::tuple<int64_t, gp::error> write_state(const State& f, std::string_view s) {

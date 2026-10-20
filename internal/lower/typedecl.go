@@ -147,15 +147,19 @@ func (g *gen) collectLocalTypes() {
 	for _, si := range td.list {
 		td.used[si.name] = true
 	}
-	for _, f := range g.funcs {
-		ast.Inspect(f.decl.Body, func(n ast.Node) bool {
-			if d, ok := n.(*ast.GenDecl); ok && d.Tok == token.TYPE {
-				for _, spec := range d.Specs {
-					g.typeSpec(spec.(*ast.TypeSpec), true)
-				}
+	local := func(n ast.Node) bool {
+		if d, ok := n.(*ast.GenDecl); ok && d.Tok == token.TYPE {
+			for _, spec := range d.Specs {
+				g.typeSpec(spec.(*ast.TypeSpec), true)
 			}
-			return true
-		})
+		}
+		return true
+	}
+	for _, f := range g.funcs {
+		ast.Inspect(f.decl.Body, local)
+	}
+	for _, e := range g.varExprs {
+		ast.Inspect(e, local) // a func literal in the value of a package variable
 	}
 }
 

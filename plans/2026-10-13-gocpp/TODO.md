@@ -15,6 +15,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Small follow-ups (give them to the next job that touches the file)
 
+- [ ] Native-fmt audit follow-ups (9.7a integrated 2026-10-20): pre-existing nonblocking-stdin cancellation and ErrClosed differences; Windows fmtdiff interruption not separately verified. Upstream/full fmt runs remain part of the user's manual final review (9.10), not a completed sweep. The old 5.11 fmt list below is historical: `go fmt.Fprintln`, live spread operands and fmt function values are now covered by the native audit.
+
 - [ ] `docs/CONTRIBUTING.md` §2: list `tools/stubgen` (the stdlib stub generator) under `tools/` (from job 1.9b)
 - [ ] Tests in `internal/interop` (TestProbeCommand) and `internal/load` (TestLoadModule, TestTestFiles, TestNoFiles) fail when TMPDIR contains `..`: clean the temp paths (`filepath.Clean`/`EvalSymlinks`) before comparing (from the 2.7 review); also `internal/load` TestTestOnlyExternal failed once in `make ci` with TMPDIR in the scratchpad (its `$ROOT` substitution missed) and passed on reruns (from job 2.4)
 - [x] FakeImportC false errors (from job 1.11): dropped by `internal/check/falseerrors.go` when the operand is a C/C++ value (job 1.15; Phase 01 README §2.8 "As built"); covered by TestFalseErrors and the corpus in `internal/check/testdata/corpus`

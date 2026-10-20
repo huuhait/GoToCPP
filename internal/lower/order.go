@@ -632,13 +632,8 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			return
 		}
 		iface := len(x.Args)
-		if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-			if fn, ok := fg.g.info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "fmt" {
-				iface = 0
-				if fmtFormatted(fn.Name()) {
-					iface = 1 // the format is a string (fmtcall.go)
-				}
-			}
+		if fn := fg.fmtFunc(x); fn != nil {
+			iface = fmtIfaceFrom(fn.Name()) // fmt.Println(...), also import . "fmt" (fmtcall.go)
 		}
 		if fg.isBuiltin(x, "len") || fg.isBuiltin(x, "cap") {
 			// len and cap have no effect of their own, but gc evaluates them in their places

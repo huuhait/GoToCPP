@@ -20,6 +20,7 @@ func (f *File) Close() error {
 	if f == nil {
 		return ErrInvalid
 	}
+	noteClose(f) // gocpp: fmt's output and input follow the closing of os.Stdout and os.Stdin (gocpp_helpers.gp)
 	return f.file.close()
 }
 

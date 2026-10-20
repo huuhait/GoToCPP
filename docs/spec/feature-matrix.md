@@ -101,7 +101,7 @@ Most other standard packages come in Phase 09 (its README lists them by tier). A
 
 | Package | Phase | Notes |
 |---|---|---|
-| `fmt` | 02 | `Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09. |
+| `fmt` | 02 | `Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest, since the audit of decision 9.7 (Phase 09): the Scan family (`Scan`, `Scanln`, `Scanf`, `Sscan`, `Sscanln`, `Sscanf`, `Fscan`, `Fscanln`, `Fscanf`) with `fmt.Scanner` and `fmt.ScanState`, native like the printing (Go's `fmt` is not ported). |
 | `unsafe` | 03 | `Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16). |
 | `weak` | 03 | `weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate. |
 | `errors` | 05 | Go's own package since step 9.4a (ported by `tools/portstd`; `As` and `Is` use three natives over the type descriptors, as in step 5.7, not the reflect subset). |

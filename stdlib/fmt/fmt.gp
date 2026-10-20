@@ -6,7 +6,7 @@
 //
 // A declaration stub for Phase 01: the exported declarations of Go's fmt
 // package, without function bodies, so that programs that import it
-// type-check. Phase 05 replaces it with a basic fmt, and Phase 09 with Go's.
+// type-check. Phase 05 replaces it with the runtime's fmt (kept by decision 9.7, ADR-100: see PORT.md).
 
 /*
 Package fmt implements formatted I/O with functions analogous

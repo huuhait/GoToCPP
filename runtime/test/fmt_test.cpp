@@ -7,15 +7,19 @@
 // with the runtime's .cpp files, with g++ and clang++, at -O0, at -O2 and with ASan + UBSan, and
 // runs it like test/unit.cpp. It prints "ok: N checks" and exits 0, or prints each failed check
 // and exits 1.
+#include "threads_ended.hpp"
+
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fmt = gp::fmt;
@@ -477,7 +481,189 @@ void test_runtime_errors() {
              "runtime error: index out of range [5] with length 3|runtime.boundsError");
 }
 
+// The Scan family (gocpp/fmtscan.hpp, runtime/src/fmtscan.cpp): the operands are pointers with
+// their descriptors, the errors are the runtime's io.EOF and io.ErrUnexpectedEOF, and Scan reads
+// standard input itself.
+void test_scan() {
+    auto pi = gp::new_<int64_t>(0);
+    auto pj = gp::new_<int64_t>(0);
+    auto ps = gp::new_<gp::string>(gp::string());
+    auto pf = gp::new_<double>(0.0);
+    const gp::type_desc* ti = gp::td_ptr<int64_t>(&gp::td_int);
+    const gp::type_desc* ts = gp::td_ptr<gp::string>(&gp::td_string);
+    const gp::type_desc* tf = gp::td_ptr<double>(&gp::td_float64);
+
+    auto [n, err] = fmt::Sscan("12 abc 2.5"_gs, fmt::as(ti, pi), fmt::as(ts, ps), fmt::as(tf, pf));
+    CHECK(n == 3 && err == nullptr && *pi == 12 && str(*ps) == "abc" && *pf == 2.5);
+    std::tie(n, err) = fmt::Sscan(""_gs, fmt::as(ti, pi));
+    CHECK(n == 0 && err == fmt::io_eof());
+    std::tie(n, err) = fmt::Sscan("1"_gs, fmt::as(ti, pi), fmt::as(ti, pj));
+    CHECK(n == 1 && err == fmt::io_eof());
+    std::tie(n, err) = fmt::Sscan("x"_gs, fmt::as(ti, pi));
+    CHECK(n == 0 && err != nullptr && str(err.Error()) == "expected integer");
+    std::tie(n, err) = fmt::Sscanf("7-8"_gs, "%d-%d"_gs, fmt::as(ti, pi), fmt::as(ti, pj));
+    CHECK(n == 2 && err == nullptr && *pi == 7 && *pj == 8);
+    std::tie(n, err) = fmt::Sscanf("7"_gs, "%d %d"_gs, fmt::as(ti, pi), fmt::as(ti, pj));
+    CHECK(n == 1 && err == fmt::io_eof());
+    std::tie(n, err) = fmt::Sscanln("1 2 3"_gs, fmt::as(ti, pi), fmt::as(ti, pj));
+    CHECK(n == 2 && str(err.Error()) == "expected newline");
+    std::tie(n, err) = fmt::Sscan("99999999999999999999"_gs, fmt::as(ti, pi));
+    CHECK(n == 0 && str(err.Error()) ==
+                        "strconv.ParseInt: parsing \"99999999999999999999\": value out of range");
+    std::tie(n, err) = fmt::Sscan("1"_gs, *pi);
+    CHECK(n == 0 && str(err.Error()) == "type not a pointer: int");
+    CHECK(fmt::io_eof() == fmt::io_eof() && fmt::io_eof() != fmt::io_unexpected_eof());
+    CHECK_EQ(str(fmt::io_eof().Error()), "EOF");
+    CHECK_EQ(str(fmt::io_unexpected_eof().Error()), "unexpected EOF");
+}
+
+// test_stdin: Scan, Scanln and Scanf read descriptor 0 themselves (the OS layer's test seams put
+// a pipe, a directory or nothing on it): the newline rules, the end of the input, an interrupted
+// read (EINTR, retried), a non-blocking descriptor that is empty (EAGAIN, waited out) and the
+// errors.
+void test_stdin() {
+    namespace tos = gp::os::testing;
+    int w = tos::stdin_pipe(false);
+    if (w < 0) {
+        return; // this system has no seams
+    }
+    auto pi = gp::new_<int64_t>(0);
+    auto pj = gp::new_<int64_t>(0);
+    auto ps = gp::new_<gp::string>(gp::string());
+    auto pf = gp::new_<double>(0.0);
+    const gp::type_desc* ti = gp::td_ptr<int64_t>(&gp::td_int);
+    const gp::type_desc* ts = gp::td_ptr<gp::string>(&gp::td_string);
+    const gp::type_desc* tf = gp::td_ptr<double>(&gp::td_float64);
+    const char text[] = "5 6\nseven\n8.5\n";
+    tos::fd_write(w, text, sizeof text - 1);
+    tos::fd_close(w);
+    int64_t n;
+    gp::error err;
+    std::tie(n, err) = fmt::Scan(fmt::as(ti, pi), fmt::as(ti, pj));
+    CHECK(n == 2 && err == nullptr && *pi == 5 && *pj == 6);
+    std::tie(n, err) = fmt::Scanln(fmt::as(ts, ps));
+    CHECK(n == 1 && err == nullptr && str(*ps) == "seven");
+    std::tie(n, err) = fmt::Scanf("%f"_gs, fmt::as(tf, pf));
+    CHECK(n == 1 && err == nullptr && *pf == 8.5);
+    std::tie(n, err) = fmt::Scan(fmt::as(ti, pi));
+    CHECK(n == 0 && err == fmt::io_eof());
+    tos::restore_stdin();
+
+    // An empty non-blocking pipe: the read waits for the writer (EAGAIN), and an alarm interrupts
+    // it on the way (EINTR): both are retried.
+    w = tos::stdin_pipe(true);
+    CHECK(w >= 0);
+    std::thread writer([w] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        gp::os::testing::fd_write(w, "42\n", 3);
+        gp::os::testing::fd_close(w);
+    });
+    CHECK(tos::interrupt_in(30));
+    std::tie(n, err) = fmt::Scan(fmt::as(ti, pi));
+    CHECK(n == 1 && err == nullptr && *pi == 42);
+    writer.join();
+    tos::restore_stdin();
+
+    // A blocking pipe that is empty: the alarm interrupts the read itself (EINTR), which is
+    // retried.
+    w = tos::stdin_pipe(false);
+    CHECK(w >= 0);
+    std::thread writer2([w] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        gp::os::testing::fd_write(w, "43\n", 3);
+        gp::os::testing::fd_close(w);
+    });
+    CHECK(tos::interrupt_in(30));
+    std::tie(n, err) = fmt::Scan(fmt::as(ti, pi));
+    CHECK(n == 1 && err == nullptr && *pi == 43);
+    writer2.join();
+    tos::restore_stdin();
+
+    // A directory and a closed descriptor: the read errors, as Go's os.Stdin reports them.
+    CHECK(tos::stdin_directory());
+    CHECK(tos::stdin_closed());
+    tos::restore_stdin();
+    if (tos::stdin_directory()) {
+        std::tie(n, err) = fmt::Scan(fmt::as(ti, pi));
+        CHECK(n == 0 && err != nullptr && str(err.Error()) == "read /dev/stdin: is a directory");
+        tos::restore_stdin();
+    }
+    if (tos::stdin_closed()) {
+        std::tie(n, err) = fmt::Scanln(fmt::as(ti, pi));
+        CHECK(n == 0 && err != nullptr &&
+              str(err.Error()) == "read /dev/stdin: bad file descriptor");
+        tos::restore_stdin();
+    }
+}
+
+// test_gate_start: with a process-wide barrier (membarrier(2), Linux >= 4.14) the gate starts open,
+// and a Print on the fast path leaves its thread's slot clear.
+void test_gate_start() {
+    if (!gp::os::process_barrier_init()) {
+        return; // every Print takes the counted slow path on this system
+    }
+    CHECK((gp::fmt::detail::stdout_gate.word.load() & 1) == 0);
+    fmt::Print(gp::string()); // writes nothing
+    CHECK(gp::fmt::detail::tls_print_slot != nullptr &&
+          gp::fmt::detail::tls_print_slot->inflight.load() == 0);
+}
+
+// test_close_defers: defer_close (the close hook of File.Close of the original os.Stdout /
+// os.Stdin) closes at once when nothing is in flight, and else keeps the close for the last one out
+// (finish_close): a thread plays the Print (a slot announcement) or the Scan (the counter) and
+// finishes 100 ms later. The stdout close also makes every thread pass a memory barrier
+// (process_barrier).
+void test_close_defers() {
+    for (bool out : {false, true}) {
+        auto& g = out ? gp::fmt::detail::stdout_gate : gp::fmt::detail::stdin_gate;
+        int closed = 0;
+        // Nothing in flight: the caller closes.
+        unsigned long b0 = gp::os::testing::barrier_calls();
+        CHECK(!gp::fmt::defer_close(out, [&closed] { closed++; }));
+        CHECK(closed == 0);
+        CHECK(!out || gp::os::testing::barrier_calls() > b0);
+        CHECK((g.word.load() & 1) == 1);
+        // In flight: the close waits for the last one.
+        std::atomic<int> state{0};
+        std::thread t([&] {
+            gp::fmt::detail::print_slot* sl = nullptr;
+            if (out) {
+                sl = gp::fmt::detail::register_print_slot();
+                sl->inflight.store(1);
+            } else {
+                g.word.fetch_add(2);
+            }
+            state.store(1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            state.store(2);
+            if (out) {
+                sl->inflight.store(0);
+            } else {
+                g.word.fetch_sub(2);
+            }
+            gp::fmt::detail::finish_close(out);
+            state.store(3);
+        });
+        while (state.load() == 0) {
+            std::this_thread::yield();
+        }
+        CHECK(gp::fmt::defer_close(out, [&closed] { closed++; }));
+        CHECK(closed == 0); // Close returned without closing the descriptor
+        while (state.load() != 3) {
+            std::this_thread::yield();
+        }
+        t.join();
+        CHECK(closed == 1); // the last one out closed it, once
+        gp::fmt::detail::finish_close(out);
+        CHECK(closed == 1);
+    }
+}
+
 void run_tests() {
+    test_gate_start();
+    test_close_defers();
+    test_scan();
+    test_stdin();
     test_descriptors();
     test_operands();
     test_structs();
@@ -490,6 +676,7 @@ void run_tests() {
     test_sprint();
     test_runtime_errors();
     std::string speed = test_speed();
+    rt_test::threads_ended();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

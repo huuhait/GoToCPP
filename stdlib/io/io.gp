@@ -43,11 +43,21 @@ var ErrShortBuffer = errors.New("short buffer")
 // If the EOF occurs unexpectedly in a structured data stream,
 // the appropriate error is either [ErrUnexpectedEOF] or some other error
 // giving more detail.
-var EOF = errors.New("EOF")
+var EOF = runtimeEOF()
 
 // ErrUnexpectedEOF means that EOF was encountered in the
 // middle of reading a fixed-size block or data structure.
-var ErrUnexpectedEOF = errors.New("unexpected EOF")
+var ErrUnexpectedEOF = runtimeUnexpectedEOF()
+
+// runtimeEOF returns the runtime's EOF error: an error whose text is "EOF" (what errors.New("EOF") makes).
+//
+//gocpp:native gp::fmt::io_eof
+func runtimeEOF() error
+
+// runtimeUnexpectedEOF returns the runtime's ErrUnexpectedEOF error ("unexpected EOF").
+//
+//gocpp:native gp::fmt::io_unexpected_eof
+func runtimeUnexpectedEOF() error
 
 // ErrNoProgress is returned by some clients of a [Reader] when
 // many calls to Read have failed to return any data or error,

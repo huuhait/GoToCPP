@@ -1,0 +1,27 @@
+# io (decision 9.7 audit): EOF and ErrUnexpectedEOF are the runtime's two error values. fmt is not ported: its Scan functions are
+# native (runtime/src/fmtscan.cpp), and they return io.EOF and io.ErrUnexpectedEOF, which programs compare with ==. So the two
+# variables hold the runtime's values (gp::fmt::io_eof, gp::fmt::io_unexpected_eof); they print and behave as errors.New does.
+
+@note EOF and ErrUnexpectedEOF are the values of the runtime (native functions), so that the native Scan functions of fmt return the same errors: err == io.EOF holds for them.
+
+@file io.go
+@why EOF is the runtime's error value: the native fmt.Scan functions return it, and callers compare with ==.
+@replace
+var EOF = errors.New("EOF")
+@with
+var EOF = runtimeEOF()
+@end
+@why ErrUnexpectedEOF is the runtime's error value too.
+@replace
+var ErrUnexpectedEOF = errors.New("unexpected EOF")
+@with
+var ErrUnexpectedEOF = runtimeUnexpectedEOF()
+
+// runtimeEOF returns the runtime's EOF error: an error whose text is "EOF" (what errors.New("EOF") makes).
+//
+func runtimeEOF() error
+
+// runtimeUnexpectedEOF returns the runtime's ErrUnexpectedEOF error ("unexpected EOF").
+//
+func runtimeUnexpectedEOF() error
+@end

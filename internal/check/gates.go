@@ -420,7 +420,7 @@ const otherStdPhase = 9
 // (Phase 09)"; for the packages here, Check gives their own phase instead
 // (weak: Phase 03, plugin: never).
 var stdPackages = []stdPackage{
-	{Path: "fmt", Phase: 2, Rest: 9, Notes: "`Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest (`Sscan` and friends) comes with Go's `fmt` in Phase 09."},
+	{Path: "fmt", Phase: 2, Rest: 9, Notes: "`Print`, `Println` and `Printf` with basic values from Phase 02; from Phase 05 every value and verb, the `Fprint` functions for `os.Stdout`, `os.Stderr` and a `fmt.State`, `Append`, `Errorf`, `Stringer`, `Formatter` and the other interfaces; see the table of members below. The rest, since the audit of decision 9.7 (Phase 09): the Scan family (`Scan`, `Scanln`, `Scanf`, `Sscan`, `Sscanln`, `Sscanf`, `Fscan`, `Fscanln`, `Fscanf`) with `fmt.Scanner` and `fmt.ScanState`, native like the printing (Go's `fmt` is not ported)."},
 	{Path: "unsafe", Phase: 3, Rest: 4, Notes: "`Sizeof`, `Alignof` and `Offsetof` from Phase 03, the rest (`unsafe.Pointer`, `Slice`, `String`, …) from Phase 04. `unsafe.Pointer` keeps gocpp memory alive (divergence D16)."},
 	{Path: "embed", Phase: 10, Since: 5, Notes: "Always available for `//go:embed` on `string` and `[]byte` variables and for `#embed(...)` (step 10.8, ADR-095). `embed.FS` needs `io/fs` (Phase 09) and is an error until then."},
 	{Path: "weak", Phase: 3, Notes: "`weak.Pointer[T]` is a compiler intrinsic, exempt from the generics gate."},

@@ -40,6 +40,10 @@ runtime.coroswitch    gp::iter::coroswitch
 # maps (step 7.10): runtime/include/gocpp/maps.hpp and runtime/src/maps.cpp (map_clone in gocpp/map.hpp)
 maps.clone            gp::maps::clone
 
+# io (decision 9.7): the two error values that fmt's native Scan functions return (runtime/src/fmtscan.cpp; patches/io.rules)
+io.runtimeEOF            gp::fmt::io_eof
+io.runtimeUnexpectedEOF  gp::fmt::io_unexpected_eof
+
 # math/rand and math/rand/v2 (step 9.11): runtime/include/gocpp/runtimepkg.hpp; Go's runtime.rand is a ChaCha8 stream per M, this is a per-thread splitmix64 seeded from the system
 runtime.rand          gp::runtime::runtime_rand
 

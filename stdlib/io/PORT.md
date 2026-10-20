@@ -22,11 +22,15 @@ Ported by `tools/portstd` from go1.25.14's `src/io` (BSD-3-Clause, see `../LICEN
 
 ## Patches
 
-None: the files are Go's, with the header line.
+- `io.go`: EOF is the runtime's error value: the native fmt.Scan functions return it, and callers compare with ==.
+- `io.go`: ErrUnexpectedEOF is the runtime's error value too.
 
 ## Native functions
 
-None.
+| Function | Go linkname | Native |
+|---|---|---|
+| `runtimeEOF` (`io.gp`) | (none: no body upstream) | `//gocpp:native gp::fmt::io_eof` |
+| `runtimeUnexpectedEOF` (`io.gp`) | (none: no body upstream) | `//gocpp:native gp::fmt::io_unexpected_eof` |
 
 ## Findings
 
@@ -34,4 +38,4 @@ None.
 
 ## Known divergences from Go
 
-None.
+- EOF and ErrUnexpectedEOF are the values of the runtime (native functions), so that the native Scan functions of fmt return the same errors: err == io.EOF holds for them.

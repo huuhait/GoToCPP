@@ -858,6 +858,19 @@ func (d *driver) load(patterns []string) (*buildSet, int) {
 		for _, dep := range p.Imports {
 			visit(dep)
 		}
+		// fmt is the runtime's, but its Fprint and Fscan functions take an io.Writer or io.Reader, and
+		// Go's fmt imports io: a program that calls them has the package io, also when it does not
+		// import it (a type with a Write method is converted to io.Writer at the call).
+		if cp := r.Package(p); cp != nil && usesFmtIO(cp) {
+			for _, dep := range prog.Packages {
+				if dep.Std && dep.ImportPath == "io" {
+					if p.Imports["io"] == nil {
+						p.Imports["io"] = dep // as if the package imported it: its header and its init
+					}
+					visit(dep)
+				}
+			}
+		}
 	}
 	if cppLib {
 		for _, p := range mains {

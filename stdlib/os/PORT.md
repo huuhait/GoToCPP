@@ -43,6 +43,11 @@ stat_linux.go stat_unix.go sys.go sys_linux.go sys_unix.go tempfile.go types.go 
   that is already inside a blocking kernel `read` or `write` (a call that started after `Fd()`). `os.Stdin`/`Stdout`/`Stderr`
   are not pollable unless the process got them non-blocking. Without a free descriptor for the wake eventfd (EMFILE) a wait
   goes on without it and polls its state every 25 ms (`Close` and deadlines still work, a little late).
+- `file_posix.go`: `File.Close` calls `noteClose` (gocpp_helpers.gp), which records that the original `os.Stdout` or `os.Stdin` is
+  closed. With the init of `gocpp_helpers.gp` (`setFmtStdout`, `setFmtStdin`, natives `gp::fmt::set_os_stdout` and `set_os_stdin`)
+  it lets package fmt follow the variables: `fmt.Print`, `Println` and `Printf` write to the file that `os.Stdout` holds, and
+  `Scan`, `Scanln` and `Scanf` read the file that `os.Stdin` holds, once the program has assigned another file (or copied one
+  over it, `*os.Stdout = *w`) or closed the original; until then fmt uses descriptors 1 and 0 itself ([ADR-100](../../docs/adr/100-fmt-stays-native-decision-9-7-a.md)).
 - `internal/syscall/unix` is not ported: `Fcntl(F_GETFL)` is the native `sysFcntlGetFl`, `UTIME_OMIT` a constant.
 - `internal/testlog`, `internal/filepathlite`, `internal/itoa`, `internal/oserror`: used as in Go (shims of step 9.2, and
   `internal/filepathlite` ported in this step).

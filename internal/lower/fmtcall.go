@@ -53,6 +53,10 @@ var fmtFuncs = map[string]bool{
 	"Fprint": true, "Fprintln": true, "Fprintf": true,
 	"Append": true, "Appendln": true, "Appendf": true,
 	"Errorf": true, "FormatString": true,
+	// The Scan family: the arguments are pointers (fmtscan.hpp).
+	"Scan": true, "Scanln": true, "Scanf": true,
+	"Sscan": true, "Sscanln": true, "Sscanf": true,
+	"Fscan": true, "Fscanln": true, "Fscanf": true,
 }
 
 // fmtFirst returns the index of the first operand of the fmt function name: after the writer or
@@ -61,9 +65,10 @@ func fmtFirst(name string) int {
 	switch name {
 	case "Print", "Println", "Sprint", "Sprintln":
 		return 0
-	case "Printf", "Sprintf", "Errorf", "Fprint", "Fprintln", "Append", "Appendln":
+	case "Printf", "Sprintf", "Errorf", "Fprint", "Fprintln", "Append", "Appendln",
+		"Scanf", "Sscan", "Sscanln", "Fscan", "Fscanln":
 		return 1
-	case "Fprintf", "Appendf":
+	case "Fprintf", "Appendf", "Sscanf", "Fscanf":
 		return 2
 	}
 	return 0
@@ -72,20 +77,44 @@ func fmtFirst(name string) int {
 // fmtFormatted reports whether the function takes a format before its operands.
 func fmtFormatted(name string) bool {
 	switch name {
-	case "Printf", "Sprintf", "Errorf", "Fprintf", "Appendf":
+	case "Printf", "Sprintf", "Errorf", "Fprintf", "Appendf", "Scanf", "Sscanf", "Fscanf":
 		return true
 	}
 	return false
 }
 
+// fmtIfaceFrom returns the index of the first argument of the fmt function name that goes into an
+// interface in Go: the ones before it are strings (the format, the string of Sscan), which gc
+// does not copy.
+func fmtIfaceFrom(name string) int {
+	switch name {
+	case "Sscan", "Sscanln":
+		return 1
+	case "Sscanf":
+		return 2
+	}
+	if fmtFormatted(name) {
+		return 1 // the format is a string
+	}
+	return 0
+}
+
 // fmtFunc returns the fmt function that c calls, or nil if c calls no function of package fmt.
 func (fg *funcGen) fmtFunc(c *ast.CallExpr) *types.Func {
-	sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
-	if !ok || fg.g.info.Selections[sel] != nil {
+	var id *ast.Ident
+	switch fun := ast.Unparen(c.Fun).(type) {
+	case *ast.SelectorExpr:
+		if fg.g.info.Selections[fun] != nil {
+			return nil
+		}
+		id = fun.Sel
+	case *ast.Ident:
+		id = fun // a dot import: import . "fmt"
+	default:
 		return nil
 	}
-	fn, ok := fg.g.info.Uses[sel.Sel].(*types.Func)
-	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "fmt" {
+	fn, ok := fg.g.info.Uses[id].(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "fmt" || fn.Parent() != fn.Pkg().Scope() {
 		return nil
 	}
 	return fn
@@ -111,20 +140,30 @@ func (fg *funcGen) pkgFunc(c *ast.CallExpr, sel *ast.SelectorExpr) string {
 func (fg *funcGen) fmtCall(c *ast.CallExpr, fn *types.Func, callee string) cppir.Expr {
 	name := fn.Name()
 	fg.g.noteFmt(c.Pos(), name) // why.go
+	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
+		return fg.fmtTupleCall(c, fn, callee)
+	}
 	if name == "FormatString" {
 		args := fg.exprs(c.Args, false)
 		if len(c.Args) > 0 && isNilType(fg.g.info.TypeOf(c.Args[0])) {
 			args[0] = construct(typeName("gp::fmt::State")) // a nil interface
+		} else if len(c.Args) > 0 {
+			// A value of a type that implements State goes into the interface first, as Go
+			// converts it at the call.
+			if t := fg.g.info.TypeOf(c.Args[0]); t != nil && !isInterface(t) {
+				args[0] = fg.g.toInterface(t, fn.Signature().Params().At(0).Type(), args[0], c.Args[0].Pos())
+			}
 		}
 		return &cppir.Call{Fun: cxxName(callee), Args: args}
-	}
-	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) && fmtFirst(name) == 0 {
-		return fg.fmtTupleCall(c, callee)
 	}
 	first := fmtFirst(name)
 	args := make([]cppir.Expr, len(c.Args))
 	for i, a := range c.Args {
 		switch {
+		case i == 0 && (name == "Sscan" || name == "Sscanln" || name == "Sscanf"):
+			args[i] = fg.exactExpr(a) // the string
+		case i == 0 && (name == "Fscan" || name == "Fscanln" || name == "Fscanf"):
+			args[i] = fg.fmtReader(a)
 		case i == 0 && (name == "Fprint" || name == "Fprintln" || name == "Fprintf"):
 			args[i] = fg.fmtWriter(a)
 		case i == 0 && (name == "Append" || name == "Appendln" || name == "Appendf"):
@@ -202,21 +241,67 @@ func hasWriteMethod(t types.Type) bool {
 
 // lookupIOWriter finds the type io.Writer in the packages that pkg imports, directly or not.
 func lookupIOWriter(pkg *types.Package, seen map[*types.Package]bool) types.Type {
+	return lookupIOType(pkg, "Writer", seen)
+}
+
+// lookupIOType finds the type io.name in the packages that pkg imports, directly or not.
+func lookupIOType(pkg *types.Package, name string, seen map[*types.Package]bool) types.Type {
 	if pkg == nil || seen[pkg] {
 		return nil
 	}
 	seen[pkg] = true
 	if pkg.Path() == "io" {
-		if tn, ok := pkg.Scope().Lookup("Writer").(*types.TypeName); ok {
+		if tn, ok := pkg.Scope().Lookup(name).(*types.TypeName); ok {
 			return tn.Type()
 		}
 	}
 	for _, imp := range pkg.Imports() {
-		if t := lookupIOWriter(imp, seen); t != nil {
+		if t := lookupIOType(imp, name, seen); t != nil {
 			return t
 		}
 	}
 	return nil
+}
+
+// fmtReader returns the C++ of the reader of Fscan, Fscanln or Fscanf: an interface value as it
+// is (the scanner finds its Read, ReadRune and UnreadRune methods by name), another type
+// converted to io.Reader first, as Go does.
+func (fg *funcGen) fmtReader(e ast.Expr) cppir.Expr {
+	t := fg.g.info.TypeOf(e)
+	if t != nil && isNilType(t) {
+		return construct(typeName("gp::iface")) // a nil reader: the call panics
+	}
+	if t != nil && isInterface(t) {
+		return fg.exactExpr(e)
+	}
+	if t != nil && hasReadMethod(t) {
+		if r := lookupIOType(fg.g.pkg.Types, "Reader", map[*types.Package]bool{}); r != nil {
+			return fg.g.toInterface(t, r, fg.exactExpr(e), e.Pos())
+		}
+	}
+	fg.g.notYet(e.Pos(), "fmt.Fscan from a value without a Read([]byte) (int, error) method")
+	return placeholder
+}
+
+// hasReadMethod reports whether the method set of t has Read([]byte) (int, error).
+func hasReadMethod(t types.Type) bool {
+	sel := types.NewMethodSet(t).Lookup(nil, "Read")
+	if sel == nil {
+		return false
+	}
+	sig, ok := sel.Obj().Type().(*types.Signature)
+	if !ok || sig.Params().Len() != 1 || sig.Results().Len() != 2 || sig.Variadic() {
+		return false
+	}
+	sl, ok := types.Unalias(sig.Params().At(0).Type()).(*types.Slice)
+	if !ok {
+		return false
+	}
+	if b, ok := types.Unalias(sl.Elem()).(*types.Basic); !ok || b.Kind() != types.Byte {
+		return false
+	}
+	n, ok := types.Unalias(sig.Results().At(0).Type()).(*types.Basic)
+	return ok && n.Kind() == types.Int && types.Identical(sig.Results().At(1).Type(), types.Universe.Lookup("error").Type())
 }
 
 // plainFmtType reports whether the C++ type of a value of the Go type t says the Go type, so that
@@ -304,23 +389,40 @@ func (fg *funcGen) printArgs(args []ast.Expr) []cppir.Expr {
 	return xs
 }
 
-// fmtTupleCall returns the C++ of fmt.Print(g()), Println, Sprint or Sprintln, where g has several
-// results: the call goes through std::apply with a lambda that takes the results, each with its
-// descriptor:
-//
-//	std::apply([](auto&& gp_r0, auto&& gp_r1) { return gp::fmt::Println(gp_r0, gp::fmt::as(&gp::td_int64, gp_r1)); }, g())
-func (fg *funcGen) fmtTupleCall(c *ast.CallExpr, callee string) cppir.Expr {
+// fmtTupleCall unpacks the results of g in fmt.F(g()). Fixed parameters (the input, format,
+// reader, writer or byte slice) use Go's parameter conversions. Only the variadic operands get
+// fmt descriptors: wrapping a fixed string or reader as a formatting operand changes its type.
+func (fg *funcGen) fmtTupleCall(c *ast.CallExpr, function *types.Func, callee string) cppir.Expr {
 	tuple := fg.g.info.TypeOf(c.Args[0]).(*types.Tuple)
+	signature := function.Signature()
+	fixed := signature.Params().Len()
+	if signature.Variadic() {
+		fixed--
+	}
+
 	var params []cppir.Param
 	var args []cppir.Expr
 	for i := range tuple.Len() {
 		name := "gp_r" + strconv.Itoa(i)
-		params = append(params, cppir.Param{Type: &cppir.Ref{Elem: typeName("auto"), RValue: true}, Name: name})
-		args = append(args, fg.fmtArgOf(tuple.At(i).Type(), cxxName(name), c.Pos()))
+		params = append(params, cppir.Param{
+			Type: &cppir.Ref{Elem: typeName("auto"), RValue: true},
+			Name: name,
+		})
+		operand := cxxName(name)
+		if i < fixed {
+			parameterType := signature.Params().At(i).Type()
+			args = append(args, fg.g.convertTo(tuple.At(i).Type(), parameterType, operand, c.Pos()))
+		} else {
+			args = append(args, fg.fmtArgOf(tuple.At(i).Type(), operand, c.Pos()))
+		}
 	}
+
 	body := &cppir.Return{X: &cppir.Call{Fun: cxxName(callee), Args: args}}
-	fn := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
-	return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{fn, fg.expr(c.Args[0])}}
+	lambda := &cppir.Lambda{
+		Params: params,
+		Body:   &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true},
+	}
+	return &cppir.Call{Fun: cxxName("std::apply"), Args: []cppir.Expr{lambda, fg.expr(c.Args[0])}}
 }
 
 // isFmtIface reports whether t is the interface type fmt.name.
@@ -353,23 +455,27 @@ func (fg *funcGen) stdPkgMember(x *ast.SelectorExpr) types.Object {
 // outside the writer argument of a Fprint call (they need the type os.File) and the other
 // members of the standard packages are not available yet (Phase 09).
 func (fg *funcGen) stdMemberValue(x *ast.SelectorExpr, obj types.Object) cppir.Expr {
-	name := types.ExprString(x)
+	return fg.stdMemberValueAt(x.Pos(), types.ExprString(x), obj)
+}
+
+// stdMemberValueAt is stdMemberValue for the name (as written) at pos: also an identifier of a dot
+// import (import . "fmt").
+func (fg *funcGen) stdMemberValueAt(pos token.Pos, name string, obj types.Object) cppir.Expr {
 	fn, ok := obj.(*types.Func)
 	pkg := obj.Pkg().Path()
-	if !ok || pkg != "fmt" || !fmtFuncs[fn.Name()] || fn.Name() == "FormatString" ||
-		(fmtWriterFunc(fn.Name())) {
+	if !ok || pkg != "fmt" || !fmtFuncs[fn.Name()] {
 		switch {
 		case ok && pkg == "fmt":
-			fg.g.notYet(x.Pos(), name+" as a value is not available yet (it needs package io: Phase 09)")
+			fg.g.notYet(pos, name+" as a value is not available yet (it needs package io: Phase 09)")
 		case !ok && pkg == "os":
-			fg.g.notYet(x.Pos(), name+" used as a value, outside the writer argument of fmt.Fprint, is not available yet (it needs the type os.File: Phase 09)")
+			fg.g.notYet(pos, name+" used as a value, outside the writer argument of fmt.Fprint, is not available yet (it needs the type os.File: Phase 09)")
 		default:
-			fg.g.notYet(x.Pos(), name+" is not available yet (Phase 09)")
+			fg.g.notYet(pos, name+" is not available yet (Phase 09)")
 		}
 		return placeholder
 	}
 	sig := fn.Type().(*types.Signature)
-	ft := fg.g.funcType(sig, x.Pos())
+	ft := fg.g.funcType(sig, pos)
 	ftype, _ := ft.(*cppir.TypeName)
 	if ftype == nil || len(ftype.Args) != 1 {
 		return placeholder
@@ -392,9 +498,4 @@ func (fg *funcGen) stdMemberValue(x *ast.SelectorExpr, obj types.Object) cppir.E
 	body := &cppir.Return{X: &cppir.Call{Fun: cxxName("gp::fmt::" + fn.Name()), Args: args}}
 	lambda := &cppir.Lambda{Params: params, Body: &cppir.Block{Stmts: []cppir.Stmt{body}, Inline: true}}
 	return construct(ft, lambda)
-}
-
-// fmtWriterFunc reports whether the fmt function name takes an io.Writer.
-func fmtWriterFunc(name string) bool {
-	return name == "Fprint" || name == "Fprintln" || name == "Fprintf"
 }

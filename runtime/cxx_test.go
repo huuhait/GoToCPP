@@ -539,6 +539,44 @@ func TestCXX(t *testing.T) {
 	}
 }
 
+// TestFmtClose is separate from TestCXX so close-order regressions can be run without building
+// the rest of the runtime unit matrix (or running fmt_test.cpp's speed measurements).
+func TestFmtClose(t *testing.T) {
+	t.Parallel()
+	rt := extractRuntime(t)
+	for _, c := range compilers(t) {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			for _, m := range modes {
+				t.Run(m.name, func(t *testing.T) {
+					t.Parallel()
+					bins := c.startBuilds(t, rt, t.TempDir(), m.flags,
+						[]prog{{src: "test/fmt_close_test.cpp", weight: 3}})
+					runUnit(t, bins.bin(t, "test/fmt_close_test.cpp"))
+				})
+			}
+		})
+	}
+}
+
+func TestFmtCloseTSan(t *testing.T) {
+	t.Parallel()
+	rt := extractRuntime(t)
+	for _, c := range compilers(t) {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			flags := []string{"-O1", "-fsanitize=thread", "-fno-omit-frame-pointer"}
+			runUnit(t, tsanBuild(t, c, rt, "test/fmt_close_test.cpp", flags))
+		})
+	}
+}
+
 func runUnit(t *testing.T, bin string) {
 	stdout, stderr, code, err := command(filepath.Dir(bin), append(os.Environ(), "GOCPP_RT_TEST=env-ok"), false, bin, "arg1", "arg two")
 	if err != nil {
