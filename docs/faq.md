@@ -14,7 +14,8 @@ builds unchanged.
 ## Do I have to install a C++ compiler?
 
 Yes, `g++` 13 or newer, or `clang++` 17 or newer, unless you use the Nix package, which brings GCC 15 and
-clang 21. `gocpp env` shows the compiler that was found. See [installing gocpp](guides/packaging.md).
+clang 21. `gocpp env` shows the compiler that was found. See [installing gocpp](guides/packaging.md). On Windows you do not have to: with no
+MinGW-w64 compiler on the machine, gocpp downloads one ([the compiler on Windows](guides/windows.md#the-c-compiler)).
 
 ## Which platforms does it run on?
 
@@ -23,6 +24,29 @@ Windows 10 or later on x86-64, with a MinGW-w64 compiler. macOS is not a target.
 [installing gocpp](guides/packaging.md#platforms-and-requirements).
 
 <!-- platforms: linux/amd64 linux/arm64 windows/amd64 -->
+
+## Does it work on Windows?
+
+Yes, on Windows 10 or later (x86-64): `gocpp.exe` builds `.exe` and `.dll` files, `gocpp run` runs them, and the language server works in VS Code. You
+install `gocpp.exe` and nothing else: with no MinGW-w64 compiler on the machine, `gocpp build` downloads one (llvm-mingw, about 190 MB, once). Some parts
+are not there yet: `gocpp test`, time zones, a VS Code debug setup and the sanitizers (`os/exec` and `os/signal` are missing on every platform). The honest list is in
+[gocpp on Windows](guides/windows.md#what-does-not-work-yet).
+
+## Do I need Visual Studio on Windows?
+
+No. gocpp uses a MinGW-w64 compiler (GCC or clang), from WinLibs, MSYS2, Scoop, llvm-mingw or its own download. Visual Studio's compiler (`cl.exe`,
+`clang-cl`) and its C++ ABI are not supported, so a C++ library that only exists as a Visual Studio build cannot be linked; C libraries and C++ sources work. See
+[the compiler](guides/windows.md#the-c-compiler).
+
+## Can I build a Windows program on Linux?
+
+Yes: `gocpp build -os windows hello.gp` writes `hello.exe`, a static program that runs on Windows 10 or later with no DLL next to it. Wine is optional, for running it
+on Linux. See [Windows from Linux](guides/windows-cross.md).
+
+## Can I call the Win32 API?
+
+Yes: `import "<windows.h>"` is a header package like any other (`windows.MessageBoxW(nil, C.wstr("hi"), C.wstr("gocpp"), 0)`). gocpp defines `UNICODE`,
+`WIN32_LEAN_AND_MEAN` and `NOMINMAX` for you and has helpers for UTF-16 strings. See [the Win32 page](guides/windows-interop.md).
 
 ## Is it ready for production?
 

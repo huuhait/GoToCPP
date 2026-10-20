@@ -279,5 +279,6 @@ source.
   descriptor). A number that gdb itself makes (`gp whatis 1+2`) has C types (`int32`).
 - A map prints in Go's order of keys only when it fits `print elements` (numbers by value,
   other keys by their text); a bigger map prints in the table's order.
-- Windows and macOS: the printers are for ELF programs (Linux); PE and Mach-O come with
-  Phase 14 and the Mach-O section `__DATA,__lldbsummaries` is not written yet.
+- Windows: the gdb printers load from a PE program too (checked on a real PC with WinLibs' gdb: breakpoints on `.gp` lines, Go names in `bt`, strings, slices and `gp goroutines`);
+  stepping, lldb and a VS Code launch template are not tried yet ([gocpp on Windows](windows.md#editing-on-windows)). macOS is not a target; the Mach-O
+  section `__DATA,__lldbsummaries` is not written.

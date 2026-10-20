@@ -37,7 +37,7 @@ import (
 )
 
 // snippetDocs are the docs (relative to docs/, globs) whose blocks are tests.
-var snippetDocs = []string{"index.md", "faq.md", "tour/*.md", "guides/go-developers.md", "guides/cpp-developers.md", "guides/interop-examples.md"}
+var snippetDocs = []string{"index.md", "faq.md", "tour/*.md", "guides/go-developers.md", "guides/cpp-developers.md", "guides/interop-examples.md", "guides/windows.md", "guides/windows-cross.md", "guides/windows-interop.md"}
 
 type snippet struct {
 	doc    string

@@ -22,7 +22,8 @@ how to read the generated code, and how the two worlds meet at the border.
 | call C and C++ libraries (SQLite, zlib, SDL2, raylib, your own code) | [interop guide](../spec/interop.md), [cookbook](../spec/interop-cookbook.md), [examples walkthrough](../guides/interop-examples.md) |
 | set up an editor with completion and diagnostics | [editors guide](../guides/editors.md) |
 | find a bug with `gocpp vet`, `gocpp debug`, `-race` or `-asan` | [vet](../guides/vet.md), [debugging](../guides/debugging.md), [race](../guides/race.md) |
-| build for Windows from Linux | [Windows guide](../guides/windows-cross.md) |
+| use gocpp on Windows, call the Win32 API | [gocpp on Windows](../guides/windows.md), [the Win32 page](../guides/windows-interop.md) |
+| build for Windows from Linux | [Windows from Linux](../guides/windows-cross.md) |
 | look up a package | [standard library reference](../stdlib/index.html) |
 | understand an error message | `gocpp explain` ([guide](../guides/explain.md)) |
 

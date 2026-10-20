@@ -38,7 +38,7 @@ library.
 
 - **Links**: every relative link and every anchor of every page, on the Markdown and again on the
   written HTML (`TestSiteLinks`, `TestOutputLinks`); the sidebar covers every page.
-- **Code**: in the tour and in the guides for Go and C++ developers and for the interop examples, every
+- **Code**: in the tour, in the guides for Go and C++ developers, for the interop examples and for Windows, every
   `go` block must say what it is, on the line before it:
 
   | Marker | Meaning | Checked by |

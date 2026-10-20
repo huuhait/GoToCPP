@@ -196,6 +196,7 @@ from source, its settings, and how to see the server log.
 
 ## Windows
 
+Installing gocpp, the C++ compiler and the paths gocpp writes are on [gocpp on Windows](windows.md#editing-on-windows).
 `gocpp.exe lsp` is the same server, and every editor above starts it the same way (the command is
 `gocpp.exe`, or `gocpp` when the folder of the binary is in `PATH`). What differs is how names of
 files are written and compared, and the server takes care of it ([ADR-096](../adr/096-language-server-on-windows-one-spelling-per-file.md)):

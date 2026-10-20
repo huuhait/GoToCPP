@@ -49,7 +49,7 @@ type Profile struct {
 // operating system goos, or an error for a combination that does not make sense: -debug with
 // -release, -race with -release (a race run wants the code as written, not as -O2 -flto
 // reorders it), -race with -asan (the compilers refuse both sanitizers in one program), and
-// -race on a system without ThreadSanitizer. On linux the race mode adds Go's report (a reporter
+// -race on a system without ThreadSanitizer, and -asan for windows. On linux the race mode adds Go's report (a reporter
 // thread in the runtime's OS layer, which only linux has); darwin gets ThreadSanitizer's own text.
 func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, err error) {
 	switch {
@@ -61,6 +61,8 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 		return nil, nil, errors.New("-race and -release can't be used together")
 	case m.Race && goos == "windows":
 		return nil, nil, errors.New("-race is not supported for windows (the MinGW toolchains have no ThreadSanitizer)")
+	case asan && goos == "windows":
+		return nil, nil, errors.New("-asan is not supported for windows (the MinGW GCC of WinLibs, MSYS2 and the dev shell has no libsanitizer; clang's MinGW target has an AddressSanitizer that gocpp has not tried). Run the sanitizers on Linux")
 	}
 	if m.Race {
 		compile = []string{"-fsanitize=thread", "-fno-omit-frame-pointer"}

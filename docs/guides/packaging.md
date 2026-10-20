@@ -12,8 +12,8 @@ does **not** carry is a C++ compiler: g++ 13 or newer, or clang++ 17 or newer, m
 - **Linux, arm64**: the release archives and the Nix package are built for it; there is no arm64 test run yet
   (plan step 15.12).
 - **Windows 10 or later, x86-64**: `gocpp.exe` builds and runs Windows programs on a Windows host (it is tested on a
-  real Windows 11 PC), and Linux can cross-build them ([guide](windows-cross.md)). The C++ compiler is a MinGW-w64
-  one.
+  real Windows 11 PC), and Linux can cross-build them. The C++ compiler is a MinGW-w64 one, which gocpp downloads if there is none.
+  Start with [gocpp on Windows](windows.md); [Windows from Linux](windows-cross.md) is the cross build.
 - **macOS** is not a target.
 - **C++ compiler**: `g++` 13 or newer, or `clang++` 17 or newer (the Nix package brings GCC 15 and clang 21).
 - **`go install`** needs a Go toolchain of version 1.25 or newer (`go.mod` says `go 1.25.0`); the release archives and

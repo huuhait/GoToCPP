@@ -2,9 +2,9 @@
 
 > `gocpp build -os windows` turns a program into a `.exe` that runs on Windows 10 or later with no
 > DLLs next to it. How it works: [docs/spec/build.md](../spec/build.md#cross-compilation) and
-> [ADR-055](../adr/055-cross-compilation-targets-and-toolchain.md). This is the build side (Phase 06
-> step 6.13); the Windows runtime is partly built, see "What works" below. To run `gocpp.exe` on Windows itself,
-> see ["gocpp.exe on a Windows host"](../spec/build.md#gocppexe-on-a-windows-host).
+> [ADR-055](../adr/055-cross-compilation-targets-and-toolchain.md). This page is for a Linux machine that builds
+> for Windows. To run `gocpp.exe` on Windows itself, see [gocpp on Windows](windows.md); to call the Win32 API,
+> see [the Win32 page](windows-interop.md).
 
 ## Build
 
@@ -15,7 +15,14 @@ GOCPP_OS=windows gocpp build .          # the same, from the environment
 ```
 
 Only `windows/amd64` is a Windows target. The program is linked with `-static`, so it needs no
-`libstdc++-6.dll` or `libgcc_s_seh-1.dll`, and its main thread has an 8 MiB stack, like on Linux.
+`libstdc++-6.dll` or `libgcc_s_seh-1.dll`, and its main thread has an 8 MiB stack, like on Linux. Without `-o`
+the file is named after the program (`hello.exe`); `-o prog` writes `prog.exe` (a name with an extension keeps it;
+`-buildmode=c-shared -o mylib` writes `mylib.dll` with its import libraries `mylib.dll.a` and `mylib.lib`, and `mylib.h`).
+A file named `x_windows.gp`, and one with `//go:build windows`, is part of such a build and not of a Linux one.
+
+`gocpp check -os windows` and `gocpp emit -os windows` stop before the C++ compiler, so a Windows-only package
+(`examples/win32` for one) can be checked on Linux in a moment; a package that imports `<windows.h>` still needs the MinGW headers of
+the cross compiler for the header check.
 
 ## Where the compiler comes from
 
@@ -42,7 +49,12 @@ so before it downloads; use the dev shell's MinGW-w64 (`GOCPP_TOOLCHAIN=local`) 
 
 ## Run
 
-On Linux, with Wine installed:
+The usual way is to copy the `.exe` to a Windows machine and start it there. It needs nothing next to it: this `hello.exe`, built on Linux
+with the dev shell's MinGW-w64, ran on a real Windows 11 PC as it was, and so did the cross-built `winapi.exe` (kernel32, advapi32 and user32 calls),
+`wstr.exe` (wide strings) and a Winsock program of [the Win32 page](windows-interop.md). A cross build uses the C runtime of its compiler (msvcrt in the dev shell, UCRT in
+the downloaded llvm-mingw); the `.exe` runs on every Windows 10 or later.
+
+On Linux, Wine is optional. With Wine installed:
 
 ```
 GOCPP_EXEC=wine gocpp run -os windows .
@@ -68,10 +80,20 @@ Phase 15.
 
 ## What works
 
-See the table in [docs/spec/build.md](../spec/build.md#what-works-on-windows):
-output, arguments, the environment, exit codes, panics, goroutines, channels, `select`, stack overflow,
-big programs, stack traces with frames. The rest of the OS layer (files, processes, signals) is
-Phase 14's. The programs under `tests/testdata/windows` show each piece.
+A cross-built program is the same program that `gocpp.exe` builds on Windows: output (UTF-8; a console gets `WriteConsoleW`), arguments, the
+environment, exit codes, panics with Go's message and trace, goroutines, channels, `select`, stack overflow, big programs, and package `os`
+(files, directories, links, environment, `Stat`; Go's own Windows code). The table is in
+[docs/spec/build.md](../spec/build.md#what-works-on-windows) and the programs under `tests/testdata/windows` show each piece.
+
+What a cross build cannot do is what Windows cannot do yet: time zones, `-race`, `-asan` (both are refused for a Windows target), and `gocpp test`
+(the link of the `testing` package fails for Windows, from Linux too: `undefined reference to gp::testing::cpu_name()`). The list, with how each was
+checked, is [on the Windows page](windows.md#what-does-not-work-yet). (`os/exec`, `os/signal`, `net` and `fmt.Scan*` are not available yet on any platform.)
+
+## Libraries
+
+C and C++ libraries for a Windows target must be built for MinGW-w64: a Linux `libz.a` does not link. `//gocpp:pkg-config` asks pkg-config with the target's
+`PKG_CONFIG_*` variables of the environment. In the nix dev shell, `tools/winlibs.sh DIR` builds sqlite3, zlib, SDL2 and raylib for MinGW-w64 and the
+tests find them with `GOCPP_WINDOWS_LIBS=DIR`. Libraries that Visual Studio built (a C++ ABI) are not supported.
 
 ## Testing on Windows
 
@@ -84,6 +106,6 @@ With `GOCPP_WINDOWS_SSH` the programs run on a real Windows PC over ssh (key aut
 `%USERPROFILE%\gocpp-wintest\<run>\`, which is deleted at the end); without it, under Wine in an isolated
 prefix (Wine is not Windows: Wine 11.0 on AVX-512 CPUs cannot dispatch a stack overflow, and that
 program is skipped there). `TestRunWindows` builds the run tests listed in `tests/windows_sample.txt`
-(42 of them) for Windows and runs them, with the same expectations as `TestRun`; `GOCPP_TEST_WINDOWS=all` runs every run test that
+for Windows and runs them, with the same expectations as `TestRun`; `GOCPP_TEST_WINDOWS=all` runs every run test that
 `tests/windows_skip.txt` does not name, and each skip says why. `GOCPP_WINE_JOBS` (default 4) limits the
 programs that run under Wine at once, `GOCPP_REQUIRE_WINE=1` makes a missing wine or compiler a failure.

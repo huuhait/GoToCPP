@@ -30,7 +30,11 @@ spec/interop-cookbook.md | Cookbook
 guides/interop-examples.md | Examples walkthrough
 spec/typed-interop.md | Typed interop
 guides/libraries.md | Calling gocpp from C and C++
-guides/windows-cross.md | Windows
+
+# Windows
+guides/windows.md | gocpp on Windows
+guides/windows-cross.md | Windows from Linux
+guides/windows-interop.md | The Win32 API
 
 # Language spec
 spec/README.md | Overview

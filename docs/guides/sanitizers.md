@@ -234,7 +234,7 @@ with `tsan`/g++ (shards `0/25`, `1/30`, `0/8`), 2 minutes in all. The `deep` sta
 ## Not covered
 
 - Interop programs, the diff and zoo tests and the emitter's tests: the `deep` stages.
-- Windows: the MinGW toolchains have no sanitizers; Windows is tested on the real PC (step 14.x).
+- Windows: `gocpp build -asan` and `-race` for a Windows target (also from Linux with `-os windows`) are refused with a message that says so: the MinGW GCC of WinLibs, MSYS2 and the dev shell has no sanitizer runtime, and ThreadSanitizer does not exist for MinGW. clang's MinGW target has an AddressSanitizer that gocpp has not tried. Windows is tested on the real PC instead.
 - Linux arm64 (step 15.12) and macOS (not a target).
 - ThreadSanitizer's own limits ([race.md](race.md): a race that is a pair of single accesses can be
   missed in a run, a program with thousands of live goroutines can hit TSan's thread limit).

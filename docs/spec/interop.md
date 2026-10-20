@@ -2315,6 +2315,8 @@ Source: [Phase 04 §2.11](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READ
 
 ## Windows headers
 
+A walkthrough with examples that ran on a real PC (a message box, wide strings, a window, sockets) is [the Win32 page](../guides/windows-interop.md).
+
 <!-- illustration: Windows only: not built here -->
 ```go
 package main

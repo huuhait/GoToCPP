@@ -58,6 +58,8 @@ func TestModeFlags(t *testing.T) {
 		{name: "race and asan", mode: Profile{Race: true}, asan: true, err: "-race and -asan"},
 		{name: "race and release", mode: Profile{Race: true, Release: true}, err: "-race and -release"},
 		{name: "race on windows", mode: Profile{Race: true}, goos: "windows", err: "-race is not supported for windows"},
+		{name: "asan on windows", asan: true, goos: "windows", err: "-asan is not supported for windows"},
+		{name: "asan on linux", asan: true, goos: "linux"},
 		{name: "release with asan", mode: Profile{Release: true}, asan: true, compile: []string{"-O2", "-flto"}, link: []string{"-O2", "-flto"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

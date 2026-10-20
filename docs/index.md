@@ -51,8 +51,8 @@ nix run github:huuhait/gocpp -- run main.gp               # brings its own compi
 ```
 
 gocpp runs on Linux (x86-64 tested, arm64 released) and on Windows 10 or later (x86-64); macOS is not a target.
-[Installing gocpp](guides/packaging.md) has the platforms, the release archives and the details; the
-[FAQ](faq.md) answers the usual questions.
+[Installing gocpp](guides/packaging.md) has the platforms, the release archives and the details; on Windows, start with
+[gocpp on Windows](guides/windows.md); the [FAQ](faq.md) answers the usual questions.
 
 ## The pieces
 
@@ -65,5 +65,7 @@ gocpp runs on Linux (x86-64 tested, arm64 released) and on Windows 10 or later (
   `-interop=typed`, and the automatic fallback to opaque without clang++).
 - **Tools**: `gocpp run`, `build`, `test`, `check`, `fmt`, `vet`, `doc`, `explain`, `emit`, `lsp`,
   `get` and `debug`; the [guides](guides/testing.md) have one page for each.
+- **Windows**: [gocpp on Windows](guides/windows.md) (install, the compiler, paths, what is missing), [Windows from Linux](guides/windows-cross.md)
+  and [the Win32 API](guides/windows-interop.md) (`<windows.h>`, UTF-16 strings, a window, sockets).
 - **Decisions**: [the ADRs](adr/README.md) record why things are as they are.
 - **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md), and [how this site is built](guides/docs-site.md).
