@@ -113,6 +113,32 @@ ci-windows:
 	$(GO) test -count=1 -timeout 60m -parallel 2 -run '^(TestRunWindows|TestWindowsPrograms|TestWineIsolation)$$' ./tests
 	@echo "make ci-windows: all checks passed"
 
+# The Windows suite (Phase 14 step 14.7, ADR-111, docs/guides/windows-testing.md): every test of tests/run and
+# tests/pkgs that applies to windows/amd64, built here and run on the REAL Windows PC over ssh. Not part of
+# `make ci`. GOCPP_WINDOWS_SSH=user@host must be in the environment of the command (it is never written into a
+# file); the dev shell has the MinGW-w64 cross compiler. Results: .windows-suite/results.json.
+#   make test-windows          the whole suite (the manual final review)
+#   make test-windows-smoke    the 44 tests of tests/windows_suite_smoke.txt
+#   make test-windows-failed   only what failed or has no result in the results file (GOCPP_WINDOWS_RESUME=failed)
+#   make test-windows-list     the dry run: what would run, what is skipped and why
+# GOCPP_WINDOWS_WINE=1 (instead of GOCPP_WINDOWS_SSH) runs the same suite under Wine on this machine: an option
+# for a developer without a PC, never the default.
+WINDOWS_SUITE_TEST = $(GO) test -count=1 -v -timeout 480m -parallel 4 -run '^TestWindowsSuite$$' ./tests
+test-windows test-windows-smoke test-windows-failed test-windows-list: export GOCPP_TEST_PHASE ?= 15
+test-windows test-windows-smoke test-windows-failed test-windows-list: export GOCPP_WINDOWS_SUITE = 1
+.PHONY: test-windows test-windows-smoke test-windows-failed test-windows-list
+test-windows:
+	$(WINDOWS_SUITE_TEST)
+test-windows-smoke: export GOCPP_WINDOWS_ONLY = @tests/windows_suite_smoke.txt
+test-windows-smoke:
+	$(WINDOWS_SUITE_TEST)
+test-windows-failed: export GOCPP_WINDOWS_RESUME = failed
+test-windows-failed:
+	$(WINDOWS_SUITE_TEST)
+test-windows-list: export GOCPP_WINDOWS_LIST = 1
+test-windows-list:
+	$(WINDOWS_SUITE_TEST)
+
 # The race detector job (Phase 08 step 8.12, docs/guides/race.md): the programs of tests/race (a program with
 # a data race must be reported with Go's report and exit code 66, one without must be silent) with
 # gocpp run -race with both compilers, the concurrency tests of tests/run (every program that starts

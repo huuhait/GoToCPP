@@ -135,6 +135,8 @@ var (
 // windowsStop ends the wine server and its helpers when the harness is stopped by a signal
 // (stopRunning calls it).
 func windowsStop() {
+	winssh.Interrupt() // a test that waits for the PC lock (it holds windowsMu while it waits) gives up
+	suiteStop()        // the machine of the Windows suite, if it runs (windows_suite_test.go)
 	windowsMu.Lock()
 	defer windowsMu.Unlock()
 	if windowsRun != nil {

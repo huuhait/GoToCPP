@@ -1,5 +1,7 @@
 # Building for Windows from Linux
 
+> Testing on Windows (the whole suite on a real PC): [windows-testing.md](windows-testing.md).
+
 > `gocpp build -os windows` turns a program into a `.exe` that runs on Windows 10 or later with no
 > DLLs next to it. How it works: [docs/spec/build.md](../spec/build.md#cross-compilation) and
 > [ADR-055](../adr/055-cross-compilation-targets-and-toolchain.md). This page is for a Linux machine that builds

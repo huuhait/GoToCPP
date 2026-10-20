@@ -6,8 +6,12 @@
 //
 //   - the machine is named by the caller (the tests read GOCPP_WINDOWS_SSH=user@host; the repository
 //     never names a machine), and its key must be accepted without a prompt;
-//   - everything lands in one folder, %USERPROFILE%\gocpp-wintest\<run id>\, which Close deletes;
-//     nothing else is read, written or installed there, and there are no registry or system changes;
+//   - everything lands in one folder, %USERPROFILE%\gocpp-wintest\<run id>\, which Close deletes (after ending
+//     the run's processes; New also deletes the run folders of this tool, <pid>_<time>, that are a day old or
+//     more, and no other folder); nothing else is read, written or installed there, and there are no
+//     registry or system changes;
+//   - one run uses the PC at a time: New takes the machine-wide lock of internal/pclock (GOCPP_WINDOWS_LOCK)
+//     and Close releases it; NewUnlocked leaves the locking to the caller (the suite locks for each batch);
 //   - a program that is still running when its time is up is ended with taskkill by its image name
 //     (gp<pid>_<time>_<n>.exe, unique to this run), so no other session's program is touched;
 //   - one ssh connection is shared (ControlMaster, ControlPersist=60) in a short folder of /tmp.
@@ -29,10 +33,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/pclock"
 )
 
 // A Remote is a connection to the Windows machine and this run's folder on it.
@@ -44,13 +51,47 @@ type Remote struct {
 	uploads map[string]string // local path + size + mtime -> remote image name
 	next    int
 	home    string
+	release func() // the PC lock of New; nil for NewUnlocked
 }
 
 var hostRx = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@:\[\]-]*$`)
 
+// stopCtx ends the wait for the PC lock inside New: a harness that is stopped by a signal calls Interrupt, so
+// that Ctrl-C does not wait for another run's lock.
+var stopCtx, interrupt = context.WithCancel(context.Background())
+
+// Interrupt makes every wait for the PC lock in New (now and later) fail at once with a clear error. A test
+// harness calls it from its stop hook before it takes any lock of its own.
+func Interrupt() { interrupt() }
+
+// Resume undoes Interrupt (for a test binary that tests its own stop hook and goes on).
+func Resume() { stopCtx, interrupt = context.WithCancel(context.Background()) }
+
 // New connects to host (user@host, a name or an address; never an option for ssh) and makes the
 // run's folder. It fails at once when the machine can't be reached with key authentication.
 func New(host string) (*Remote, error) {
+	if !hostRx.MatchString(host) {
+		return nil, fmt.Errorf("GOCPP_WINDOWS_SSH=%q: want user@host, with no space and no leading '-'", host)
+	}
+	release, err := pclock.Acquire(stopCtx, pclock.Options{Log: func(s string) { fmt.Fprintln(os.Stderr, s) }})
+	if err != nil {
+		if stopCtx.Err() != nil {
+			return nil, fmt.Errorf("stopped while waiting for the Windows machine (another run uses it)")
+		}
+		return nil, err
+	}
+	r, err := NewUnlocked(host)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	r.release = release
+	return r, nil
+}
+
+// NewUnlocked is New without the PC lock: for a caller that takes it itself, around the work that uses
+// the machine (internal/pclock).
+func NewUnlocked(host string) (*Remote, error) {
 	if !hostRx.MatchString(host) {
 		return nil, fmt.Errorf("GOCPP_WINDOWS_SSH=%q: want user@host, with no space and no leading '-'", host)
 	}
@@ -69,12 +110,12 @@ func New(host string) (*Remote, error) {
 		return nil, err
 	}
 	r := &Remote{host: host, dir: dir, uploads: make(map[string]string),
-		runID: fmt.Sprintf("%d_%d", os.Getpid(), time.Now().Unix())}
+		runID: fmt.Sprintf("%d_%d", os.Getpid(), nextStamp())}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	// Folders of earlier runs that were killed before they could clean up (a day old or more; only
-	// this tool's folder, gocpp-wintest), then this run's folder.
-	r.ssh(ctx, `if exist gocpp-wintest forfiles /P gocpp-wintest /D -1 /C "cmd /c if @isdir==TRUE rmdir /S /Q @path" >nul 2>&1`)
+	// Folders of earlier runs that were killed before they could clean up (a day old or more; only the
+	// <pid>_<time> folders of this tool, never another tool's), then this run's folder.
+	r.CleanStale(ctx, 24*time.Hour)
 	out, errb, code, err := r.ssh(ctx, `mkdir gocpp-wintest\`+r.runID+` && echo gocpp-ready`)
 	if err != nil || code != 0 || !strings.Contains(string(out), "gocpp-ready") {
 		os.RemoveAll(dir)
@@ -119,13 +160,69 @@ func removeStaleLocal(base string) {
 	}
 }
 
-// Close deletes the run's folder on the machine and closes the shared connection.
+// Close ends the processes of the run, deletes the run's folder on the machine (a program that still
+// runs holds its files, so the deletion is tried again), closes the shared connection and releases the PC
+// lock of New.
 func (r *Remote) Close() {
+	r.KillRun()
+	for try := 0; try < 6; try++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		out, _, _, _ := r.ssh(ctx, `rmdir /S /Q gocpp-wintest\`+r.runID+` 2>nul & if exist gocpp-wintest\`+r.runID+` (echo present) else (echo gone)`)
+		cancel()
+		if strings.Contains(string(out), "gone") {
+			break
+		}
+		r.KillRun()
+		time.Sleep(2 * time.Second)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	r.ssh(ctx, `rmdir /S /Q gocpp-wintest\`+r.runID+` & rmdir gocpp-wintest 2>nul`)
+	r.ssh(ctx, `rmdir gocpp-wintest 2>nul`) // only when it is empty
+	cancel()
 	exec.Command("ssh", append(r.sshOpts(), "-O", "exit", "--", r.host)...).Run()
 	os.RemoveAll(r.dir)
+	if r.release != nil {
+		r.release()
+		r.release = nil
+	}
+}
+
+// CleanStale deletes the run folders of this tool (<pid>_<time>) that are older than age, except this
+// run's. It touches no other folder.
+func (r *Remote) CleanStale(ctx context.Context, age time.Duration) error {
+	out, errb, code, err := r.ssh(ctx, CleanStaleLine(r.runID, age))
+	if err != nil || !strings.Contains(string(out), "cleaned") {
+		return fmt.Errorf("cleaning old run folders: exit %d %v %s %s", code, err, out, errb)
+	}
+	return nil
+}
+
+// FreeBytes returns the free space of the drive that holds the user's profile.
+func (r *Remote) FreeBytes(ctx context.Context) (int64, error) {
+	out, errb, code, err := r.ssh(ctx, FreeBytesLine())
+	if err != nil || code != 0 {
+		return 0, fmt.Errorf("asking for the free space: exit %d %v %s", code, err, errb)
+	}
+	n, perr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if perr != nil {
+		return 0, fmt.Errorf("the free space %q: %v", out, perr)
+	}
+	return n, nil
+}
+
+// Remove deletes the named files and folders of the run's folder.
+func (r *Remote) Remove(ctx context.Context, names ...string) error {
+	line, err := RemoveLine(names...)
+	if err != nil {
+		return err
+	}
+	res, err := r.Exec(ctx, 2*time.Minute, nil, line)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(res.Stdout), "removed") {
+		return fmt.Errorf("removing %v: exit %d %s", names, res.Code, res.Stderr)
+	}
+	return nil
 }
 
 // upload copies the local program to the run's folder, once for each file, and returns its name there.
@@ -450,7 +547,7 @@ func (r *Remote) Exec(ctx context.Context, timeout time.Duration, env []string, 
 	res := Result{Stdout: out, Stderr: errb, Code: code}
 	if cctx.Err() != nil {
 		res.TimedOut = true
-		r.killRun()
+		r.KillRun()
 		return res, nil
 	}
 	if err != nil {
@@ -462,12 +559,13 @@ func (r *Remote) Exec(ctx context.Context, timeout time.Duration, env []string, 
 	return res, nil
 }
 
-// killRun ends the processes of this run: those whose command line names the run's folder (the
-// PowerShell that looks is left out: its own command line names it too).
-func (r *Remote) killRun() {
+// KillRun ends every process of this run on the machine: the ones whose program file is below the
+// run's folder (the suite's agent and the programs it started) and the cmd.exe of a running command (its
+// command line names the folder). The programs of other runs are never matched (KillRunLine).
+func (r *Remote) KillRun() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	r.ssh(ctx, `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*gocpp-wintest\`+r.runID+`*' -and $_.Name -ne 'powershell.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1`)
+	r.ssh(ctx, KillRunLine(r.runID))
 }
 
 // A Process is a program that runs on the machine with its standard streams connected to this side
@@ -567,6 +665,6 @@ func (p *Process) Wait(ctx context.Context) (int, error) {
 // Kill ends the connection and the processes of this run on the machine, and waits for the end.
 func (p *Process) Kill() {
 	syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-	p.r.killRun()
+	p.r.KillRun()
 	<-p.done
 }

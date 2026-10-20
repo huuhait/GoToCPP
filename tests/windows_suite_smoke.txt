@@ -1,0 +1,48 @@
+# The small selection of the Windows suite (make test-windows-smoke, GOCPP_WINDOWS_ONLY=@tests/windows_suite_smoke.txt):
+# about 40 tests that touch goroutines, channels, select, sync, time, os, fmt, panics and exit codes, a
+# package test, and two tests that windows_skip.txt lists as expected failures (so the staleness check runs).
+# One "dir/name" a line.
+run/chan_pingpong
+run/chan_worker_pool
+run/chan_sieve
+run/go_args_eager
+run/go_closure_shared
+run/select_basic_recv
+run/sync_bank_transfers
+run/sync_cond_broadcast
+run/atomic_counters
+run/context_cancel_tree
+run/deadlock_chan_recv
+run/stress_goroutines
+run/time_after
+run/time_afterfunc
+run/time_after_select
+run/time_adddate
+run/os_win_dir_remove
+run/os_win_devnull
+run/os_win_dirfs_walkdir
+run/os_win_create_truncates
+run/os_win_chtimes_modtime
+run/os_env_environ
+run/os_dir_many_entries
+run/fmt_any_values
+run/fmt_float_f_basic
+run/fmt_errorf_basic
+run/fmt_complex
+run/panic_divide
+run/panic_array_index
+run/exit_main_defers_run
+run/exit_panic_in_goroutine_flushes
+run/strings_build
+run/sort_diff_ops
+run/strconv_diff_ints
+run/maps_basic
+run/iface_basic
+run/recover_error_chain
+run/generics_any_boxing
+run/algo_bfs
+run/os_path_long_names
+run/os_proc_exit_code_range
+pkgs/basic_cross
+pkgs/generics_basic
+pkgs/fmt_cross

@@ -35,6 +35,7 @@ guides/libraries.md | Calling gocpp from C and C++
 guides/windows.md | gocpp on Windows
 guides/windows-cross.md | Windows from Linux
 guides/windows-interop.md | The Win32 API
+guides/windows-testing.md | Testing on Windows
 
 # Language spec
 spec/README.md | Overview

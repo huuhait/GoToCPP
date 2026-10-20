@@ -64,3 +64,6 @@ docs/benchmarks/lsp.json
 # The documentation site (make docs, step 15.15)
 /site/
 /.docsite-new-*
+
+# The Windows suite (make test-windows): its results and its work
+/.windows-suite/

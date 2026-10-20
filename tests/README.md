@@ -260,6 +260,34 @@ at once), `TestWindowsNativeUnits` (the Windows-only tests of `internal/build` (
 and the opt-in `TestWindowsNativeDownload`. The cache, `TEMP` and `APPDATA` of the runs are inside the run's folder, which is
 deleted at the end. Without the variable these tests skip; with it and an unreachable PC they fail.
 
+## The Windows suite
+
+`TestWindowsSuite` (`windows_suite_test.go`, step 14.7, [ADR-111](../docs/adr/111-the-windows-suite-runs-on-the-real-pc-in-batches-with-an-agent.md),
+[docs/guides/windows-testing.md](../docs/guides/windows-testing.md)) runs **every** test of `tests/run` and `tests/pkgs` that applies to
+`windows/amd64` on the real PC: it builds them here (`gocpp build -os windows`), copies ONE archive for each batch of 150 to the PC
+over ssh, runs them there with an agent (`internal/wintest`: 8 at a time, a time limit, a job object that ends the process tree, outputs
+to files) and compares the outputs with the same `// Output:`, `// ExitCode:` and `// Stderr:` as `TestRun`. It is not in `make ci`.
+
+```
+GOCPP_WINDOWS_SSH=user@host make test-windows-smoke    # the 44 tests of windows_suite_smoke.txt (about 2 minutes)
+GOCPP_WINDOWS_SSH=user@host make test-windows          # the whole suite
+make test-windows-list                                 # the dry run (no PC needed): what runs, what is skipped and why
+make test-windows-failed                               # only the tests that failed or have no result in the results file
+```
+
+`GOCPP_WINDOWS_SUITE=1` turns the test on (the make targets set it); `GOCPP_WINDOWS_SSH` names the PC (without it, or
+`GOCPP_WINDOWS_WINE=1`, the test fails: Wine is an explicit option, never the default). Selection: `GOCPP_WINDOWS_ONLY` (a regexp on `dir/name`
+or `@file`), `GOCPP_WINDOWS_DIRS` (`run,pkgs`; `interop` can be added). Speed: `GOCPP_WINDOWS_JOBS` (programs at a time on the PC, 8),
+`GOCPP_WINDOWS_BUILD_JOBS` (12), `GOCPP_WINDOWS_BATCH` (150), `GOCPP_WINDOWS_TIMEOUT` (2m a program). Results:
+`GOCPP_WINDOWS_RESULTS` (default `.windows-suite/results.json`, written after every batch) with a sorted summary and a list of the
+failures next to it; `GOCPP_WINDOWS_RESUME=1` keeps the passes of the same checkout state, `=failed` across changes (run only what failed or is new). `windows_skip.txt` is read as a list of **expected
+failures** (they run, and one that passes is an error: a stale entry; `GOCPP_WINDOWS_SKIPS=ignore` skips them instead). Stop a run with Ctrl-C, never kill `go test` (an orphaned binary ends its run on the PC itself within a second). Two runs never
+use the PC together (a lock file, `GOCPP_WINDOWS_LOCK`), and the PC's run folder is removed at the end. The unit tests of the driver run on
+Linux with a fake machine (`go test ./internal/wintest/...`); `TestWindowsSuiteAgent` tests the agent on the PC (hung program and its
+children, flood, exit code, no leftovers); `windows_suite_pc_test.go` tests, on the PC, the clean-up of old run folders (with decoy
+folders that must survive), `KillRun` (only its own run's processes), `Remove`, and an interrupted run (SIGTERM mid-batch leaves nothing on
+the PC or here); all need `GOCPP_WINDOWS_SSH`; `TestWindowsSuite{Env,Selection,...}` check the lists without a PC.
+
 ## Windows under Wine
 
 `GOCPP_TEST_TARGET=windows` turns on the tests that build for `windows/amd64`

@@ -236,6 +236,16 @@ table above changed:
    launch template, Phase 12 probes with the Windows target.
 7. **14.7 Test infrastructure**: the Wine CI job for the whole suite (with `GOOS=windows` Go as the
    reference for OS-dependent output) and the real-Windows release checklist.
+   **14.7 as built (2026-10-20, [ADR-111](../../../docs/adr/111-the-windows-suite-runs-on-the-real-pc-in-batches-with-an-agent.md))**:
+   the user's rule (Windows is tested on the real PC, Wine is not the way) turned "the Wine CI job" into `TestWindowsSuite`: every
+   applicable `tests/run` and `tests/pkgs` test, built here, ONE archive per batch of 150 copied to the PC, run by a Go agent
+   (`internal/wintest/agent`: 8 at a time, time limit, job object, outputs to files), ONE archive back; resume
+   (`GOCPP_WINDOWS_RESUME=1`), one retry after a dropped connection, `windows_skip.txt` as stale-checked expected failures, a flock between
+   runs, cleanup of the run folder and of old ones, a sorted summary and `results.json`, a dry run. Wine is the explicit option
+   `GOCPP_WINDOWS_WINE=1`. `make test-windows`, `test-windows-smoke`, `-failed`, `-list` (not in `make ci`); the guide
+   [docs/guides/windows-testing.md](../../docs/guides/windows-testing.md) holds the manual release checklist (real console window,
+   real crashes, 10,000 goroutines, more than 64 CPUs, UCRT, `gocpp.exe` and the editor). The full suite has NOT been run (the
+   no-full-sweeps rule): its first run will produce the list of real Windows failures.
 8. **14.8 Docs**: installing gocpp on Windows (nothing else to install: the toolchain is
    downloaded; llvm-mingw or MSYS2 only for `GOCPP_TOOLCHAIN=local`), building for Windows from
    Linux, and a Windows interop cookbook (`MessageBoxW`, a small Win32 window, sockets).

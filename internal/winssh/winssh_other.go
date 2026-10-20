@@ -58,3 +58,15 @@ func (r *Remote) Get(context.Context, string, string) error { return errors.New(
 func (r *Remote) Exec(context.Context, time.Duration, []string, string) (Result, error) {
 	return Result{}, errors.New("not available")
 }
+
+func (r *Remote) KillRun() {}
+
+func NewUnlocked(host string) (*Remote, error) { return New(host) }
+func (r *Remote) CleanStale(context.Context, time.Duration) error {
+	return errors.New("not available")
+}
+func (r *Remote) FreeBytes(context.Context) (int64, error) { return 0, errors.New("not available") }
+func (r *Remote) Remove(context.Context, ...string) error  { return errors.New("not available") }
+
+func Interrupt() {}
+func Resume()    {}
