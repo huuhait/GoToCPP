@@ -15,6 +15,7 @@ import (
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/modfetch"
+	"github.com/huuhait/gocpp/internal/pclock"
 	"github.com/huuhait/gocpp/internal/toolchain"
 	"github.com/huuhait/gocpp/internal/typedinterop"
 	"github.com/huuhait/gocpp/internal/version"
@@ -162,6 +163,7 @@ var envVars = []envVar{
 	{name: "GOCPP_LSP_CACHE", doc: "the folder of the language server's cache (an absolute name), or off; default: gocpp/lsp in the cache folder"},
 	{name: "GOCPP_LSP_CACHE_AGE", def: func(*envState) string { return "120h" }, doc: "how long the language server's cache keeps an entry that is not used"},
 	{name: "GOCPP_LSP_CACHE_SIZE", def: func(*envState) string { return "1G" }, doc: "the size limit of the language server's cache (a number with K, M or G)"},
+	{name: "GOCPP_LSP_NOSTALE", doc: "any value: the language server does not answer from the last repaired check of a file with a syntax error while it is being typed (a debugging switch; by default it does)"},
 	{name: "GOCPP_MODAUTH", doc: "credentials for module downloads: host=token pairs (the value is not shown by gocpp env)"},
 	{name: "GOCPP_MODCACERT", doc: "a file of CA certificates for module downloads"},
 	{name: "GOCPP_MODCACHE", def: func(*envState) string {
@@ -190,6 +192,8 @@ var envVars = []envVar{
 	{name: "GOCPP_TOOLCHAIN", def: func(*envState) string { return string(toolchain.DefaultMode) }, doc: "where the Windows compiler comes from: auto (MinGW-w64 in PATH or in the folders of MSYS2, Chocolatey, Scoop and WinGet's WinLibs, else the pinned llvm-mingw, downloaded on first use), local (PATH and, on Windows, the usual MinGW-w64 folders; never downloads) or pinned (always the pinned one)"},
 	{name: "GOCPP_TOOLCHAIN_URL", doc: "an https folder URL with the toolchain archives under their names, instead of llvm-mingw's GitHub release (a mirror)"},
 	{name: "GOCPP_TYPED_INTEROP", doc: "older spelling of GOCPP_INTEROP: 1 means typed, 0 means opaque (GOCPP_INTEROP and -interop win)"},
+	{name: "GOCPP_WINDOWS_LOCK", def: func(*envState) string { return pclock.DefaultPath }, doc: "the lock file that makes the tests and tools that use the real Windows PC take turns"},
+	{name: "GOCPP_WINDOWS_LOCK_WAIT", def: func(*envState) string { return "3h" }, doc: "how long they wait for that lock (a Go duration)"},
 	{name: "GOCPP_WORKLOST", doc: "fail: a build whose work folder is removed by something else while it runs stops with status 4 and a message; by default it makes the folder again and builds again, up to three times (the tests and campaigns of the repository set fail, so that a real bug is not hidden)"},
 	{name: "GOOS", def: func(e *envState) string { return e.goos }, doc: "the operating system to build for (build constraints and the compiler)"},
 	{name: "PKG_CONFIG", def: func(*envState) string { return "pkg-config" }, doc: "the pkg-config program, for //gocpp:pkg-config lines"},
