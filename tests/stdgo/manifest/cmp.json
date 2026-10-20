@@ -1,0 +1,62 @@
+{
+ "package": "cmp",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "cmp_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestLess",
+   "file": "cmp_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompare",
+   "file": "cmp_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSort",
+   "file": "cmp_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOr",
+   "file": "cmp_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOr",
+   "file": "cmp_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOr_sort",
+   "file": "cmp_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLess",
+   "file": "cmp_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompare",
+   "file": "cmp_test.go",
+   "kind": "example",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

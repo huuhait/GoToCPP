@@ -1,0 +1,2105 @@
+{
+ "package": "os",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "env_test.go": {
+   "status": "run"
+  },
+  "env_unix_test.go": {
+   "status": "run"
+  },
+  "error_test.go": {
+   "status": "run"
+  },
+  "error_unix_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "exec_unix_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "export_unix_test.go": {
+   "status": "run"
+  },
+  "file_test.go": {
+   "status": "run"
+  },
+  "getwd_unix_test.go": {
+   "status": "run"
+  },
+  "os_test.go": {
+   "status": "run"
+  },
+  "os_unix_test.go": {
+   "status": "run"
+  },
+  "path_test.go": {
+   "status": "run"
+  },
+  "pipe_test.go": {
+   "status": "run"
+  },
+  "rawconn_test.go": {
+   "status": "run"
+  },
+  "read_test.go": {
+   "status": "run"
+  },
+  "removeall_test.go": {
+   "status": "run"
+  },
+  "stat_test.go": {
+   "status": "run"
+  },
+  "tempfile_test.go": {
+   "status": "run"
+  },
+  "copy_test.go": {
+   "status": "excluded",
+   "reason": "it needs package net (sockets, tier 3) and golang.org/x/net/nettest"
+  },
+  "fifo_test.go": {
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  "readfrom_linux_test.go": {
+   "status": "excluded",
+   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+  },
+  "readfrom_unix_test.go": {
+   "status": "excluded",
+   "reason": "it tests the copy_file_range path of File.ReadFrom through the hooks of export_linux_test.go (copyFileHook, pollCopyFileRange), which gocpp's os does not have"
+  },
+  "writeto_linux_test.go": {
+   "status": "excluded",
+   "reason": "it tests the zero-copy WriteTo (splice, sendfile), which os does not have, over net"
+  },
+  "exec_test.go": {
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  "executable_test.go": {
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  "pidfd_linux_test.go": {
+   "status": "excluded",
+   "reason": "it tests process file descriptors (pidfd), and gocpp has no StartProcess"
+  },
+  "root_unix_test.go": {
+   "status": "excluded",
+   "reason": "it tests os.Root, which os does not have"
+  },
+  "timeout_test.go": {
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  "timeout_unix_test.go": {
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  "export_linux_test.go": {
+   "status": "excluded",
+   "reason": "it exports the zero-copy and pidfd internals (pollCopyFileRange, pollSplice, checkPidfdOnce) to the tests that are left out; os does not have them"
+  },
+  "root_test.go": {
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestLargeCopyViaNetwork",
+   "file": "copy_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs package net (sockets, tier 3) and golang.org/x/net/nettest"
+  },
+  {
+   "name": "TestCopyFileToFile",
+   "file": "copy_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs package net (sockets, tier 3) and golang.org/x/net/nettest"
+  },
+  {
+   "name": "TestExpand",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExpand",
+   "file": "env_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestConsistentEnviron",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnsetenv",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClearenv",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLookupEnv",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEnvironConsistency",
+   "file": "env_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSetenvUnixEinval",
+   "file": "env_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExpandEnvShellSpecialVar",
+   "file": "env_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrIsExist",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrIsNotExist",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsExist",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsPermission",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrPathNUL",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPathErrorUnwrap",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrorIsMethods",
+   "file": "error_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOpenFile",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOpenFile_append",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleChmod",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleChtimes",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFileMode",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleErrNotExist",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleExpand",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleExpandEnv",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLookupEnv",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleGetenv",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnsetenv",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadDir",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMkdirTemp",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMkdirTemp_suffix",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCreateTemp",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCreateTemp_suffix",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadFile",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWriteFile",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMkdir",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMkdirAll",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadlink",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUserCacheDir",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUserConfigDir",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestProcessLiteral",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestProcessReleaseTwice",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestErrProcessDone",
+   "file": "exec_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestProcessAlreadyDone",
+   "file": "exec_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUNIXProcessAlive",
+   "file": "exec_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestProcessBadPID",
+   "file": "exec_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExecutable",
+   "file": "executable_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestExecutableDeleted",
+   "file": "executable_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestFifoEOF",
+   "file": "fifo_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  {
+   "name": "TestNonPollable",
+   "file": "fifo_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  {
+   "name": "TestOpenFileNonBlocking",
+   "file": "fifo_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  {
+   "name": "TestNewFileNonBlocking",
+   "file": "fifo_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  {
+   "name": "TestFIFONonBlockingEOF",
+   "file": "fifo_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it needs internal/syscall/unix (Fcntl, nonblocking opens), which the syscall subset does not have"
+  },
+  {
+   "name": "TestDirFSReadLink",
+   "file": "file_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFSLstat",
+   "file": "file_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFSWalkDir",
+   "file": "file_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGetwdDeep",
+   "file": "getwd_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGetwdDeepWithPWDSet",
+   "file": "getwd_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStat",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatError",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatSymlinkLoop",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFstat",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLstat",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRead0",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadClosed",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileReaddirnames",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileReaddir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileReadDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaddirname",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaddir",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReadDir",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStatDot",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStatFile",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStatDir",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLstatDot",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLstatFile",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLstatDir",
+   "file": "os_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirnamesOneAtATime",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirNValues",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirStatFailures",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirOfFile",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHardLink",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSymlink",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLongSymlink",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRename",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRenameOverwriteDest",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRenameFailed",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRenameNotExisting",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRenameToDirFailed",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRenameCaseDifference",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStartProcess",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestChmod",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFTruncate",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTruncate",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTruncateNonexistentFile",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChtimes",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChtimesOmit",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChtimesDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChtimesToUnixZero",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileChdir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileChdirTestlog",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it re-runs the test binary with os/exec to read the testlog of a file Chdir, and gocpp has no os/exec"
+  },
+  {
+   "name": "TestChdirAndGetwd",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestProgWideChdir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSeek",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSeekError",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOpenError",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOpenNoName",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHostname",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAt",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtOffset",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtNegativeOffset",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAt",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAtConcurrent",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAtNegativeOffset",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAtInAppendMode",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppend",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFilePermissions",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOpenFileCreateExclDanglingSymlink",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileRDWRFlags",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatDirWithTrailingSlash",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNilProcessStateString",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSameFile",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDevNullFile",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeWriteToConsole",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "Go skips it unless run with -large_write (it floods the console), so it does not run under go test either"
+  },
+  {
+   "name": "TestStatDirModeExec",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatStdin",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestStatRelativeSymlink",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtEOF",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLongPath",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestKillStartProcess",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestGetppid",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestKillFindProcess",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS)"
+  },
+  {
+   "name": "TestNilFileMethods",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllRace",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeThreads",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDoubleCloseError",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserCacheDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserCacheDirXDGConfigDirEnvVar",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserConfigDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserConfigDirXDGConfigDirEnvVar",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserHomeDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirSeek",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirSmallSeek",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOpenFileKeepsPermissions",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFS",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRootDirFS",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestDirFSRootDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFSEmptyDir",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFSPathsValid",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFileProc",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDirFSReadFileProc",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteStringAlloc",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeIOCloseRace",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeCloseRace",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRandomLen",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyFS",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyFSWithSymlinks",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendDoesntOverwrite",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveReadOnlyFile",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOpenFileDevNull",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFileContents",
+   "file": "os_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChown",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileChown",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLchown",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaddirRemoveRace",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirStickyUmask",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewFileBlock",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewFileNonBlock",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewFileInvalid",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSplitPath",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue60181",
+   "file": "os_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirAll",
+   "file": "path_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirAllAbsPath",
+   "file": "path_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirAllWithSymlink",
+   "file": "path_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirAllAtSlash",
+   "file": "path_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "Go skips it outside of the Go builders (it creates directories in the root of the file system), so it does not run under go test either"
+  },
+  {
+   "name": "TestFindProcessViaPidfd",
+   "file": "pidfd_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests process file descriptors (pidfd), and gocpp has no StartProcess"
+  },
+  {
+   "name": "TestStartProcessWithPidfd",
+   "file": "pidfd_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests process file descriptors (pidfd), and gocpp has no StartProcess"
+  },
+  {
+   "name": "TestPidfdLeak",
+   "file": "pidfd_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests process file descriptors (pidfd), and gocpp has no StartProcess"
+  },
+  {
+   "name": "TestEPIPE",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStdPipe",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts or signals processes (os.StartProcess, os/exec, os/signal), and gocpp has none of them (os.StartProcess is ENOSYS) (it re-runs the test binary and catches SIGPIPE)"
+  },
+  {
+   "name": "TestClosedPipeRaceRead",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClosedPipeRaceWrite",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadNonblockingFd",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it re-runs the test binary with os/exec on a nonblocking pipe, and gocpp has no os/exec"
+  },
+  {
+   "name": "TestCloseWithBlockingReadByNewFile",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCloseWithBlockingReadByFd",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeEOF",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFdRace",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFdReadRace",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRawConnReadWrite",
+   "file": "rawconn_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFile",
+   "file": "read_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteFile",
+   "file": "read_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadOnlyWriteFile",
+   "file": "read_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadDir",
+   "file": "read_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSpliceFile",
+   "file": "readfrom_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+  },
+  {
+   "name": "TestProcCopy",
+   "file": "readfrom_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+  },
+  {
+   "name": "TestGetPollFDAndNetwork",
+   "file": "readfrom_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+  },
+  {
+   "name": "TestCopyFile",
+   "file": "readfrom_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests the copy_file_range path of File.ReadFrom through the hooks of export_linux_test.go (copyFileHook, pollCopyFileRange), which gocpp's os does not have"
+  },
+  {
+   "name": "TestRemoveAll",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllLarge",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllLongPath",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllDot",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllDotDot",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveReadOnlyDir",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllButReadOnlyAndPathError",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveUnreadableDir",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllWithMoreErrorThanReqSize",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllNoFcntl",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it re-runs the test binary under strace with os/exec, and gocpp has no os/exec"
+  },
+  {
+   "name": "TestRemoveAllTrailingSlash",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemoveAllSymlinkRemovalFailure",
+   "file": "removeall_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRemoveAll",
+   "file": "removeall_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestRootOpen_File",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootOpen_Directory",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootCreate",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootChmod",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootChtimes",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMkdir",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMkdirAll",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootOpenRoot",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRemoveFile",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRemoveDirectory",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRemoveAll",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootOpenFileAsRoot",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootStat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootLstat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootReadlink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRenameFrom",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootLinkFrom",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRenameTo",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootLinkTo",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootSymlink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyOpen",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyCreate",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyChmod",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyMkdir",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyMkdirAll",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyRemove",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyRemoveAll",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyStat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyLstat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyReadlink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyRename",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyLink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConsistencySymlink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRenameAfterOpen",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootNonPermissionMode",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootUseAfterClose",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootConcurrentClose",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRaceRenameDir",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootSymlinkToRoot",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestOpenInRoot",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootRemoveDot",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootWriteReadFile",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootName",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootNoLstat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiOpen",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiChmod",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiCreate",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiLink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiLstat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiMkdir",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiMkdirAllShallow",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiMkdirAllDeep",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiRename",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiReadFile",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiStat",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiRemove",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiRemoveAll",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiChtimes",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiReadlink",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiWriteFile",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootMultiOpenFile",
+   "file": "root_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root (openat-based sandbox), which os does not have"
+  },
+  {
+   "name": "TestRootChown",
+   "file": "root_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root, which os does not have"
+  },
+  {
+   "name": "TestRootLchown",
+   "file": "root_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root, which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyChown",
+   "file": "root_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root, which os does not have"
+  },
+  {
+   "name": "TestRootConsistencyLchown",
+   "file": "root_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests os.Root, which os does not have"
+  },
+  {
+   "name": "TestDirAndSymlinkStats",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileAndSymlinkStats",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSymlinkWithTrailingSlash",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatConsole",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it runs on Windows only (Go skips it elsewhere)"
+  },
+  {
+   "name": "TestClosedStat",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStatNotExist",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCreateTemp",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCreateTempPattern",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCreateTempBadPattern",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirTemp",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirTempBadDir",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMkdirTempBadPattern",
+   "file": "tempfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNonpollableDeadline",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestReadTimeout",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestReadTimeoutMustNotReturn",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestWriteTimeout",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestWriteTimeoutMustNotReturn",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestReadTimeoutFluctuation",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestWriteTimeoutFluctuation",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestVariousDeadlines",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestVariousDeadlines1Proc",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestVariousDeadlines4Proc",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestReadWriteDeadlineRace",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestRacyRead",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestRacyWrite",
+   "file": "timeout_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestTTYClose",
+   "file": "timeout_unix_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests read and write deadlines (SetDeadline), which the blocking-mode internal/poll does not have"
+  },
+  {
+   "name": "TestSendFile",
+   "file": "writeto_linux_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it tests the zero-copy WriteTo (splice, sendfile), which os does not have, over net"
+  }
+ ],
+ "expected": {
+  "TestRemoveAllLongPath": {
+   "class": "bug",
+   "reason": "RemoveAll is the path-based removeall_noat: there is no unlinkat in the syscall subset, so a tree deeper than PATH_MAX (4096) fails with ENAMETOOLONG, where Go removes it relative to open directories"
+  },
+  "TestWriteStringAlloc": {
+   "class": "divergence",
+   "reason": "it counts allocations with testing.AllocsPerRun (2 per File.WriteString: the slice made from the string and the write call), and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": [
+  {
+   "file": "root_test.go",
+   "reason": "it makes a unix socket with package net, which gocpp does not have"
+  },
+  {
+   "file": "root_test.go",
+   "reason": "os.Root is not built: only the NoRoot run of the test remains"
+  },
+  {
+   "file": "os_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "read_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "read_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "read_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "read_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "read_test.go",
+   "reason": "the folder of the tests holds the .gp files of the tests and testdata, not the .go files of package os"
+  },
+  {
+   "file": "os_test.go",
+   "reason": "os.Root is not built: only the NoRoot run of the test remains"
+  },
+  {
+   "file": "os_test.go",
+   "reason": "os.Root is not built: only the OpenFile run of the test remains"
+  },
+  {
+   "file": "os_test.go",
+   "reason": "the second half of TestHostname starts a process; the first half (a name that is not empty and has no zero byte) stays"
+  }
+ ]
+}

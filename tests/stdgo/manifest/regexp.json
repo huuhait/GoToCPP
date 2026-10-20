@@ -1,0 +1,641 @@
+{
+ "package": "regexp",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "all_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "exec2_test.go": {
+   "status": "run"
+  },
+  "exec_test.go": {
+   "status": "run"
+  },
+  "find_test.go": {
+   "status": "run"
+  },
+  "onepass_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestGoodCompile",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBadCompile",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMatch",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMatchFunction",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyMatch",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceAll",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceAllLiteral",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceAllFunc",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteMeta",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLiteralPrefix",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSubexp",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSplit",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseAndCompile",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOnePassCutoff",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSwitchBacktrack",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFind",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFindAllNoMatches",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFindString",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFindSubmatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFindStringSubmatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLiteral",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNotLiteral",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatchClass",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatchClass_InRange",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReplaceAll",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAnchoredLiteralShortNonMatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAnchoredLiteralLongNonMatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAnchoredShortMatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAnchoredLongMatch",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnePassShortA",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNotOnePassShortA",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnePassShortB",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNotOnePassShortB",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnePassLongPrefix",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnePassLongNotPrefix",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatchParallelShared",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatchParallelCopied",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkQuoteMetaAll",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkQuoteMetaNone",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCompile",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestDeepEqual",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMinInputLen",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalText",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "Example",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMatch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMatchString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteMeta",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_Find",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllSubmatch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindSubmatch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_Match",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindStringIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindStringSubmatch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllStringSubmatch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllStringSubmatchIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindSubmatchIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_Longest",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_MatchString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_NumSubexp",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_ReplaceAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_ReplaceAllLiteralString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_ReplaceAllString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_ReplaceAllStringFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_SubexpNames",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_SubexpIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_Split",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_Expand",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_ExpandString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllSubmatchIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRegexp_FindAllIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestRE2Exhaustive",
+   "file": "exec2_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRE2Search",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFowler",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatch",
+   "file": "exec_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMatch_onepass_regex",
+   "file": "exec_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestLongest",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestProgramTooLongForBacktrack",
+   "file": "exec_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFind",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindString",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindStringIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindReaderIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAll",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllString",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllStringIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindSubmatch",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindStringSubmatch",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindSubmatchIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindStringSubmatchIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindReaderSubmatchIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllSubmatch",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllStringSubmatch",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllSubmatchIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindAllStringSubmatchIndex",
+   "file": "find_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMergeRuneSet",
+   "file": "onepass_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompileOnePass",
+   "file": "onepass_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRunOnePass",
+   "file": "onepass_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

@@ -1,0 +1,1493 @@
+{
+ "package": "time",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "abs_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "format_test.go": {
+   "status": "run"
+  },
+  "internal_test.go": {
+   "status": "run"
+  },
+  "mono_test.go": {
+   "status": "run"
+  },
+  "sleep_test.go": {
+   "status": "run"
+  },
+  "tick_test.go": {
+   "status": "run"
+  },
+  "time_test.go": {
+   "status": "run"
+  },
+  "zoneinfo_test.go": {
+   "status": "run"
+  },
+  "zoneinfo_unix_test.go": {
+   "status": "run"
+  },
+  "tzdata_test.go": {
+   "status": "excluded",
+   "reason": "its only test, TestEmbeddedTZData, needs package time/tzdata (the zone database embedded in the program), which gocpp does not have; zoneinfo files come from the system"
+  },
+  "linkname_test.go": {
+   "status": "excluded",
+   "reason": "it calls time.Time.abs, absClock and absDate by //go:linkname, the legacy hooks for third-party packages that the port left out (stdlib/time/PORT.md); gocpp has no linkname to Go code"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleDuration",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Round",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_String",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Truncate",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseDuration",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSince",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUntil",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Abs",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Hours",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Microseconds",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Milliseconds",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Minutes",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Nanoseconds",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDuration_Seconds",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAfter",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSleep",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTick",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMonth",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDate",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleNewTicker",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Format",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Format_pad",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_GoString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParse",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseInLocation",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnixMicro",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnixMilli",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Unix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Round",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Truncate",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLoadLocation",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLocation",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Add",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_AddDate",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_After",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Before",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Date",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Day",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Equal",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_String",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_Sub",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_AppendBinary",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_AppendFormat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTime_AppendText",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFixedZone",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestNextStdChunk",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRFC3339Conversion",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendInt",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormat",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGoString",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatSingleDigits",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatShortYear",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParse",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseDayOutOfRange",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInLocation",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLoadLocationZipFile",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRubyParse",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatAndParse",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseTimeZone",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseErrors",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoonIs12PM",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMidnightIs12AM",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "Test12PMIsNoon",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "Test12AMIsMidnight",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMissingZone",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMinutesInTimeZone",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseSecondsInTimeZone",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatSecondsInTimeZone",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnderscoreTwoThousand",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStd0xParseError",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseMonthOutOfRange",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseYday",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuote",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatFractionalSecondSeparators",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseFractionalSecondsLongerThanNineDigits",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "FuzzFormatRFC3339",
+   "file": "format_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "FuzzParseRFC3339",
+   "file": "format_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "TestLinkname",
+   "file": "linkname_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it calls time.Time.abs, absClock and absDate by //go:linkname, the legacy hooks for third-party packages that the port left out (stdlib/time/PORT.md); gocpp has no linkname to Go code"
+  },
+  {
+   "name": "TestHasMonotonicClock",
+   "file": "mono_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMonotonicAdd",
+   "file": "mono_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMonotonicSub",
+   "file": "mono_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMonotonicOverflow",
+   "file": "mono_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMonotonicString",
+   "file": "mono_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSleep",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFunc",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTickerStress",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTickerConcurrentStress",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncStarvation",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAfterFunc1000",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAfter",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStop",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSimultaneousAfterFunc1000",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStartStop1000",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReset",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSleep1000",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestAfter",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterTick",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterStop",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterQueuing",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimerStopStress",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSleepZeroDeadlock",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReset",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOverflowSleep",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue5745",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOverflowPeriodRuntimeTimer",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroTimerResetPanics",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroTimerStopPanics",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroTimer",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimerModifiedEarlier",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAdjustTimers",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStopResult",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestResetResult",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWakeupTicker",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWakeupTimer",
+   "file": "sleep_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParallelTimerLatency",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStaggeredTickerLatency",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAdjustTimers10000",
+   "file": "sleep_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestTicker",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTickerStopWithDirectInitialization",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTeardown",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTick",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewTickerLtZeroDuration",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTickerResetLtZeroDuration",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLongAdjustTimers",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTicker",
+   "file": "tick_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTickerReset",
+   "file": "tick_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTickerResetNaive",
+   "file": "tick_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestTimerGC",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChan",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestManualTicker",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterTimes",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTickTimes",
+   "file": "tick_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInternal",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroTime",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZoneData",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixUTC",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixNanoUTC",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnix",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixNano",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixUTCAndBack",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixNanoUTCAndBack",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixMilli",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnixMicro",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTruncateRound",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestISOWeek",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestYearDay",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationString",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDate",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAddDate",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDaysIn",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAddToExactSecond",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimeGob",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it encodes a Time with encoding/gob, which gocpp does not have"
+  },
+  {
+   "name": "TestInvalidTimeGob",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it encodes a Time with encoding/gob, which gocpp does not have"
+  },
+  {
+   "name": "TestNotGobEncodableTime",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it encodes a Time with encoding/gob, which gocpp does not have"
+  },
+  {
+   "name": "TestTimeJSON",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalInvalidTimes",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalInvalidTimes",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseDuration",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseDurationErrors",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseDurationRoundTrip",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLocationRace",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCountMallocs",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLoadFixed",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSub",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationNanoseconds",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationMicroseconds",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationMilliseconds",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationSeconds",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationMinutes",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationHours",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationTruncate",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationRound",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDurationAbs",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDefaultLoc",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNow",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNowUnixNano",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNowUnixMilli",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNowUnixMicro",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSince",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkUntil",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormat",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatRFC3339",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatRFC3339Nano",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatNow",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMarshalJSON",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMarshalText",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMarshalBinary",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParse",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseRFC3339UTC",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseRFC3339UTCBytes",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseRFC3339TZ",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseRFC3339TZBytes",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseDuration",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkHour",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSecond",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDate",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkYear",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkYearDay",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMonth",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDay",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkISOWeek",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkGoString",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDateFunc",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkUnmarshalText",
+   "file": "time_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalBinaryZeroTime",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalBinaryVersion2",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalTextAllocations",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroMonthString",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWeekdayString",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFileLimit",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestConcurrentTimerReset",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestConcurrentTimerResetStop",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimeIsDST",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimeAddSecOverflow",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimeWithZoneTransition",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZoneBounds",
+   "file": "time_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmbeddedTZData",
+   "file": "tzdata_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "its only test, TestEmbeddedTZData, needs package time/tzdata (the zone database embedded in the program), which gocpp does not have; zoneinfo files come from the system"
+  },
+  {
+   "name": "TestEnvVarUsage",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBadLocationErrMsg",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLoadLocationValidatesNames",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestVersion3",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFirstZone",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLocationNames",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLoadLocationFromTZData",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEarlyLocation",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMalformedTZData",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLoadLocationFromTZDataSlim",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTzset",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTzsetName",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTzsetOffset",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTzsetRule",
+   "file": "zoneinfo_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEnvTZUsage",
+   "file": "zoneinfo_unix_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestChan": {
+   "class": "unsupported",
+   "reason": "its subtests asynctimerchan=1 and asynctimerchan=2 test the GODEBUG that restores the timer channels of Go 1.22 (buffered, stale values after Stop); the port has the semantics of Go 1.23 only (stdlib/time/PORT.md); asynctimerchan=0 passes"
+  },
+  "TestCountMallocs": {
+   "class": "divergence",
+   "reason": "it counts allocations (testing.AllocsPerRun or runtime.MemStats), and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8 (the test also skips itself unless GOMAXPROCS is 1)"
+  },
+  "TestLoadLocationFromTZData": {
+   "class": "unsupported",
+   "reason": "it compares LoadLocationFromTZData with the LoadLocation of the same zone from GOROOT/lib/time/zoneinfo.zip and skips itself without a GOROOT; a gocpp program has none"
+  },
+  "TestUnmarshalTextAllocations": {
+   "class": "divergence",
+   "reason": "it counts allocations (testing.AllocsPerRun or runtime.MemStats), and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": [
+  {
+   "file": "export_test.go",
+   "reason": "the port of parseRFC3339 takes a string and is not generic (stdlib/time/PORT.md)"
+  },
+  {
+   "file": "internal_test.go",
+   "reason": "the port has no newTimer: a timer is a channel with a record, armed by startChan (stdlib/time/PORT.md)"
+  },
+  {
+   "file": "internal_test.go",
+   "reason": "gocpp has no GOROOT/lib/time/zoneinfo.zip: the test zone comes from the zone database of the machine (the sources of LoadLocation, tests/README.md zoneinfo gate)"
+  },
+  {
+   "file": "internal_test.go",
+   "reason": "gocpp has no GOROOT/lib/time/zoneinfo.zip, the hermetic zone database that Go keeps the system sources away for"
+  },
+  {
+   "file": "sleep_test.go",
+   "reason": "the variable is the runtime's (linkname); gocpp sleeps with the operating system's timer, which has a resolution of about a millisecond or better"
+  }
+ ]
+}

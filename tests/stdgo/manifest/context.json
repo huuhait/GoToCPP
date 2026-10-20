@@ -1,0 +1,371 @@
+{
+ "package": "context",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "afterfunc_test.go": {
+   "status": "run"
+  },
+  "benchmark_test.go": {
+   "status": "run"
+  },
+  "context_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "x_test.go": {
+   "status": "run"
+  },
+  "net_test.go": {
+   "status": "excluded",
+   "reason": "its only test, TestDeadlineExceededIsNetError, asserts that context.DeadlineExceeded implements net.Error, and gocpp does not have package net (tier 3)"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestCustomContextAfterFuncCancel",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextAfterFuncTimeout",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextAfterFuncAfterFunc",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextAfterFuncUnregisterCancel",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextAfterFuncUnregisterTimeout",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextAfterFuncUnregisterAfterFunc",
+   "file": "afterfunc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCommonParentCancel",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWithTimeout",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCancelTree",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCheckCanceled",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkContextCancelDone",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDeepValueNewGoRoutine",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDeepValueSameGoRoutine",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErrOK",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErrCanceled",
+   "file": "benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWithCancel",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWithDeadline",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWithTimeout",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWithValue",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAfterFunc_cond",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAfterFunc_connection",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "excluded",
+   "reason": "it reads from a net.Conn, and gocpp does not have package net (tier 3)"
+  },
+  {
+   "name": "ExampleAfterFunc_merge",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestDeadlineExceededIsNetError",
+   "file": "net_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "its only test, TestDeadlineExceededIsNetError, asserts that context.DeadlineExceeded implements net.Error, and gocpp does not have package net (tier 3)"
+  },
+  {
+   "name": "TestParentFinishesChild",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChildFinishesFirst",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCancelRemoves",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextGoroutines",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBackground",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTODO",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithCancel",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeadline",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTimeout",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCanceledTimeout",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValues",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAllocs",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSimultaneousCancels",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInterlockedCancels",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLayersCancel",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLayersTimeout",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithCancelCanceledParent",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithCancelSimultaneouslyCanceledParent",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithValueChecksKey",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInvalidDerivedFail",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeadlineExceededSupportsTimeout",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCause",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCauseRace",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithoutCancel",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextPropagation",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCustomContextCause",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncCalledAfterCancel",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncCalledAfterTimeout",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncCalledImmediately",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncNotCalledAfterStop",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAfterFuncCalledAsynchronously",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContextErrDoneRace",
+   "file": "x_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestAllocs": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun against exact numbers, and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  },
+  "TestCauseRace": {
+   "class": "flaky",
+   "reason": "flaky: Go 1.25.14's Cause reads the cause under the lock and then calls c.Err() when it is nil, so a cancel that lands between the two makes it return context.Canceled instead of the cause; the window is a few instructions in Go and wider in gocpp's unoptimized build (about 1 run in 300 fails); it can pass or fail"
+  }
+ },
+ "patches": []
+}

@@ -8,8 +8,8 @@ package testing
 // packages that Go's testing imports for them (sync, time, os, runtime) are declaration stubs
 // until later steps of Phase 09. Their names are the Go names of what they replace:
 // libLock and libUnlock are sync.Mutex, libNow is time.Now, libFrames is runtime.Callers with
-// runtime.CallersFrames, libLookupEnv, libSetEnv and libUnsetEnv are os.LookupEnv, Setenv and
-// Unsetenv. See ADR-056.
+// runtime.CallersFrames. (T.Setenv uses os since step 9.10: the C++ functions lookup_env, set_env and
+// unset_env of testing.hpp have no caller.) See ADR-056.
 
 // libLock and libUnlock take and release the one recursive lock that guards the state of every
 // test and benchmark. User code never runs while it is held, and nothing waits for a goroutine
@@ -66,15 +66,6 @@ func libCaptureStart() string
 
 //gocpp:native gp::testing::capture_stop
 func libCaptureStop() string
-
-//gocpp:native gp::testing::lookup_env
-func libLookupEnv(key string) (string, bool)
-
-//gocpp:native gp::testing::set_env
-func libSetEnv(key, value string) string
-
-//gocpp:native gp::testing::unset_env
-func libUnsetEnv(key string) string
 
 //gocpp:native gp::testing::make_temp_dir
 func libMakeTempDir(prefix string) (dir string, err string)

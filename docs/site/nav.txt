@@ -66,6 +66,7 @@ stdlib/index.html | Reference
 ~ stdlib/*/*.html
 guides/porting.md | Porting a package
 guides/porting-blockers.md | Porting blockers
+guides/stdlib-tests.md | Go's tests of the standard packages
 
 # Quality
 guides/conformance.md | Conformance suite

@@ -275,6 +275,15 @@ files pass".
    (need `context`/`io`), vet, the goroutine dump of a timeout, the natives replaced by their ports (the list in PORT.md).*
 10. **9.10 Run Go's tests** for tier 1 and the deferred suites (§2.8): test-only packages, patches
     with reasons, the counting rule; fix the gocpp bugs they find.
+    *Built (ADR-113):* `GOCPP_TEST_STDLIB` adds Go's `_test.gp` files and `testdata` to the embedded package, so `gocpp test strings` runs Go's own tests in the package gocpp ships;
+    `tools/portstd/gotests/convert_std.py` makes `tests/stdgo` (converted files, shims, test-only packages, one manifest each) from a specification with a reason for every patch, drop and expected failure;
+    `tools/stdgocount` computes the counts of §2.8. **25 packages, 1769 test functions in Go's files, 1661 in the selected files, 1606 pass: 98.2 % of the selected functions without the 26 divergences
+    (25 allocation counts, D24), and 90.8 % of all 1769.** Qualifier: **`os` is 58.6 % of all its functions (57.6 % before the review of this step); it reaches 91.1 % of its selected functions only because
+    `os.Root`, deadlines, processes and fifo/zero-copy are not built (98 functions in files that need them are not taken).** Scope: **`fmt`, `sync`, `sync/atomic` and `testing` have no manifest and are outside this count**
+    (the `fmt` differential tests, the sync tests of 8.7 and `gocpp test` of 9.9 cover them), so the exit criterion "all tier-1 packages at least 90 %" is evidenced by this count for the 25 listed packages only. Deferred suites:
+    `slices`/`maps`/`cmp`/`iter` 145 of 150; `test/rangegen.go` **800 of 800 units** (`rangegen_shards.py`); `test/chan` 18 of 19 (`select2.go` reads `runtime.MemStats`). Found and fixed: boxed variables
+    of generic instances (`slices.Collect`, `iter.Pull`), `testing.T.Setenv` bypassed `os`, `os.File.Readdir`'s stat hook, `time`'s once-flags (`sync.Once` now). Found and open: zero-size-element slices of huge length,
+    `os.RemoveAll` beyond `PATH_MAX`, `runtime.AddCleanup`, the builtin `print` of an interface, `defer` of a native function. Guide: `docs/guides/stdlib-tests.md`.
 11. **9.11 Tier-2 packages**, `encoding/json` first.
     *Built (ADR-102):* `encoding/json` is Go's own package (`tools/portstd`, no patch rule), on the reflect subset of 9.3 as it was (nothing was added to `reflect`);
     `encoding`, `encoding/base64`, `encoding/hex`, `encoding/binary`, `container/list`, `container/heap`, `container/ring`, `hash`, `hash/fnv`, `hash/crc32`, `text/tabwriter`, `log`, `path/filepath`, `math/rand` and `math/rand/v2` are ports too (new native `runtime.rand`).

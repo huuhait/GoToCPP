@@ -1036,6 +1036,12 @@ func (a *borrowWalk) privateStore(l ast.Expr, strict bool) bool {
 // boxedOf returns boxedVars of the function declaration d, computed once (the lowering of d and the
 // borrow analysis both need it). The map is shared: a caller that changes it takes a copy.
 func (g *gen) boxedOf(d *ast.FuncDecl) map[*types.Var]boxReason {
+	if isGenericDecl(d) {
+		// Each instance of a generic function has variable objects of its own (generics.go: apply),
+		// and the same declaration: a map computed for one instance names none of the variables of
+		// another, which would then have no box for a variable that a closure changes.
+		return boxedVars(g.info, d)
+	}
 	if b, ok := g.boxCache[d]; ok {
 		return b
 	}
@@ -1045,4 +1051,24 @@ func (g *gen) boxedOf(d *ast.FuncDecl) map[*types.Var]boxReason {
 	b := boxedVars(g.info, d)
 	g.boxCache[d] = b
 	return b
+}
+
+// isGenericDecl reports whether d is a generic function, or a method of a generic type: the
+// declarations that are lowered once for each instance.
+func isGenericDecl(d *ast.FuncDecl) bool {
+	if d.Type.TypeParams != nil {
+		return true
+	}
+	if d.Recv == nil || len(d.Recv.List) == 0 {
+		return false
+	}
+	recv := ast.Unparen(d.Recv.List[0].Type)
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = ast.Unparen(star.X)
+	}
+	switch recv.(type) {
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		return true
+	}
+	return false
 }

@@ -16,7 +16,7 @@ new`, and a program that does not test must keep the system's (and ASan's), and 
 | `libNow`, `libSleep`, `libAlarmWait`, `libAlarmCancel` | `time.Now`, `time.Sleep`, `time.AfterFunc` (a monotonic clock in nanoseconds; `time` itself is merged since 8.8, but the testing package keeps its int64 clock: it is cheaper and `T.Deadline` converts) | later cleanup |
 | `libFrames` | `runtime.Callers`, `runtime.CallersFrames` (on `gp::detail::shown_frames` and `resolve_pcs` of `frames.cpp`, the runtime's reader of the program's symbols and DWARF line table, which keeps a line index: a new call site costs a binary search) | 8.10 is merged: `runtime.Callers` can replace it when `runtime` has the frames of the Go names |
 | `libGoexit` | `runtime.Goexit` (it is `gp::goexit`: stays) | |
-| `libLookupEnv`, `libSetEnv`, `libUnsetEnv`, `libGetwd`, `libChdir`, `libMakeTempDir`, `libMakeDir`, `libRemoveAll`, `libReadFiles`, `libReadFile` | `os` | 9.6 is merged: `os` can replace them |
+| `libGetwd`, `libChdir`, `libMakeTempDir`, `libMakeDir`, `libRemoveAll`, `libReadFiles`, `libReadFile` | `os` | 9.6 is merged: `os` can replace them (`libLookupEnv`, `libSetEnv` and `libUnsetEnv` are no longer called: `T.Setenv` uses `os`, so `os.Getenv` sees it; step 9.10) |
 | `libCaptureStart`, `libCaptureStop` | `os.Pipe`, `io.Copy` on `os.Stdout` (examples) | 9.6 |
 | `libExit`, `libArgs`, `libProgramName`, `libNCPU`, `libGOOS`, `libGOARCH`, `libCPUName` | `os.Exit`, `os.Args`, `runtime.GOMAXPROCS`, `runtime.GOOS`, `runtime.GOARCH`, `internal/sysinfo` | 9.6 |
 | `libParseFloat` | `strconv.ParseFloat` (corpus files of fuzz targets) | strconv |

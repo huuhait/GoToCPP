@@ -1,0 +1,749 @@
+{
+ "package": "slices",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_test.go": {
+   "status": "run"
+  },
+  "iter_test.go": {
+   "status": "run"
+  },
+  "slices_test.go": {
+   "status": "run"
+  },
+  "sort_benchmark_test.go": {
+   "status": "run"
+  },
+  "sort_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleBinarySearch",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleBinarySearchFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompact",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompactFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompare",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompareFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContainsFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDelete",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDeleteFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEqual",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEqualFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndexFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleInsert",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsSorted",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsSortedFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMax",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMaxFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMin",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMinFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReplace",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSort",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSortFunc_caseInsensitive",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSortFunc_multiField",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSortStableFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleClone",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleGrow",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleClip",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleConcat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContains",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRepeat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleBackward",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValues",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendSeq",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCollect",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSorted",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSortedFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSortedStableFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleChunk",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestAll",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBackward",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValues",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendSeq",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCollect",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValuesAppendSeq",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValuesCollect",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSorted",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortedFunc",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortedStableFunc",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChunk",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChunkPanics",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChunkRange",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEqual",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEqualFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEqualFunc_Large",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCompare",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompareFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndex",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndex_Large",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexFunc_Large",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestContains",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContainsFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInsert",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInsertOverlap",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInsertPanics",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDelete",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeleteFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeletePanics",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeleteClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeleteFuncClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClone",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompact",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCompact",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCompact_Large",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactFunc",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactFuncClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCompactFunc",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCompactFunc_Large",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestGrow",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClip",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReverse",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplace",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplacePanics",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceGrow",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceOverlap",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceEndClearTail",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReplace",
+   "file": "slices_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestInsertGrowthRate",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplaceGrowthRate",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInference",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestConcat",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestConcat_too_large",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRepeat",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRepeatPanics",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue68488",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNilness",
+   "file": "slices_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkBinarySearchFloats",
+   "file": "sort_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkBinarySearchFuncStruct",
+   "file": "sort_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortFuncStruct",
+   "file": "sort_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSortIntSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortFuncIntSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortFloat64Slice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortStringSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortLarge_Random",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStability",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMinMax",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMinMaxNaNs",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMinMaxPanics",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBinarySearch",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBinarySearchInts",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBinarySearchFloats",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBinarySearchFunc",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestConcat": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new; append(s, make(S, n)...) and string(bytes) allocate a temporary); counting rule of the Phase 09 README, 2.8"
+  },
+  "TestConcat_too_large": {
+   "class": "bug",
+   "reason": "bug: it makes a slice of zero-size elements (struct{}) with a length up to math.MaxInt, and gocpp slices cost one byte for each element (the C++ size of an empty struct is 1), so makeslice panics with len out of range; Go allocates nothing"
+  },
+  "TestGrow": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new; append(s, make(S, n)...) and string(bytes) allocate a temporary); counting rule of the Phase 09 README, 2.8"
+  },
+  "TestInsert": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new; append(s, make(S, n)...) and string(bytes) allocate a temporary); counting rule of the Phase 09 README, 2.8"
+  },
+  "TestRepeat": {
+   "class": "bug",
+   "reason": "bug: it makes a slice of zero-size elements (struct{}) with a length up to math.MaxInt, and gocpp slices cost one byte for each element (the C++ size of an empty struct is 1), so makeslice panics with len out of range; Go allocates nothing"
+  }
+ },
+ "patches": []
+}

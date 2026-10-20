@@ -11,6 +11,11 @@ package time
 
 import "errors"
 
+// loadFromEmbeddedTZData is used to load a specific tzdata file from tzdata information embedded in the
+// binary itself. Go sets it when package time/tzdata is imported; gocpp has no such package, so it stays
+// nil (the tests of package time set it).
+var loadFromEmbeddedTZData func(zipname string) (string, error)
+
 // maxFileSize is the max permitted size of files read by readFile.
 // As reference, the zoneinfo.zip distributed by Go is ~350 KB,
 // so 10MB is overkill.
@@ -508,6 +513,17 @@ func loadLocation(name string, sources []string) (z *Location, firstErr error) {
 		zoneData, err := loadTzinfo(name, source)
 		if err == nil {
 			if z, err = LoadLocationFromTZData(name, zoneData); err == nil {
+				return z, nil
+			}
+		}
+		if firstErr == nil && err != errENOENT {
+			firstErr = err
+		}
+	}
+	if loadFromEmbeddedTZData != nil {
+		zoneData, err := loadFromEmbeddedTZData(name)
+		if err == nil {
+			if z, err = LoadLocationFromTZData(name, []byte(zoneData)); err == nil {
 				return z, nil
 			}
 		}

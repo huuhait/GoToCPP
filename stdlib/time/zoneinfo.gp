@@ -4,7 +4,10 @@
 
 package time
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 //go:generate env ZONEINFO=$GOROOT/lib/time/zoneinfo.zip go run genzabbrs.go -output zoneinfo_abbrs_windows.go
 
@@ -82,13 +85,14 @@ var Local *Location = &localLoc
 // localLoc is separate so that initLocal can initialize
 // it even if a client has changed Local.
 var localLoc Location
+var localOnce sync.Once
 
 func (l *Location) get() *Location {
 	if l == nil {
 		return &utcLoc
 	}
 	if l == &localLoc {
-		callOnce(onceLocal, initLocal)
+		localOnce.Do(initLocal)
 	}
 	return l
 }
@@ -100,6 +104,7 @@ func (l *Location) String() string {
 }
 
 var unnamedFixedZones []*Location
+var unnamedFixedZonesOnce sync.Once
 
 // FixedZone returns a [Location] that always uses
 // the given zone name and offset (seconds east of UTC).
@@ -110,7 +115,7 @@ func FixedZone(name string, offset int) *Location {
 	const hoursAfterUTC = 14
 	hour := offset / 60 / 60
 	if name == "" && -hoursBeforeUTC <= hour && hour <= +hoursAfterUTC && hour*60*60 == offset {
-		callOnce(onceFixedZones, func() {
+		unnamedFixedZonesOnce.Do(func() {
 			unnamedFixedZones = make([]*Location, hoursBeforeUTC+1+hoursAfterUTC)
 			for hr := -hoursBeforeUTC; hr <= +hoursAfterUTC; hr++ {
 				unnamedFixedZones[hr+hoursBeforeUTC] = fixedZone("", hr*60*60)
@@ -637,6 +642,7 @@ func (l *Location) lookupName(name string, unix int64) (offset int, ok bool) {
 var errLocation = errors.New("time: invalid location name")
 
 var zoneinfo *string
+var zoneinfoOnce sync.Once
 
 // LoadLocation returns the Location with the given name.
 //
@@ -665,7 +671,7 @@ func LoadLocation(name string) (*Location, error) {
 		// much less dot dot. Likewise, none begin with a slash.
 		return nil, errLocation
 	}
-	callOnce(onceZoneinfo, func() {
+	zoneinfoOnce.Do(func() {
 		env, _ := getenv("ZONEINFO")
 		zoneinfo = &env
 	})

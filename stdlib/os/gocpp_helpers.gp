@@ -65,6 +65,12 @@ const supportsCreateWithStickyBit = true
 // lstatat is the Lstat of the entry name of the directory f (Go's version uses fstatat on the open
 // directory, for a directory opened in a Root; there is no Root here).
 func (f *File) lstatat(name string) (FileInfo, error) {
+	if stathook != nil {
+		fi, err := stathook(f, name)
+		if fi != nil || err != nil {
+			return fi, err
+		}
+	}
 	return Lstat(f.name + "/" + name)
 }
 

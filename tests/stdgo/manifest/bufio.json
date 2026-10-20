@@ -1,0 +1,633 @@
+{
+ "package": "bufio",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "bufio_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "scan_test.go": {
+   "status": "run"
+  },
+  "net_test.go": {
+   "status": "excluded",
+   "reason": "its only test, TestCopyUnixpacket, copies across a unixpacket socket of package net, which gocpp does not have (tier 3)"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestReaderSimple",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReader",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestZeroReader",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadRune",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadRune",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadRuneAfterPeek",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadByteAfterPeek",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadRuneAfterDiscard",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadByteAfterDiscard",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadRuneAfterWriteTo",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNoUnreadByteAfterWriteTo",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadByte",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadByteMultiple",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadByteOthers",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadRuneError",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadRuneAtEOF",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadWriteRune",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteInvalidRune",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadStringAllocs",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriter",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterAppend",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteErrors",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewReaderSizeIdempotent",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNewWriterSizeIdempotent",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteString",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteStringStringWriter",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBufferFull",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPeek",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPeekThenUnreadRune",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadLine",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLineTooLong",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAfterLines",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadEmptyBuffer",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLinesAfterRead",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadLineNonNilLineOrError",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadLineNewlines",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderWriteTo",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderWriteToErrors",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFrom",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromErrors",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromCounts",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNegativeRead",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderClearError",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromWhileFull",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromUntilEOF",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromErrNoProgress",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromWithBufferedData",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadZero",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderReset",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReset",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderDiscard",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderSize",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterSize",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPartialReadEOF",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromMustSetUnderlyingError",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriterReadFromMustReturnUnderlyingError",
+   "file": "bufio_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderCopyOptimal",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderCopyUnoptimal",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderCopyNoWriteTo",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderWriteToOptimal",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderReadString",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWriterCopyOptimal",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWriterCopyUnoptimal",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWriterCopyNoReadFrom",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReaderEmpty",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWriterEmpty",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkWriterFlush",
+   "file": "bufio_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWriter",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWriter_AvailableBuffer",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWriter_ReadFrom",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_lines",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_Bytes",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_words",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_custom",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_emptyFinalToken",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleScanner_earlyStop",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyUnixpacket",
+   "file": "net_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "its only test, TestCopyUnixpacket, copies across a unixpacket socket of package net, which gocpp does not have (tier 3)"
+  },
+  {
+   "name": "TestSpace",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanByte",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanRune",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanWords",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLongLines",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLineTooLong",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLineNoNewline",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLineReturnButNoNewline",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLineEmptyFinalLine",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanLineEmptyFinalLineWithCR",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSplitError",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrAtEOF",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNonEOFWithEmptyRead",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBadReader",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestScanWordsExcessiveWhiteSpace",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmptyTokens",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWithNoEmptyTokens",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDontLoopForever",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBlankLines",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmptyLinesOK",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHugeBuffer",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNegativeEOFReader",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeReader",
+   "file": "scan_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestReadStringAllocs": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": []
+}

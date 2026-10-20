@@ -1,0 +1,508 @@
+{
+ "package": "sort",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_interface_test.go": {
+   "status": "run"
+  },
+  "example_keys_test.go": {
+   "status": "run"
+  },
+  "example_multi_test.go": {
+   "status": "run"
+  },
+  "example_search_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "example_wrapper_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "search_test.go": {
+   "status": "run"
+  },
+  "sort_slices_benchmark_test.go": {
+   "status": "run"
+  },
+  "sort_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "Example",
+   "file": "example_interface_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "Example_sortKeys",
+   "file": "example_keys_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "Example_sortMultiKeys",
+   "file": "example_multi_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSearch",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSearch_descendingOrder",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFind",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSearchFloat64s",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSearchInts",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSearchStrings",
+   "file": "example_search_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleInts",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIntsAreSorted",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFloat64s",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFloat64sAreSorted",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSlice",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSliceIsSorted",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSliceStable",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleStrings",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "Example_sortWrapper",
+   "file": "example_wrapper_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestSearch",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFind",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSearchEfficiency",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSearchWrappers",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSearchWrappersDontAlloc",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSearchWrappers",
+   "file": "search_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSearchExhaustive",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFindExhaustive",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInts",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSlicesSortInts",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortIsSorted",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSlicesIsSorted",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortStrings",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSlicesSortStrings",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortStrings_Sorted",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSlicesSortStrings_Sorted",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestStructSorts",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortStructs",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortFuncStructs",
+   "file": "sort_slices_benchmark_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSortIntSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortFloat64Slice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortFloat64sCompareSlicesSort",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortStringSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInts",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFloat64s",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStrings",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSortLarge_Random",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReverseSortIntSlice",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBreakPatterns",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReverseRange",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNonDeterministicComparison",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortString1K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortString1K_Slice",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStableString1K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt1K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt1K_Sorted",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt1K_Reversed",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt1K_Mod8",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStableInt1K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStableInt1K_Slice",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt64K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSortInt64K_Slice",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStableInt64K",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSortBM",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHeapsortBM",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStableBM",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAdversary",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStableInts",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStability",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCountStableOps",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCountSortOps",
+   "file": "sort_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSort1e2",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStable1e2",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSort1e4",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStable1e4",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSort1e6",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkStable1e6",
+   "file": "sort_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestSearchWrappersDontAlloc": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8 (the test is skipped when GOMAXPROCS > 1, as in Go)"
+  }
+ },
+ "patches": []
+}

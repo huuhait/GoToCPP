@@ -1,0 +1,170 @@
+{
+ "package": "maps",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_test.go": {
+   "status": "run"
+  },
+  "iter_test.go": {
+   "status": "run"
+  },
+  "maps_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleClone",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCopy",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDeleteFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEqual",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEqualFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleKeys",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValues",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleInsert",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCollect",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestAll",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestKeys",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValues",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInsert",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCollect",
+   "file": "iter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEqual",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEqualFunc",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClone",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCloneNil",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopy",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDeleteFunc",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMapClone",
+   "file": "maps_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCloneWithDelete",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCloneWithMapAssign",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCloneLarge",
+   "file": "maps_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

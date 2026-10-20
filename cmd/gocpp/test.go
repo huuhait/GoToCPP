@@ -410,8 +410,16 @@ var testHardKillDelay = 5 * time.Second
 func (d *driver) execTest(p *program, args []string, out io.Writer, killAfter time.Duration, killed *string) error {
 	newCmd := func() *exec.Cmd {
 		cmd := exec.Command(p.exe, args...)
-		cmd.Dir = p.dir
-		cmd.Env = append(programEnv(), "PWD="+p.dir) // see programEnv: the user's TEMP and LOCALAPPDATA
+		importPath := ""
+		if d.test != nil {
+			importPath = d.test.importPath
+		}
+		dir := testRunDir(p.dir, importPath)
+		cmd.Dir = dir
+		cmd.Env = programEnv() // see programEnv: the user's TEMP and LOCALAPPDATA
+		if dir != "" {
+			cmd.Env = append(cmd.Env, "PWD="+dir)
+		}
 		if d.flags.asan && os.Getenv("ASAN_OPTIONS") == "" {
 			// Memory is reference counted (ADR-004): a cycle of values that the program drops is a
 			// leak, which LeakSanitizer reports at the exit of the test binary and fails the run

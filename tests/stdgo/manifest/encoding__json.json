@@ -1,0 +1,875 @@
+{
+ "package": "encoding/json",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "decode_test.go": {
+   "status": "run"
+  },
+  "encode_test.go": {
+   "status": "run"
+  },
+  "example_marshaling_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "example_text_marshaling_test.go": {
+   "status": "run"
+  },
+  "fold_test.go": {
+   "status": "run"
+  },
+  "fuzz_test.go": {
+   "status": "run"
+  },
+  "number_test.go": {
+   "status": "run"
+  },
+  "scanner_test.go": {
+   "status": "run"
+  },
+  "stream_test.go": {
+   "status": "run"
+  },
+  "tagkey_test.go": {
+   "status": "run"
+  },
+  "tags_test.go": {
+   "status": "run"
+  },
+  "bench_test.go": {
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  }
+ },
+ "tests": [
+  {
+   "name": "BenchmarkCodeEncoder",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeEncoderError",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeMarshal",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeMarshalError",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkMarshalBytes",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkMarshalBytesError",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkMarshalMap",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeDecoder",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnicodeDecoder",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkDecoderStream",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeUnmarshal",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkCodeUnmarshalReuse",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmarshalString",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmarshalFloat64",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmarshalInt64",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmarshalMap",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkIssue10335",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkIssue34127",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmapped",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkTypeFieldsCache",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkEncodeMarshaler",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkEncoderEncode",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkNumberIsValid",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkNumberIsValidRegexp",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "BenchmarkUnmarshalNumber",
+   "file": "bench_test.go",
+   "kind": "benchmark",
+   "status": "excluded",
+   "reason": "benchmarks (it needs internal/zstd and testdata/code.json.zst); no test function of it is run by go test"
+  },
+  {
+   "name": "TestMarshal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalInvalidUTF8",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalNumberZeroVal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalEmbeds",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalMarshal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNumberAccessors",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeByteSlice",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalInterface",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalPtrPtr",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEscape",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrorMessageFromMisusedString",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRefUnmarshal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmptyString",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNullString",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInterfaceSet",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalNulls",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStringKind",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestByteKind",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSliceOfCustomByte",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalTypeError",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalSyntax",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalUnexported",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalJSONLiteralError",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSkipArrayObjects",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPrefilled",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInvalidUnmarshal",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestInvalidStringOption",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalEmbeddedUnexported",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalErrorAfterMultipleJSON",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalPanic",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalRecursivePointer",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalMapWithTextUnmarshalerStringKey",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalRescanLiteralMangledUnquote",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnmarshalMaxDepth",
+   "file": "decode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOmitEmpty",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOmitZero",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOmitZeroMap",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOmitEmptyZero",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRoundtripStringTag",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodeRenamedByteSlice",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSamePointerNoCycle",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSliceNoCycle",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnsupportedValues",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalTextFloatMap",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRefValMarshal",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalerEscaping",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAnonymousFields",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNilMarshal",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmbeddedBug",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTaggedFieldDominates",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDuplicatedFieldDisappears",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue10281",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalErrorAndReuseEncodeState",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHTMLEscape",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodePointerString",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodeString",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodeBytekind",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTextMarshalerMapKeysAreSorted",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNilMarshalerTextMapKey",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalFloat",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalRawMessageValue",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalPanic",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalUncommonFieldNames",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMarshalerError",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue63379",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSynctestMarshal",
+   "file": "encode_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "needs testing/synctest (bubbles), which gocpp does not have"
+  },
+  {
+   "name": "Example_customMarshalJSON",
+   "file": "example_marshaling_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMarshal",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnmarshal",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecoder",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecoder_Token",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecoder_Decode_stream",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRawMessage_unmarshal",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRawMessage_marshal",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndent",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMarshalIndent",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValid",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleHTMLEscape",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "Example_textMarshalJSON",
+   "file": "example_text_marshaling_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "FuzzEqualFold",
+   "file": "fold_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "FuzzUnmarshalJSON",
+   "file": "fuzz_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "FuzzDecoderToken",
+   "file": "fuzz_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "TestNumberIsValid",
+   "file": "number_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValid",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactAndIndent",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactSeparators",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompactBig",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndentBig",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndentErrors",
+   "file": "scanner_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncoder",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncoderErrorAndReuseEncodeState",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncoderIndent",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncoderSetEscapeHTML",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecoder",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecoderBuffered",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRawMessage",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNullRawMessage",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBlocking",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecodeInStream",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHTTPDecoding",
+   "file": "stream_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "needs net/http and httptest"
+  },
+  {
+   "name": "TestStructTagObjectKey",
+   "file": "tagkey_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTagParsing",
+   "file": "tags_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": [
+  {
+   "file": "decode_test.go",
+   "reason": "package net is not in gocpp: the one test case that decodes into net.IP is dropped"
+  },
+  {
+   "file": "decode_test.go",
+   "reason": "package net is not in gocpp"
+  },
+  {
+   "file": "stream_test.go",
+   "reason": "package net is not in gocpp: TestBlocking uses io.Pipe, which blocks the same way"
+  },
+  {
+   "file": "stream_test.go",
+   "reason": "package net is not in gocpp"
+  },
+  {
+   "file": "encode_test.go",
+   "reason": "gocpp reserves the package-level name C (C interop): type C is CInt"
+  },
+  {
+   "file": "encode_test.go",
+   "reason": "type C is CInt"
+  },
+  {
+   "file": "stream_test.go",
+   "reason": "type C is CInt"
+  }
+ ]
+}

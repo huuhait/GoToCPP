@@ -1449,7 +1449,11 @@ func (l *loader) process(p *Package) {
 	for _, f := range p.Files {
 		for _, spec := range f.Info.Packages {
 			path, _ := importPath(spec)
-			if spec.Name != nil && spec.Name.Name == "." && l.exportedNames(p, path)["C"] {
+			// The external test of a standard package may dot-import it (Go's tests of unicode do): the
+			// embedded library has no test files of its own, so only the tests of step 9.10 are affected
+			// (GOCPP_TEST_STDLIB), and none of them uses a C/C++ name.
+			stdTest := p.xtestOf != nil && p.xtestOf.Std
+			if spec.Name != nil && spec.Name.Name == "." && !stdTest && l.exportedNames(p, path)["C"] {
 				p.Errors.Errorf(l.fset.Position(spec.Pos()),
 					"cannot dot-import %q: it exports C, which is reserved for C's built-in types", path)
 			}

@@ -1,6 +1,6 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1-9.9, 9.7a native-fmt audit and 9.11 merged; open: 9.10, 9.12, 9.13)
+**Status:** `[~]` in progress (9.1-9.11 and 9.7a merged; open: 9.12, 9.13)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -24,21 +24,32 @@
 - [x] 9.7a Native-fmt audit (ADR-100): Scan family, live operands, standard-stream ownership and close ordering, upstream test fixtures and differential tooling; clean whole-diff review at `16dcf25d`, followed by passing manager focused integration checks on 2026-10-20.
 - [x] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
 - [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
-- [ ] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule
+- [x] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule (merged 2026-10-20, ADR-113; `go run ./tools/stdgocount -check`; guide docs/guides/stdlib-tests.md)
 - [x] 9.11 Tier-2 packages (`encoding/json` first)
 - [ ] 9.12 Docs (package list, differences, porting guide)
 - [ ] 9.13 v0.1 release candidate
 
 ## Exit criteria
 
-- [ ] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons)
-- [ ] Deferred suites (from Phases 07 and 08) pass
+- [~] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons): 25 packages 98.2 % of selected (1606/1635 after divergences), 90.8 % of all 1769; os is 91.1 % of selected but 58.6 % of all; fmt, sync, sync/atomic, testing are outside the count (covered elsewhere); "tier 1 complete" and the v0.1 call stay open
+- [x] Deferred suites (from Phases 07 and 08) pass (slices/maps/cmp/iter 145 of 150 selected, 3 allocation divergences + 2 zero-size-slice bugs; rangegen 800/800 units; test/chan 18 of 19, select2 needs runtime.MemStats)
 - [x] `wc` + `grep-lite` match their Go versions (flag ported 2026-10-19: identical output on 14 and 12 argument vectors)
 - [x] `gocpp test` output format matches `go test`
 - [x] `fmt` differential tests (≥ 100 cases) byte-identical to Go (210 `fmt_*` run tests vs real Go)
 - [ ] `encoding/json` round-trips like Go
 
 ## Decisions / notes
+
+- 2026-10-20: 9.10 merged after two review rounds. Decisions: whole-file `skip_file` with a written
+  reason is acceptable under §2.8 when the headline also gives the all-functions number (os 58.6 %);
+  fmt/sync/sync-atomic/testing get no Go-test specs (covered by fmt differential tests, 8.7, 9.9).
+  Product fixes found by the tests: generic-instance boxed-variable analysis (slices.Collect, iter.Pull),
+  `T.Setenv` through os, os `lstatat` stathook, time `sync.Once` flags. Open gaps (in the manifests):
+  zero-size huge slices (makeslice), path-based `os.RemoveAll`, missing `runtime.AddCleanup`, builtin
+  `print` of interfaces, `defer nativeFunc(x)` overload, `GODEBUG=asynctimerchan`, 8 MiB stack
+  (io/fs TestCVE202230630). `stdgocount -check` and `rangegen_shards.py` take ~10 min and are not in
+  `go test ./...`: put them in the nightly/CI job (open). Unused C++ natives (`call_once`, testing env)
+  can go in a runtime-header cleanup.
 
 - 2026-10-20: Native-fmt audit (9.7a, ADR-100) integrated after coder/reviewer fix loops and
   clean whole-diff review at `16dcf25d`. The three deferred-close/identity findings and seven

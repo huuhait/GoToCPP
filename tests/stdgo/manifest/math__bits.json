@@ -1,0 +1,653 @@
+{
+ "package": "math/bits",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "bits_test.go": {
+   "status": "run"
+  },
+  "example_math_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestUintSize",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLeadingZeros",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLeadingZeros",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLeadingZeros8",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLeadingZeros16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLeadingZeros32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLeadingZeros64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestTrailingZeros",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrailingZeros",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrailingZeros8",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrailingZeros16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrailingZeros32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrailingZeros64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestOnesCount",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnesCount",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnesCount8",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnesCount16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnesCount32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkOnesCount64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestRotateLeft",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRotateLeft",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRotateLeft8",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRotateLeft16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRotateLeft32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRotateLeft64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestReverse",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverse",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverse8",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverse16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverse32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverse64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestReverseBytes",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverseBytes",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverseBytes16",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverseBytes32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReverseBytes64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestLen",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAddSubUint",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAddSubUint32",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAddSubUint64",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAdd64OverflowPanic",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSub64OverflowPanic",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMulDiv",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMulDiv32",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMulDiv64",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDivPanicOverflow",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDiv32PanicOverflow",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDiv64PanicOverflow",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDivPanicZero",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDiv32PanicZero",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDiv64PanicZero",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRem32",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRem32Overflow",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRem64",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRem64Overflow",
+   "file": "bits_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAdd",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAdd32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAdd64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAdd64multiple",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSub",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSub32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSub64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSub64multiple",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMul",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMul32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMul64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDiv",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDiv32",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDiv64",
+   "file": "bits_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAdd32",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAdd64",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSub32",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSub64",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMul32",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMul64",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDiv32",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDiv64",
+   "file": "example_math_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLeadingZeros8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLeadingZeros16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLeadingZeros32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLeadingZeros64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrailingZeros8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrailingZeros16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrailingZeros32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrailingZeros64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOnesCount",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOnesCount8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOnesCount16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOnesCount32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleOnesCount64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRotateLeft8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRotateLeft16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRotateLeft32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRotateLeft64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverse64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverseBytes16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverseBytes32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReverseBytes64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLen8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLen16",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLen32",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLen64",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

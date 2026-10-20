@@ -1,0 +1,223 @@
+{
+ "package": "flag",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_flagset_test.go": {
+   "status": "run"
+  },
+  "example_func_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "flag_test.go": {
+   "status": "run"
+  },
+  "example_textvar_test.go": {
+   "status": "excluded",
+   "reason": "its only example, ExampleTextVar, uses net.IP, and gocpp does not have package net (tier 3)"
+  },
+  "example_value_test.go": {
+   "status": "excluded",
+   "reason": "its only example, ExampleValue, parses a net/url.URL, and gocpp does not have package net/url"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleFlagSet",
+   "file": "example_flagset_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFunc",
+   "file": "example_func_test.go",
+   "kind": "example",
+   "status": "excluded",
+   "reason": "it parses an address with net.ParseIP, and gocpp does not have package net (tier 3)"
+  },
+  {
+   "name": "ExampleBoolFunc",
+   "file": "example_func_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "Example",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTextVar",
+   "file": "example_textvar_test.go",
+   "kind": "example",
+   "status": "excluded",
+   "reason": "its only example, ExampleTextVar, uses net.IP, and gocpp does not have package net (tier 3)"
+  },
+  {
+   "name": "ExampleValue",
+   "file": "example_value_test.go",
+   "kind": "example",
+   "status": "excluded",
+   "reason": "its only example, ExampleValue, parses a net/url.URL, and gocpp does not have package net/url"
+  },
+  {
+   "name": "TestEverything",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGet",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUsage",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParse",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFlagSetParse",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefined",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefinedFunc",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefinedForCommandLine",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefinedBool",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefinedBoolUsage",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSetOutput",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestChangingArgs",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHelp",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPrintDefaults",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIntFlagOverflow",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUsageOutput",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGetters",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseError",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRangeError",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExitCode",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "it starts the test binary again with os/exec to read the exit status of flag.ExitOnError, and gocpp has no os/exec"
+  },
+  {
+   "name": "TestInvalidFlags",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRedefinedFlags",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUserDefinedBoolFunc",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDefineAfterSet",
+   "file": "flag_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": [
+  {
+   "file": "flag_test.go",
+   "reason": "the test file is flag_test.gp in gocpp (the message names the file of the call)"
+  }
+ ]
+}

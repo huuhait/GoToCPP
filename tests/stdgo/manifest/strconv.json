@@ -1,0 +1,761 @@
+{
+ "package": "strconv",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "atob_test.go": {
+   "status": "run"
+  },
+  "atoc_test.go": {
+   "status": "run"
+  },
+  "atof_test.go": {
+   "status": "run"
+  },
+  "atoi_test.go": {
+   "status": "run"
+  },
+  "ctoa_test.go": {
+   "status": "run"
+  },
+  "decimal_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "fp_test.go": {
+   "status": "run"
+  },
+  "ftoa_test.go": {
+   "status": "run"
+  },
+  "ftoaryu_test.go": {
+   "status": "run"
+  },
+  "internal_test.go": {
+   "status": "run"
+  },
+  "itoa_test.go": {
+   "status": "run"
+  },
+  "quote_test.go": {
+   "status": "run"
+  },
+  "strconv_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestParseBool",
+   "file": "atob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatBool",
+   "file": "atob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendBool",
+   "file": "atob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseComplex",
+   "file": "atoc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseComplexIncorrectBitSize",
+   "file": "atoc_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseFloatPrefix",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtof",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtofSlow",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtofRandom",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRoundTrip",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRoundTrip32",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseFloatIncorrectBitSize",
+   "file": "atof_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64Decimal",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64Float",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64FloatExp",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64Big",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64RandomBits",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64RandomFloats",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof64RandomLongFloats",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof32Decimal",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof32Float",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof32FloatExp",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof32Random",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtof32RandomLong",
+   "file": "atof_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUint32",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUint64",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUint64Base",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInt32",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInt64",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInt64Base",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUint",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInt",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtoi",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseIntBitSize",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUintBitSize",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseIntBase",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseUintBase",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNumError",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNumErrorUnwrap",
+   "file": "atoi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkParseInt",
+   "file": "atoi_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtoi",
+   "file": "atoi_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatComplex",
+   "file": "ctoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatComplexInvalidBitSize",
+   "file": "ctoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecimalShift",
+   "file": "decimal_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecimalRound",
+   "file": "decimal_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecimalRoundedInteger",
+   "file": "decimal_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendBool",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendFloat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendInt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendQuote",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendQuoteRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendQuoteRuneToASCII",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendQuoteToASCII",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendUint",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAtoi",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCanBackquote",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFormatBool",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFormatFloat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFormatInt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFormatUint",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsGraphic",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsPrint",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleItoa",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseBool",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseFloat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseInt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleParseUint",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuote",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteRuneToASCII",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteRuneToGraphic",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteToASCII",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuoteToGraphic",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleQuotedPrefix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnquote",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnquoteChar",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleNumError",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestFp",
+   "file": "fp_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFtoa",
+   "file": "ftoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFtoaPowersOfTwo",
+   "file": "ftoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFtoaRandom",
+   "file": "ftoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatFloatInvalidBitSize",
+   "file": "ftoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatFloat",
+   "file": "ftoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendFloat",
+   "file": "ftoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestMulByLog2Log10",
+   "file": "ftoaryu_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMulByLog10Log2",
+   "file": "ftoaryu_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestItoa",
+   "file": "itoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUitoa",
+   "file": "itoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatUintVarlen",
+   "file": "itoa_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatInt",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendInt",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatUint",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendUint",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFormatIntSmall",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendIntSmall",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendUintVarlen",
+   "file": "itoa_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestIsPrint",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsGraphic",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuote",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteToASCII",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteToGraphic",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkQuote",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkQuoteRune",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendQuote",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendQuoteRune",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteRune",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteRuneToASCII",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestQuoteRuneToGraphic",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCanBackquote",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnquote",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnquoteInvalidUTF8",
+   "file": "quote_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkUnquoteEasy",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkUnquoteHard",
+   "file": "quote_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCountMallocs",
+   "file": "strconv_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAllocationsFromBytes",
+   "file": "strconv_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrorPrefixes",
+   "file": "strconv_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestAllocationsFromBytes": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new, and string(bytes) copies where Go does not allocate); counting rule of the Phase 09 README, 2.8"
+  },
+  "TestCountMallocs": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new, and string(bytes) copies where Go does not allocate); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": []
+}

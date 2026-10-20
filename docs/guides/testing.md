@@ -142,6 +142,11 @@ yet (`-vet=off` is accepted and ignored).
 A test that panics prints Go's `--- FAIL`, the panic and the trace, and the binary exits with status 2.
 `t.Fatal` and `t.FailNow` stop the test with `runtime.Goexit`: its deferred calls and `t.Cleanup` functions run.
 
+## Go's own tests of the standard packages
+
+`GOCPP_TEST_STDLIB=<folder> gocpp test strings` builds the standard package `strings` with the `_test.gp` files and the `testdata` of `<folder>/strings`, and runs the test binary in that folder.
+Go's own tests run this way, from `tests/stdgo`; see [Go's tests of the standard packages](stdlib-tests.md).
+
 ## The `testing` package
 
 It is Go 1.25's package, written in `.gp` (`stdlib/testing`), with:

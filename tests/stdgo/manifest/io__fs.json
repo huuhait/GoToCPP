@@ -1,0 +1,205 @@
+{
+ "package": "io/fs",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_test.go": {
+   "status": "run"
+  },
+  "format_test.go": {
+   "status": "run"
+  },
+  "fs_test.go": {
+   "status": "run"
+  },
+  "glob_test.go": {
+   "status": "run"
+  },
+  "readdir_test.go": {
+   "status": "run"
+  },
+  "readfile_test.go": {
+   "status": "run"
+  },
+  "readlink_test.go": {
+   "status": "run"
+  },
+  "stat_test.go": {
+   "status": "run"
+  },
+  "sub_test.go": {
+   "status": "run"
+  },
+  "walk_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleGlob",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadFile",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValidPath",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWalkDir",
+   "file": "example_test.go",
+   "kind": "compileonly",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatFileInfo",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFormatDirEntry",
+   "file": "format_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValidPath",
+   "file": "fs_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGlob",
+   "file": "glob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGlobError",
+   "file": "glob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCVE202230630",
+   "file": "glob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGlobMethod",
+   "file": "glob_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadDir",
+   "file": "readdir_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFileInfoToDirEntry",
+   "file": "readdir_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadDirPath",
+   "file": "readdir_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFile",
+   "file": "readfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadFilePath",
+   "file": "readfile_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadLink",
+   "file": "readlink_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLstat",
+   "file": "readlink_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestStat",
+   "file": "stat_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSub",
+   "file": "sub_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWalkDir",
+   "file": "walk_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWalkDirSymlink",
+   "file": "walk_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIssue51617",
+   "file": "walk_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestCVE202230630": {
+   "class": "divergence",
+   "reason": "divergence: Glob recurses once for each of 10001 separators (the limit that fixed the CVE), and a goroutine of gocpp has a fixed 8 MiB stack (D24) that the unoptimized frames of the recursion exhaust: stack overflow; Go grows stacks to 1 GB"
+  }
+ },
+ "patches": [
+  {
+   "file": "glob_test.go",
+   "reason": "the folder of the test has glob_test.gp (the test files of gocpp are .gp files), not Go's glob.go"
+  },
+  {
+   "file": "glob_test.go",
+   "reason": "the folder of the test has glob_test.gp, not glob.go"
+  },
+  {
+   "file": "glob_test.go",
+   "reason": "the folder of the test has glob_test.gp, not glob.go"
+  },
+  {
+   "file": "glob_test.go",
+   "reason": "the folder of the test has glob_test.gp, not glob.go"
+  },
+  {
+   "file": "glob_test.go",
+   "reason": "the folder of the test has glob_test.gp, not glob.go"
+  }
+ ]
+}

@@ -96,6 +96,15 @@ module next to the test (`difftest/internal/<name>`, [twin_test.go](twin_test.go
 natives of `internal/bytealg` (C++ in gocpp) are replaced in that copy by calls of `bytes` and `strings`
 (`testdata/twin/bytealg_native.go.txt`), so a test's `// Output:` block must equal what Go computes for the same inputs.
 
+## Go's own tests of the standard packages
+
+`tests/stdgo` holds Go 1.25.14's `_test.go` files for the tier-1 packages (and `encoding/json`), converted to `.gp` and patched, and one manifest for each package that says what happened to every test function
+(step 9.10, [ADR-113](../docs/adr/113-go-s-tests-of-the-standard-packages-run-in-the-shipped-package-and-stdgocount-counts-them.md), [docs/guides/stdlib-tests.md](../docs/guides/stdlib-tests.md)). They run in the packages that
+gocpp ships: `GOCPP_TEST_STDLIB=$PWD/tests/stdgo gocpp test strings`. `go run ./tools/stdgocount -detail strings` builds, runs and counts them by the rule of the Phase 09 README 2.8 (`-check` fails on an
+unexplained failure or a package under 90 %); it takes minutes for the large packages, so it is not part of `go test ./...`. `go test ./tests/stdgo` checks the manifests, that the committed files are what
+`tools/portstd/gotests/convert_std.py` makes, and runs the tests of `cmp` and `path` (skipped with `-short`). The range-over-func torture test of `test/rangegen.go` runs with
+`python3 tools/portstd/gotests/rangegen_shards.py -gocpp bin/gocpp` (800 units in 32 shards).
+
 ## Stress tests
 
 The programs `tests/run/stress_*.gp` (step 8.13: goroutines, channel operations, recursion, timers, mutexes and
@@ -219,6 +228,9 @@ missing compiler).
 | `GOCPP_GATE_PHASE` | set per test | not set by you: for gocpp's own development and tests, gocpp's phase gates accept the features up to this phase (`cmd/gocpp/gatephase.go`). For a test whose `// phase:` comes after `Phase` of internal/version (one that runs only with `GOCPP_TEST_PHASE`), the harness passes that test's phase to its gocpp commands, so the test can use the features of its phase before the phase is finished. A test of a finished phase gets none, so an error test still sees the gates of later phases. It never turns the gates of finished phases back on |
 | `GOCPP_WORKLOST` | `fail`, set by the harness | not set by you: the gocpp commands of the tests stop with status 4 when something else removes a build's work folder, instead of building again as gocpp does for users ([docs/spec/build.md](../docs/spec/build.md#a-work-folder-that-is-removed)), so a real bug is not hidden. `cmd/gocpp/worklost_test.go` tests both |
 | `GOCPP_RUN_VS_GO` | none | `1`: `TestRunVsGo` builds each test in `tests/run` with real Go (`go build`, like a diff test) and checks the test's `// Output:` block (compared like `TestRun` compares), `// ExitCode:` and `// Stderr:` regexps against what the Go binary does, so that an expected output pasted from Go can't drift. It checks the tests of every phase, runs no C++ compiler, and skips a test whose code `go build` rejects (an error at a line of the program: gocpp-only code) and a test with a `// divergence: Dn` line (it shows a divergence of [docs/spec/language.md](../docs/spec/language.md), so Go does something else on purpose). Any other `go build` failure fails the test, and a run that compares no test fails too. Off, `TestRunVsGo` is a skip: `GOCPP_RUN_VS_GO=1 go test ./tests/... -run RunVsGo` |
+| `GOCPP_TEST_STDLIB` | none | a folder with one subfolder for each import path: its `_test.gp` files and `testdata` join the embedded standard package, so `gocpp test strings` runs Go's own tests (`tests/stdgo`, [docs/guides/stdlib-tests.md](../docs/guides/stdlib-tests.md)); `tools/stdgocount` sets it |
+| `GOCPP_TEST_ALL_ERRORS` | none | `1`: `gocpp check` and `gocpp test` print every error of a package, not the first ten |
+| `GOCPP_TEST_STDGO_OUT` | `tests/stdgo` | the folder `convert_std.py` writes to (`tests/stdgo/stdgo_test.go` makes the tests in a temporary folder to compare them with the committed ones) |
 | `GOCPP_TEST_PENDING` | none | `1`: also run the tests with a `// pending:` line (they fail until their step lands) |
 | `GOCPP_TEST_TIMEOUT` | `2m` | the time limit of one command (one `gocpp run`, one `go build`), as a Go duration |
 | `GOCPP_TEST_TARGET` | none | `windows`: also build the run tests for windows/amd64 and run them under Wine (`TestRunWindows`, `TestWindowsPrograms`, `TestWineIsolation`; the section "Windows under Wine" below); run on a real PC with `GOCPP_WINDOWS_SSH` |

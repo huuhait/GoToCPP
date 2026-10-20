@@ -80,3 +80,7 @@ func preadn(fd uintptr, buf []byte, off int) error {
 	}
 	return nil
 }
+
+// interrupt is for testing: whatever interrupts a sleep. Go sends SIGCHLD to the process. A gocpp
+// sleep is a wait of the scheduler that no signal ends, so there is nothing to interrupt.
+func interrupt() {}

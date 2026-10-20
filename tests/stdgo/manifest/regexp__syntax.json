@@ -1,0 +1,104 @@
+{
+ "package": "regexp/syntax",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "parse_test.go": {
+   "status": "run"
+  },
+  "prog_test.go": {
+   "status": "run"
+  },
+  "simplify_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestParseSimple",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseFoldCase",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseLiteral",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseMatchNL",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseNoMatchNL",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFoldConstants",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendRangeCollapse",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestParseInvalidRegexps",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToStringEquivalentParse",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestString",
+   "file": "parse_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompile",
+   "file": "prog_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEmptyOpContext",
+   "file": "prog_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIsWordChar",
+   "file": "prog_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSimplify",
+   "file": "simplify_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

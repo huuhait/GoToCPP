@@ -876,20 +876,22 @@ func (c *common) TempDir() string {
 // Because Setenv affects the whole process, it cannot be used
 // in parallel tests or tests with parallel ancestors.
 func (c *common) Setenv(key, value string) {
-	prevValue, ok := libLookupEnv(key)
+	// The environment is os's (syscall keeps a copy that os.Getenv reads), so this calls os and
+	// not the C++ environment directly: the code under test sees the change.
+	prevValue, ok := os.LookupEnv(key)
 
-	if err := libSetEnv(key, value); err != "" {
+	if err := os.Setenv(key, value); err != nil {
 		c.Helper()
 		c.Fatalf("cannot set environment variable: %v", err)
 	}
 
 	if ok {
 		c.Cleanup(func() {
-			libSetEnv(key, prevValue)
+			os.Setenv(key, prevValue)
 		})
 	} else {
 		c.Cleanup(func() {
-			libUnsetEnv(key)
+			os.Unsetenv(key)
 		})
 	}
 }

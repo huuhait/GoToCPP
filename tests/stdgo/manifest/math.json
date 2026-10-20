@@ -1,0 +1,1124 @@
+{
+ "package": "math",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "all_test.go": {
+   "status": "run"
+  },
+  "const_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "huge_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestNaN",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAcos",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAcosh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAsin",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAsinh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtan",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtanh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAtan2",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCbrt",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCeil",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopysign",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCos",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCosh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErf",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErfc",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErfinv",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErfcinv",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExp",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExpm1",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestExp2",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAbs",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDim",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFloor",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMax",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMin",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMod",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFrexp",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGamma",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHypot",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHypotGo",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIlogb",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestJ0",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestJ1",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestJn",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLdexp",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLgamma",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLog",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLogb",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLog10",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLog1p",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLog2",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestModf",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNextafter32",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNextafter64",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPow",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPow10",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRemainder",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRound",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRoundToEven",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSignbit",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSin",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSincos",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSinh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSqrt",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTan",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTanh",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTrunc",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestY0",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestY1",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestYn",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFMA",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFMANegativeArgs",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeCos",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeSin",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeSincos",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLargeTan",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTrigReduce",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFloatMinMax",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFloatMinima",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFloat32Sqrt",
+   "file": "all_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAcos",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAcosh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAsin",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAsinh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtan",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtanh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAtan2",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCbrt",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCeil",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCopysign",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCos",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCosh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErf",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErfc",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErfinv",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkErfcinv",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExp",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExpGo",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExpm1",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExp2",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkExp2Go",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAbs",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDim",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFloor",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMax",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMin",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMod",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFrexp",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkGamma",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkHypot",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkHypotGo",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIlogb",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkJ0",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkJ1",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkJn",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLdexp",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLgamma",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLog",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLogb",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLog1p",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLog10",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLog2",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkModf",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNextafter32",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkNextafter64",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPowInt",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPowFrac",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPow10Pos",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPow10Neg",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRound",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRoundToEven",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRemainder",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSignbit",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSin",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSincos",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSinh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSqrtIndirect",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSqrtLatency",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSqrtIndirectLatency",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSqrtGoLatency",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSqrtPrime",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTan",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTanh",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrunc",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkY0",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkY1",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkYn",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFloat64bits",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFloat64frombits",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFloat32bits",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFloat32frombits",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFMA",
+   "file": "all_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestMaxUint",
+   "file": "const_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMaxInt",
+   "file": "const_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAcos",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAcosh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAsin",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAsinh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAtan",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAtan2",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAtanh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCopysign",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCos",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCosh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSin",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSincos",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSinh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTan",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTanh",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSqrt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCeil",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFloor",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExamplePow",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExamplePow10",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRound",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRoundToEven",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLog",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLog2",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLog10",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRemainder",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMod",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAbs",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDim",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleExp",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleExp2",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleExpm1",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCbrt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleModf",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestHugeCos",
+   "file": "huge_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHugeSin",
+   "file": "huge_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHugeSinCos",
+   "file": "huge_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestHugeTan",
+   "file": "huge_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

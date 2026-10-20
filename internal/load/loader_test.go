@@ -1317,6 +1317,34 @@ func TestStdlibNamedC(t *testing.T) {
 	}
 }
 
+// TestStdlibExternalTestMayDotImportC checks that the external test of a standard package may dot-import the
+// package although it exports C (Go's tests of unicode do), the way tests/stdgo runs them (GOCPP_TEST_STDLIB).
+func TestStdlibExternalTestMayDotImportC(t *testing.T) {
+	std := maps.Clone(fakeStd)
+	std["cnames/x_test.gp"] = &fstest.MapFile{Data: []byte("package cnames_test\n\nimport . \"cnames\"\n\nvar _ = L\n")}
+	root := writeTree(t, map[string]string{"gocpp.mod": "module example.com/m\n"})
+
+	prog := loadIn(t, Config{Tests: true, Stdlib: std, GoStd: goStd}, root, "cnames")
+
+	wantErrors(t, prog, root, "")
+}
+
+// TestUserExternalTestMayNotDotImportC checks that the exemption of the standard library's tests is not one
+// for a module's: its external test package still gets the error.
+func TestUserExternalTestMayNotDotImportC(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":      "module example.com/m\n",
+		"geom/geom.gp":   "package geom\n",
+		"geom/x_test.gp": "package geom_test\n\nimport . \"cnames\"\n\nvar _ = L\n",
+	})
+
+	prog := loadIn(t, Config{Tests: true}, root, "./geom")
+
+	if got := errorText(t, prog, root); !strings.Contains(got, "cannot dot-import \"cnames\": it exports C") {
+		t.Errorf("errors:\n%s\nwant the dot-import of C to be refused", got)
+	}
+}
+
 // TestNestedModule checks a folder of the module that has a gocpp.mod file
 // of its own: it is another module.
 func TestNestedModule(t *testing.T) {

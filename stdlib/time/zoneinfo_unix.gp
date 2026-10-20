@@ -21,6 +21,15 @@ var platformZoneSources = []string{
 	"/etc/zoneinfo",
 }
 
+// gorootZoneSource returns the zoneinfo.zip of a Go installation. gocpp has no GOROOT, so LoadLocation
+// does not look there (Go's does); the function is the hook of the tests of Go's package.
+func gorootZoneSource(goroot string) (string, bool) {
+	if goroot == "" {
+		return "", false
+	}
+	return goroot + "/lib/time/zoneinfo.zip", true
+}
+
 func initLocal() {
 	// consult $TZ to find the time zone to use.
 	// no $TZ means use the system default /etc/localtime.

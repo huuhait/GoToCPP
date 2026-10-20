@@ -1,0 +1,1262 @@
+{
+ "package": "strings",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "export_test.go": {
+   "status": "run"
+  },
+  "builder_test.go": {
+   "status": "run"
+  },
+  "clone_test.go": {
+   "status": "run"
+  },
+  "compare_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "iter_test.go": {
+   "status": "run"
+  },
+  "reader_test.go": {
+   "status": "run"
+  },
+  "replace_test.go": {
+   "status": "run"
+  },
+  "search_test.go": {
+   "status": "run"
+  },
+  "strings_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestBuilder",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderString",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderReset",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderGrow",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderWrite2",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderWriteByte",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderAllocs",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderCopyPanic",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderWriteInvalidRune",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkBuildString_Builder",
+   "file": "builder_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkBuildString_WriteString",
+   "file": "builder_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkBuildString_ByteBuffer",
+   "file": "builder_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestBuilderGrowSizeclasses",
+   "file": "builder_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestClone",
+   "file": "clone_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkClone",
+   "file": "clone_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCompare",
+   "file": "compare_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompareIdenticalString",
+   "file": "compare_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCompareStrings",
+   "file": "compare_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "ExampleClone",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleBuilder",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCompare",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContains",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContainsAny",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContainsRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleContainsFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCount",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCut",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCutPrefix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCutSuffix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEqualFold",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFields",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFieldsFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleHasPrefix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleHasSuffix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndexFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndexAny",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndexByte",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIndexRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLastIndex",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLastIndexAny",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLastIndexByte",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLastIndexFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleJoin",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRepeat",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReplace",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReplaceAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplit",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplitN",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplitAfter",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplitAfterN",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTitle",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToTitle",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToTitleSpecial",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMap",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleNewReplacer",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToUpper",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToUpperSpecial",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToLower",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToLowerSpecial",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrim",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimSpace",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimPrefix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimSuffix",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimLeft",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimLeftFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimRight",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTrimRightFunc",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToValidUTF8",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLines",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplitSeq",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSplitAfterSeq",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFieldsSeq",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFieldsFuncSeq",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitSeqEmptySeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitSeqSingleByteSeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitSeqMultiByteSeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitAfterSeqEmptySeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitAfterSeqSingleByteSeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitAfterSeqMultiByteSeparator",
+   "file": "iter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestReader",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAfterBigSeek",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderAt",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderAtConcurrent",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEmptyReaderConcurrent",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteTo",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderLenSize",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderReset",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReaderZero",
+   "file": "reader_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplacer",
+   "file": "replace_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPickAlgorithm",
+   "file": "replace_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteStringError",
+   "file": "replace_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestGenericTrieBuilding",
+   "file": "replace_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkGenericNoMatch",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkGenericMatch1",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkGenericMatch2",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSingleMaxSkipping",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSingleLongSuffixFail",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSingleMatch",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteByteNoMatch",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteByteMatch",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteStringMatch",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkHTMLEscapeNew",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkHTMLEscapeOld",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteStringReplacerWriteString",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteReplacerWriteString",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteByteReplaces",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkByteByteMap",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMap",
+   "file": "replace_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestFinderNext",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFinderCreation",
+   "file": "search_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLines",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndex",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLastIndex",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexAny",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLastIndexAny",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexByte",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLastIndexByte",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexRandom",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexRune",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexRune",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexRuneLongString",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexRuneFastPath",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndex",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndex",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexByte",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSplit",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSplitAfter",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFields",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFieldsFunc",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMap",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToUpper",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToLower",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToValidUTF8",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkToUpper",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkToLower",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkMapNoChanges",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestSpecialCase",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTrimSpace",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTrim",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrim",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkToValidUTF8",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestTrimFunc",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIndexFunc",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCaseConsistency",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRepeat",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRepeatCatchesOverflow",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRunes",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadByte",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadRune",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestUnreadRuneError",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReplace",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "FuzzReplace",
+   "file": "strings_test.go",
+   "kind": "fuzz",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReplace",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestTitle",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContains",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContainsAny",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContainsRune",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestContainsFunc",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEqualFold",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEqualFold",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCount",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCut",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCutPrefix",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCutSuffix",
+   "file": "strings_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexHard1",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexHard2",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexHard3",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexHard4",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndexHard1",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndexHard2",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndexHard3",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountHard1",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountHard2",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountHard3",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexTorture",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountTorture",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountTortureOverlapping",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCountByte",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFields",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFieldsFunc",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitEmptySeparator",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitSingleByteSeparator",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitMultiByteSeparator",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitNSingleByteSeparator",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSplitNMultiByteSeparator",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRepeat",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRepeatLarge",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRepeatSpaces",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexAnyASCII",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexAnyUTF8",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndexAnyASCII",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkLastIndexAnyUTF8",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrimASCII",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrimByte",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIndexPeriodic",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkJoin",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkTrimSpace",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkReplaceAll",
+   "file": "strings_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestBuilderAllocs": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun or testing.AllocsPerRun-based expectations, and gocpp allocates differently than Go (counting rule of the Phase 09 README, 2.8)"
+  },
+  "TestBuilderGrow": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun or testing.AllocsPerRun-based expectations, and gocpp allocates differently than Go (counting rule of the Phase 09 README, 2.8)"
+  },
+  "TestBuilderGrowSizeclasses": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun or testing.AllocsPerRun-based expectations, and gocpp allocates differently than Go (counting rule of the Phase 09 README, 2.8)"
+  },
+  "TestIndexRune": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun or testing.AllocsPerRun-based expectations, and gocpp allocates differently than Go (counting rule of the Phase 09 README, 2.8)"
+  },
+  "TestReplace": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun or testing.AllocsPerRun-based expectations, and gocpp allocates differently than Go (counting rule of the Phase 09 README, 2.8)"
+  }
+ },
+ "patches": []
+}

@@ -1,0 +1,394 @@
+{
+ "package": "unicode/utf8",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_test.go": {
+   "status": "run"
+  },
+  "utf8_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleDecodeLastRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecodeLastRuneInString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecodeRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleDecodeRuneInString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEncodeRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleEncodeRune_outOfRange",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFullRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleFullRuneInString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRuneCount",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRuneCountInString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRuneLen",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleRuneStart",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValid",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValidRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleValidString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAppendRune",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestConstants",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestFullRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodeRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecodeRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecodeSurrogateRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSequencing",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRuntimeConversion",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecodeInvalidSequence",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNegativeRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRuneCount",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRuneCountNonASCIIAllocation",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRuneLen",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValid",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestValidRune",
+   "file": "utf8_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRuneCountTenASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRuneCountTenJapaneseChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRuneCountInStringTenASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkRuneCountInStringTenJapaneseChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidTenASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValid100KASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidTenJapaneseChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidLongMostlyASCII",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidLongJapanese",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidStringTenASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidString100KASCIIChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidStringTenJapaneseChars",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidStringLongMostlyASCII",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkValidStringLongJapanese",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeASCIIRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeSpanishRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeJapaneseRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeMaxRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeInvalidRuneMaxPlusOne",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeInvalidRuneSurrogate",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeInvalidRuneNegative",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendASCIIRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendSpanishRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendJapaneseRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendMaxRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendInvalidRuneMaxPlusOne",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendInvalidRuneSurrogate",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendInvalidRuneNegative",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDecodeASCIIRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDecodeJapaneseRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkFullRune",
+   "file": "utf8_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestRuneCountNonASCIIAllocation": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": []
+}

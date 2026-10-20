@@ -1,0 +1,124 @@
+{
+ "package": "unicode/utf16",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "export_test.go": {
+   "status": "run"
+  },
+  "utf16_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestConstants",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestRuneLen",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncode",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAppendRune",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestEncodeRune",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAllocationsDecode",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecode",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDecodeRune",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsSurrogate",
+   "file": "utf16_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDecodeValidASCII",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDecodeValidJapaneseChars",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkDecodeRune",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeValidASCII",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeValidJapaneseChars",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendRuneValidASCII",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAppendRuneValidJapaneseChars",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkEncodeRune",
+   "file": "utf16_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  }
+ ],
+ "expected": {
+  "TestAllocationsDecode": {
+   "class": "divergence",
+   "reason": "divergence: it counts allocations with testing.AllocsPerRun, and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"
+  }
+ },
+ "patches": []
+}

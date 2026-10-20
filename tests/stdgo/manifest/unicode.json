@@ -1,0 +1,296 @@
+{
+ "package": "unicode",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "digit_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "graphic_test.go": {
+   "status": "run"
+  },
+  "letter_test.go": {
+   "status": "run"
+  },
+  "script_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestDigit",
+   "file": "digit_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestDigitOptimization",
+   "file": "digit_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "Example_is",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSimpleFold",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTo",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToLower",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToTitle",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleToUpper",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSpecialCase",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsDigit",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsNumber",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsLetter",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsLower",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsUpper",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsTitle",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIsSpace",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestIsControlLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsLetterLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsUpperLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsLowerLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNumberLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsPrintLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsGraphicLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsPunctLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsSpaceLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsSymbolLatin1",
+   "file": "graphic_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsLetter",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsUpper",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTo",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToUpperCase",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToLowerCase",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestToTitleCase",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIsSpace",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLetterOptimizations",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTurkishCase",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSimpleFold",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCalibrate",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestLatinOffset",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSpecialCaseNoMapping",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNegativeRune",
+   "file": "letter_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkToUpper",
+   "file": "letter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkToLower",
+   "file": "letter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkSimpleFold",
+   "file": "letter_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCategories",
+   "file": "script_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestProperties",
+   "file": "script_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

@@ -250,6 +250,10 @@ func (c *checkCommand) run(patterns []string) int {
 // tests that say "// std-internal:".
 const allowInternalEnv = "GOCPP_ALLOW_INTERNAL"
 
+// allErrorsEnv names the environment variable that makes every command print all the errors of a
+// package, not the first 10.
+const allErrorsEnv = "GOCPP_TEST_ALL_ERRORS"
+
 // check loads and type-checks the packages of the patterns and prints
 // their errors and warnings to stderr, like go build. It returns the
 // program, the result of the type checking (nil when the packages couldn't
@@ -273,7 +277,7 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	if len(patterns) == 0 || len(m.patterns) > 0 {
 		prog = load.Load(load.Config{
 			Dir:       c.dir,
-			Stdlib:    stdlib.FS(),
+			Stdlib:    stdlibFS(),
 			StdlibDir: stdlibDir,
 			GoStd:     stdlib.IsStd,
 			GOOS:      c.goos,
@@ -469,6 +473,9 @@ func importsBroken(p *load.Package, broken map[*load.Package]bool) bool {
 
 // print prints the diagnostics l like go build. all prints every error.
 func (c *checkCommand) print(w io.Writer, l *diag.List, all bool) {
+	// GOCPP_TEST_ALL_ERRORS=1 shows every error of gocpp test and build too (for fixing the many
+	// errors of a large test package; go build has -gcflags=-e).
+	all = all || os.Getenv(allErrorsEnv) == "1"
 	p := c.diagOpts.printer(w, c.dir, all)
 	if err := p.Print(w, l); err != nil {
 		fmt.Fprintf(c.stderr, "gocpp check: %v\n", err)

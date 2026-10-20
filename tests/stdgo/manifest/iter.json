@@ -1,0 +1,98 @@
+{
+ "package": "iter",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "pull_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestPull",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPull2",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullDoubleNext",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullDoubleNext2",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullDoubleYield",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullDoubleYield2",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullPanic",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPull2Panic",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullGoexit",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPull2Goexit",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPullImmediateStop",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPull2ImmediateStop",
+   "file": "pull_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPull",
+   "file": "pull_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkPull2",
+   "file": "pull_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

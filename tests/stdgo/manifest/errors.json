@@ -1,0 +1,131 @@
+{
+ "package": "errors",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "errors_test.go": {
+   "status": "run"
+  },
+  "example_test.go": {
+   "status": "run"
+  },
+  "join_test.go": {
+   "status": "run"
+  },
+  "wrap_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "TestNewEqual",
+   "file": "errors_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestErrorMethod",
+   "file": "errors_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "Example",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleNew",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleNew_errorf",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleJoin",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleIs",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleAs",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleUnwrap",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestJoinReturnsNil",
+   "file": "join_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestJoin",
+   "file": "join_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestJoinErrorMethod",
+   "file": "join_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestIs",
+   "file": "wrap_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAs",
+   "file": "wrap_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestAsValidation",
+   "file": "wrap_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkIs",
+   "file": "wrap_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkAs",
+   "file": "wrap_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestUnwrap",
+   "file": "wrap_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}

@@ -1,0 +1,471 @@
+{
+ "package": "io",
+ "go": "go1.25.14",
+ "args": [],
+ "files": {
+  "example_test.go": {
+   "status": "run"
+  },
+  "export_test.go": {
+   "status": "run"
+  },
+  "io_test.go": {
+   "status": "run"
+  },
+  "multi_test.go": {
+   "status": "run"
+  },
+  "pipe_test.go": {
+   "status": "run"
+  }
+ },
+ "tests": [
+  {
+   "name": "ExampleCopy",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCopyBuffer",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleCopyN",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadAtLeast",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadFull",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleWriteString",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleLimitReader",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMultiReader",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleTeeReader",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSectionReader",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSectionReader_Read",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSectionReader_ReadAt",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSectionReader_Seek",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSectionReader_Size",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleSeeker_Seek",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleMultiWriter",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExamplePipe",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "ExampleReadAll",
+   "file": "example_test.go",
+   "kind": "example",
+   "status": "run"
+  },
+  {
+   "name": "TestCopy",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyNegative",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyBuffer",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyBufferNil",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyReadFrom",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyWriteTo",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyPriority",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyReadErrWriteErr",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyN",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyNReadFrom",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyNWriteTo",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCopyNSmall",
+   "file": "io_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "BenchmarkCopyNLarge",
+   "file": "io_test.go",
+   "kind": "benchmark",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyNEOF",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtLeast",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtLeastWithDataAndEOF",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestReadAtLeastWithDataAndError",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestTeeReader",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSectionReader_ReadAt",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSectionReader_Seek",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSectionReader_Size",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestSectionReader_Max",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestCopyLargeWriter",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestNopCloserWriterToForwarding",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOffsetWriter_Seek",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOffsetWriter_WriteAt",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAt_PositionPriorToBase",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestOffsetWriter_Write",
+   "file": "io_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReader",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderAsWriterTo",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriter",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriter_String",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriter_WriteStringSingleAlloc",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriter_StringCheckCall",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriterSingleChainFlatten",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriterError",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderCopy",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiWriterCopy",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderFlatten",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderSingleByteWithEOF",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderFinalEOF",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestMultiReaderFreesExhaustedReaders",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "excluded",
+   "reason": "unsupported: it needs runtime.AddCleanup, which gocpp does not have yet (the garbage collector of Go is reference counting here, ADR-004)"
+  },
+  {
+   "name": "TestInterleavedMultiReader",
+   "file": "multi_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipe1",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipe2",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipe3",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeReadClose",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeReadClose2",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeWriteClose",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeWriteClose2",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteEmpty",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteNil",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestWriteAfterWriterClose",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeCloseError",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeConcurrent",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  },
+  {
+   "name": "TestPipeAllocations",
+   "file": "pipe_test.go",
+   "kind": "test",
+   "status": "run"
+  }
+ ],
+ "expected": {},
+ "patches": []
+}
