@@ -39,6 +39,17 @@
 
 ## Decisions / notes
 
+- 2026-10-20: Normal-loader parallel parsing follow-up integrated after clean four-file
+  review at `541db0ab`. File selection, hooks/overlays and build constraints stay serial;
+  workers parse captured bytes in private FileSets, then commit ASTs/errors/positions in
+  source order. Shared position reservation and panic/join behavior have deterministic tests.
+  Manager focused checks passed: build/vet, loader and checker/cache position tests under
+  race, multi-package GCC/Clang builds, deterministic emission, compiler line directives,
+  and the native-fmt tuple case on both compilers. No full sweep or new benchmark was run
+  by the manager. The coder's matched small/medium three-scenario evidence showed 6.6–13.3%
+  lower p95; medium resident memory increased, so no CPU/memory reduction is claimed.
+  Type checking and rename remain optimization targets; gopls/all-project acceptance is open.
+
 - 2026-10-20: Performance round 6 (ADR-112) integrated after clean whole-net review at
   `051eb2bf` and manager focused checks on top of native fmt. All six review findings are
   fixed: mixed dot/qualified rename validation, idle-GC generations, configuration provenance,
@@ -51,8 +62,8 @@
   attempt never started because the shared timing-lock wait expired; only the timing step
   was retried, not the already-passing tests.
   Historical pre-fix comparisons showed typing/rename/memory improvements, but the
-  beat-gopls-every-row target remains unmet. Ordinary loading is still serial: parallel
-  parsing is wired only into `readXTest`. Comparison tools still omit diagnostic ranges
+  beat-gopls-every-row target remains unmet. At that round-6 checkpoint ordinary loading
+  was still serial; the normal-loader follow-up above addresses it. Comparison tools still omit diagnostic ranges
   and metadata and use dependent-diagnostic settling sleeps; equivalence evidence is bounded.
   Step 11.13 is correctness-clean at `2192a725` but remains unmerged during focused guarded
   hover optimization: its earlier big-package hover/typing measurements miss their targets.

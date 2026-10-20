@@ -14,9 +14,9 @@ rename of a name that many packages use, the tail (p95) of the keystroke, and me
 
 ## Measurement provenance
 
-The timings quoted below are **historical exploratory measurements**, made with generated
-modules declaring Go 1.22. They are not results of the current `fresh-edits-v2-go1.25` protocol,
-which declares Go 1.25 identically for gocpp and gopls v0.21.1. A matching compiler version alone
+The original round-6 timings in **Decisions** are historical exploratory measurements, made with
+generated modules declaring Go 1.22. They are not results of the current
+`fresh-edits-v2-go1.25` protocol, which declares Go 1.25 identically for gocpp and gopls v0.21.1. A matching compiler version alone
 does not make these workloads comparable. The checked-in benchmark page predates this round;
 it is not a publication of the exploratory numbers below. New measurements must retain raw
 samples, process RSS and peaks, binary/project/configuration identities and the execution log;
@@ -27,16 +27,16 @@ Fingerprints are **not anonymization or cryptographic secret protection**; low-e
 can be guessed. Legacy raw-configuration reports are not accepted for merging or rendering.
 
 The recovered correctness gate compared 1,141 answers per project on `small` and `medium`:
-shared base `cbc374b5` and candidate `5ee48600` were identical. Comparing either with current
-`dev` (`69364ffc`) gave the same four completion differences per project. Full item-level evidence
-identified only new package suggestions from step 9.11 (`ffe1c8d5`): `math/rand`, `container/ring`,
+shared base `cbc374b5` and candidate `5ee48600` were identical. Comparing either with
+then-current `dev` (`69364ffc`) gave the same four completion differences per project.
+Full item-level evidence identified only new package suggestions from step 9.11 (`ffe1c8d5`): `math/rand`, `container/ring`,
 `hash/crc32` and `text/tabwriter`, plus the resulting `sortText` renumbering of unchanged items.
 No difference is filtered out by `lspdiff`: its verbose mode prints complete answers. The shared
 base and candidate have identical standard-library, runtime and module data, so they form the
-controlled round-6 comparison. A comparison against current dev requires integration and a fresh
-semantic gate; these results do not establish current-dev equivalence or the combined behavior
-with the independently developed step 11.13. This is bounded differential evidence, **not a
-complete semantic-equivalence proof**: the diagnostics comparison keeps severity, start line
+controlled recovered round-6 comparison. Those results did not establish equivalence to later
+integrations or the combined behavior with the independently developed step 11.13. The
+normal-loader follow-up below instead uses the frozen integrated baseline `e745f037`.
+This is bounded differential evidence, **not a complete semantic-equivalence proof**: the diagnostics comparison keeps severity, start line
 and message, not columns/end ranges/metadata, and dependent diagnostics still use fixed settling
 sleeps. The corrected tool separately accounts for successful replies and explicit JSON-RPC
 refusals; transport errors, missing results, timeouts and cancellations fail the run even when
@@ -58,10 +58,9 @@ both servers fail alike. The original gate was rerun with that reply-accounting 
    round.
 2. **A check that misses does less** (the order is what they bought, measured with `BenchmarkEditMedium`,
    alternating, the minimum of 8 runs: 6.3 ms before, 4.2 ms after):
-   - a parallel parser helper (`load.parseFiles`; private file sets with the same bases as a
-     sequential parse: `TestParseFilesParallel`) is currently wired into `readXTest` only.
-     **Ordinary package loading remains sequential** in `loader.read`; parallelizing that path
-     is a plan/implementation gap, not an achieved normal-keystroke optimization;
+   - the parallel helper in `parsepar.go` was initially wired into `readXTest` only.
+     Ordinary `loader.read` remained sequential: that helper did **not** account for a normal
+     keystroke improvement in these original measurements. The follow-up below closes this gap;
    - the decoded imports of a package are kept for its next check when its imports' summaries are the
      same ones (`cache.importSet`; the fake files of their positions are added to the new file set):
      reading the export data was a seventh of the time and a fifth of the allocations;
@@ -101,6 +100,50 @@ both servers fail alike. The original gate was rerun with that reply-accounting 
    requests (`-idle-gc`): in 6 alternating rounds the p95 of the keystroke was not lower
    (`large` 3.4 to 4.7 ms, `medium` 2.0 to 2.0), and it costs the CPU of more collections.
    Sizing the maps of `types.Info` from the last check: no change in 8 alternating rounds.
+
+## Normal-loader follow-up (2026-10-20)
+
+Ordinary `loader.read` now uses the same bounded parallel parser as `readXTest`, above the
+6 KiB threshold and with at most GOMAXPROCS workers. Source selection, file-system/overlay
+reads, build constraints and foreign-source collection still run serially before parsing.
+Only captured bytes reach workers; package names, ASTs and errors are committed in source
+order, and macro/import/foreign rewriting stays serial afterward. A reserved position range
+protects a shared FileSet from concurrent additions; each worker parses in a private set and
+its real token file is transferred back. Parser panics join all workers and rethrow on the
+caller, preserving its recovery boundary rather than ending the server from a worker.
+
+`TestReadNormalFilesInParallel` proves that the normal path admits two private parser workers
+without timing assertions and preserves captured read/overlay/error behavior.
+`TestReadParallelMatchesSequential` compares public loads at GOMAXPROCS 1 and 4: complete
+rewritten ASTs, diagnostics/order, numeric and resolved positions, line tables, retained source,
+imports/directives, macros, foreign files, named order, overlays, external tests and standard
+packages. Separate tests cover shared allocation and worker-panic recovery. These are bounded
+fixtures, not a repository-wide corpus sweep. No checker/cache or rename guards changed.
+
+The frozen baseline is `e745f037`, including the native-fmt integration, not `cbc374b5` or an
+unmerged historical build. Baseline and candidate used identical current stdlib/runtime/module
+data, Go 1.25.14 and generated Go 1.25 modules. A bounded `lspdiff` run compared 2,395 answers
+per project (`small`, `medium`), with zero differences or failed replies; the diagnostic/settling
+limits described above still apply. Complete reply accounting and full raw JSON response
+comparisons are retained with the evidence.
+
+Four balanced baseline/candidate pairs, serial under the shared timing lock on cores 16–23
+with GOMAXPROCS 8, measured only the three scenarios below (40/20/30 measured samples per
+scenario/process). Numbers are milliseconds, medians of four runs' own p95, not pooled p95:
+
+| Project | Fresh edit, baseline → candidate | Imported fresh edit | Completion after fresh edit |
+|---|---:|---:|---:|
+| small | 4.533 → 4.232 | 4.830 → 4.445 | 5.212 → 4.730 |
+| medium | 7.062 → 6.305 | 6.291 → 5.736 | 8.565 → 7.424 |
+
+The startup/open rows collected automatically are not a full speed-contract run. No gopls,
+large/C++ or all-row comparison was made. Small RSS medians were 61.18 → 60.39 MiB; medium
+173.31 → 180.54 MiB (largest observed peaks 185.38 → 186.17 MiB). Separate instrumented
+medium sessions, excluded from the timing aggregates, showed load-span medians after the first
+second of 1.472 → 0.889 ms and type-check medians 3.480 → 3.528 ms; their span counts were
+213 and 214. CPU samples totaled 2.82 and 3.16 seconds, so this establishes neither a CPU-use
+reduction nor a memory improvement. It is bounded wall-latency evidence, not proof that every
+budget or the beat-gopls-on-every-row goal is met.
 
 ## Not done, and why
 

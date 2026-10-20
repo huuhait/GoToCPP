@@ -621,6 +621,9 @@ type loader struct {
 	// overlayDirs holds the base names of the files of Config.Overlay, by
 	// folder.
 	overlayDirs map[string][]string
+
+	// parseFile is per loader so worker tests need no process-wide parser hook.
+	parseFile parseFileFunc
 }
 
 // A stackEntry is a package on the import stack, and the name of the file
@@ -675,6 +678,7 @@ func newLoader(cfg Config) *loader {
 		rootDirs: make(map[string]bool),
 		state:    make(map[*Package]loadState),
 	}
+	l.parseFile = parser.ParseFile
 	l.overlayDirs = make(map[string][]string)
 	for name := range cfg.Overlay {
 		dir := filepath.Dir(name)
@@ -1027,7 +1031,7 @@ func (l *loader) readXTest(p *Package) (*Package, bool) {
 	for i, s := range srcs {
 		paths[i], texts[i] = s.path, s.src
 	}
-	parsed, parseErrs := parseFiles(l.fset, paths, texts, mode)
+	parsed, parseErrs := l.parseFiles(paths, texts, mode)
 	for i, s := range srcs {
 		f, err := parsed[i], parseErrs[i]
 		var errs diag.List
@@ -1217,8 +1221,18 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 		xfiles   []*File
 		xnames   []xtestName
 	)
-	for _, s := range srcs {
-		f, err := parser.ParseFile(l.fset, s.path, s.src, mode)
+	// Read/filter through the configured file system first; only parsing the
+	// captured bytes is parallel. Commit results in source order below.
+	paths := make([]string, len(srcs))
+	texts := make([][]byte, len(srcs))
+	for i, s := range srcs {
+		paths[i] = s.path
+		texts[i] = s.src
+	}
+	parsed, parseErrs := l.parseFiles(paths, texts, mode)
+	for i, s := range srcs {
+		f := parsed[i]
+		err := parseErrs[i]
 		var errs diag.List
 		if err != nil {
 			addParseErrors(&errs, err)

@@ -15,7 +15,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 
 ## Small follow-ups (give them to the next job that touches the file)
 
-- [ ] LSP round-6 follow-ups (integrated 2026-10-20, ADR-112): beat-gopls-every-row target still open; ordinary loader parsing remains serial (`parseFiles` is used only by `readXTest`); preserve rename validation while reducing declaration-package checks; complete diagnostic range/metadata comparison and deterministic dependent-diagnostic synchronization. The selected integration smoke is not all-budget or combined-11.13 acceptance. Legacy benchmark JSON containing raw configuration must not be republished; new reports use configuration fingerprints.
+- [ ] LSP round-6 follow-ups (integrated 2026-10-20, ADR-112): beat-gopls-every-row target still open; ordinary loader parsing is now parallel after the reviewed `541db0ab` follow-up, but type checking remains the larger measured cost. Preserve rename validation while reducing declaration-package checks; complete diagnostic range/metadata comparison and deterministic dependent-diagnostic synchronization. Selected integration checks are not all-budget or combined-11.13 acceptance. Legacy benchmark JSON containing raw configuration must not be republished; new reports use configuration fingerprints.
 
 - [ ] Native-fmt audit follow-ups (9.7a integrated 2026-10-20): pre-existing nonblocking-stdin cancellation and ErrClosed differences; Windows fmtdiff interruption not separately verified. Upstream/full fmt runs remain part of the user's manual final review (9.10), not a completed sweep. The old 5.11 fmt list below is historical: `go fmt.Fprintln`, live spread operands and fmt function values are now covered by the native audit.
 
