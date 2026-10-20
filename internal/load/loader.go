@@ -1022,8 +1022,14 @@ func (l *loader) readXTest(p *Package) (*Package, bool) {
 		files  []*File
 		xnames []xtestName
 	)
-	for _, s := range srcs {
-		f, err := parser.ParseFile(l.fset, s.path, s.src, mode)
+	paths := make([]string, len(srcs))
+	texts := make([][]byte, len(srcs))
+	for i, s := range srcs {
+		paths[i], texts[i] = s.path, s.src
+	}
+	parsed, parseErrs := parseFiles(l.fset, paths, texts, mode)
+	for i, s := range srcs {
+		f, err := parsed[i], parseErrs[i]
 		var errs diag.List
 		if err != nil {
 			addParseErrors(&errs, err)

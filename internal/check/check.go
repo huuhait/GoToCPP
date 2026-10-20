@@ -129,6 +129,19 @@ type Config struct {
 	// which member name. Check calls it at most once per package, and only when the first pass
 	// has a selector it cannot decide. nil is opaque mode: the first pass stands.
 	CppMembers CppMembers
+
+	// SkipOpaque leaves out the opaque pass (findOpaque) and the check of the
+	// expressions that go/types skips (checkSkipped) for a package that has no C
+	// or C++ in it or in the packages it imports, directly or not (Dep.HasC is
+	// false for all of them, and no file has import "C"), and that go/types
+	// found no error in: then every type is complete and nothing comes from C,
+	// so nothing can be opaque, both passes find nothing, and Package.Opaque is
+	// empty, as the pass would make it. (With an error, a type can be invalid,
+	// and the pass calls what has one opaque, also without C.) The only thing
+	// lost is the pass's internal error for an expression without a type that a
+	// gocpp bug leaves behind. The language server sets it, which does not
+	// generate code.
+	SkipOpaque bool
 }
 
 // A Dep is what Check needs of a package that it imports but does not
@@ -186,6 +199,11 @@ func (r *Result) Dep(p *load.Package) (dep Dep, ok bool) {
 
 // A Package is a loaded package after type checking.
 type Package struct {
+	// typesClean says that the opaque pass found nothing to do and was left out
+	// (Config.SkipOpaque): the last check recorded no error, and nothing in
+	// the package or its imports is C.
+	typesClean bool
+
 	// Load is the loaded package: its files (whose ASTs go/types
 	// checked), imports and load errors.
 	Load *load.Package
@@ -415,7 +433,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			if len(cerrs) > 0 {
 				perrs = append(slices.Clone(perrs), cerrs...)
 			}
-			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs)
+			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs, cfg.SkipOpaque && !c)
 			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
 			if cfg.CppMembers != nil && c && !depsFailed && !lp.Std {
@@ -427,7 +445,11 @@ func Check(prog *load.Program, cfg Config) *Result {
 				}
 				p.resolveCppMembers(prog.Fset, ctx, cfg.CppMembers)
 			}
-			p.Opaque = findOpaque(prog.Fset, p)
+			if p.typesClean && !hasErrors(p.Errors) {
+				p.Opaque = &Opaque{exprs: map[ast.Expr]bool{}, typeExprs: map[types.Object]ast.Expr{}}
+			} else {
+				p.Opaque = findOpaque(prog.Fset, p)
+			}
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
 		}
@@ -482,17 +504,20 @@ func hasHardErrors(l *diag.List) bool {
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool) *Package {
-	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil)
+	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil, false)
 }
 
 // checkPackageConsts is checkPackage for a package whose C/C++ constants were put into the tree
 // (cs: constsubst.go): a substitution in a place that Go allows a variable in (a case, a shift
 // count) that go/types rejects is taken back, and the package is checked again.
 func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
-	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst) *Package {
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst, noOpaque bool) *Package {
 	cv := newConverter(fset, lp, cgoh)
 	cv.consts = cs
 	mp := newMustPass(fset, lp) // the ! forms of Phase 10 (must.go), or nil
+	// The ! forms and #Derive make code that go/types can type with no error
+	// while a rewrite or an error of ours leaves invalid types.
+	cv.noOpaque = noOpaque && mp == nil && len(lp.Derives) == 0
 	var userIdents map[*ast.Ident]bool
 	if mp != nil || len(lp.Derives) > 0 {
 		userIdents = identsOf(lp)
@@ -649,7 +674,12 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	// tree of pkg (types.CheckExpr), so they run once in each round of
 	// checks, after conf.Check, on the round's own fresh info and pkg.
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
-	checkSkipped(fset, pkg, files, info, c.checkExprError, used)
+	// go/types recorded no error: no type is invalid, so with no C in the package
+	// and its imports (cv.noOpaque), nothing can be opaque (Config.SkipOpaque).
+	clean := cv.noOpaque && len(c.found) == 0 && len(c.argErrors) == 0
+	if !clean {
+		checkSkipped(fset, pkg, files, info, c.checkExprError, used)
+	}
 	cppNames := make(map[token.Pos]string)
 	for _, f := range lp.Files {
 		if f.Rewrite != nil {
@@ -689,7 +719,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	}, func(err types.Error) bool {
 		return inPlainMacroUse(err.Pos) || dropFalse && falseErrs.drop(err)
 	})
-	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs}, c.blocking
+	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs, typesClean: clean}, c.blocking
 }
 
 // newInfo returns an empty types.Info that records everything.

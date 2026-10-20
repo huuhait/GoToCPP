@@ -49,6 +49,7 @@ func run() int {
 		maxLoad   = flag.Float64("max-load", 30, "do not start when the 1-minute load average is over `n` (0: no check)")
 		gocppEnv  = flag.String("gocpp-env", "GOCPP_GATE_PHASE=15", "environment variables for gocpp lsp, comma-separated (the generated code uses what the phases add)")
 		gocppArgs = flag.String("gocpp-args", "", "more arguments for gocpp lsp, space-separated (-profile dir, -trace file, ...)")
+		merge     = flag.String("merge", "", "join comparable reports in these `files` (made by -json, comma-separated; preserve raw provenance, do not infer alternation); measure nothing")
 		fromJSON  = flag.String("from-json", "", "write the -md tables from the report in `file` (made by -json) and measure nothing")
 		only      = flag.String("only", "", "run only the session scenarios in this comma-separated list (for profiling one of them)")
 		timeout   = flag.Duration("timeout", time.Minute, "the longest wait for one answer or one publish of diagnostics")
@@ -56,6 +57,9 @@ func run() int {
 	)
 	flag.Parse()
 
+	if *merge != "" {
+		return mergeReports(*merge, *jsonOut, *mdOut, *gate)
+	}
 	if *fromJSON != "" {
 		return fromReport(*fromJSON, *mdOut)
 	}
@@ -129,7 +133,7 @@ func run() int {
 		cfg.Log = func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) }
 	}
 
-	rep := &bench.Report{Machine: bench.DescribeMachine()}
+	rep := bench.NewReport(cfg)
 	for _, t := range tgts {
 		switch t.Name {
 		case "gocpp":
@@ -141,13 +145,7 @@ func run() int {
 			}
 		}
 	}
-	rep.Machine.Settings = []string{fmt.Sprintf("%d runs per scenario, repetitions x%g; medians of the runs", *runs, *scale)}
-	if *delay != "" {
-		rep.Machine.Settings = append(rep.Machine.Settings, fmt.Sprintf("gopls diagnosticsDelay %s (gocpp's debounce is 30ms; gopls's default is 1s)", *delay))
-	}
-	if *gocppEnv != "" {
-		rep.Machine.Settings = append(rep.Machine.Settings, "gocpp lsp environment: "+*gocppEnv+" (the phase gates are open: the generated code is the language of the finished plan)")
-	}
+	rep.Machine.Settings = reportSettings(*runs, *scale, *delay, *gocppEnv)
 
 	for _, name := range strings.Split(*projects, ",") {
 		spec, ok := bench.SpecByName(strings.TrimSpace(name))
@@ -188,17 +186,42 @@ func run() int {
 	if *jsonOut == "" && *mdOut == "" {
 		rep.Markdown(os.Stdout)
 	}
-	code := 0
-	if *gate {
-		rows := bench.Rows(rep.Results)
-		if bad := bench.Gate(rows, bench.DefaultGate); len(bad) > 0 {
-			for _, v := range bad {
-				fmt.Fprintln(os.Stderr, "lspbench: budget gate:", v)
-			}
-			code = 1
-		}
+	return reportExitCode(rep, *gate)
+}
+
+// Measured and merged results use the same gate, including its noise tolerances
+// and failed-repetition policy. Writing the evidence does not imply gate success.
+func reportExitCode(rep *bench.Report, gate bool) int {
+	if !gate {
+		return 0
 	}
-	return code
+	violations := bench.Gate(bench.Rows(rep.Results), bench.DefaultGate)
+	for _, violation := range violations {
+		fmt.Fprintln(os.Stderr, "lspbench: budget gate:", violation)
+	}
+	if len(violations) > 0 {
+		return 1
+	}
+	return 0
+}
+
+// reportSettings describes configuration without echoing arbitrary flag values.
+// The comparable value identities live in the report's fingerprinted metadata.
+func reportSettings(runs int, scale float64, delay, gocppEnv string) []string {
+	settings := []string{
+		fmt.Sprintf("%d runs per scenario, repetitions x%g; medians of the runs", runs, scale),
+	}
+	if delay != "" {
+		settings = append(settings,
+			"gopls diagnosticsDelay explicitly configured; value fingerprint in JSON "+
+				"(gopls's default is 1s)")
+	}
+	if gocppEnv != "" {
+		settings = append(settings,
+			"gocpp lsp environment: values omitted; named configuration fingerprints in JSON "+
+				"(not secret protection)")
+	}
+	return settings
 }
 
 func writeFile(path string, f func(io.Writer) error) error {
@@ -223,6 +246,9 @@ func fromReport(file, md string) int {
 	}
 	defer f.Close()
 	rep, err := bench.ReadJSON(f)
+	if err == nil {
+		err = rep.CheckConfigurationProvenance()
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lspbench:", err)
 		return 1
@@ -236,4 +262,48 @@ func fromReport(file, md string) int {
 		return 1
 	}
 	return 0
+}
+
+// mergeReports joins the reports in files (bench.Merge) and writes the JSON
+// and the markdown.
+func mergeReports(files, jsonOut, md string, gate bool) int {
+	var reps []*bench.Report
+	for _, name := range strings.Split(files, ",") {
+		name = strings.TrimSpace(name)
+		f, err := os.Open(name)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "lspbench:", err)
+			return 1
+		}
+		rep, err := bench.ReadJSON(f)
+		f.Close()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lspbench: %s: %v\n", name, err)
+			return 1
+		}
+		reps = append(reps, rep)
+	}
+	rep, err := bench.Merge(reps...)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lspbench:", err)
+		return 1
+	}
+	if jsonOut != "" {
+		if err := writeFile(jsonOut, rep.WriteJSON); err != nil {
+			fmt.Fprintln(os.Stderr, "lspbench:", err)
+			return 1
+		}
+	}
+	if md == "" {
+		rep.Markdown(os.Stdout)
+	} else {
+		if err := writeFile(md, func(w io.Writer) error {
+			rep.Markdown(w)
+			return nil
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "lspbench:", err)
+			return 1
+		}
+	}
+	return reportExitCode(rep, gate)
 }

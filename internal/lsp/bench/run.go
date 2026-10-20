@@ -56,15 +56,18 @@ type ScenarioResult struct {
 
 // A ProjectResult is the measurements of one server on one project.
 type ProjectResult struct {
-	Project   string
-	Target    string
-	Files     int
-	Lines     int
-	Scenarios []ScenarioResult
-	RSS       float64         // the resident set at the end of a run, MiB: median of the runs
-	PeakRSS   float64         // its peak, MiB: median of the runs
-	Stats     json.RawMessage // gocpp/stats at the end of the last run (gocpp only)
-	Notes     []string
+	Project              string
+	Target               string
+	Files                int
+	Lines                int
+	Scenarios            []ScenarioResult
+	RSS                  float64         // the resident set at the end of a run, MiB: median of the runs
+	PeakRSS              float64         // largest observed process peak across all runs, MiB
+	Stats                json.RawMessage // gocpp/stats at the end of the last run (gocpp only)
+	Notes                []string
+	Identity             *ResultIdentity   `json:",omitempty"`
+	RSSRuns, PeakRSSRuns []float64         `json:",omitempty"`
+	StatsRuns            []json.RawMessage `json:",omitempty"`
 }
 
 // Scenario returns the result of the scenario called name, or nil.
@@ -112,7 +115,11 @@ func RunProject(ctx context.Context, cfg Config, proj *Project, t Target) (*Proj
 	if err := proj.Write(tree, t.Ext); err != nil {
 		return nil, err
 	}
-	res := &ProjectResult{Project: proj.Spec.Name, Target: t.Name, Lines: proj.Lines}
+	identity, err := identifyResult(proj, t)
+	if err != nil {
+		return nil, err
+	}
+	res := &ProjectResult{Project: proj.Spec.Name, Target: t.Name, Lines: proj.Lines, Identity: identity}
 	for _, f := range proj.Files {
 		if f.Kind == Source && !(t.Ext == ".go" && isCppPath(f.Rel)) {
 			res.Files++
@@ -137,8 +144,10 @@ func RunProject(ctx context.Context, cfg Config, proj *Project, t Target) (*Proj
 		rss = append(rss, float64(mem[0])/(1<<20))
 		peak = append(peak, float64(mem[1])/(1<<20))
 		res.Stats = stats
+		res.StatsRuns = append(res.StatsRuns, stats)
 	}
-	res.RSS, res.PeakRSS = Median(rss), Median(peak)
+	res.RSSRuns, res.PeakRSSRuns = rss, peak
+	res.RSS, res.PeakRSS = Median(rss), slices.Max(peak)
 	names := map[string]bool{}
 	for _, s := range runs {
 		for n := range s.by {
@@ -209,6 +218,8 @@ func runOnce(ctx context.Context, cfg Config, proj *Project, t Target, tree, cac
 		}
 	}
 	slices.Sort(smp.notes)
+	// The editor has the project open, and the user reads before the first request.
+	sleep(ctx, afterOpen)
 	for _, sc := range scenarios(proj) {
 		if sc.gocppOnly && t.Name != "gocpp" || len(cfg.Only) > 0 && !slices.Contains(cfg.Only, sc.name) {
 			continue

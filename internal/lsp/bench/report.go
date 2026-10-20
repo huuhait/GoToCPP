@@ -32,6 +32,14 @@ type Machine struct {
 type Report struct {
 	Machine Machine
 	Results []*ProjectResult
+	// Protocol and ID identify a measured invocation. Old reports can still be
+	// displayed, but cannot be merged without this comparability evidence.
+	Protocol *RunProtocol `json:",omitempty"`
+	ID       string       `json:",omitempty"`
+	// Sources retain complete, unmodified input reports, including dates, loads,
+	// failures, first requests, raw samples, memory and server stats. Merging
+	// alone does not prove that the invocations alternated or were pinned.
+	Sources []*Report `json:",omitempty"`
 }
 
 // LoadAvg reads /proc/loadavg (zeros elsewhere).
@@ -98,8 +106,13 @@ func (r *Report) WriteJSON(w io.Writer) error {
 // ReadJSON reads a report written by WriteJSON.
 func ReadJSON(r io.Reader) (*Report, error) {
 	var rep Report
-	if err := json.NewDecoder(r).Decode(&rep); err != nil {
+	dec := json.NewDecoder(r)
+	if err := dec.Decode(&rep); err != nil {
 		return nil, err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("report must contain exactly one JSON value (trailing data: %v)", err)
 	}
 	return &rep, nil
 }
@@ -170,6 +183,18 @@ func (r *Report) Markdown(w io.Writer) {
 		if !found {
 			projects = append(projects, res.Project)
 		}
+	}
+	if len(r.Sources) > 0 {
+		p("## Merged provenance\n\n")
+		p("The JSON retains each complete input under Sources. Merging does not verify alternation or execution isolation.\n\n")
+		for _, src := range r.Sources {
+			p("- Invocation %s (%s): %d runs; load %.1f → %.1f. Settings: %s.\n", src.ID, src.Machine.Date, src.Protocol.Runs, src.Machine.LoadAvg[0], src.Machine.LoadEnd[0], strings.Join(src.Machine.Settings, "; "))
+		}
+		p("\n")
+		for _, res := range r.Results {
+			p("- %s on %s: %d process runs; RSS median %.1f MiB, largest observed peak %.1f MiB.\n", res.Target, res.Project, len(res.RSSRuns), res.RSS, res.PeakRSS)
+		}
+		p("\n")
 	}
 	p("## Results\n\n")
 	p("All figures are milliseconds: the median over the runs of the run's own p50, p95 and max (\"first\":\n")
@@ -279,24 +304,35 @@ const methodText = `## Method and caveats
   cold run left (a new process each time; the disk caches of both servers are in a folder of the run).
   *keystroke*: one character typed in the middle of a function (a variable gets an ` + "`x`" + `, so the file has
   errors) and taken out again, to the new diagnostics; *keystroke-imported* is the same in a package that
-  other packages import. *completion-dot*: the completions after the dot of ` + "`r.mu.Lock()`" + ` with nothing
-  changed; *completion-edit*: ` + "`r.`" + ` typed at the start of a line and the completion asked at once.
+  other packages import; 25 ms of think time follow each keystroke (a fast typist). These two types the same
+  two texts in turn, so a server that remembers its answers by the content of the file answers from memory
+  after the first two; *keystroke-new* and *keystroke-imported-new* write text that was never in the file
+  (a number, or an undefined name with a number in it, in turn), which is what an editor causes: every
+  check misses. *completion-dot*: the completions after the dot of ` + "`r.mu.Lock()`" + ` with nothing
+  changed; *completion-edit*: a comment line with a number and then ` + "`r.`" + ` typed at the start of a line
+  and the completion asked at once (new text each time).
   *hover*, *definition* (names of the project: gocpp does not go into the embedded standard library yet),
   *signature-help*, *document-symbol*, *semantic-tokens*, *workspace-symbol* at places and queries that
   rotate. *references-popular*: the type embedded in every type of the project; *references-local*: a type
   that only its package uses; *references-family*: a method name that all types share, with an interface
   that all of them satisfy (gocpp ties the whole family of methods, see the known problem above; gopls
-  ties only the uses). *rename*: prepare and rename of a function that other packages call (the edit is
-  not applied). *format-1k*: formatting of the 1,000-line file with its indentation taken out. *switch-file*:
+  ties only the uses). *rename*: prepare and rename of a function that other packages call, to a new name
+  each time (the edit is not applied). *format-1k*: formatting of the 1,000-line file with its indentation taken out. *switch-file*:
   close one file, open another in another package, to its diagnostics. *api-change / api-fix*: a parameter
   added to an exported function that the program calls, file saved, to the error in the program (and to its
   disappearance when the parameter is taken out again). *open-cpp*, *typo-first*, *typo-error*: the open of
   a file that imports C++ headers, and of a file with a typo in a namespace name, to the first diagnostics
   and to the error that the background namespace probe finds (a C++ compiler run).
+- **Timing of a session.** The first scenario starts one second after the open of the files (the user
+  reads before asking; a server may prepare: gopls loads the workspace, gocpp checks the importers of the
+  open packages).
 - **Statistics.** Each scenario repeats (two warm-up repetitions are not counted, but the very first
   request of its kind is shown as "first"); a p95 is the nearest-rank percentile of the repetitions of one run,
-  so with fewer than 20 repetitions it is the maximum. Each session is run five times from a new process,
-  and the table shows the median of the five runs' p50, p95 and max.
+  so with fewer than 20 repetitions it is the maximum. By default each session runs five times from a new
+  process (the invocation settings above give the actual count), and the table shows the median of the
+  runs' p50, p95 and max. Reports can be merged (` + "`lspbench -merge`" + `) run by run; the JSON retains all
+  source invocations, raw samples and memory measurements. A merge does not establish that the runs
+  alternated, were pinned, or were isolated from other work; those require separate execution evidence.
 - **gopls** has its default settings except ` + "`diagnosticsDelay`" + ` (30 ms, gocpp's debounce; the default is
   1 s). That setting delays only the slow analyses: gopls shows type errors at once, so the keystroke rows
   compare gocpp's deliberate 30 ms wait with gopls's none. gopls's caches are in the run's folder too.

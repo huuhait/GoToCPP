@@ -141,6 +141,13 @@ func (d *Debouncer[K]) Stop(ctx context.Context) bool {
 	}
 }
 
+// Busy reports whether a run is waiting for its delay or running.
+func (d *Debouncer[K]) Busy() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.active > 0
+}
+
 // Keys returns the keys whose run is waiting or running (for tests and
 // logs), in no particular order.
 func (d *Debouncer[K]) Keys() []K {

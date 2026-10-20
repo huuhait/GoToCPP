@@ -9,11 +9,71 @@ import (
 	"time"
 )
 
+func TestFreshEditTexts(t *testing.T) {
+	ctx := context.Background()
+	proj, cfg := Generate(Small), fakeConfig(t)
+	tree := cfg.WorkDir + "/tree"
+	if err := proj.Write(tree, ".gp"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := startSession(ctx, cfg, proj, newFake(nil).target("gocpp", ".gp"), tree, cfg.WorkDir+"/cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.P.Kill()
+	if _, err := s.openAndWait(ctx, proj.Hot); err != nil {
+		t.Fatal(err)
+	}
+	sc := keystrokeNew(ScKeystrokeNew, proj.Hot, 10, 2)
+	if err := sc.prep(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{s.Doc(proj.Hot).Text: true}
+	for i := 0; i < 12; i++ {
+		if _, _, err := sc.run(ctx, s, i); err != nil {
+			t.Fatal(err)
+		}
+		text := s.Doc(proj.Hot).Text
+		if seen[text] {
+			t.Fatalf("edit %d reuses text already seen by the server", i)
+		}
+		seen[text] = true
+	}
+}
+
+func TestFreshDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		version      int32
+		message      string
+		broken, want bool
+	}{
+		{"new error", 4, "undefined: undefinedName2", true, true},
+		{"fixed", 4, "", false, true},
+		{"stale version", 3, "undefined: undefinedName2", true, false},
+		{"unversioned", 0, "", false, false},
+		{"previous error on fixed edit", 4, "undefined: undefinedName1", false, false},
+		{"wrong error", 4, "undefined: undefinedName1", true, false},
+		{"prefix is not the identifier", 4, "undefined: undefinedName20", true, false},
+		{"missing error", 4, "", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Publish{Version: tc.version}
+			if tc.message != "" {
+				p.Diags = []Diag{{Severity: 1, Message: tc.message}}
+			}
+			if got := freshDiagnostics(p, 4, "undefinedName2", tc.broken); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func fakeConfig(t *testing.T) Config {
 	return Config{Runs: 1, Scale: 0.1, Timeout: 10 * time.Second, ColdMax: 10 * time.Second, WorkDir: t.TempDir()}
 }
 
-var allScenarios = []string{ScInit, ScOpenCold, ScOpenWarm, ScKeystroke, ScKeystrokeDep, ScCompletionDot, ScCompletionEdit,
+var allScenarios = []string{ScInit, ScOpenCold, ScOpenWarm, ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
 	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename, ScWorkspaceSymbol, ScDocumentSymbol,
 	ScSemanticTokens, ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix}
 
@@ -104,7 +164,7 @@ func TestRunProjectCpp(t *testing.T) {
 	}
 }
 
-// A hover that takes 150 ms trips the gate (budget 30 ms, safety 3: 90 ms),
+// A hover that takes 150 ms trips the gate (budget 10 ms, safety 3: 30 ms),
 // and nothing else does; a fast server trips nothing. The gate is the
 // mutation test of the whole chain: the harness measures what the server
 // does, the rows hold it against the budget.
@@ -160,9 +220,9 @@ func TestGateVsGopls(t *testing.T) {
 		gocpp, gopls float64
 		fail         bool
 	}{
-		{"within the budget", 20, 0, false},
-		{"over the budget, within the safety factor", 80, 0, false},
-		{"over the safety factor, no gopls", 100, 0, true},
+		{"within the budget", 8, 0, false},
+		{"over the budget, within the safety factor", 25, 0, false},
+		{"over the safety factor, no gopls", 40, 0, true},
 		{"over the safety factor, gopls as slow", 300, 200, false},
 		{"over the safety factor, gopls fast", 100, 10, true},
 		{"gopls at the edge of the ratio", 250, 100, false},
@@ -178,7 +238,7 @@ func TestGateVsGopls(t *testing.T) {
 		}
 	}
 	// A scenario that failed every repetition fails the gate.
-	bad := Gate([]Row{{Project: "small", Scenario: ScHover, Budget: 30, Fail: 3, Err: "timeout"}}, DefaultGate)
+	bad := Gate([]Row{{Project: "small", Scenario: ScHover, Budget: 10, Fail: 3, Err: "timeout"}}, DefaultGate)
 	if len(bad) != 1 || !strings.Contains(bad[0].String(), "timeout") {
 		t.Errorf("a failed scenario: %v", bad)
 	}
@@ -206,12 +266,12 @@ func TestGateKnownAndFailures(t *testing.T) {
 			Budgets[i].Known, Budgets[i].KnownIn = "a plan", []string{"medium", "large"}
 		}
 	}
-	known := Row{Project: "medium", Scenario: ScRefsFamily, Budget: 300, Known: "a plan", Samples: 10}
+	known := Row{Project: "medium", Scenario: ScRefsFamily, Budget: 20, Known: "a plan", Samples: 10}
 	known.P95 = 700
 	if bad := Gate([]Row{known}, DefaultGate); len(bad) != 0 {
 		t.Errorf("a known problem over its budget fails the gate: %v", bad)
 	}
-	known.P95 = 250
+	known.P95 = 15
 	if bad := Gate([]Row{known}, DefaultGate); len(bad) != 1 || !strings.Contains(bad[0].String(), "known problem is fixed") {
 		t.Errorf("a known problem that meets its budget: %v", bad)
 	}
@@ -220,16 +280,16 @@ func TestGateKnownAndFailures(t *testing.T) {
 	res := func(project string, p95 float64) *ProjectResult {
 		return &ProjectResult{Project: project, Target: "gocpp", Scenarios: []ScenarioResult{{Name: ScRefsFamily, Agg: Aggregate{Runs: 5, N: 8, P95: p95}}}}
 	}
-	if bad := Gate(Rows([]*ProjectResult{res("small", 30), res("medium", 700), res("large", 900)}), DefaultGate); len(bad) != 0 {
+	if bad := Gate(Rows([]*ProjectResult{res("small", 15), res("medium", 700), res("large", 900)}), DefaultGate); len(bad) != 0 {
 		t.Errorf("small meets the budget, medium and large are known: %v", bad)
 	}
-	if bad := Gate(Rows([]*ProjectResult{res("small", 30), res("medium", 40)}), DefaultGate); len(bad) != 1 || bad[0].Row.Project != "medium" {
+	if bad := Gate(Rows([]*ProjectResult{res("small", 15), res("medium", 12)}), DefaultGate); len(bad) != 1 || bad[0].Row.Project != "medium" {
 		t.Errorf("medium is fixed, small is not a known row: %v", bad)
 	}
 	if bad := Gate(Rows([]*ProjectResult{res("small", 2000)}), DefaultGate); len(bad) != 1 || bad[0].Row.Project != "small" {
 		t.Errorf("small is slow and not exempt: %v", bad)
 	}
-	row := Row{Project: "small", Scenario: ScHover, Budget: 30, P95: 1, Samples: 95, Fail: 5, Err: "empty"}
+	row := Row{Project: "small", Scenario: ScHover, Budget: 10, P95: 1, Samples: 95, Fail: 5, Err: "empty"}
 	if bad := Gate([]Row{row}, DefaultGate); len(bad) != 0 {
 		t.Errorf("5 of 100 failed: %v", bad)
 	}
@@ -270,11 +330,11 @@ func TestMarkdown(t *testing.T) {
 		"| cpu | Test CPU, 8 logical cores, 16 GiB |",
 		"| gopls | gopls v0.21 |",
 		"### small: 21 files, 2,722 lines",
-		"| hover | 4.00 | 0.50 | 1.25 | 3.00 | 8.00 | 1.00 | 2.50 | 6.00 | 0.50 | 30 | met (4% of the budget) |",
-		"| keystroke | 90.0 | 60.0 | 130 | 140 | 100 | 70.0 | 100 | 110 | 1.30 | 100 | MISSED (1.3x the budget) |",
-		"| open-cold | 900 | 900 | 1500 | 1500 | 2000 | 2000 | 4000 | 4000 | 0.38 | 2000 | met (75% of the budget) |",
+		"| hover | 4.00 | 0.50 | 1.25 | 3.00 | 8.00 | 1.00 | 2.50 | 6.00 | 0.50 | 10 | met (12% of the budget) |",
+		"| keystroke | 90.0 | 60.0 | 130 | 140 | 100 | 70.0 | 100 | 110 | 1.30 | 20 | MISSED (6.5x the budget) |",
+		"| open-cold | 900 | 900 | 1500 | 1500 | 2000 | 2000 | 4000 | 4000 | 0.38 | 600 | MISSED (2.5x the budget) |",
 		"| open-cpp-cold | 10.0 | 10.0 | 10.0 | 10.0 | n/a | n/a | n/a | n/a | - | - |  |",
-		"| rename | failed | - | - | - | n/a | n/a | n/a | n/a | - | 300 | FAILED: no answer in 60s (5 failed) |",
+		"| rename | failed | - | - | - | n/a | n/a | n/a | n/a | - | 60 | FAILED: no answer in 60s (5 failed) |",
 		"Memory at the end of the session (resident set, MiB): gocpp 50 (peak 60), gopls 200 (peak 250).",
 		"- gocpp on small: 5 repetitions of rename failed; the first error: `no answer in 60s`",
 	} {

@@ -147,6 +147,13 @@ type Pipeline struct {
 	// background (probe.go).
 	prober *prober
 
+	// importSets keeps the decoded imports of the last check of each package
+	// (importset.go).
+	importSets importSets
+
+	// versions limits the checks that the cache keeps of one package.
+	versions versionKeeper
+
 	// sem holds a place for each type-check that runs, at most GOMAXPROCS.
 	sem chan struct{}
 

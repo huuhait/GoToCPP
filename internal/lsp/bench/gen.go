@@ -128,10 +128,12 @@ func (p *Project) SourceFiles(goOnly bool) []string {
 // Write writes the project to dir for gocpp (ext ".gp", with gocpp.mod and
 // the headers) or for Go (".go", with go.mod, without what only gocpp can
 // read: headers and the packages that import them).
+const projectGoVersion = "1.25.0" // supported modern semantics, identical in every measurement cohort
+
 func (p *Project) Write(dir, ext string) error {
 	gocpp := ext == ".gp"
 	mod := "go.mod"
-	body := "module " + p.Module + "\n\ngo 1.22\n"
+	body := "module " + p.Module + "\n\ngo " + projectGoVersion + "\n"
 	if gocpp {
 		mod, body = "gocpp.mod", "module "+p.Module+"\n"
 	}

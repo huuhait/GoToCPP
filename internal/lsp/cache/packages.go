@@ -85,6 +85,10 @@ type handle struct {
 
 	// keyed is stage 2: the key, from the summaries of deps.
 	keyed *memoize.Promise[*keyed]
+
+	// variant is set for the handle of a package with another text for one of
+	// its files (PackageWithFile): its check is not a version of the package.
+	variant bool
 }
 
 // failedRead reports whether a file or folder that the handle was made from
@@ -866,6 +870,9 @@ func (p *Pipeline) packageOf(ctx context.Context, h *handle) (*Package, error) {
 func (p *Pipeline) checked(ctx context.Context, h *handle, k *keyed) (*Package, error) {
 	for {
 		pkg, err := p.checks.Get(ctx, k.key, func(ctx context.Context) (*Package, error) { return p.check(ctx, h, k) })
+		if err == nil && !h.variant {
+			p.versions.note(p, h.id, k.key)
+		}
 		if err != nil || !k.renew(pkg.summary) {
 			return pkg, err
 		}
@@ -900,9 +907,13 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		cfg.FS = h.fs
 	}
 	// The imports from their export data, all into one map, so that a
-	// package that two of them mention is one *types.Package.
-	imported := make(map[string]*types.Package)
+	// package that two of them mention is one *types.Package (importSet).
 	_, importSpan := trace.Start(ctx, "imports", "n", len(k.deps))
+	set, err := p.decodeImports(h.id, cfg.Fset, k.deps)
+	if err != nil {
+		return nil, err
+	}
+	imported := set.imported
 	depOf := make(map[*load.Package]check.Dep, len(k.deps))
 	byRef := make(map[depRef]*summary, len(k.deps))
 	for i, s := range k.deps {
@@ -911,15 +922,7 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		}
 		dep := h.deps[i]
 		byRef[depRef{s.importPath, dep.id.dir, dep.id.std}] = s
-		d := check.Dep{HasC: s.hasC, Failed: s.failed}
-		if s.export != nil {
-			pkg, err := gcexportdata.Read(bytes.NewReader(s.export), cfg.Fset, imported, s.importPath)
-			if err != nil {
-				return nil, fmt.Errorf("cache: the export data of %s: %v", s.importPath, err)
-			}
-			d.Types = pkg
-		}
-		depOf[s.load] = d
+		depOf[s.load] = check.Dep{HasC: s.hasC, Failed: s.failed, Types: set.pkgs[i]}
 	}
 	importSpan.End()
 	cfg.Deps = func(importPath, dir string, std bool) *load.Package {
@@ -961,6 +964,9 @@ func (p *Pipeline) check(ctx context.Context, h *handle, k *keyed) (*Package, er
 		PkgConfig: p.prober.pkgConfigFor(rec),
 		CHeader:   p.prober.cheaderFor(rec),
 		Deps:      func(lp *load.Package) check.Dep { return depOf[lp] },
+		// Nothing here generates code: a package without C in it or in its
+		// imports needs no opaque pass.
+		SkipOpaque: true,
 		// A package with load errors (a file that doesn't parse) is
 		// type-checked too, for hover and go to definition there
 		// (check.Package.Partial); its diagnostics stay the same.

@@ -1054,9 +1054,12 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 		return err
 	}
 	defer release()
+	unchecked := rn.qualifiedOnly() // (renamefast.go)
 	var sorted []string
 	for d := range dirs {
-		sorted = append(sorted, d)
+		if !unchecked[d] {
+			sorted = append(sorted, d)
+		}
 	}
 	slices.Sort(sorted)
 	// The packages are checked together (an importer waits for the edited

@@ -148,6 +148,7 @@ type Server struct {
 	// (see method); tests add their own before Serve.
 	requests     map[string]method
 	shutdownWait time.Duration
+	warm         warmer        // the checks of the importers in the background (warm.go)
 	nav          navigation    // hover, definition, signature help (navigation.go)
 	comp         completion    // completion (completion.go)
 	refactor     refactor      // references and rename (refs.go, rename.go)
@@ -236,7 +237,12 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 		readFile:     cfg.ReadFile,
 	}
 	s.dynLimitOpt.Store(int64(opts.DynamicLimit))
-	s.obs = newObserver(s, opts)
+	_, realClock := clock.(debounce.RealClock)
+	s.obs = newObserver(s, opts, realClock)
+	if realClock {
+		memoryOnce.Do(followLiveHeap) // the soft memory limit (idlegc.go)
+	}
+	s.warm.on = opts.WarmImporters
 	s.addObservability()
 	s.addNavigation()
 	s.addRefactor()

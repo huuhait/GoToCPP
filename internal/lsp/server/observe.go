@@ -62,6 +62,12 @@ type Options struct {
 	// -check-cache); 0 is cache.DefaultMaxCheckBytes (10% of the memory of the
 	// machine, 64 to 300 MB).
 	CheckCacheMB int
+	// IdleGC makes the server start garbage collections itself when it is
+	// idle (idlegc.go); the Go runtime collects when the heap has doubled.
+	IdleGC bool
+	// WarmImporters checks the packages that import a package in the
+	// background, once its first diagnostics are out (warm.go).
+	WarmImporters bool
 }
 
 // DefaultDynamicLimit is Options.DynamicLimit when it is 0.
@@ -81,6 +87,8 @@ type observer struct {
 	rec     *trace.Recorder
 	started time.Time
 
+	gc *idleGC // the garbage collections in the gaps (idlegc.go)
+
 	mu      sync.Mutex
 	methods map[string]*methodStats
 }
@@ -95,17 +103,23 @@ type methodStats struct {
 
 const recentLatencies = 256
 
-func newObserver(s *Server, o Options) *observer {
+// newObserver returns the observer of s. idleGC says whether the server collects
+// its garbage in the gaps between two pieces of work (idlegc.go); the tests
+// with a fake clock leave it off.
+func newObserver(s *Server, o Options, idleGC bool) *observer {
 	slow := o.Slow
 	if slow == 0 {
 		slow = DefaultSlow
 	}
-	return &observer{s: s, slow: slow, rec: o.Trace, started: time.Now(), methods: make(map[string]*methodStats)}
+	obs := &observer{s: s, slow: slow, rec: o.Trace, started: time.Now(), methods: make(map[string]*methodStats)}
+	obs.gc = newIdleGC(idleGC && o.IdleGC, func() bool { return s.diags != nil && s.diags.deb.Busy() })
+	return obs
 }
 
 // begin starts the root span of a piece of work called name. The context
 // has the recorder, so the steps inside make spans.
 func (o *observer) begin(ctx context.Context, name string, kv ...any) (context.Context, *trace.Span) {
+	o.gc.begin()
 	return trace.Begin(trace.WithRecorder(ctx, o.rec), name, kv...)
 }
 
@@ -113,6 +127,7 @@ func (o *observer) begin(ctx context.Context, name string, kv ...any) (context.C
 // info is called only then: it says what the work was about (the document,
 // the snapshot).
 func (o *observer) end(span *trace.Span, info func() string) {
+	defer o.gc.end()
 	sum := span.End()
 	o.mu.Lock()
 	st := o.methods[sum.Name]

@@ -3,6 +3,9 @@ package server
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
@@ -118,4 +121,21 @@ func BenchmarkGen(b *testing.B) {
 		b.ReportMetric(float64(processCPU()-cpu0)/float64(b.N)/1e6, "cpu-ms/op")
 		reportLatency(b, lat, "none")
 	})
+	// GOCPP_BENCH_HEAPPROFILE=file writes the live heap of the server at the end
+	// (go tool pprof -sample_index=inuse_space file): what the caches hold after the rows.
+	if file := os.Getenv("GOCPP_BENCH_HEAPPROFILE"); file != "" {
+		runtime.GC()
+		debug.FreeOSMemory()
+		f, err := os.Create(file)
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer f.Close()
+		if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
+			b.Fatal(err)
+		}
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		b.Logf("live heap %.1f MiB, in use by the runtime %.1f MiB", float64(ms.HeapAlloc)/(1<<20), float64(ms.HeapInuse)/(1<<20))
+	}
 }

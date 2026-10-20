@@ -160,7 +160,7 @@ func (s *Snapshot) PackageWithFile(ctx context.Context, path string, src []byte)
 		return nil, err
 	}
 	v := &handle{id: h.id, importPath: h.importPath, mod: h.mod, meta: h.meta, deps: h.deps, cut: h.cut,
-		cyclic: h.cyclic, fs: h.fs}
+		cyclic: h.cyclic, fs: h.fs, variant: true}
 	found := false
 	for _, f := range h.files {
 		if f.path == path {

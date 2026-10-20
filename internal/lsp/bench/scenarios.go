@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -41,6 +42,8 @@ const (
 	ScOpenWarm        = "open-warm"
 	ScKeystroke       = "keystroke"
 	ScKeystrokeDep    = "keystroke-imported"
+	ScKeystrokeNew    = "keystroke-new"
+	ScKeystrokeDepNew = "keystroke-imported-new"
 	ScCompletionDot   = "completion-dot"
 	ScCompletionEdit  = "completion-edit"
 	ScHover           = "hover"
@@ -67,13 +70,25 @@ const (
 
 // order is the order of the rows in a report.
 var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWarm, ScTypoFirstCold, ScTypoErrorCold, ScTypoFirstWarm, ScTypoErrorWarm,
-	ScKeystroke, ScKeystrokeDep, ScCompletionDot, ScCompletionEdit,
+	ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
 	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename, ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
 	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix}
 
 // settle is the quiet time after an edit that is put back, so that its
 // diagnostics (and a cancelled run) don't reach into the next repetition.
 const settle = 80 * time.Millisecond
+
+// afterOpen is the time between the open of the project and the first
+// scenario: the user reads the code before asking for anything, and a server
+// may use the time for what it can prepare (gopls loads the workspace, gocpp
+// checks the importers of the open packages).
+const afterOpen = time.Second
+
+// think is the time between two keystrokes of the keystroke scenarios: a very fast typist
+// (40 keys a second); editors do not send the next character the moment the
+// diagnostics of the last one arrive, and a server may use the gap (a
+// garbage collection, say) as long as it is quick to answer when the next key comes.
+const think = 25 * time.Millisecond
 
 func sleep(ctx context.Context, d time.Duration) {
 	select {
@@ -94,6 +109,8 @@ func scenarios(p *Project) []scenario {
 	scs := []scenario{
 		keystroke(ScKeystroke, hot, 40, 3),
 		keystroke(ScKeystrokeDep, p.Dep, 20, 2),
+		keystrokeNew(ScKeystrokeNew, hot, 40, 3),
+		keystrokeNew(ScKeystrokeDepNew, p.Dep, 20, 2),
 		completionDot(hot, 60),
 		completionEdit(hot, 30),
 		position(ScHover, "textDocument/hover", hot, hotMarks, 60),
@@ -141,6 +158,7 @@ func keystroke(name, rel string, iters, warm int) scenario {
 				return "", 0, err
 			}
 			d, _, err := s.Wait(ctx, rel, seq, t0, ok)
+			sleep(ctx, think)
 			return "", d, err
 		},
 		done: func(ctx context.Context, s *Session) error {
@@ -153,6 +171,80 @@ func keystroke(name, rel string, iters, warm int) scenario {
 	}
 }
 
+// keystrokeNew is keystroke with text that no server has seen: the two
+// texts of keystroke come back every other edit, so a server that
+// remembers its results by the content of the file answers from memory;
+// an editor's text is new at each keystroke. Each repetition replaces the
+// initial value of the variable by a number that was never in the file
+// (the diagnostics stay what they were) or by the name of a variable that
+// does not exist, with a number in it (one more error), in turn.
+func keystrokeNew(name, rel string, iters, warm int) scenario {
+	var off, cur int
+	const head = "\tsum := "
+	return scenario{
+		name: name, iters: iters, warm: warm,
+		prep: func(ctx context.Context, s *Session) (err error) {
+			off, err = s.Find(rel, head+"0\n", len(head))
+			cur = 1
+			return err
+		},
+		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+			seq := s.C.Seq()
+			old := s.Doc(rel).Text[off:]
+			old = old[:strings.IndexByte(old, '\n')]
+			cur++
+			next := fmt.Sprintf("%d", 1000+cur)
+			// The wait is for the diagnostics of this text: the error about the name
+			// that this edit wrote, or none about any such name.
+			undefined := fmt.Sprintf("undefinedName%d", cur)
+			wantError := i%2 == 0
+			if wantError {
+				next = undefined
+			}
+			t0, err := s.Edit(rel, off, off+len(old), next)
+			if err != nil {
+				return "", 0, err
+			}
+			ver := s.Doc(rel).Version
+			ok := func(p *Publish) bool { return freshDiagnostics(p, ver, undefined, wantError) }
+			d, _, err := s.Wait(ctx, rel, seq, t0, ok)
+			sleep(ctx, think)
+			return "", d, err
+		},
+		done: func(ctx context.Context, s *Session) error {
+			old := s.Doc(rel).Text[off:]
+			old = old[:strings.IndexByte(old, '\n')]
+			if old != "0" {
+				_, err := s.Edit(rel, off, off+len(old), "0")
+				return err
+			}
+			return nil
+		},
+	}
+}
+
+// freshDiagnostics refuses unversioned or stale publishes, and on a fixed edit
+// refuses errors from ANY earlier synthetic name, not merely the new one. An
+// ambiguous publish is a failed measurement, never an apparent cache speedup.
+func freshDiagnostics(p *Publish, version int32, name string, wantError bool) bool {
+	if p.Version < version {
+		return false
+	}
+	found := false
+	for _, d := range p.Diags {
+		if strings.Contains(d.Message, "undefinedName") {
+			words := strings.FieldsFunc(d.Message, func(r rune) bool {
+				return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_')
+			})
+			if !wantError || !slices.Contains(words, name) {
+				return false
+			}
+			found = true
+		}
+	}
+	return found == wantError
+}
+
 // completionDot asks for the completions after the dot of r.mu.Lock(),
 // with nothing changed since the last check.
 func completionDot(rel string, iters int) scenario {
@@ -163,7 +255,7 @@ func completionDot(rel string, iters int) scenario {
 // completions at once, as an editor does: the time from the keystroke to
 // the menu, with the check that the new text needs.
 func completionEdit(rel string, iters int) scenario {
-	const typed = "\tr.\n"
+	const typedLine = "\tr.\n"
 	var off int
 	return scenario{
 		name: ScCompletionEdit, iters: iters, warm: 2,
@@ -172,11 +264,14 @@ func completionEdit(rel string, iters int) scenario {
 			return err
 		},
 		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+			// A comment line with a number in front, so that the text is new each
+			// time (see keystrokeNew).
+			typed := fmt.Sprintf("\t// n%d\n", i) + typedLine
 			t0, err := s.Edit(rel, off, off, typed)
 			if err != nil {
 				return "", 0, err
 			}
-			p := s.at(rel, off+3)
+			p := s.at(rel, off+len(typed)-len(typedLine)+3)
 			_, raw, err := s.call(ctx, "textDocument/completion", p)
 			d := time.Since(t0)
 			if err == nil && !nonEmpty(raw) {
@@ -263,7 +358,9 @@ func renameLabel(p *Project) scenario {
 				return "", 0, err
 			}
 			par := s.at(rel, off)
-			par.NewName = "TagOf"
+			// A name each time: a server that remembers the result of a rename by
+			// its edits would answer the same one at once. A user renames once.
+			par.NewName = fmt.Sprintf("TagOf%d", i)
 			d2, raw, err := s.call(ctx, "textDocument/rename", par)
 			if err == nil && !nonEmpty(raw) {
 				err = fmt.Errorf("rename: empty edit")

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/lsp/bench"
 	"github.com/huuhait/gocpp/internal/lsp/cache/filecache"
 	"github.com/huuhait/gocpp/stdlib"
 )
@@ -206,3 +207,50 @@ func BenchmarkOpenCold50k(b *testing.B) { benchOpen(b, false) }
 
 // BenchmarkOpenWarm50k: the same with a warm disk cache (budget < 300 ms).
 func BenchmarkOpenWarm50k(b *testing.B) { benchOpen(b, true) }
+
+// benchGenerated edits the hot file of a generated reference project of
+// the language server benchmarks (internal/lsp/bench), b.N times, each to
+// text that was never there (the value of the variable sum, so the
+// diagnostics do not change), and gets the checked package of the file after
+// each edit: the cost of a keystroke that misses every cache, which is what
+// an editor causes. dep selects the file of a package that others import.
+func benchGenerated(b *testing.B, spec bench.Spec, dep bool) {
+	proj := bench.Generate(spec)
+	files := map[string]string{"gocpp.mod": "module " + proj.Module + "\n"}
+	for _, rel := range proj.SourceFiles(false) {
+		files[rel+".gp"] = proj.Source(rel)
+	}
+	name := proj.Hot
+	if dep {
+		name = proj.Dep
+	}
+	name += ".gp"
+	dir := filepath.ToSlash(filepath.Dir(name))
+	w := newWorld(b, testConfig(), files)
+	w.pkg(dir)
+	src := files[name]
+	if !strings.Contains(src, "\tsum := 0\n") {
+		b.Fatalf("%s has no sum := 0", name)
+	}
+	w.open(name, src)
+	w.pkg(dir)
+	start := w.checks()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		w.edit(name, strings.Replace(src, "\tsum := 0\n", fmt.Sprintf("\tsum := %d\n", i+1), 1))
+		w.pkg(dir)
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(w.checks()-start)/float64(b.N), "checks/op")
+}
+
+// BenchmarkEditMedium: a keystroke in the hot package of the medium project
+// (10 files of about 150 lines).
+func BenchmarkEditMedium(b *testing.B) { benchGenerated(b, bench.Medium, false) }
+
+// BenchmarkEditMediumDep: the same in a package that others import.
+func BenchmarkEditMediumDep(b *testing.B) { benchGenerated(b, bench.Medium, true) }
+
+// BenchmarkEditSmall: a keystroke in the hot package of the small project (6 files).
+func BenchmarkEditSmall(b *testing.B) { benchGenerated(b, bench.Small, false) }

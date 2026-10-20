@@ -381,6 +381,9 @@ type converter struct {
 
 	// consts are the C/C++ constants that were put into the tree before the check (constsubst.go), or nil.
 	consts *constSubst
+
+	// noOpaque says that nothing in the package can be opaque (Config.SkipOpaque): no C in it or in its imports.
+	noOpaque bool
 }
 
 // newConverter returns the converter of the package lp, with the hidden

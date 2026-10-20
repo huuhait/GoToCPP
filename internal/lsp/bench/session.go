@@ -47,7 +47,7 @@ var capabilities = map[string]any{
 	},
 	"textDocument": map[string]any{
 		"synchronization":    map[string]any{"didSave": true},
-		"publishDiagnostics": map[string]any{"relatedInformation": true},
+		"publishDiagnostics": map[string]any{"relatedInformation": true, "versionSupport": true},
 		"hover":              map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
 		"completion": map[string]any{"completionItem": map[string]any{
 			"snippetSupport": true, "documentationFormat": []string{"markdown", "plaintext"}}},

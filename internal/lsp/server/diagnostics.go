@@ -303,6 +303,7 @@ func (d *diagnostics) run(ctx context.Context, dir string) {
 		}
 		apiChanged, stale := d.publish(ctx, snap, dir, pkg)
 		release()
+		d.s.warmImporters(dir)
 		if apiChanged {
 			d.scheduleOpen(dir, 0)
 		}

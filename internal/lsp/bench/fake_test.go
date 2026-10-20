@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -166,12 +167,17 @@ func (f *fakeServer) notification(req *protocol.Request) {
 	}
 }
 
+var undefinedName = regexp.MustCompile(`undefinedName[0-9]+`)
+
 // publish sends the diagnostics of uri after delay.
 func (f *fakeServer) publish(uri protocol.DocumentURI, version int32, delay time.Duration) {
 	f.mu.Lock()
 	text := f.texts[uri]
 	f.mu.Unlock()
 	diags := []any{}
+	if m := undefinedName.FindString(text); m != "" {
+		diags = append(diags, map[string]any{"severity": 1, "message": "undefined: " + m, "range": map[string]any{"start": map[string]any{"line": 1, "character": 0}, "end": map[string]any{"line": 1, "character": 1}}})
+	}
 	if strings.Contains(text, "sumx") || strings.Contains(text, ", n int") && strings.Contains(string(uri), "f00") {
 		diags = append(diags, map[string]any{"severity": 1, "message": "error", "range": map[string]any{"start": map[string]any{"line": 1, "character": 0}, "end": map[string]any{"line": 1, "character": 1}}})
 	}

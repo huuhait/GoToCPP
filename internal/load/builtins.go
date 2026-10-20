@@ -1,6 +1,7 @@
 package load
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -55,6 +56,9 @@ func (l *loader) builtinMacros(p *Package) {
 	if p.Std {
 		return // the standard library has none, and its files have no Src
 	}
+	if !forceMacroWalk && !hasMacroSyntax(p.Files) {
+		return
+	}
 	b := &builtinPass{l: l, p: p, prefix: runtimePkgName(p)}
 	b.initCtx = &funcName{name: b.prefix + ".init", top: true}
 	b.wrapped = make(map[*ast.FuncDecl]bool)
@@ -63,6 +67,25 @@ func (l *loader) builtinMacros(p *Package) {
 	for _, f := range p.Files {
 		b.file(f)
 	}
+}
+
+// forceMacroWalk makes builtinMacros walk the files that have no macro syntax
+// too (the tests compare the two).
+var forceMacroWalk bool
+
+// hasMacroSyntax reports whether a file of the package may use the syntax of
+// the macros or //go:embed: a use of a macro (#name, the #Derive line) has a #,
+// a declaration has the word macro, and //go:embed is a comment of that name,
+// so a package none of whose files has any of them in its text has nothing for
+// the expansion to find, and the walk over its syntax trees (a sixth of the
+// loader's time) can be left out. A file whose text was not kept may.
+func hasMacroSyntax(files []*File) bool {
+	for _, f := range files {
+		if f.Src == nil || bytes.IndexByte(f.Src, '#') >= 0 || bytes.Contains(f.Src, []byte("macro")) || bytes.Contains(f.Src, []byte("go:embed")) {
+			return true
+		}
+	}
+	return false
 }
 
 // A builtinPass is the expansion of the built-in macros in one package.

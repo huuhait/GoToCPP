@@ -35,9 +35,10 @@ type Client struct {
 }
 
 type reply struct {
-	result json.RawMessage
-	err    *protocol.ResponseError
-	at     time.Time
+	result    json.RawMessage
+	err       *protocol.ResponseError
+	transport error // stream failure, never a JSON-RPC refusal from the server
+	at        time.Time
 }
 
 // A Publish is one textDocument/publishDiagnostics.
@@ -102,7 +103,7 @@ func (c *Client) readLoop(r *protocol.Reader) {
 		c.mu.Lock()
 		c.readErr, c.done = err, true
 		for id, ch := range c.pending {
-			ch <- &reply{err: &protocol.ResponseError{Code: -1, Message: "the server ended: " + err.Error()}, at: time.Now()}
+			ch <- &reply{transport: fmt.Errorf("%w: %v", ErrServerEnded, err), at: time.Now()}
 			delete(c.pending, id)
 		}
 		c.cond.Broadcast()
@@ -269,10 +270,13 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) (t
 	select {
 	case r := <-ch:
 		d := r.at.Sub(start)
+		if r.transport != nil {
+			return d, fmt.Errorf("%s: %w", method, r.transport)
+		}
 		if r.err != nil {
 			return d, fmt.Errorf("%s: %w", method, r.err)
 		}
-		if result != nil && len(r.result) > 0 && string(r.result) != "null" {
+		if result != nil && len(r.result) > 0 {
 			if err := json.Unmarshal(r.result, result); err != nil {
 				return d, fmt.Errorf("%s: %v", method, err)
 			}

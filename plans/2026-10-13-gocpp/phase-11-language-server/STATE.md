@@ -2,7 +2,7 @@
 
 **Status:** `[~]` in progress (v0 track done 2026-10-14: 11.1–11.7, 11.10a/b; the optional tree-sitter grammar is left; 11.10a grammar done; 11.8, 11.9, 11.11, 11.12 merged since; open: 11.13, the 1.5x-of-gopls criterion, the VS Code checklist)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-20
 
 ## Steps
 
@@ -32,12 +32,31 @@
 
 ## Exit criteria
 
-- [x] All p95 budgets met on the 3 reference projects (docs/benchmarks/lsp.md, table of 2026-10-18: every budget row "met"; re-run after the later perf rounds)
+- [ ] Revalidate all p95 budgets on the final integrated reference projects. The 2026-10-18 table is historical; the 2026-10-20 round-6 integration smoke covers only small/medium opens and four scenarios, not all projects or combined 11.13 behavior.
 - [ ] Within 1.5× of gopls on the shared project
 - [x] Random-edit differential test passes (vs `gocpp check -interop=opaque`)
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
 ## Decisions / notes
+
+- 2026-10-20: Performance round 6 (ADR-112) integrated after clean whole-net review at
+  `051eb2bf` and manager focused checks on top of native fmt. All six review findings are
+  fixed: mixed dot/qualified rename validation, idle-GC generations, configuration provenance,
+  dropped replies, idle-only warming, and merged-report gates. Manager checks passed for
+  bounded checker equivalence, parallel-parser helper, cache invalidation/revert, rename,
+  idle GC/warming, benchmark/CLI safeguards, build/vet, and a native-fmt tuple regression.
+  A one-run pinned small/medium smoke covered fresh typing, imported fresh typing,
+  completion-after-edit and rename (plus opens), with complete samples and zero failures;
+  each selected row met its budget. This is not all-project or gopls acceptance. Its first
+  attempt never started because the shared timing-lock wait expired; only the timing step
+  was retried, not the already-passing tests.
+  Historical pre-fix comparisons showed typing/rename/memory improvements, but the
+  beat-gopls-every-row target remains unmet. Ordinary loading is still serial: parallel
+  parsing is wired only into `readXTest`. Comparison tools still omit diagnostic ranges
+  and metadata and use dependent-diagnostic settling sleeps; equivalence evidence is bounded.
+  Step 11.13 is correctness-clean at `2192a725` but remains unmerged during focused guarded
+  hover optimization: its earlier big-package hover/typing measurements miss their targets.
+  No full CI, broad sweep, new Windows run or full benchmark was run for this integration.
 
 - 2026-10-13: Speed is a contract (budgets in README §2.1, enforced in CI). The architecture copies
   gopls: snapshots, content-hash memoization, export-data summaries, cancellation, background work.

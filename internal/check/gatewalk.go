@@ -158,6 +158,10 @@ type gateChecker struct {
 	// checkPromoted looks at once every struct of the package is known.
 	unresolved []*ast.SelectorExpr
 
+	// typeCalls are the features that the walk of a type asks the gate about
+	// (typeUsesOnce).
+	typeCalls map[types.Type][]featureID
+
 	// hidden and skipTypes are the nodes of the rewrite of conversions
 	// (Package.rewriteNodes), which the gates don't look at: the user
 	// wrote T(x).
@@ -791,7 +795,7 @@ func (g *gateChecker) checkTypes() {
 				// a constraint: generics (visit).
 				continue
 			}
-			g.typeUses(tv.Type, e.Pos(), e.End(), &typeWalk{seen: make(map[types.Type]bool)})
+			g.typeUsesOnce(tv.Type, e.Pos(), e.End())
 		case tv.IsValue():
 			if g.funs[e] || tv.Type == nil {
 				continue
@@ -808,7 +812,7 @@ func (g *gateChecker) checkTypes() {
 			if _, ok := e.(*ast.FuncLit); ok {
 				continue // a closure (visit)
 			}
-			g.typeUses(tv.Type, e.Pos(), e.End(), &typeWalk{seen: make(map[types.Type]bool)})
+			g.typeUsesOnce(tv.Type, e.Pos(), e.End())
 		}
 	}
 	for id, obj := range g.info.Defs {
@@ -817,7 +821,7 @@ func (g *gateChecker) checkTypes() {
 		}
 		switch obj := obj.(type) {
 		case *types.Var, *types.Const:
-			g.typeUses(obj.Type(), id.Pos(), id.End(), &typeWalk{seen: make(map[types.Type]bool)})
+			g.typeUsesOnce(obj.Type(), id.Pos(), id.End())
 		case *types.TypeName:
 			// type WP weak.Pointer[T]: the intrinsic (weak.Pointer[T] itself and its aliases)
 			// is a runtime class (gp::weak_ptr): a type defined over it is an error at every phase.
@@ -918,13 +922,45 @@ func laterThanPackage(m *stdMember) *stdMember {
 
 // A typeWalk is the state of one typeUses walk.
 type typeWalk struct {
-	seen map[types.Type]bool
-	done bool // a gate error was reported
+	seen  map[types.Type]bool
+	done  bool        // a gate error was reported
+	calls []featureID // the features the walk asked the gate about, in order
+}
+
+// noTypeUsesMemo is set by a test to see the walks without the memo.
+var noTypeUsesMemo bool
+
+// typeUsesOnce is typeUses for a new walk over t at pos. What a walk asks the
+// gate depends on the type alone (not on the place), and a program has far more
+// expressions than types, so the features that the walk of a type asks about are
+// kept, and asked about again for the next expression of the type: the gate
+// answers them as it did the first time, with the same reports in the same order.
+func (g *gateChecker) typeUsesOnce(t types.Type, pos, end token.Pos) {
+	if t == nil {
+		return
+	}
+	if !noTypeUsesMemo {
+		if calls, ok := g.typeCalls[t]; ok {
+			for _, id := range calls {
+				g.feature(id, pos, end)
+			}
+			return
+		}
+	}
+	w := &typeWalk{seen: make(map[types.Type]bool)}
+	g.typeUses(t, pos, end, w)
+	if !noTypeUsesMemo {
+		if g.typeCalls == nil {
+			g.typeCalls = make(map[types.Type][]featureID)
+		}
+		g.typeCalls[t] = w.calls
+	}
 }
 
 // feature reports a use of the feature, if the gate rejects it, and then
 // ends the walk.
 func (w *typeWalk) feature(g *gateChecker, id featureID, pos, end token.Pos) bool {
+	w.calls = append(w.calls, id)
 	if g.feature(id, pos, end) {
 		w.done = true
 	}

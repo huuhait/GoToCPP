@@ -34,21 +34,23 @@ func (b Budget) knownFor(project string) string {
 // Budgets are the budgets of the language server that the benchmarks can
 // measure: README §2.1, one row each. The memory budget is MemoryBudgetMiB.
 var Budgets = []Budget{
-	{ScInit, 100, "server start → initialize answered < 100 ms", nil, "", nil},
-	{ScOpenWarm, 300, "open a project → first diagnostics < 300 ms (warm cache)", nil, "", nil},
-	{ScOpenCold, 2000, "open a project → first diagnostics < 2 s (cold)", nil, "", nil},
-	{ScKeystroke, 100, "keystroke → updated diagnostics < 100 ms", nil, "", nil},
-	{ScKeystrokeDep, 100, "keystroke in a package that others import → updated diagnostics < 100 ms", nil, "", nil},
-	{ScCompletionDot, 50, "completion < 50 ms", nil, "", nil},
-	{ScCompletionEdit, 50, "completion right after the keystroke < 50 ms", nil, "", nil},
-	{ScHover, 30, "hover < 30 ms", nil, "", nil},
-	{ScDefinition, 30, "go to definition < 30 ms", nil, "", nil},
-	{ScSignature, 30, "signature help < 30 ms", nil, "", nil},
-	{ScFormat, 20, "format a 1,000-line file < 20 ms", nil, "", nil},
-	{ScRefsPopular, 300, "find references across the workspace < 300 ms", nil, "", nil},
-	{ScRefsLocal, 300, "find references across the workspace < 300 ms", nil, "", nil},
-	{ScRefsFamily, 300, "find references of a method that an interface of the whole module shares < 300 ms", nil, "", nil},
-	{ScRename, 300, "rename across the workspace < 300 ms", nil, "", nil},
+	{ScInit, 30, "server start → initialize answered < 30 ms (the contract: 100 ms)", nil, "", nil},
+	{ScOpenWarm, 150, "open a project → first diagnostics < 150 ms (warm cache; the contract: 300 ms)", nil, "", nil},
+	{ScOpenCold, 600, "open a project → first diagnostics < 600 ms (cold; the contract: 2 s)", nil, "", nil},
+	{ScKeystroke, 20, "keystroke → updated diagnostics < 20 ms (the contract: 100 ms)", nil, "", nil},
+	{ScKeystrokeDep, 20, "keystroke in a package that others import → updated diagnostics < 20 ms (the contract: 100 ms)", nil, "", nil},
+	{ScKeystrokeNew, 25, "keystroke with text no cache has seen → updated diagnostics < 25 ms", nil, "", nil},
+	{ScKeystrokeDepNew, 25, "keystroke with new text in a package that others import → updated diagnostics < 25 ms", nil, "", nil},
+	{ScCompletionDot, 10, "completion < 10 ms (the contract: 50 ms)", nil, "", nil},
+	{ScCompletionEdit, 30, "completion right after the keystroke < 30 ms (the contract: 50 ms)", nil, "", nil},
+	{ScHover, 10, "hover < 10 ms (the contract: 30 ms)", nil, "", nil},
+	{ScDefinition, 10, "go to definition < 10 ms (the contract: 30 ms)", nil, "", nil},
+	{ScSignature, 10, "signature help < 10 ms (the contract: 30 ms)", nil, "", nil},
+	{ScFormat, 15, "format a 1,000-line file < 15 ms (the contract: 20 ms)", nil, "", nil},
+	{ScRefsPopular, 100, "find references across the workspace < 100 ms (the contract: 300 ms)", nil, "", nil},
+	{ScRefsLocal, 20, "find references of a name only its package uses < 20 ms (the contract: 300 ms)", nil, "", nil},
+	{ScRefsFamily, 20, "find references of a method that an interface of the whole module shares < 20 ms (the contract: 300 ms)", nil, "", nil},
+	{ScRename, 60, "rename across the workspace < 60 ms (the contract: 300 ms)", nil, "", nil},
 }
 
 // MemoryBudgetMiB is the memory budget: 400 MB for a 50k-line project.

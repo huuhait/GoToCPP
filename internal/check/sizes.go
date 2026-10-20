@@ -565,19 +565,26 @@ func cPart(t types.Type, seen map[*types.Named]bool) ([]*types.Var, bool) {
 // the message shows *stdio.FILE, not *C.FILE.
 func checkSizeCParts(fset *token.FileSet, files []*ast.File, info *types.Info, cppNames map[token.Pos]string,
 	report func(pos token.Pos, err error)) {
-	// The type expressions of the fields declared in files, for the message.
-	fieldTypes := make(map[*types.Var]ast.Expr)
-	for _, f := range files {
-		ast.Inspect(f, func(n ast.Node) bool {
-			if fl, ok := n.(*ast.Field); ok {
-				for _, id := range fl.Names {
-					if v, ok := info.Defs[id].(*types.Var); ok {
-						fieldTypes[v] = fl.Type
+	// The type expressions of the fields declared in files, for the message:
+	// made when the first call is reported (most packages have none).
+	var fieldTypes map[*types.Var]ast.Expr
+	typeOfField := func() map[*types.Var]ast.Expr {
+		if fieldTypes == nil {
+			fieldTypes = make(map[*types.Var]ast.Expr)
+			for _, f := range files {
+				ast.Inspect(f, func(n ast.Node) bool {
+					if fl, ok := n.(*ast.Field); ok {
+						for _, id := range fl.Names {
+							if v, ok := info.Defs[id].(*types.Var); ok {
+								fieldTypes[v] = fl.Type
+							}
+						}
 					}
-				}
+					return true
+				})
 			}
-			return true
-		})
+		}
+		return fieldTypes
 	}
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -600,7 +607,7 @@ func checkSizeCParts(fset *token.FileSet, files []*ast.File, info *types.Info, c
 					names[i] = fv.Name()
 				}
 				part = "field " + strings.Join(names, ".")
-				if te, ok := fieldTypes[fields[len(fields)-1]]; ok {
+				if te, ok := typeOfField()[fields[len(fields)-1]]; ok {
 					part += " " + types.ExprString(sourceExpr(te, cppNames))
 				}
 			}

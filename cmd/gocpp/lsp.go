@@ -68,6 +68,14 @@ in flight are lost; its entries are checked when read). The request gocpp/stats,
 workspace/executeCommand, returns the cache hit rates, the snapshots and the
 memory.
 
+The server has a soft memory limit that follows its live heap (256 MiB or
+1.4 times the live heap and 64 MiB, whichever is more; GOMEMLIMIT, when set,
+is used instead), and, once the first diagnostics of a package are out, checks
+the packages that import it in the background (at most 96, one or two at a
+time, while it is idle; -no-warm turns that off), so that the first references
+or rename of an exported name finds them done. -idle-gc makes it collect
+garbage in the gaps between two pieces of work too (off: it did not pay).
+
 The flags are:
 `
 
@@ -91,6 +99,8 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	checkCache := flags.Int("check-cache", 0, "the cap of the cache of checked packages, in `MB` (0: 10% of the memory of the machine, 64 to 300 MB)")
 	dynLimit := flags.Int("dynamic-limit", 0, "refuse a rename that would also rename more than `n` methods only because a type assertion could reach their types (0: 20, negative: no limit)")
 	wide := flags.Bool("wide-family", false, "references and rename follow a method through every interface of the module that its type could satisfy, not only through the interfaces that a use needs (slower)")
+	idleGC := flags.Bool("idle-gc", false, "collect garbage in the gaps between two pieces of work, besides when the Go runtime does it (the heap has doubled)")
+	noWarm := flags.Bool("no-warm", false, "do not check the packages that import an open package in the background (the first references or rename of an exported name then checks them)")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, lspUsage)
 		flags.PrintDefaults()
@@ -129,7 +139,7 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "gocpp lsp: %v\n", err)
 		return 2
 	}
-	opts := server.Options{Slow: *slow, Phase: phase, WideFamily: *wide, DynamicLimit: *dynLimit, CheckCacheMB: *checkCache}
+	opts := server.Options{Slow: *slow, Phase: phase, WideFamily: *wide, DynamicLimit: *dynLimit, CheckCacheMB: *checkCache, IdleGC: *idleGC, WarmImporters: !*noWarm}
 	if prof != nil {
 		defer prof.stop()
 		opts.Trace = prof.rec
