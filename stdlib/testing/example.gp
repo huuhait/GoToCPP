@@ -4,7 +4,10 @@
 
 package testing
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // InternalExample is an internal type but exported because it is cross-package;
 // it is part of the implementation of the "gocpp test" command.
@@ -56,6 +59,18 @@ func sortedLines(s string) []string {
 	return lines
 }
 
+// crlfToLF is strings.ReplaceAll(s, "\r\n", "\n").
+func crlfToLF(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
+			continue
+		}
+		out = append(out, s[i])
+	}
+	return string(out)
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -74,6 +89,11 @@ func (eg *InternalExample) processRunResult(stdout string, timeSpent int64, fini
 	var fail string
 	got := trimmed(stdout)
 	want := trimmed(eg.Output)
+	if libGOOS() == "windows" {
+		// Go's example.go: the lines of a program that prints "\r\n" are compared as "\n".
+		got = crlfToLF(got)
+		want = crlfToLF(want)
+	}
 	if eg.Unordered {
 		if !equalStrings(sortedLines(got), sortedLines(want)) && recovered == nil {
 			fail = fmt.Sprintf("got:\n%s\nwant (unordered):\n%s\n", stdout, eg.Output)
@@ -108,7 +128,12 @@ func runExample(eg InternalExample) (ok bool) {
 		fmt.Printf("=== RUN   %s\n", eg.Name)
 	}
 
-	libCaptureStart()
+	// Go swaps os.Stdout for a pipe and, if there is none, prints the error and exits; a capture
+	// that failed here would send the output of the example to the real output and compare "".
+	if errText := libCaptureStart(); errText != "" {
+		fmt.Fprintln(os.Stderr, errText)
+		os.Exit(1)
+	}
 
 	finished := false
 	start := libNow()

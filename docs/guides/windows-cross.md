@@ -87,8 +87,8 @@ environment, exit codes, panics with Go's message and trace, goroutines, channel
 (files, directories, links, environment, `Stat`; Go's own Windows code). The table is in
 [docs/spec/build.md](../spec/build.md#what-works-on-windows) and the programs under `tests/testdata/windows` show each piece.
 
-What a cross build cannot do is what Windows cannot do yet: time zones, `-race`, `-asan` (both are refused for a Windows target), and `gocpp test`
-(the link of the `testing` package fails for Windows, from Linux too: `undefined reference to gp::testing::cpu_name()`). The list, with how each was
+What a cross build cannot do is what Windows cannot do yet: time zones, `-race` and `-asan` (both are refused for a Windows target). (`gocpp test -c -os windows -o x.exe` makes a test binary that runs on a PC;
+`GOCPP_GATE_PHASE=09` or higher is needed for `_test.gp` files.) The list, with how each was
 checked, is [on the Windows page](windows.md#what-does-not-work-yet). (`os/exec`, `os/signal`, `net` and `fmt.Scan*` are not available yet on any platform.)
 
 ## Libraries

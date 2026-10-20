@@ -257,7 +257,8 @@ over 260 characters, a DLL with its import library and a C caller, a static libr
 manifest, commands longer than 32,767 characters, `GOCPP_CXX` and flags with spaces, errors with Windows paths, two builds
 at once), `TestWindowsNativeUnits` (the Windows-only tests of `internal/build` (job objects), `internal/filelock`,
 `internal/fsretry`, `internal/toolchain`, `internal/modfetch` and `cmd/gocpp`, built here with `go test -c` and run there)
-and the opt-in `TestWindowsNativeDownload`. The cache, `TEMP` and `APPDATA` of the runs are inside the run's folder, which is
+`TestWindowsNativeGoTest` (`gocpp test -v` of a module with passing, failing and skipping tests, `t.TempDir` with a read-only file, `t.Setenv`, `t.Cleanup`, `t.Chdir`, a benchmark with its `cpu:` line and an example, step 14.9) and the opt-in `TestWindowsNativeDownload`.
+`TestWindowsCrossGoTest` (`windows_gotest_test.go`) makes the same module's test binary here with `gocpp test -c -os windows` and runs it on the PC. The cache, `TEMP` and `APPDATA` of the runs are inside the run's folder, which is
 deleted at the end. Without the variable these tests skip; with it and an unreachable PC they fail.
 
 ## The Windows suite

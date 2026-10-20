@@ -20,7 +20,12 @@
 #include <new>
 #include <tuple>
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) || defined(_WIN32)
+// Strong definitions on Windows. With MinGW's statically linked libstdc++ a weak operator new
+// loses: the linker sees the weak external as unresolved, takes libstdc++'s new_op.o from the
+// archive, and its strong definition wins, so no allocation is counted (found on the PC in step
+// 14.9's review: `0 B/op 0 allocs/op`). This file is linked as an object before the libraries, so
+// the archive members that define operator new are never needed, and no duplicate arises.
 #define GP_WEAK_ALLOC
 #else
 #define GP_WEAK_ALLOC __attribute__((weak))

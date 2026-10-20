@@ -857,7 +857,11 @@ func (c *common) TempDir() string {
 		c.Helper()
 		c.Fatalf("TempDir: %v", errText)
 	}
-	sub := fmt.Sprintf("%s/%03d", dir, seq)
+	sep := "/"
+	if libGOOS() == "windows" {
+		sep = "\\"
+	}
+	sub := fmt.Sprintf("%s%s%03d", dir, sep, seq)
 	if err := libMakeDir(sub); err != "" {
 		c.Helper()
 		c.Fatalf("TempDir: %v", err)
@@ -909,8 +913,11 @@ func (c *common) Chdir(dir string) {
 	// On POSIX platforms, PWD represents “an absolute pathname of the
 	// current working directory.” Since we are changing the working
 	// directory, we should also set or update PWD to reflect that.
-	if wd, errText := libGetwd(); errText == "" {
-		c.Setenv("PWD", wd)
+	// (Windows and Plan 9 do not use the PWD variable.)
+	if libGOOS() != "windows" {
+		if wd, errText := libGetwd(); errText == "" {
+			c.Setenv("PWD", wd)
+		}
 	}
 	c.Cleanup(func() {
 		if err := libChdir(oldwd); err != "" {

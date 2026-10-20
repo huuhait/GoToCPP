@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -108,21 +109,85 @@ func TestSources(t *testing.T) {
 // TestTestingSources checks the two lists: the files of package testing are not among the sources of
 // a program, and they are the sources of the programs that import testing.
 func TestTestingSources(t *testing.T) {
-	var testingFiles []string
-	for _, p := range rtfiles.TestingSources("linux") {
-		if !strings.HasPrefix(path.Base(p), "testing") {
-			t.Errorf("TestingSources has %s", p)
+	// Every OS layer has its part of the natives of package testing (Windows had none until step
+	// 14.9: a test binary did not link there).
+	for _, goos := range []string{"linux", "windows"} {
+		var testingFiles []string
+		for _, p := range rtfiles.TestingSources(goos) {
+			if !strings.HasPrefix(path.Base(p), "testing") {
+				t.Errorf("TestingSources has %s", p)
+			}
+			testingFiles = append(testingFiles, p)
 		}
-		testingFiles = append(testingFiles, p)
-	}
-	for _, want := range []string{"src/testing.cpp", "src/testing_alloc.cpp", "src/os/linux/testing_os.cpp"} {
-		if !slices.Contains(testingFiles, want) {
-			t.Errorf("TestingSources(linux) = %q lacks %s", testingFiles, want)
+		for _, want := range []string{"src/testing.cpp", "src/testing_alloc.cpp", "src/os/" + goos + "/testing_os.cpp"} {
+			if !slices.Contains(testingFiles, want) {
+				t.Errorf("TestingSources(%s) = %q lacks %s", goos, testingFiles, want)
+			}
+		}
+		for _, p := range rtfiles.Sources(goos) {
+			if strings.HasPrefix(path.Base(p), "testing") {
+				t.Errorf("Sources has %s: a program that does not import testing would be linked with it", p)
+			}
 		}
 	}
-	for _, p := range rtfiles.Sources("linux") {
-		if strings.HasPrefix(path.Base(p), "testing") {
-			t.Errorf("Sources has %s: a program that does not import testing would be linked with it", p)
+}
+
+// paramTypes reduces a parameter list to its types: "gp::string name, int64_t start" becomes
+// "gp::string,int64_t" (the names may differ between the header and a definition).
+func paramTypes(params string) string {
+	var out []string
+	for _, p := range strings.Split(params, ",") {
+		f := strings.Fields(p)
+		if len(f) > 1 {
+			f = f[:len(f)-1]
+		}
+		out = append(out, strings.Join(f, " "))
+	}
+	return strings.Join(out, ",")
+}
+
+// TestTestingNativesDefined checks that every function that gocpp/testing.hpp declares in
+// gp::testing has a definition with the same parameter types in the sources that a test binary is
+// linked with, for every OS layer: a function that exists only for Linux makes `gocpp test` fail
+// to link on Windows (undefined reference to gp::testing::cpu_name, make_temp_dir, set_env: step
+// 14.9), and so does an overload with other parameters.
+func TestTestingNativesDefined(t *testing.T) {
+	header, err := fs.ReadFile(rtfiles.FS(), "include/gocpp/testing.hpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl := regexp.MustCompile(`(?m)^(?:\[\[noreturn\]\] )?[\w:<>, ]+? \**(\w+)\(([^;{]*)\)\s*(?:noexcept)?;`)
+	body := string(header[strings.Index(string(header), "namespace gp::testing {"):])
+	type fn struct{ name, params string }
+	var fns []fn
+	for _, m := range decl.FindAllStringSubmatch(body, -1) {
+		fns = append(fns, fn{m[1], paramTypes(m[2])})
+	}
+	if len(fns) < 30 {
+		t.Fatalf("found only %d declarations in testing.hpp: %v", len(fns), fns)
+	}
+	for _, goos := range []string{"linux", "windows"} {
+		var src strings.Builder
+		for _, p := range rtfiles.TestingSources(goos) {
+			data, err := fs.ReadFile(rtfiles.FS(), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			src.Write(data)
+		}
+		for _, f := range fns {
+			// a definition: a line that starts with a type, names the function and ends in { (the
+			// parameters may span lines)
+			def := regexp.MustCompile(`(?m)^[A-Za-z_\[][^;\n]*\b` + f.name + `\(([^;{]*)\)\s*(?:noexcept)?\s*\{`)
+			found := false
+			for _, m := range def.FindAllStringSubmatch(src.String(), -1) {
+				if paramTypes(m[1]) == f.params {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("gp::testing::%s(%s) is declared in testing.hpp, but no source of TestingSources(%q) defines it with these parameters: a test binary does not link", f.name, f.params, goos)
+			}
 		}
 	}
 }

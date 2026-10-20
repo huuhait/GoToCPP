@@ -440,6 +440,7 @@ func TestWindowsRuntime(t *testing.T) {
 	for _, p := range slices.Concat(winUnitPrograms, []prog{
 		{src: "test/winos_test.cpp", weight: 5},
 		{src: "test/thread_test.cpp", weight: 3},
+		{src: "test/testing_natives_test.cpp", weight: 4, testing: true},
 	}) {
 		if want(p.src) {
 			progs = append(progs, p)
@@ -467,6 +468,11 @@ func TestWindowsRuntime(t *testing.T) {
 	}
 	if want("test/thread_test.cpp") {
 		t.Run("thread", func(t *testing.T) { runWinThread(t, e, bins.bin(t, "test/thread_test.cpp")) })
+	}
+	// The natives of package testing for Windows (src/os/windows/testing_os.cpp); the same program
+	// runs on Linux in TestTestingNatives.
+	if want("test/testing_natives_test.cpp") {
+		t.Run("testing-natives", func(t *testing.T) { winRunUnit(t, e, bins.bin(t, "test/testing_natives_test.cpp")) })
 	}
 }
 

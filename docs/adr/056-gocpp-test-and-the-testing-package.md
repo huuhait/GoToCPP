@@ -115,3 +115,23 @@ once (`indexed_lines_of`), so a new call site costs a binary search.
 
 [Phase 09 README §3 step 9.9](../../plans/2026-10-13-gocpp/phase-09-stdlib-testing/README.md),
 [ADR-027](027-native-std-functions.md), [docs/guides/testing.md](../guides/testing.md).
+
+## Addendum 2026-10-20 (step 14.9: `gocpp test` on Windows)
+
+- The natives that need the system are in `runtime/src/os/<os>/testing_os.cpp`, one file for each OS: the
+  environment, temporary folders, `remove_all` and its `remove_target` check, `make_dir`, `getwd`, `chdir`,
+  `read_file`, the standard output capture of the examples and the `cpu:` line. Before this step Windows had no such
+  file and a test binary did not link there (`undefined reference to gp::testing::cpu_name()`, `make_temp_dir`,
+  `set_env`). `TestTestingNativesDefined` (`runtime/files_test.go`) now compares the declarations of
+  `gocpp/testing.hpp` with the definitions of every OS, parameter types included.
+- The Windows file uses `SetEnvironmentVariable`/`GetEnvironmentVariable` (names are case-insensitive, and the C
+  library's copy follows), `GetTempPath`, Win32 calls for files and folders (so that errors have the system's text,
+  as Go's), `SetStdHandle` for the capture and the registry for the processor. `remove_all` does not use
+  `std::filesystem::remove_all`, which never returns for a path of over 260 characters with MinGW-w64's library.
+- `operator new` of `testing_alloc.cpp` is a strong definition on Windows: a weak one lost to libstdc++'s in a
+  statically linked MinGW program and no allocation was counted.
+- The rest of `testing.cpp` is portable and reads paths as UTF-8. `T.TempDir` uses a backslash on Windows,
+  `T.Chdir` does not set `PWD` there, and examples compare `\r\n` as `\n` on Windows, as Go's `example.go` does.
+- Evidence: `TestWindowsNativeGoTest` and `TestWindowsCrossGoTest` (`tests/windows_gotest_test.go`) run `gocpp test`
+  and a cross-built test binary on a real Windows PC; `TestTestingNatives` and the `testing-natives` case of
+  `TestWindowsRuntime` test the natives themselves.

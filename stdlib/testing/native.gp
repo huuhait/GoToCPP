@@ -58,11 +58,11 @@ func libCPUName() string
 //gocpp:native gp::testing::frames
 func libFrames(max int) string
 
-// libCaptureStart redirects the standard output to a temporary file, libCaptureStop restores it
-// and returns what was written.
+// libCaptureStart redirects the standard output to a temporary file and returns an error text ("" when
+// it worked), libCaptureStop restores it and returns what was written.
 //
 //gocpp:native gp::testing::capture_start
-func libCaptureStart()
+func libCaptureStart() string
 
 //gocpp:native gp::testing::capture_stop
 func libCaptureStop() string

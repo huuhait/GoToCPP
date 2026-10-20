@@ -222,9 +222,10 @@ func (c cxx) compileCmd(prio int, dir string, env, args []string) error {
 // A prog is a test program to build: a file of runtime/test/, and flags that it has on top of
 // its mode's (which the runtime's objects it links have too), and the weight of its compile.
 type prog struct {
-	src    string
-	flags  []string
-	weight int // about how many seconds its compile takes: the order of the compiles (gate)
+	src     string
+	flags   []string
+	weight  int  // about how many seconds its compile takes: the order of the compiles (gate)
+	testing bool // also link the natives of package testing (rtfiles.TestingSources)
 }
 
 // builds is the programs of one mode, built at the same time (startBuilds).
@@ -301,7 +302,7 @@ func (c cxx) startBuilds(t *testing.T, rt, dir string, flags []string, progs []p
 		abs[p.src] = sourcePath(t, p.src)
 	}
 	return startBuilds(t, progs, func(p prog) buildResult {
-		return c.build(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight)
+		return c.buildWith(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight, p.testing)
 	})
 }
 
@@ -322,6 +323,12 @@ func (b *builds) bin(t *testing.T, src string) string {
 // must print nothing. It compiles src while the runtime's objects are built. It may run in any
 // goroutine.
 func (c cxx) build(rt, src, outDir string, flags []string, weight int) buildResult {
+	return c.buildWith(rt, src, outDir, flags, weight, false)
+}
+
+// buildWith is build; with testing it also compiles and links the natives of package testing
+// (src/testing*.cpp and src/os/<os>/testing*.cpp), which no other program links.
+func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testing bool) buildResult {
 	var objs []string
 	var objsErr error
 	done := make(chan struct{})
@@ -336,6 +343,20 @@ func (c cxx) build(rt, src, outDir string, flags []string, weight int) buildResu
 	<-done
 	if err != nil || objsErr != nil {
 		return buildResult{own: err, shared: objsErr}
+	}
+	if testing {
+		tsrcs := rtfiles.TestingSources(c.targetOS())
+		tobjs := make([]string, len(tsrcs))
+		err = parallel(len(tsrcs), func(i int) error {
+			tobjs[i] = filepath.Join(outDir, fmt.Sprintf("%s-testing%d.o", name, i))
+			args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c",
+				filepath.Join(rt, filepath.FromSlash(tsrcs[i])), "-o", tobjs[i])
+			return c.compileCmd(prioRT, outDir, nil, args)
+		})
+		if err != nil {
+			return buildResult{own: err}
+		}
+		objs = append(slices.Clone(objs), tobjs...)
 	}
 	bin := filepath.Join(outDir, name+c.exe())
 	args = append(c.flags(flags), obj)

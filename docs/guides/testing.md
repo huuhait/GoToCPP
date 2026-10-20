@@ -170,6 +170,12 @@ A benchmark line is `BenchmarkAdd-8   \t 1000000\t      1234 ns/op`; `b.Loop()` 
 | the goroutine dump when a test times out (`panic: test timed out after 10m0s`, `running tests:` and then every goroutine's stack) | the first lines are Go's; the dump of all goroutines is missing (the runtime has no SIGQUIT handler), and the backup alarm of `gocpp test` (SIGQUIT after the timeout plus a minute) just ends the process |
 | a test file name in `t.Log` is the `.gp` file | it is (`geom_test.gp:12:`) |
 
+On Windows (`gocpp test` natively, or a test binary from `gocpp test -c -os windows`) the `testing` package behaves
+as Go's does there: `T.TempDir` paths use backslashes and the folders are in `%TMP%`/`%TEMP%` (read-only files in them
+are removed too), the names of `T.Setenv` variables are case insensitive and the C library's copy of the environment
+follows, `T.Chdir` does not set `PWD`, an example's output is compared with `\r\n` read as `\n` (as in Go), and the `cpu:` line of a benchmark is the processor name from the registry.
+These are tested on a real Windows PC (`tests/windows_gotest_test.go`).
+
 The test binary runs in a process group of its own (Unix); the signals that `gocpp test` gets (SIGINT from Ctrl-C,
 SIGQUIT, SIGTERM, SIGHUP) are passed on to it and its group, and the processes that the tests started are killed
 when the binary is gone after such a signal, and when the backup alarm ends a test binary that does not stop (a

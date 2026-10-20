@@ -254,7 +254,6 @@ Each line was checked on the PC unless it says otherwise.
 
 | What | State |
 |---|---|
-| `gocpp test` | **does not link.** `_test.gp` files need the `testing` package (behind `GOCPP_GATE_PHASE=09` anyway); on Windows the link fails with `undefined reference to gp::testing::cpu_name()` (and `make_temp_dir`, `set_env`): the natives of `testing` are missing for Windows. Also from Linux with `-os windows`. A known gap |
 | `os/exec`, `os.StartProcess`, `os/signal`, `net`, `fmt.Scan*` | **not available yet on any platform**, not only on Windows (Phase 9): `package os/exec is not available yet (Phase 09)`, `os.StartProcess` returns `fork/exec x: function not implemented`, `fmt.Scan` is `not supported yet: the call of fmt.Scan`. Reading standard input works: `bufio.Scanner(os.Stdin)` from a pipe was checked on the PC. Files, directories, environment, links, `os.Exit` and the other parts of `os` work |
 | time zones | `time.Local` is UTC and `time.LoadLocation` has no Windows data (Go reads the registry; gocpp does not yet) |
 | `-race` | not for Windows: `gocpp build: -race is not supported for windows`. ThreadSanitizer does not exist for MinGW |

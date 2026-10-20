@@ -24,8 +24,10 @@
 //     examples (Go swaps os.Stdout for a pipe).
 //   - lookup_env, set_env and unset_env are os.LookupEnv, Setenv and Unsetenv for T.Setenv.
 //
-// The C++ of this header is in src/testing*.cpp, which only a program that imports testing is
-// linked with (rtfiles.TestingSources). This header is for stdlib/testing and
+// The C++ of this header is in src/testing*.cpp and src/os/<os>/testing_os.cpp (the functions that
+// need the system: the environment, temporary folders, the capture, remove_all, cpu_name; Linux and
+// Windows have one each), which only a program that imports testing is linked with
+// (rtfiles.TestingSources). This header is for stdlib/testing and
 // stdlib/internal/testdeps; generated code of a program that doesn't import testing never calls
 // these functions.
 #pragma once
@@ -71,8 +73,10 @@ gp::string goos();
 gp::string goarch();
 
 // cpu_name is the model name of the processor, for the "cpu:" line of the benchmarks (empty when
-// the system does not say).
+// the system does not say). trim_cpu_name is what both OS parts do with the text they read (a
+// brand string is padded with spaces by some processors): it cuts white space at both ends.
 gp::string cpu_name();
+gp::string trim_cpu_name(gp::string raw);
 
 // frames describes the stack of the calling goroutine, innermost frame first, one frame per line
 // "function<TAB>file<TAB>line<LF>": the Go name of the function ("example.com/m/a.TestX",
@@ -81,9 +85,11 @@ gp::string cpu_name();
 // result is empty when the program has no debug information.
 gp::string frames(int64_t max);
 
-// capture_start redirects the standard output (file descriptor 1) to a temporary file;
-// capture_stop restores it and returns what was written. They don't nest.
-void capture_start();
+// capture_start redirects the standard output (file descriptor 1) to a temporary file and returns
+// "" or an error text (the folder of temporary files is unusable, or a capture is on already: they
+// don't nest, and nothing changes then); capture_stop restores the output and returns what was
+// written.
+gp::string capture_start();
 gp::string capture_stop();
 
 // lookup_env, set_env and unset_env: os.LookupEnv, os.Setenv and os.Unsetenv. set_env and unset_env
@@ -91,6 +97,11 @@ gp::string capture_stop();
 std::tuple<gp::string, bool> lookup_env(gp::string key);
 gp::string set_env(gp::string key, gp::string value);
 gp::string unset_env(gp::string key);
+
+// remove_target checks the path that remove_all is about to delete and returns the path to delete
+// (trailing separators cut) and an error text: a root (a drive "C:\", "/", a share's top) is
+// refused. It is a function of its own so that the check can be tested without deleting anything.
+std::tuple<gp::string, gp::string> remove_target(gp::string path);
 
 // make_temp_dir creates a new folder in the system's temporary folder, whose name starts with
 // prefix, and returns its path and an error text ("" when it worked). remove_all removes a file or

@@ -287,7 +287,11 @@ shell's MinGW-w64 (`-static`) and runs the programs on Windows. Two runners, cho
 against a `GOOS=windows` Go build, and `TestWindowsDriverFlags` builds with the driver's `--gc-sections` and
 `--stack` flags (`GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those
 programs). `TestWindowsCommandLine` and `TestWindowsConsoleUTF8` check the command-line splitter and the
-console's UTF-8 conversion against copies of Go's, on the host. The layer is x86-64 only (an `#error`
+console's UTF-8 conversion against copies of Go's, on the host. `src/os/windows/testing_os.cpp` holds the natives
+of package testing that need the system (step 14.9: the environment with `SetEnvironmentVariable` and the C
+library's copy, `GetTempPath` folders, the standard output capture with `SetStdHandle`, `RegGetValue` for the
+`cpu:` line, `remove_all` that clears read-only files); `test/testing_natives_test.cpp` tests them on Windows
+(`TestWindowsRuntime`) and the Linux ones on Linux (`TestTestingNatives`). The layer is x86-64 only (an `#error`
 elsewhere); `cpu_limit`, `cgroup_cpu_limit`, `mem_info` and `trim_memory` (step 8.9) have Windows versions.
 The console path (`WriteConsoleW`, a real console window) is for the real-Windows checklist of step 14.7:
 over ssh the program has no console.
@@ -321,6 +325,7 @@ needs no gdb (`TestDebugScriptUnits`).
 
 `go test ./runtime` (also part of `make test` and `make ci`) runs:
 - `TestWindowsRuntime`, `TestWindowsGoPrograms`, `TestWindowsDiff` and `TestWindowsDriverFlags`: the runtime for Windows, on a real PC over ssh (`GOCPP_WINDOWS_SSH`) or under Wine (skipped without MinGW or Wine, a failure with `GOCPP_REQUIRE_WINE=1`, which `make ci` sets). See "The Windows OS layer" above. `GOCPP_WINDOWS_PROGS=winos_test,thread_test` limits `TestWindowsRuntime` to those programs.
+- `TestTestingNatives`: `test/testing_natives_test.cpp`, built with the natives of package testing (`rtfiles.TestingSources`), g++ and clang++ at `-O0` and `-O2`: `lookup_env`/`set_env`/`unset_env`, `make_temp_dir`, `remove_all`, `make_dir`, `getwd`/`chdir`, `read_file(s)` with names outside ASCII, the standard output capture (C's `printf` and the runtime's own writes), `cpu_name`. The same program runs on Windows in `TestWindowsRuntime` (`testing-natives`), with the Windows half of its `#ifdef`s.
 - `TestDebugScript` and `TestDebugScriptUnits`: the gdb script in `src/os/linux/gocpp_gdb.inc` is `debug/gocpp-gdb.py`, and the unit tests of `debug/test_gocpp_gdb.py` pass (python3).
 - `TestCXX`: compiles `test/unit.cpp`, `test/runtimepkg_test.cpp` (step 8.10: the cgroup parser on sample files, GOMAXPROCS, `caller`/`callers`/`stack`, `mem_info`, and the cases that end the process: `gp::exit` flushes C stdio in order and leaves no destructor behind, with busy and many goroutines, two exits at once, and the ASan leak check before `_exit`; also built with `-fsanitize=thread` by `TestRuntimePkgTSan`), `test/slice_test.cpp`, `test/array_test.cpp`, `test/map_test.cpp`, `test/fmt_test.cpp`, `test/trace_test.cpp`, `test/interop_test.cpp`, `test/cxxvalue_test.cpp`, `test/type_test.cpp`, `test/iface_test.cpp`, `test/ifaceconv_test.cpp`, `test/bytealg_test.cpp` (the natives of `internal/bytealg`: each against a plain loop on seeded inputs of every length and alignment, and the two ways of `Count` on their own), `test/nochecks_test.cpp`, and `test/diff.cpp` with the embedded runtime, with g++
   and clang++, each at `-O0`, at `-O2` and with `-fsanitize=address,undefined` (a sanitizer

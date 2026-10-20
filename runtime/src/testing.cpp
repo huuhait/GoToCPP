@@ -21,6 +21,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
@@ -40,6 +41,19 @@ bool alarm_canceled = false;
 // The running tests, by name.
 std::mutex running_mu;
 std::map<std::string, int64_t> running;
+
+// to_path and utf8_of convert between the UTF-8 of Go strings and std::filesystem::path without
+// the narrow code page: a path made from a char string is read in the ANSI code page on Windows,
+// one made from a char8_t string as UTF-8 (on Linux both are the bytes).
+std::filesystem::path to_path(std::string_view s) {
+    return std::filesystem::path(
+        std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size()));
+}
+
+std::string utf8_of(const std::filesystem::path& p) {
+    std::u8string u = p.u8string();
+    return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
 
 } // namespace
 
@@ -125,52 +139,22 @@ gp::string frames(int64_t max) {
     return gp::string::gp_copy(out);
 }
 
-std::tuple<gp::string, bool> lookup_env(gp::string key) {
-    std::string k(key.gp_view());
-    const char* v = std::getenv(k.c_str());
-    if (v == nullptr) {
-        return {gp::string(), false};
+gp::string trim_cpu_name(gp::string raw) {
+    std::string_view v = raw.gp_view();
+    auto white = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+    while (!v.empty() && white(v.front())) {
+        v.remove_prefix(1);
     }
-    return {gp::string::gp_copy(v), true};
-}
-
-gp::string remove_all(gp::string path) {
-    std::error_code ec;
-    std::filesystem::remove_all(std::filesystem::path(std::string(path.gp_view())), ec);
-    return ec ? gp::string::gp_copy(ec.message()) : gp::string();
-}
-
-gp::string make_dir(gp::string path) {
-    std::error_code ec;
-    std::filesystem::path p(std::string(path.gp_view()));
-    if (std::filesystem::exists(p, ec)) {
-        return gp::string::gp_copy("mkdir " + p.string() + ": file exists");
+    while (!v.empty() && white(v.back())) {
+        v.remove_suffix(1);
     }
-    ec.clear();
-    std::filesystem::create_directory(p, ec);
-    return ec ? gp::string::gp_copy("mkdir " + p.string() + ": " + ec.message()) : gp::string();
-}
-
-std::tuple<gp::string, gp::string> getwd() {
-    std::error_code ec;
-    std::filesystem::path p = std::filesystem::current_path(ec);
-    if (ec) {
-        return {gp::string(), gp::string::gp_copy("getwd: " + ec.message())};
-    }
-    return {gp::string::gp_copy(p.string()), gp::string()};
-}
-
-gp::string chdir(gp::string dir) {
-    std::error_code ec;
-    std::string d(dir.gp_view());
-    std::filesystem::current_path(std::filesystem::path(d), ec);
-    return ec ? gp::string::gp_copy("chdir " + d + ": " + ec.message()) : gp::string();
+    return gp::string::gp_copy(v);
 }
 
 std::tuple<gp::string, gp::string> read_files(gp::string dir) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    fs::path d{std::string(dir.gp_view())};
+    fs::path d = to_path(dir.gp_view());
     if (!fs::exists(d, ec)) {
         return {gp::string(), gp::string()};
     }
@@ -178,7 +162,7 @@ std::tuple<gp::string, gp::string> read_files(gp::string dir) {
     for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code e2;
         if (!it->is_directory(e2)) {
-            names.push_back(it->path().filename().string());
+            names.push_back(utf8_of(it->path().filename()));
         }
     }
     if (ec) {
@@ -191,22 +175,6 @@ std::tuple<gp::string, gp::string> read_files(gp::string dir) {
         out += '\n';
     }
     return {gp::string::gp_copy(out), gp::string()};
-}
-
-std::tuple<gp::string, gp::string> read_file(gp::string path) {
-    std::string p(path.gp_view());
-    std::FILE* f = std::fopen(p.c_str(), "rb");
-    if (f == nullptr) {
-        return {gp::string(), gp::string::gp_copy("open " + p + ": " + std::strerror(errno))};
-    }
-    std::string data;
-    char buf[4096];
-    std::size_t n;
-    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) {
-        data.append(buf, n);
-    }
-    std::fclose(f);
-    return {gp::string::gp_copy(data), gp::string()};
 }
 
 std::tuple<double, bool> parse_float(gp::string s) {
