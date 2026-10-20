@@ -23,6 +23,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [~] 11.14b: targeted current-build typing/completion comparisons, including a workload where settle runs.
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
 - [~] 15.6a: proven-concrete interface calls, preserving dynamic fallback and ownership.
+- [~] 15.7b: generic-type method body placement, with small-method inlining and matched compile-time measurements; modules remain separate.
 - [ ] Next: remaining 12.13 editor features, 15.6, remaining 15.7 and 15.4 in dependency order.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

@@ -21,7 +21,8 @@
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
-  - [ ] Generic-type body placement and C++20 modules evaluation remain separate, unstarted work
+  - [~] 15.7b Generic-type body placement: move larger method bodies out of repeatedly parsed headers, preserving small-method inlining and instance identity; focused correctness and matched compile-time checks required
+  - [ ] 15.7c C++20 modules evaluation remains separate, unstarted work
 
 ### Robustness
 - [x] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)

@@ -9,7 +9,8 @@ At recovery, `dev` was `94c4a6d9`. Integrated work now includes 9.12 docs, 11.14
 checks, the safe PCH/prefetch portion of 12.14, 15.2 escape analysis, 15.7a compiler-cache
 documentation/tests, and 9.13a release preparation. The global LSP and cold-probing
 performance criteria remain open. Active jobs are 11.14b targeted measurements,
-12.13a background header indexing/completion, and 15.6a interface-call optimization.
+12.13a background header indexing/completion, 15.6a interface-call optimization, and 15.7b
+generic-type body placement.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -24,9 +25,11 @@ User-owned `c4/` has not been changed by the manager.
 | 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Three
-coders are currently active: 12.13a, 11.14b and 15.6a. Start the next review when its coder
-finishes; never fill slots with blocked work. Continue those subjobs, then the remaining
+no delegation by workers, and final reports only except genuinely blocked decisions. Four
+coders are active: 12.13a, 11.14b, 15.6a and 15.7b. The new 15.7b worktree is
+`../GoToCPP-15.7b` on `job/15.7b`, based on `1c7081e9`; larger generic-type bodies are its
+bounded scope, not C++20 modules. Start the next review when its coder finishes; never fill
+slots with blocked work. Continue those subjobs, then the remaining
 12.13 editor features, 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is
 not waived by merging an independently reviewed partial improvement.
 
