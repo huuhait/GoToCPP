@@ -24,7 +24,7 @@
 - [x] 9.8 `time` (ported logic, native clocks/timers, zoneinfo)
 - [x] 9.9 `flag`, `testing` + `gocpp test` (T incl. `Parallel`, B + `Loop`, examples, flags, Go-style output)
 - [ ] 9.10 Go's tests: tier 1 + deferred suites (slices/maps/cmp/iter, rangefunc, rest of `test/chan`); test-only packages; counting rule
-- [ ] 9.11 Tier-2 packages (`encoding/json` first)
+- [x] 9.11 Tier-2 packages (`encoding/json` first)
 - [ ] 9.12 Docs (package list, differences, porting guide)
 - [ ] 9.13 v0.1 release candidate
 
