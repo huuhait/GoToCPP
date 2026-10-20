@@ -555,6 +555,14 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 // thunk adds the thunk of the method m of the named type nd for the table of T (ptr false) or of
 // *T (ptr true) to decls, and returns its name (see the top).
 func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl) string {
+	fn := g.thunkFunc(nd, m, ptr)
+	*decls = append(*decls, fn)
+	return fn.Name
+}
+
+// thunkFunc also supplies a proven-concrete call's adapter (devirt.go), so its receiver
+// ownership, argument copies and nil-pointer wrapper are exactly the table thunk's.
+func (g *gen) thunkFunc(nd *namedDesc, m methodEntry, ptr bool) *cppir.Func {
 	pos := m.fn.Pos()
 	// (The member's name, not the method's: a type that declares its own m and promotes the m of
 	// another package has two thunks for two methods.)
@@ -598,7 +606,10 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 			// (icall's contract), so no copy of the pointer (iface.hpp: unbox_borrow).
 			recv = unboxBorrow
 		}
-		invoke = &cppir.Call{Fun: cxxName(nd.si.name + "::" + member), Args: append([]cppir.Expr{recv}, args...)}
+		invoke = &cppir.Call{
+			Fun:  cxxName(cppir.TypeString(typ) + "::" + member),
+			Args: append([]cppir.Expr{recv}, args...),
+		}
 	case !ptr:
 		val := templateCall("gp::unbox", []cppir.Node{typ}, cxxName("gp_self"))
 		invoke = &cppir.Call{Fun: &cppir.Member{X: val, Name: member}, Args: args}
@@ -621,8 +632,7 @@ func (g *gen) thunk(nd *namedDesc, m methodEntry, ptr bool, decls *[]cppir.Decl)
 	} else {
 		fn.Body.Stmts = append(fn.Body.Stmts, &cppir.Return{X: invoke})
 	}
-	*decls = append(*decls, fn)
-	return name
+	return fn
 }
 
 // descName returns the C++ name of the descriptor object name that the lowering o made, as the

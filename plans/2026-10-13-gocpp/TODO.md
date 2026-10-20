@@ -19,11 +19,11 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
   focused GCC/Clang ASan/Go checks and combined compiler checks.
 - [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
 - [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
-- [~] 12.13a: background header indexing and header/namespace completion; member/hover work remains separate.
+- [~] 12.13a: correct first-review findings in partial validation, dependency races, memory bounds and namespace lookup, then re-review. Member/hover work remains separate.
 - [x] 11.14b: current-implementation rapid-edit and settle-active measurements independently reviewed and recomputed by the manager; eight consistent wins, four inconclusive small typing rows, no qualifying slowdown. No source change; every-row/all-project acceptance remains open.
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
-- [~] 15.6a: proven-concrete interface calls, preserving dynamic fallback and ownership.
-- [~] 15.7b: generic-type method body placement, with small-method inlining and matched compile-time measurements; modules remain separate.
+- [x] 15.6a: proven-concrete interface calls integrated after clean review and focused source/integration checks; ownership, ordering, nil/recover behavior and dynamic fallback preserved. Kernel speedups are not whole-project performance acceptance.
+- [~] 15.7b: generic-type method body placement is in independent review. Header size is smaller; measured whole-build speed benefit is inconclusive. Small-method inlining is preserved; modules remain separate.
 - [ ] Next: remaining 12.13 editor features, 15.6, remaining 15.7 and 15.4 in dependency order.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

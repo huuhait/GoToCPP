@@ -10,8 +10,10 @@ checks, the safe PCH/prefetch portion of 12.14, 15.2 escape analysis, 15.7a comp
 documentation/tests, and 9.13a release preparation. The global LSP and cold-probing
 performance criteria remain open. The 11.14b current-implementation measurements passed
 independent review and manager recomputation: eight consistent wins, four inconclusive small
-typing rows, no qualifying slowdown or code change. Active jobs are 12.13a background header
-indexing/completion, 15.6a interface-call optimization, and 15.7b generic-type body placement.
+typing rows, no qualifying slowdown or code change. Step 15.6a concrete-interface dispatch
+is integrated after clean review and focused source/integration checks. Active jobs are 12.13a
+background header indexing/completion review fixes and independent review of 15.7b
+generic-type body placement.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -21,13 +23,15 @@ User-owned `c4/` has not been changed by the manager.
 | 11.14 LSP speed pass | `../GoToCPP-11.14` / `job/11.14` | Guarded-check implementation integrated from `4e444985` after clean whole-net review and passing focused manager checks. Remaining final-build benchmarks and every-row gopls goal are open. |
 | 12.14 cold typed probing | `../GoToCPP-12.14` / `job/12.14` | Safe partial implementation integrated from `d13cf67a` after clean round-4 review and focused/combined manager checks. Full type preambles retained; prefetch cancellation and immutable sharing fixed. Cold < 0.5 s remains unmet. |
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Integrated from `b68eb6ac` after clean whole-net review and passing focused/combined manager checks. Array aliases, shared stack budgets, generic facts and shadow-dependent holders are covered. Full benchmarks and platform acceptance remain open. |
+| 15.6a concrete interface calls | `../GoToCPP-15.6a` / `job/15.6a` | Integrated from `01ec0226` after clean whole-net review and focused source/integrated manager checks. Ownership, ordering, nil/recover and fallback behavior preserved; kernel-only performance evidence. Bounds checks and full Phase 15 acceptance remain open. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
 | 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Existing launcher support documented/tested and integrated from `a67c4e69` after clean review and manager checks. No production change, real cache-hit evidence or speedup claim. Remaining 15.7 work is open. |
 | 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Three
-coders are active: 12.13a, 15.6a and 15.7b. The new 15.7b worktree is
+no delegation by workers, and final reports only except genuinely blocked decisions. Two
+workers are active: the 12.13a coder addressing the complete first-review findings and the
+15.7b independent reviewer. The new 15.7b worktree is
 `../GoToCPP-15.7b` on `job/15.7b`, based on `1c7081e9`; larger generic-type bodies are its
 bounded scope, not C++20 modules. Start the next review when its coder finishes; never fill
 slots with blocked work. Continue those subjobs, then the remaining

@@ -102,6 +102,8 @@ type funcGen struct {
 	// singleDefs are the local variables that only their declaration gives a value
 	// (panicid.go), found on first use.
 	singleDefs map[*types.Var]ast.Expr
+	// ifaceCallUses are interface locals used only as direct method-call receivers (devirt.go).
+	ifaceCallUses map[*types.Var]bool
 	// inPlace are the boxed locals that an argument of fmt copies in place (inplace.go),
 	// found on first use, for the code inPlaceTop.
 	inPlace       map[*types.Var]bool

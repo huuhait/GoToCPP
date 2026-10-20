@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a in progress; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a merged and 15.7b in review; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -16,7 +16,7 @@
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
 - [x] 15.5 Swiss-table maps
 - [~] 15.6 Devirtualization + bounds-check help
-  - [~] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved
+  - [x] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved, clean independent review and focused manager source/integration checks
   - [ ] 15.6b Bounds-check help
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
@@ -49,6 +49,20 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.6a integrated from reviewed source `01ec0226` (ADR-118). A direct adapter
+  reuses the existing owning method-table thunk only for tightly proven same-package,
+  non-generic concrete receivers. Receiver/argument ordering, nil wrappers, recover tickets
+  and trace identity are preserved; other calls keep dynamic dispatch. Independent review
+  is clean, including extra callback/owner-drop and nil-ordering probes. Manager checks
+  passed: proof/fallback tests, real benchmark discovery, six selected emission goldens,
+  the new fixture on GCC/Clang and real Go, and GCC/Clang ASan/UBSan. Combined-tree proof
+  checks and three direct/borrowed-receiver fixtures passed on both compilers and real Go
+  with no selected-case skips; docsite checked 224 pages with no broken link.
+  Audited seven-run no-LTO O2 kernel medians were GCC 40.904 to 32.836 ms and Clang 49.239
+  to 33.120 ms, with all outputs matching Go. This is dispatch/inlining microbenchmark
+  evidence, not a whole-project, release/LTO, Windows or full-suite acceptance claim.
+  The manager did not repeat performance timings. Bounds-check work remains 15.6b.
 
 - 2026-10-20: 15.7a integrated from reviewed source `a67c4e69`. Existing `CXX`/`GOCPP_CXX`
   command prefixes already support compiler-cache launchers, so no `GOCPP_CCACHE` knob or

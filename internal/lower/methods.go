@@ -394,6 +394,11 @@ func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *select
 	// evaluates first; a pointer method is a static call, T::PM(recv, args).
 	// A deferred call's receiver is an argument of gp_push_call (deferThunk).
 	sc := &orderScope{objFirst: !pathOf(s).ptrRecv && c != fg.deferCall}
+	if _, _, direct := fg.devirtTarget(c, x, pathOf(s)); direct {
+		// The concrete adapter takes the receiver as an ordinary argument, so explicit
+		// receiver/argument calls must be ordered even when C++ evaluates right to left.
+		sc.objFirst = false
+	}
 	if fg.foreignWork(append([]ast.Expr{x.X}, c.Args...)...) {
 		sc.snapshots = c.Args
 		sc.keepPanics = true
@@ -471,6 +476,11 @@ func (fg *funcGen) methodCall(c *ast.CallExpr, x *ast.SelectorExpr, s *selection
 			var how lendHow
 			recv, how = fg.lendRecv(x, r, recv, sum.pure && !fg.hotRecv(x, r) && fg.noCalls(append([]ast.Expr{x.X}, c.Args...)...))
 			fg.g.noteLend(x.X.Pos(), fn, how)
+		}
+	}
+	if !tuple && !stored {
+		if direct := fg.devirtCall(c, x, r, recv, args); direct != nil {
+			return direct
 		}
 	}
 	keep := isInterface(r.end) && !stored && (r.deref || !fg.stableCallee(x.X))
