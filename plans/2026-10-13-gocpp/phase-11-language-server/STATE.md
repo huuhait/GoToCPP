@@ -31,7 +31,8 @@
 - [x] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro (whole-current-net review clean at `c69600da`; manager focused and receiver-integration checks passed)
 - [~] 11.14 Fresh-typing and completion speed pass (ADR-115)
   - [x] Guarded focused checks and quick publication: clean whole-net review, manager focused checks passed; line-mapped packages conservatively use full checks
-  - [ ] Final integrated measurements and consistent every-row gopls wins: historical all-round results still lose some typing rows
+  - [~] 11.14b Targeted current-build typing/completion measurements and a settle-active workload; profile the remaining gap before changing code
+  - [ ] Consistent every-row gopls wins: historical all-round results still lose some typing rows
 
 ## Exit criteria
 

@@ -5,10 +5,12 @@
 This section supersedes the older checkpoints below. The user asked to continue the work
 and plan, keeping the latest limit of **five active workers total**, including reviewers.
 
-`dev` is `94c4a6d9`, synchronized with `origin/dev` at recovery. The most recent completed
-jobs are 12.12 (typed-interop tests), 9.10 (Go's own tests), and 14.6 (Windows debugging and
-target-aware typed probes), plus the environment-variable listing fix. The main checkout
-has no tracked pending changes; user-owned `c4/` remains untracked and untouched.
+At recovery, `dev` was `94c4a6d9`. The current pushed checkpoint is `ca4819df`: 9.12 docs,
+11.14 guarded checks, the safe PCH/prefetch portion of 12.14, 15.2 escape analysis, and 15.7a
+compiler-cache documentation/tests are now integrated. The global LSP and cold-probing
+performance criteria remain open. The new active jobs are 11.14b targeted measurements,
+12.13a background header indexing/completion, and 9.13a release-preparation review.
+User-owned `c4/` has not been changed by the manager.
 
 | Job | Existing worktree / branch | Resume gate |
 |---|---|---|
@@ -19,11 +21,10 @@ has no tracked pending changes; user-owned `c4/` remains untracked and untouched
 | 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Existing launcher support documented/tested and integrated from `a67c4e69` after clean review and manager checks. No production change, real cache-hit evidence or speedup claim. Remaining 15.7 work is open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Five
-workers are now active, including the independent 15.7a build-driver subtask. Start the next
-review when its coder finishes and releases a slot; never fill slots with blocked work.
-After these jobs, resume 12.13 editor integration and the 9.13 release-candidate prerequisites,
-then 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is not waived by merging
+no delegation by workers, and final reports only except genuinely blocked decisions. Three
+workers are currently active: the 12.13a and 11.14b coders and the 9.13a reviewer. Start the next
+review when its coder finishes; never fill slots with blocked work. Continue those subjobs,
+then the remaining 12.13 editor features, 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is not waived by merging
 an independently reviewed partial improvement.
 
 Only necessary focused checks may run. Nobody runs `make ci`, `verify.sh`, full test,

@@ -29,9 +29,9 @@
   - [x] E1 (`[cstdio.BUFSIZ]byte`) and E2 (embedded `std.vector[int]`)
   - [x] float and string macros; header edit invalidates probes
   - [~] probe speed benchmarks done; clang 17–21 JSON compatibility: tolerance tests + `tools/clang-matrix.sh` ready, only clang 21 exists in the dev shell (17-20 untested)
-- [ ] 12.13 Language-server integration
-  - [ ] header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache)
-  - [ ] header-package (`raylib.`) and namespace (`std.`) completion from the index
+- [~] 12.13 Language-server integration
+  - [~] 12.13a Background header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache)
+  - [~] 12.13a Header-package (`raylib.`) and namespace (`std.`) completion from the index
   - [ ] member completion on C++ values (`-Xclang -code-completion-at` fallback)
   - [ ] hover + go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
