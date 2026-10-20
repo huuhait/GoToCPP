@@ -577,7 +577,7 @@ value, and `Equal`/`Clone`/`JSON` need the kind of every field):
 | `String` | `String()` for constant enums (same output style as Go's `stringer`) |
 | `Equal` | `Equal(other T) bool`, deep equality (also compares slices and maps) |
 | `Clone` | `Clone() T`, deep copy (reference cycles are not supported; documented) |
-| `JSON` | for **structs**: `MarshalJSON`/`UnmarshalJSON` from struct tags (`json:"name,omitempty"`), reflection-free; `encoding/json` (Phase 09) picks them up through its `Marshaler` interface. On a non-struct type it is an error (`encoding/json` would print an enum's number, which surprises people; derive `String` and implement `MarshalText` instead) |
+| `JSON` | for **structs**: `MarshalJSON`/`UnmarshalJSON` that call `encoding/json` on a method-less copy of the struct, so tags (`json:"name,omitempty"`), embedded structs, escaping and number formats are `encoding/json`'s own and the output is exact. **It is an API shim, not a faster encoder** (step 9.11, ADR-102: the plan said "reflection-free"; the methods are no faster than a plain struct, usually slower); the file must import `encoding/json`; the options of an outer `Decoder` (`DisallowUnknownFields`) do not reach a derived value. On a non-struct type it is an error (`encoding/json` would print an enum's number, which surprises people; derive `String` and implement `MarshalText` instead) |
 
 `Clone` and `JSON` are the first derives to move after v1 if time is short.
 
@@ -664,9 +664,10 @@ at the call site **and** at the macro or derive that produced it.
     enums only: a struct is an error, `fmt` prints structs), `Equal` and `Clone`. The loader (`internal/load/derive.go`) adds the
     method stubs (final signatures, at the name in the `#Derive` line); `internal/check/derive.go` writes the bodies as
     `//line`-mapped source text when `go/types` is done and checks the package again. The generated code imports
-    nothing (the language server knows the imports from the header of a file alone). `JSON` is **not built**:
-    `encoding/json` is a stub until step 9.11; `#Derive(JSON)` is an error that says so. Cycles are not supported (the
-    plan said so for `Clone`).
+    nothing (the language server knows the imports from the header of a file alone), except `JSON`, which step 9.11 built
+    ([ADR-102](../../../docs/adr/102-encoding-json-is-go-s-own-package-and-derive-json-calls-it.md)): `MarshalJSON` and
+    `UnmarshalJSON` call `encoding/json` on a method-less copy of the struct, so the output is exactly Go's (an API
+    shim, no faster than a plain struct), and the file must import `encoding/json`. Cycles are not supported (the plan said so for `Clone`).
 11. **10.11 `gocpp expand`.**
     *Built (step 10.11, [ADR-091](../../../docs/adr/091-expand-prints-the-go-the-compiler-works-with.md),
     [guide](../../../docs/guides/expand.md)):* `cmd/gocpp/expand.go`. It is the check (the full one, with the derived

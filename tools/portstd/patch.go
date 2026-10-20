@@ -20,6 +20,7 @@ import (
 //	# a comment (a line that starts with #, outside a rule)
 //	@note   A known divergence from Go, for the PORT.md of the package.
 //	@skip   unsafe_tricks.go   reason (the upstream file is not taken)
+//	@asm    stub.s   reason (an assembly file that the build constraints keep and a patch replaces)
 //	@file   wrap.go
 //	@why    The reason for the rules that follow, up to the next @why.
 //	@replace [count=N]
@@ -44,12 +45,13 @@ type Rule struct {
 type Rules struct {
 	Notes []string
 	Skips map[string]string // file -> reason
+	Asm   map[string]string // assembly file -> reason: the build constraints keep it, a patch writes its work in Go
 	Rules []Rule
 }
 
 // parseRules reads a rules file.
 func parseRules(name, text string) (*Rules, error) {
-	r := &Rules{Skips: make(map[string]string)}
+	r := &Rules{Skips: make(map[string]string), Asm: make(map[string]string)}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	var file, why string
 	errorf := func(n int, format string, args ...any) error {
@@ -75,6 +77,13 @@ func parseRules(name, text string) (*Rules, error) {
 				return nil, errorf(i, "usage: @skip file.go reason")
 			}
 			r.Skips[f] = reason
+		case "@asm":
+			f, reason, _ := strings.Cut(rest, " ")
+			reason = strings.TrimSpace(reason)
+			if f == "" || reason == "" || !strings.HasSuffix(f, ".s") {
+				return nil, errorf(i, "usage: @asm file.s reason")
+			}
+			r.Asm[f] = reason
 		case "@file":
 			if rest == "" || strings.ContainsAny(rest, " /") {
 				return nil, errorf(i, "usage: @file name.go")
@@ -130,7 +139,7 @@ func parseRules(name, text string) (*Rules, error) {
 			}
 			r.Rules = append(r.Rules, rule)
 		default:
-			return nil, errorf(i, "unknown line %q (want @note, @skip, @file, @why or @replace)", line)
+			return nil, errorf(i, "unknown line %q (want @note, @skip, @asm, @file, @why or @replace)", line)
 		}
 	}
 	return r, nil

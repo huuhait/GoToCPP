@@ -32,6 +32,24 @@ sort
 regexp/syntax
 regexp
 flag
+encoding
+encoding/base64
+encoding/json
+encoding/hex
+encoding/binary arch=amd64
+container/list
+container/heap
+container/ring
+hash
+hash/fnv
+hash/crc32
+text/tabwriter
+internal/chacha8rand
+math/rand
+math/rand/v2
+log/internal
+log
+path/filepath os=linux,windows
 
 # A line "options <pkg> os=... arch=... tags=..." gives the options of a package that is not ported yet, for -list
 # (the closure of the tier-1 packages). None is needed now: every package of the closure that is ported has its line above.

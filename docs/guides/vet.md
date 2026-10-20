@@ -204,7 +204,7 @@ repository: no crash, and no finding except the one that is right (`unsafe_build
 The programs of `tests/run` for `!` and macros, `examples/must-errors` and the macro packages of
 `tests/pkgs` are vetted too (`TestMustCorpus`): the analyzers of gocpp find nothing there except
 `umacro_lazy.gp`, where the macro `Never` has a lazy parameter that it never calls, on purpose.
-`examples/macros` can't be vetted while `#Derive(JSON)` waits for `encoding/json`. The tests of
+The tests of
 the C/C++ boundary do some of what the analyzers say, on purpose: a conversion that cuts
 (`c_constant_precision.gp`, `float_conversions.gp`), a NUL byte in a C string (`cgo_helpers.gp`),
 and the address of a parameter in a package variable that only a deferred call reads

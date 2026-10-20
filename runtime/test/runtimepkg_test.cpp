@@ -25,8 +25,11 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
+#include <bit>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -287,7 +290,81 @@ void test_mem() {
     (void)idle2;
 }
 
+// runtime_rand (runtime.rand: math/rand's global generator): values differ, the bits are balanced,
+// and each thread has a stream of its own.
+void test_rand() {
+    std::set<uint64_t> seen;
+    uint64_t ones = 0;
+    const int n = 10000;
+    for (int i = 0; i < n; i++) {
+        uint64_t v = gp::runtime::runtime_rand();
+        seen.insert(v);
+        ones += static_cast<uint64_t>(std::popcount(v));
+    }
+    CHECK_EQ(seen.size(), size_t(n));
+    double mean = double(ones) /
+                  n; // 32 bits of 64 are set on average: the standard deviation of the mean is 0.04
+    CHECK(mean > 31.5 && mean < 32.5);
+    uint64_t other = 0;
+    std::thread([&] { other = gp::runtime::runtime_rand(); }).join();
+    uint64_t again = 0;
+    std::thread([&] { again = gp::runtime::runtime_rand(); }).join();
+    CHECK(other != again); // two new threads, two seeds
+    CHECK(!seen.contains(other));
+}
+
+// splitmix64: the known answers of the reference generator (Vigna) for the seed 0, and the state it
+// leaves.
+void test_splitmix() {
+    uint64_t state = 0;
+    CHECK_EQ(gp::runtime::splitmix64(state), uint64_t(0xe220a8397b1dcdafull));
+    CHECK_EQ(gp::runtime::splitmix64(state), uint64_t(0x6e789e6aa1b965f4ull));
+    CHECK_EQ(gp::runtime::splitmix64(state), uint64_t(0x06c45d188009454full));
+    CHECK_EQ(state, uint64_t(3) * 0x9E3779B97F4A7C15ull);
+    uint64_t other = 12345;
+    CHECK_EQ(gp::runtime::splitmix64(other), uint64_t(0x22118258a9d111a0ull));
+}
+
+// stack_room: a recursion that stops when it says so uses a part of the stack and does not overflow
+// it.
+[[gnu::noinline]] int64_t eat_stack(int64_t depth, int64_t* deepest) {
+    volatile char pad[2048];
+    pad[0] = char(depth);
+    if (gp::runtime::stack_room() < 0) {
+        *deepest = depth;
+        return depth + pad[0] - char(depth);
+    }
+    return eat_stack(depth + 1, deepest) + (pad[0] - char(depth));
+}
+
+void test_stack_room() {
+    int64_t room = gp::runtime::stack_room();
+    CHECK(room > 0);
+    int64_t deepest = 0;
+    eat_stack(0, &deepest);
+    // 2 KiB for each level: more than 100 levels and (the stack is 8 MiB or less) less than 4096 of
+    // them
+    CHECK(deepest > 100 && deepest < 4096);
+    CHECK(gp::runtime::stack_room() > room / 2); // back at the top: the room is the same
+    // A goroutine has a stack of its own, with its own room.
+    int64_t g_deepest = 0;
+    gp::waiter w;
+    gp::go([&] {
+        eat_stack(0, &g_deepest);
+        w.gp_unpark();
+    });
+    w.gp_park();
+    CHECK(g_deepest > 100 && g_deepest < 4096);
+    // A thread of the C++ library has an unknown stack: all the room there is.
+    int64_t std_room = 0;
+    std::thread([&] { std_room = gp::runtime::stack_room(); }).join();
+    CHECK_EQ(std_room, std::numeric_limits<int64_t>::max());
+}
+
 void run_unit_tests() {
+    test_splitmix();
+    test_stack_room();
+    test_rand();
     test_cgroup();
     test_adjust();
     test_procs();

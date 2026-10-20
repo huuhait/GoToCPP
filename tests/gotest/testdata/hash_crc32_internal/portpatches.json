@@ -1,0 +1,9 @@
+{
+ "patches": [
+  [
+   "\"internal/byteorder\"",
+   "\"example.com/m/internal/byteorder\""
+  ]
+ ],
+ "extra": []
+}

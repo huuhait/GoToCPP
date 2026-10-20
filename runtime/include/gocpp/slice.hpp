@@ -596,6 +596,15 @@ slice<int32_t> to_runes_const(const string& s);
 string to_string(const slice<uint8_t>& b);
 string to_string(const slice<int32_t>& r);
 
+// retype_slice<E>(s): the slice s with its elements seen as E, a named type with the same
+// layout (type Uint8 uint8: []Uint8("abc") is retype_slice<Uint8>(to_bytes("abc")), and
+// string(u8s) is to_string(retype_slice<uint8_t>(u8s))). Same array, owner, length and capacity.
+template <typename E, typename U>
+slice<E> retype_slice(const slice<U>& s) {
+    static_assert(sizeof(E) == sizeof(U) && alignof(E) == alignof(U));
+    return slice<E>(s.gp_owner(), reinterpret_cast<E*>(s.gp_data()), s.gp_len(), s.gp_cap());
+}
+
 namespace detail {
 
 // grow: a new array with room for new_len elements (and maybe more), holding a copy of s's

@@ -39,6 +39,7 @@ type Derive struct {
 	Pos  token.Pos     // the # of the line
 	Gens []*DeriveGen  // the generators, in the order written
 	Recv string        // the name of the receiver of the methods
+	Data string        // the name of the parameter of UnmarshalJSON: data, unless that name is a type of the package or is used by the declaration
 }
 
 // A DeriveGen is one name in the line: String, Equal, Clone or JSON.
@@ -51,8 +52,15 @@ type DeriveGen struct {
 // DeriveNames are the generators of #Derive, in the order of the documentation.
 var DeriveNames = []string{"String", "Equal", "Clone", "JSON"}
 
+// The name of the method that #Derive(JSON) adds besides MarshalJSON and UnmarshalJSON: encoding/json calls it to take the address of the value as a pointer to
+// a struct without methods and to encode or decode that directly, without the detour through the bytes that makes nested values quadratic (ADR-102).
+const jsonPlainPtrMethod = "GoCPPJSONPlainPtr"
+
 // deriveMethods returns the names of the methods that the generator gen adds.
 func deriveMethods(gen string) []string {
+	if gen == "JSON" {
+		return []string{"MarshalJSON", "UnmarshalJSON", jsonPlainPtrMethod}
+	}
 	return []string{gen}
 }
 
@@ -120,6 +128,7 @@ func (b *builtinPass) deriveCall(gd *ast.GenDecl, spec *ast.TypeSpec, call *ast.
 		b.deriveSeen[spec] = seen
 	}
 	d.Recv = deriveRecv(spec, b.packageNames())
+	d.Data = deriveData(spec, b.packageNames(), d.Recv)
 	bad := false
 	for _, a := range call.Args {
 		id, ok := a.(*ast.Ident)
@@ -148,10 +157,6 @@ func (b *builtinPass) deriveCall(gd *ast.GenDecl, spec *ast.TypeSpec, call *ast.
 	var stubs []ast.Decl
 	for _, g := range d.Gens {
 		if !b.deriveKind(g, spec) {
-			continue
-		}
-		if g.Name == "JSON" {
-			b.errorf(g.Pos, "#Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11")
 			continue
 		}
 		clash := false
@@ -302,6 +307,29 @@ func deriveRecv(spec *ast.TypeSpec, pkgNames map[string]token.Pos) string {
 	return "gp_recv"
 }
 
+// deriveData returns the name of the parameter of UnmarshalJSON: "data", or gp_data (gp_data1...) when "data" is declared at the
+// package level (a type named data would be hidden by the parameter in the body: type gp_plain data) or used in the type's declaration.
+func deriveData(spec *ast.TypeSpec, pkgNames map[string]token.Pos, recv string) string {
+	used := map[string]bool{recv: true}
+	ast.Inspect(spec, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			used[id.Name] = true
+		}
+		return true
+	})
+	name := "data"
+	for i := 0; ; i++ {
+		_, pkg := pkgNames[name]
+		if !used[name] && !pkg {
+			return name
+		}
+		name = "gp_data"
+		if i > 0 {
+			name += strconv.Itoa(i)
+		}
+	}
+}
+
 // stub returns the method m of the generator g of d: its final signature and a body that only
 // panics. Everything has the place of the name of the generator in the #Derive line.
 func (b *builtinPass) stub(d *Derive, g *DeriveGen, m string) *ast.FuncDecl {
@@ -343,6 +371,15 @@ func (b *builtinPass) stub(d *Derive, g *DeriveGen, m string) *ast.FuncDecl {
 		results = list(field("", id("bool")))
 	case "Clone":
 		results = list(field("", typ()))
+	case "MarshalJSON":
+		results = list(field("", &ast.ArrayType{Lbrack: pos, Elt: id("byte")}), field("", id("error")))
+	case "UnmarshalJSON":
+		recvType = &ast.StarExpr{Star: pos, X: recvType}
+		params = list(field(d.Data, &ast.ArrayType{Lbrack: pos, Elt: id("byte")}))
+		results = list(field("", id("error")))
+	case jsonPlainPtrMethod:
+		recvType = &ast.StarExpr{Star: pos, X: recvType}
+		results = list(field("", id("any")))
 	}
 	if params == nil {
 		params = list()

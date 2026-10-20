@@ -46,9 +46,6 @@ type Rec struct{}
 #Derive(JSON) // ERROR "#Derive\(JSON\): Table is not a struct type"
 type Table map[string]int
 
-#Derive(JSON) // ERROR "#Derive\(JSON\) is not available yet: it needs encoding/json"
-type Event struct{ ID int }
-
 #Derive(Clone, Equal) // ERROR "#Derive\(Equal\): the type Dup has a method Equal already \(declared at derive_decl_errors.gp:\d+\)"
 type Dup struct{ A []int }
 

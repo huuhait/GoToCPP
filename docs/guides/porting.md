@@ -131,6 +131,7 @@ changes the text breaks the rule loudly.
 # a comment
 @note   A known divergence from Go, for the PORT.md of the package.
 @skip   helper.go   the reason the upstream file is not taken
+@asm    stub.s      the reason an assembly file that the build constraints keep is no blocker (a patch writes its work in Go)
 @file   wrap.go
 @why    The reason for the rules that follow, up to the next @why.
 @replace [count=N]

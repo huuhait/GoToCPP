@@ -364,14 +364,6 @@ var curated = []Message{
 		Spec:    "language.md#derive",
 	},
 	{
-		ID: "loader/derive-json", Source: "loader", Phase: 9,
-		Pattern: "#Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11",
-		Title:   "#Derive(JSON) before encoding/json",
-		Why:     "#Derive(JSON) is meant to write MarshalJSON and UnmarshalJSON from the struct tags without reflection. The code it writes is built on encoding/json (its Marshaler and Unmarshaler contract, the escaping and the number formats), which is only a declaration stub until step 9.11 of Phase 09 ports it.",
-		Fix:     "Use encoding/json on the struct as it is once it exists (it reads the tags by itself), or write MarshalJSON and UnmarshalJSON by hand.",
-		Spec:    "language.md#derive",
-	},
-	{
 		ID: "loader/derive-kind-json", Source: "loader", Phase: 10,
 		Pattern: "#Derive(JSON): %s is not a struct type (encoding/json handles slices, arrays and maps by itself)",
 		Title:   "JSON on a type that is not a struct",
@@ -431,7 +423,7 @@ var curated = []Message{
 		ID: "checker/derive-field", Source: "checker", Phase: 10,
 		Pattern: "#Derive(%s): the type %s has a field %s already: a field and a method cannot have the same name",
 		Title:   "A field with the name of a derived method",
-		Why:     "A struct cannot have a field and a method with one name, and a generator adds String, Equal, Clone, MarshalJSON and UnmarshalJSON.",
+		Why:     "A struct cannot have a field and a method with one name, and a generator adds String, Equal, Clone, MarshalJSON, UnmarshalJSON and GoCPPJSONPlainPtr.",
 		Fix:     "Rename the field, or leave the generator out.",
 		Spec:    "language.md#derive",
 	},
@@ -441,6 +433,14 @@ var curated = []Message{
 		Title:   "A package that the file does not import",
 		Why:     "The generated code writes the types of the fields as the file of the type writes them, so the file has to import their packages.",
 		Fix:     "Add the import to the file that declares the type.",
+		Spec:    "language.md#derive",
+	},
+	{
+		ID: "checker/derive-json-import", Source: "checker", Phase: 9,
+		Pattern: "#Derive(JSON): the methods call encoding/json, which the file does not import: add import \"encoding/json\" to the file of %s",
+		Title:   "#Derive(JSON) in a file that does not import encoding/json",
+		Why:     "MarshalJSON and UnmarshalJSON call json.Marshal and json.Unmarshal on a copy of the struct type that has no methods (type gp_plain T), so the output is exactly encoding/json's. The calls are written with the name that the file gives the package, so the file of the type must import it.",
+		Fix:     "Add import \"encoding/json\" to the file that declares the type.",
 		Spec:    "language.md#derive",
 	},
 	{

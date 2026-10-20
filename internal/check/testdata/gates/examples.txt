@@ -61,7 +61,34 @@
 == hello
 
 == macros
-./main.gp:77:9: #Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11
+./main.gp:12:2: package encoding/json is not available yet (Phase 09)
+./main.gp:14:2: package sync is not available yet (Phase 08)
+./main.gp:19:7: function values are not supported yet (Phase 03)
+./main.gp:19:25: generic functions are not supported yet (Phase 07)
+./main.gp:21:13: fmt.Sprintf is not available yet (Phase 03)
+./main.gp:35:9: closures are not supported yet (Phase 03)
+./main.gp:39:14: pointers are not supported yet (Phase 03)
+./main.gp:47:2: defer is not supported yet (Phase 03)
+./main.gp:48:6: any values are not supported yet (Phase 05)
+./main.gp:48:11: built-in function recover is not supported yet (Phase 05)
+./main.gp:58:2: channels are not supported yet (Phase 08)
+./main.gp:58:10: built-in function make is not supported yet (Phase 03)
+./main.gp:58:20: composite types are not supported yet (Phase 03)
+./main.gp:59:2: go statements are not supported yet (Phase 08)
+./main.gp:60:9: built-in function close is not supported yet (Phase 08)
+./main.gp:66:9: methods are not supported yet (Phase 03)
+./main.gp:66:15: conversions between strings and bytes, runes or integers are not supported yet (Phase 03)
+./main.gp:67:6: type declarations are not supported yet (Phase 03)
+./main.gp:76:15: type declarations are not supported yet (Phase 03)
+./main.gp:76:17: composite types are not supported yet (Phase 03)
+./main.gp:76:17: error values are not supported yet (Phase 05)
+./main.gp:76:32: composite types are not supported yet (Phase 03)
+./main.gp:76:38: pointers are not supported yet (Phase 03)
+./main.gp:95:1: package-level variables are not supported yet (Phase 03)
+./main.gp:97:31: variadic functions are not supported yet (Phase 03)
+./main.gp:99:21: format strings that are not constants are not supported yet (Phase 05)
+./main.gp:105:2: error values are not supported yet (Phase 05)
+./main.gp:105:24: conversions between strings and bytes, runes or integers are not supported yet (Phase 03)
 
 == mixed-sources
 ./main.gp:13:2: package unsafe is not available yet (Phase 03)

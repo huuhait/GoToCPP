@@ -1,0 +1,13 @@
+{
+ "patches": [
+  [
+   "//gocpp:native gp::runtime::runtime_rand\nfunc runtime_rand() uint64\n",
+   ""
+  ],
+  [
+   "\"internal/godebug\"",
+   "\"example.com/m/internal/godebug\""
+  ]
+ ],
+ "extra": []
+}

@@ -1,0 +1,14 @@
+{
+ "patches": [
+  [
+   "\"log/internal\"",
+   "\"example.com/m/internal/log\""
+  ]
+ ],
+ "extra": [
+  [
+   "log/internal",
+   "internal/log"
+  ]
+ ]
+}

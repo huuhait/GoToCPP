@@ -69,6 +69,7 @@ chan/select7.go
 chan/select8.go
 chan/sendstmt.go
 chan/sieve1.go
+chan/sieve2.go
 chan/zerosize.go
 chanlinear.go
 char_lit.go
@@ -706,6 +707,7 @@ fixedbugs/issue16733.go
 fixedbugs/issue16741.go
 fixedbugs/issue16760.go
 fixedbugs/issue16804.go
+fixedbugs/issue16870.go
 fixedbugs/issue16948.go
 fixedbugs/issue16949.go
 fixedbugs/issue16985.go
@@ -746,6 +748,8 @@ fixedbugs/issue19078.go
 fixedbugs/issue19084.go
 fixedbugs/issue19137.go
 fixedbugs/issue19182.go
+fixedbugs/issue19201.go
+fixedbugs/issue19217.go
 fixedbugs/issue19246.go
 fixedbugs/issue19275.go
 fixedbugs/issue19323.go
@@ -941,10 +945,13 @@ fixedbugs/issue29562.go
 fixedbugs/issue29610.go
 fixedbugs/issue29612.go
 fixedbugs/issue29855.go
+fixedbugs/issue29870.go
 fixedbugs/issue29870b.go
 fixedbugs/issue29943.go
 fixedbugs/issue30085.go
 fixedbugs/issue30087.go
+fixedbugs/issue30116.go
+fixedbugs/issue30116u.go
 fixedbugs/issue30243.go
 fixedbugs/issue30430.go
 fixedbugs/issue30566a.go
@@ -967,6 +974,7 @@ fixedbugs/issue31915.go
 fixedbugs/issue31959.go
 fixedbugs/issue31987.go
 fixedbugs/issue32175.go
+fixedbugs/issue32187.go
 fixedbugs/issue32288.go
 fixedbugs/issue32347.go
 fixedbugs/issue32454.go
@@ -1084,6 +1092,7 @@ fixedbugs/issue43701.go
 fixedbugs/issue43762.go
 fixedbugs/issue43835.go
 fixedbugs/issue43908.go
+fixedbugs/issue43942.go
 fixedbugs/issue43962.go
 fixedbugs/issue4396a.go
 fixedbugs/issue4396b.go
@@ -1108,6 +1117,7 @@ fixedbugs/issue4468.go
 fixedbugs/issue4470.go
 fixedbugs/issue44732.go
 fixedbugs/issue44739.go
+fixedbugs/issue44823.go
 fixedbugs/issue44830.go
 fixedbugs/issue4495.go
 fixedbugs/issue4510.go
@@ -1324,6 +1334,7 @@ fixedbugs/issue61778.go
 fixedbugs/issue61895.go
 fixedbugs/issue61908.go
 fixedbugs/issue61992.go
+fixedbugs/issue62203.go
 fixedbugs/issue62313.go
 fixedbugs/issue62469.go
 fixedbugs/issue6247.go
@@ -1610,6 +1621,7 @@ ken/cplx2.go
 ken/cplx3.go
 ken/cplx4.go
 ken/cplx5.go
+ken/divconst.go
 ken/divmod.go
 ken/embed.go
 ken/for.go
@@ -1619,6 +1631,7 @@ ken/intervar.go
 ken/label.go
 ken/litfun.go
 ken/mfunc.go
+ken/modconst.go
 ken/ptrvar.go
 ken/range.go
 ken/rob1.go
@@ -1783,6 +1796,7 @@ typeparam/issue48276a.go
 typeparam/issue48276b.go
 typeparam/issue48280.go
 typeparam/issue48306.go
+typeparam/issue48317.go
 typeparam/issue48337a.go
 typeparam/issue48337b.go
 typeparam/issue48344.go

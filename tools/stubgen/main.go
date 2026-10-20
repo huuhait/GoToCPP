@@ -117,7 +117,7 @@ var packages = []stubPackage{
 	{Path: "iter", Phase: 7, Real: true},
 	{Path: "unicode", Phase: 9, Real: true},
 	{Path: "unicode/utf8", Phase: 9, Real: true},
-	{Path: "encoding", Phase: 9},
+	{Path: "encoding", Phase: 9, Real: true},
 	{Path: "io", Phase: 9, Real: true},
 	{Path: "time", Phase: 8, Real: true},
 	{Path: "io/fs", Phase: 9, Real: true},
@@ -137,7 +137,7 @@ var packages = []stubPackage{
 	{Path: "runtime/debug", Phase: 8, Real: true, Missing: debugMissing},
 	{Path: "flag", Phase: 9, Real: true},
 	{Path: "regexp", Phase: 9, Real: true},
-	{Path: "encoding/json", Phase: 9},
+	{Path: "encoding/json", Phase: 9, Real: true},
 	{Path: "testing", Phase: 9, Real: true, Differs: "stdlib/testing/PORT.md lists the differences from Go's testing"},
 }
 

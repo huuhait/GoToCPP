@@ -111,9 +111,8 @@ GOCPP_STRESS=1 GOCPP_RUN_VS_GO=1 GOCPP_TEST_PHASE=09 go test ./tests -run 'RunVs
 ```
 
 Go's own `test/chan` programs run through the conformance tool, not here: `go run ./tools/gotest run -filter '^chan/' -v`
-(add `-cxx clang++` for the other compiler; [docs/guides/conformance.md](../docs/guides/conformance.md)). 17 of the 19 pass with both compilers (16 run programs and the errorcheck `perm.go`) and are in the
-regression gate; the other two are `sieve2` (needs `container/heap`, step 9.11) and `select2`, which reads the
-runtime's memory statistics and is skipped as `runtime-internals`.
+(add `-cxx clang++` for the other compiler; [docs/guides/conformance.md](../docs/guides/conformance.md)). 18 of the 19 pass (with g++; `sieve2` since step 9.11, when `container/heap` and `container/ring` came) and are in the
+regression gate; the other one, `select2`, reads the runtime's memory statistics and is skipped as `runtime-internals`.
 
 ## Sanitizers
 

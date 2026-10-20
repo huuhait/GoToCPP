@@ -176,11 +176,25 @@ func (fg *funcGen) sliceConversion(c *ast.CallExpr, to, from types.Type, x cppir
 			case types.Int32:
 				return call("gp::to_runes"+suffix, x)
 			}
+			// []E(s) with a named E whose underlying type is byte or rune (type Uint8 uint8): the
+			// same array, seen as E (gp::retype_slice).
+			switch namedElemKind(to) {
+			case types.Uint8:
+				return templateCall("gp::retype_slice", []cppir.Node{fg.g.cxxType(sliceElem(to), c.Pos())}, call("gp::to_bytes"+suffix, x))
+			case types.Int32:
+				return templateCall("gp::retype_slice", []cppir.Node{fg.g.cxxType(sliceElem(to), c.Pos())}, call("gp::to_runes"+suffix, x))
+			}
 		}
 	} else if isString(to) {
 		switch elemKind(from) {
 		case types.Uint8, types.Int32:
 			return call("gp::to_string", x)
+		}
+		switch namedElemKind(from) {
+		case types.Uint8:
+			return call("gp::to_string", templateCall("gp::retype_slice", []cppir.Node{&cppir.TypeName{Name: "uint8_t"}}, x))
+		case types.Int32:
+			return call("gp::to_string", templateCall("gp::retype_slice", []cppir.Node{&cppir.TypeName{Name: "int32_t"}}, x))
 		}
 	}
 	fg.g.unsupported(c.Pos(), "the conversion from "+types.TypeString(from, qual)+" to "+types.TypeString(to, qual))
@@ -199,6 +213,26 @@ func elemKind(t types.Type) types.BasicKind {
 	}
 	return types.Invalid
 }
+
+// namedElemKind returns the kind of the basic type under the element type of the slice type t
+// when the element is a named type (type Uint8 uint8), or types.Invalid.
+func namedElemKind(t types.Type) types.BasicKind {
+	st, ok := under(t).(*types.Slice)
+	if !ok {
+		return types.Invalid
+	}
+	el := types.Unalias(st.Elem())
+	if _, ok := el.(*types.Named); !ok {
+		return types.Invalid
+	}
+	if b, ok := el.Underlying().(*types.Basic); ok {
+		return b.Kind()
+	}
+	return types.Invalid
+}
+
+// sliceElem returns the element type of the slice type t.
+func sliceElem(t types.Type) types.Type { return under(t).(*types.Slice).Elem() }
 
 // movedExpr returns the C++ of the slice e, moved (static_cast<gp::slice<T>&&>(e)) if markMoves
 // chose it.

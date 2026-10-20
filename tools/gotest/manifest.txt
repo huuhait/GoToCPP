@@ -86,7 +86,7 @@ chan/select7.go	run	applicable	-
 chan/select8.go	run	applicable	-
 chan/sendstmt.go	run	applicable	-
 chan/sieve1.go	run	applicable	-
-chan/sieve2.go	run	applicable	needs 9.11
+chan/sieve2.go	run	applicable	-
 chan/zerosize.go	run	applicable	-
 chancap.go	run	skip:unsafe-layout	-
 chanlinear.go	run	applicable	-
@@ -213,7 +213,7 @@ defer.go	run	applicable	-
 defererrcheck.go	errorcheck	skip:gc-flags	-
 deferfin.go	run	skip:gc-finalizer	-
 defernil.go	run	applicable	-
-deferprint.go	run	skip:spec-deviation	-
+deferprint.go	run	applicable	-
 devirt.go	errorcheck	skip:gc-flags	-
 directive.go	errorcheck	skip:gc-pragma	-
 directive2.go	errorcheck	applicable	needs bug
@@ -938,7 +938,7 @@ fixedbugs/issue16733.go	compile	applicable	-
 fixedbugs/issue16741.go	compile	applicable	-
 fixedbugs/issue16760.go	run	applicable	-
 fixedbugs/issue16804.go	compile	applicable	-
-fixedbugs/issue16870.go	run	applicable	needs 9.11
+fixedbugs/issue16870.go	run	applicable	-
 fixedbugs/issue16948.go	run	applicable	-
 fixedbugs/issue16949.go	errorcheck	applicable	-
 fixedbugs/issue16985.go	run	applicable	-
@@ -996,8 +996,8 @@ fixedbugs/issue19113.go	run	applicable	needs 9.3
 fixedbugs/issue19137.go	compile	applicable	-
 fixedbugs/issue19168.go	errorcheck	skip:gc-flags	-
 fixedbugs/issue19182.go	run	applicable	-
-fixedbugs/issue19201.go	run	applicable	needs 9.11
-fixedbugs/issue19217.go	compile	applicable	needs 9.11
+fixedbugs/issue19201.go	run	applicable	-
+fixedbugs/issue19217.go	compile	applicable	-
 fixedbugs/issue19246.go	run	applicable	-
 fixedbugs/issue19261.go	errorcheckdir	skip:gc-flags	-
 fixedbugs/issue19275.go	run	applicable	-
@@ -1263,7 +1263,7 @@ fixedbugs/issue29610.go	rundir	applicable	-
 fixedbugs/issue29612.go	runindir	applicable	-
 fixedbugs/issue29735.go	run	skip:runtime-internals	-
 fixedbugs/issue29855.go	errorcheck	applicable	-
-fixedbugs/issue29870.go	compile	applicable	needs 9.11
+fixedbugs/issue29870.go	compile	applicable	-
 fixedbugs/issue29870b.go	errorcheck	applicable	-
 fixedbugs/issue29919.go	rundir	skip:runtime-internals	-
 fixedbugs/issue29943.go	run	applicable	-
@@ -1271,8 +1271,8 @@ fixedbugs/issue30041.go	run	skip:reflect-beyond-subset	-
 fixedbugs/issue30061.go	compile	skip:linkname	-
 fixedbugs/issue30085.go	errorcheck	applicable	-
 fixedbugs/issue30087.go	errorcheck	applicable	-
-fixedbugs/issue30116.go	run	applicable	needs 9.11
-fixedbugs/issue30116u.go	run	applicable	needs 9.11
+fixedbugs/issue30116.go	run	applicable	-
+fixedbugs/issue30116u.go	run	applicable	-
 fixedbugs/issue30243.go	run	applicable	-
 fixedbugs/issue30430.go	compile	applicable	-
 fixedbugs/issue30476.go	run	skip:gc-finalizer	-
@@ -1309,7 +1309,7 @@ fixedbugs/issue31959.go	rundir	applicable	-
 fixedbugs/issue31987.go	run	applicable	-
 fixedbugs/issue32133.go	errorcheck	skip:line-directive	-
 fixedbugs/issue32175.go	run	applicable	-
-fixedbugs/issue32187.go	run	applicable	needs 9.11
+fixedbugs/issue32187.go	run	applicable	-
 fixedbugs/issue32288.go	run	applicable	-
 fixedbugs/issue32347.go	compile	applicable	-
 fixedbugs/issue32454.go	compile	applicable	-
@@ -1471,7 +1471,7 @@ fixedbugs/issue43701.go	compile	applicable	-
 fixedbugs/issue43762.go	errorcheck	applicable	-
 fixedbugs/issue43835.go	run	applicable	-
 fixedbugs/issue43908.go	run	applicable	-
-fixedbugs/issue43942.go	run	applicable	needs 9.11
+fixedbugs/issue43942.go	run	applicable	-
 fixedbugs/issue43962.go	errorcheckdir	applicable	-
 fixedbugs/issue4396a.go	run	applicable	-
 fixedbugs/issue4396b.go	run	applicable	-
@@ -1497,7 +1497,7 @@ fixedbugs/issue4468.go	errorcheck	applicable	-
 fixedbugs/issue4470.go	errorcheck	applicable	-
 fixedbugs/issue44732.go	runindir	applicable	-
 fixedbugs/issue44739.go	compile	applicable	-
-fixedbugs/issue44823.go	run	applicable	needs 9.11
+fixedbugs/issue44823.go	run	applicable	-
 fixedbugs/issue44830.go	run	applicable	-
 fixedbugs/issue4495.go	run	applicable	-
 fixedbugs/issue45045.go	run	skip:gc-finalizer	-
@@ -1784,7 +1784,7 @@ fixedbugs/issue61778.go	compile	applicable	-
 fixedbugs/issue61895.go	compile	applicable	-
 fixedbugs/issue61908.go	compile	applicable	-
 fixedbugs/issue61992.go	compile	applicable	-
-fixedbugs/issue62203.go	run	applicable	needs 9.11
+fixedbugs/issue62203.go	run	applicable	-
 fixedbugs/issue62313.go	compile	applicable	-
 fixedbugs/issue62360.go	run	applicable	needs 9.11
 fixedbugs/issue62469.go	compile	applicable	-
@@ -2071,7 +2071,7 @@ gc1.go	run	applicable	-
 gc2.go	run	skip:runtime-internals	-
 gcgort.go	run	skip:runtime-internals	-
 gcstring.go	run	skip:gc-finalizer	-
-goprint.go	run	applicable	needs 9.11
+goprint.go	run	applicable	-
 goto.go	errorcheck	applicable	needs matcher
 heapsampling.go	run	skip:runtime-internals	-
 helloworld.go	run	applicable	-
@@ -2143,7 +2143,7 @@ ken/cplx2.go	run	applicable	-
 ken/cplx3.go	run	applicable	-
 ken/cplx4.go	run	applicable	-
 ken/cplx5.go	run	applicable	-
-ken/divconst.go	run	applicable	needs 9.11
+ken/divconst.go	run	applicable	-
 ken/divmod.go	run	applicable	-
 ken/embed.go	run	applicable	-
 ken/for.go	run	applicable	-
@@ -2153,7 +2153,7 @@ ken/intervar.go	run	applicable	-
 ken/label.go	run	applicable	-
 ken/litfun.go	run	applicable	-
 ken/mfunc.go	run	applicable	-
-ken/modconst.go	run	applicable	needs 9.11
+ken/modconst.go	run	applicable	-
 ken/ptrfun.go	run	skip:spec-deviation	-
 ken/ptrvar.go	run	applicable	-
 ken/range.go	run	applicable	-
@@ -2425,7 +2425,7 @@ typeparam/issue48276a.go	run	applicable	-
 typeparam/issue48276b.go	run	applicable	-
 typeparam/issue48280.go	rundir	applicable	-
 typeparam/issue48306.go	rundir	applicable	-
-typeparam/issue48317.go	run	applicable	needs 9.11
+typeparam/issue48317.go	run	applicable	-
 typeparam/issue48318.go	run	applicable	needs 9.11
 typeparam/issue48337a.go	rundir	applicable	-
 typeparam/issue48337b.go	rundir	applicable	-

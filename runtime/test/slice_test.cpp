@@ -1029,6 +1029,24 @@ void test_keyed_range_conv() {
     CHECK(gp::to_string(gp::slice<int32_t>()) == ""_gs);
 }
 
+// retype_slice: []Uint8("abc") and string(u8s) for a named byte type (gp::newtype) share the array
+// of the slice they are given.
+struct Byte8 : gp::newtype<Byte8, uint8_t> {
+    using gp::newtype<Byte8, uint8_t>::newtype;
+};
+
+void test_retype() {
+    auto b = gp::to_bytes("hello"_gs);
+    auto n = gp::retype_slice<Byte8>(b);
+    CHECK(gp::len(n) == 5 && gp::cap(n) == gp::cap(b));
+    CHECK(uint8_t(n[1]) == 'e');
+    n[0] = Byte8(uint8_t('J'));
+    CHECK(b[0] == 'J'); // the same array
+    CHECK(gp::to_string(gp::retype_slice<uint8_t>(n)) == "Jello"_gs);
+    auto none = gp::retype_slice<Byte8>(gp::slice<uint8_t>());
+    CHECK(none == nullptr && gp::len(none) == 0);
+}
+
 void run_tests() {
     test_nil_and_empty();
     test_make();
@@ -1044,6 +1062,7 @@ void run_tests() {
     test_chains();
     test_adl();
     test_keyed_range_conv();
+    test_retype();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

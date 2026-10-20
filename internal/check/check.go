@@ -669,11 +669,22 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	if plain := plainMacroUses(lp, files, info); plain != nil {
 		inPlainMacroUse = reportPlainMacroUses(fset, errs, plain) // macromsg.go
 	}
+	deriveJSONFiles := map[string]bool{} // the files that have a #Derive(JSON)
+	for _, d := range lp.Derives {
+		for _, g := range d.Gens {
+			if g.Name == "JSON" {
+				deriveJSONFiles[fset.Position(d.File.AST.Package).Filename] = true
+			}
+		}
+	}
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {
 			return used.vars[err.Pos]
 		}
 		pn := pkgNameAt(files, info, err.Pos)
+		if pn != nil && pn.Imported() != nil && pn.Imported().Path() == "encoding/json" && deriveJSONFiles[fset.Position(err.Pos).Filename] {
+			return true // #Derive(JSON) writes calls of it in this file once go/types is done (derive.go)
+		}
 		return pn != nil && used.imports[pn]
 	}, func(err types.Error) bool {
 		return inPlainMacroUse(err.Pos) || dropFalse && falseErrs.drop(err)

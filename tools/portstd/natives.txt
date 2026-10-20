@@ -39,3 +39,12 @@ runtime.coroswitch    gp::iter::coroswitch
 
 # maps (step 7.10): runtime/include/gocpp/maps.hpp and runtime/src/maps.cpp (map_clone in gocpp/map.hpp)
 maps.clone            gp::maps::clone
+
+# math/rand and math/rand/v2 (step 9.11): runtime/include/gocpp/runtimepkg.hpp; Go's runtime.rand is a ChaCha8 stream per M, this is a per-thread splitmix64 seeded from the system
+runtime.rand          gp::runtime::runtime_rand
+
+# encoding/json (step 9.11 review): the stack guard of the decoder and the encoder (patches/encoding__json.rules)
+encoding/json.stackRoom  gp::runtime::stack_room
+
+# path/filepath (step 9.11 review): the stack guard of Glob (patches/path__filepath.rules)
+path/filepath.stackRoom  gp::runtime::stack_room

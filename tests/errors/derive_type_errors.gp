@@ -66,4 +66,12 @@ type UsesOddClone struct {
 	O Odd
 }
 
+#Derive(JSON) // ERROR "#Derive\(JSON\): the methods call encoding/json, which the file does not import: add import \x22encoding/json\x22 to the file of NoImport"
+type NoImport struct {
+	A int `json:"a"`
+}
+
+#Derive(JSON) // ERROR "#Derive\(JSON\): Level is not a struct type"
+type Level int
+
 func main() {}

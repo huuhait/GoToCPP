@@ -26,7 +26,7 @@ func stdlibPackages(fsys fs.FS) ([]string, error) {
 			return nil
 		}
 		dir := path.Dir(p)
-		if dir == "." || dir == "internal" || strings.HasPrefix(dir, "internal/") || strings.Contains(dir, "/internal/") || strings.Contains(dir, "testdata") {
+		if dir == "." || dir == "internal" || strings.HasPrefix(dir, "internal/") || strings.Contains(dir, "/internal/") || strings.HasSuffix(dir, "/internal") || strings.Contains(dir, "testdata") {
 			return nil
 		}
 		seen[dir] = true

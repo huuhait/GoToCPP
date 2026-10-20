@@ -75,13 +75,13 @@ Without the switch the compiler says which package waits for its phase:
 - `strconv.Atoi` returns Go's error with Go's text, because it is Go's code.
 - `os` gives files, directories, the environment and `os.Args`; `regexp`, `time`, `context`,
   `io` and `io/fs` are there too.
-- **The standard library is a subset of Go's: 37 packages today.** The
-  [reference](../stdlib/index.html) lists them. `encoding/json` is a declaration stub for
-  now: a program that imports it type-checks, but there is no implementation yet. `flag` is Go's own
+- **The standard library is a subset of Go's: 51 packages today.** The
+  [reference](../stdlib/index.html) lists them. `encoding/json` is Go's own package (with `struct` tags, `Marshal`,
+  `Unmarshal`, `Decoder` and `Encoder`), and `#Derive(JSON)` builds on it (it is a shim that goes through `encoding/json`'s reflection, not a faster encoder: see the [language spec](../spec/language.md#derive)). `flag` is Go's own
   package, with `ExitOnError` exiting like Go's, so the programs [wc](../../examples/wc/main.gp) and
   [grep-lite](../../examples/grep-lite/main.gp) in `examples/` run.
-- A package that gocpp does not have is reported by `gocpp check`: `log`, `math/rand`,
-  `path/filepath`, `encoding/hex`, `text/template`, `net/http` and many others fail with
+- A package that gocpp does not have is reported by `gocpp check`: `text/template`,
+  `net/url`, `crypto/sha256`, `net/http` and many others fail with
   `package ... is not available yet`. The [Go developers guide](../guides/go-developers.md#what-is-not-there)
   lists the usual ones, and C++ libraries can fill gaps ([lesson 9](09-cpp-containers.md)).
 

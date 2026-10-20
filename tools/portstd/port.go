@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	gocppformat "github.com/huuhait/gocpp/internal/format"
 )
 
 // An OutFile is a file of the port.
@@ -101,7 +103,16 @@ func (p *Porter) Port(pkg string, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("package %s: %v", pkg, err)
 	}
 	res := &Result{Pkg: pkg, Name: sel.Name, Pin: pin, Opts: opts, Skipped: sel.Skipped, Tests: sel.Tests, Notes: rules.Notes}
+	for a := range rules.Asm {
+		if !slices.Contains(sel.Asm, a) {
+			return nil, fmt.Errorf("package %s: the patches name an assembly file that the build does not keep: %s (@asm)", pkg, a)
+		}
+	}
 	for _, a := range sel.Asm {
+		if reason, ok := rules.Asm[a]; ok {
+			res.Skipped = append(res.Skipped, Skip{File: a, Reason: "patch: " + reason})
+			continue
+		}
 		res.Findings = append(res.Findings, Finding{Kind: "asm", File: a, Detail: "assembly file kept by the build constraints: no pure-Go variant for this target", Blocker: true})
 	}
 	imports := make(map[string]bool)
@@ -403,6 +414,12 @@ func (p *Porter) processFile(res *Result, pkg string, sel fileSel, text string, 
 		return OutFile{}, fmt.Errorf("the port does not parse: %v", err)
 	} else if !bytes.Equal(formatted, []byte(content)) {
 		res.Findings = append(res.Findings, Finding{Kind: "format", File: name, Detail: "the port is not gofmt-clean: a patch or a rewrite left odd spacing"})
+	}
+	// The files are kept as gocpp fmt writes them (stdlib's TestStubsParse checks it): that is gofmt's but for a few details (a trailing empty // line of a
+	// doc comment, a blank line left by a deleted line).
+	// (A file that gocpp fmt does not take yet, with a pragma that a later step fills in, stays as it is.)
+	if formatted, err := gocppformat.Source(name, []byte(content)); err == nil {
+		content = string(formatted)
 	}
 	return OutFile{Name: name, From: sel.Name, Content: []byte(content), For: sel.For}, nil
 }

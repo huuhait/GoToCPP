@@ -1,0 +1,13 @@
+{
+ "patches": [
+  [
+   "\"internal/byteorder\"",
+   "\"example.com/m/internal/byteorder\""
+  ],
+  [
+   "\"internal/goarch\"",
+   "\"example.com/m/internal/goarch\""
+  ]
+ ],
+ "extra": []
+}

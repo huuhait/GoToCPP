@@ -1,0 +1,30 @@
+{
+ "patches": [
+  [
+   "//\n//gocpp:native gp::runtime::stack_room\nfunc stackRoom() int64\n",
+   ""
+  ],
+  [
+   "|| stackRoom() < 0 {",
+   "|| depth >= 3000 { // a program cannot declare the native: the copy stops at a depth that every build holds"
+  ],
+  [
+   "\"internal/bytealg\"",
+   "\"example.com/m/internal/bytealg\""
+  ],
+  [
+   "\"internal/filepathlite\"",
+   "\"example.com/m/internal/filepathlite\""
+  ],
+  [
+   "\"internal/stringslite\"",
+   "\"example.com/m/internal/stringslite\""
+  ]
+ ],
+ "extra": [
+  [
+   "internal/filepathlite",
+   "internal/filepathlite"
+  ]
+ ]
+}

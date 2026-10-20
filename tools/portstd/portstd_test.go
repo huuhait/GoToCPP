@@ -485,6 +485,52 @@ func A() int { return 2 }
 	}
 }
 
+func TestPatchAsm(t *testing.T) {
+	o := linuxOpts()
+	o.Arch = "amd64" // the build constraints keep asm_amd64.s
+	asmBlockers := func(r *Result) int {
+		n := 0
+		for _, f := range r.Findings {
+			if f.Kind == "asm" && f.File == "asm_amd64.s" {
+				n++
+			}
+		}
+		return n
+	}
+	p, _ := fixtureEnv(t, nil)
+	r, err := p.Port("fx/basic", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asmBlockers(r) != 1 {
+		t.Fatalf("without @asm: findings %+v", r.Findings)
+	}
+	p, _ = fixtureEnv(t, map[string]string{"patches/fx__basic.rules": "@asm asm_amd64.s a patch writes the work of the assembly in Go\n"})
+	r, err = p.Port("fx/basic", o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asmBlockers(r) != 0 {
+		t.Errorf("with @asm the assembly file is still a blocker: %+v", r.Findings)
+	}
+	if !slices.ContainsFunc(r.Skipped, func(s Skip) bool {
+		return s.File == "asm_amd64.s" && strings.Contains(s.Reason, "patch: a patch writes the work of the assembly in Go")
+	}) {
+		t.Errorf("skipped: %+v", r.Skipped)
+	}
+	// An @asm line for a file that the build does not keep is an error (the generic architecture keeps no assembly here).
+	p, _ = fixtureEnv(t, map[string]string{"patches/fx__basic.rules": "@asm asm_amd64.s why\n"})
+	if _, err := p.Port("fx/basic", linuxOpts()); err == nil || !strings.Contains(err.Error(), "do not keep") && !strings.Contains(err.Error(), "does not keep") {
+		t.Errorf("@asm for a file that is not kept: %v", err)
+	}
+	for _, bad := range []string{"@asm\n", "@asm x.s\n", "@asm x.go why\n"} {
+		p, _ = fixtureEnv(t, map[string]string{"patches/fx__basic.rules": bad})
+		if _, err := p.Port("fx/basic", o); err == nil || !strings.Contains(err.Error(), "usage: @asm file.s reason") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
 func TestPatchRulesFail(t *testing.T) {
 	for name, tc := range map[string]struct{ rules, want string }{
 		"no match": {"@file a.go\n@why x\n@replace\nnot there\n@with\ny\n@end\n", "occurs 0 times"},

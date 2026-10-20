@@ -176,4 +176,3 @@ text, in the declarations it prints from the tree.
 - The comments inside a declaration that was expanded may move by a statement: a comment is placed
   before the first token that comes after it in your source, and the code that `!` wrote takes the
   place of the statement it comes from.
-- `#Derive(JSON)` is an error until `encoding/json` exists (step 9.11).

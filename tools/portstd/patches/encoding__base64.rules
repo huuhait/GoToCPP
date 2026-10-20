@@ -1,0 +1,11 @@
+# encoding/base64 (step 9.11, ADR-102): Go's package; the decoder does not hold a slice of its own array.
+
+@note `decoder.Read` sets `d.out = d.outbuf[:nw]`, a slice of the array field `outbuf` that is stored in the decoder itself. In gocpp a slice of an array field holds a counted reference to the block that owns the array, which is the decoder: the decoder owned itself and no `NewDecoder` was ever freed (LeakSanitizer found 2 KB for each decoder that had read). The patch copies the decoded bytes into a slice of their own (one more allocation for each `Read` that decodes a chunk); `d.out` is the same bytes, so the output is unchanged. The same pattern (a slice of an array field stored in the struct) is why `regexp/syntax` and `regexp` have patch rules (ADR-083).
+
+@file base64.go
+@why `d.out = d.outbuf[:nw]` makes the decoder hold a counted reference to itself (a cycle that is never freed, D1).
+@replace count=2
+		d.out = d.outbuf[:nw]
+@with
+		d.out = append([]byte(nil), d.outbuf[:nw]...)
+@end

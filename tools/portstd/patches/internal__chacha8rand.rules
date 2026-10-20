@@ -1,0 +1,36 @@
+# internal/chacha8rand (step 9.11, ADR-102): the block function is Go's pure-Go block_generic; the assembly versions are not used.
+
+@note Go's `chacha8_stub.s` is a jump to `block_generic` for the architectures without assembly; the patch writes that call. The record of offsets for the Loong64 assembly (`offsetLOONG64HasLSX`) is dropped with its import of `internal/cpu`.
+
+@asm chacha8_stub.s the assembly stub that jumps to block_generic; the patch below writes the call in Go
+
+@file chacha8.go
+@why gocpp has no assembly: block is block_generic, as chacha8_stub.s does for the other architectures.
+@replace
+func block(seed *[4]uint64, blocks *[32]uint64, counter uint32)
+@with
+func block(seed *[4]uint64, blocks *[32]uint64, counter uint32) {
+	block_generic(seed, blocks, counter)
+}
+@end
+
+@why The offsets are for the Loong64 assembly, and name internal/cpu fields that gocpp's stub does not have.
+@replace
+// Offsets into internal/cpu records for use in assembly.
+const (
+	offsetLOONG64HasLSX = unsafe.Offsetof(cpu.Loong64.HasLSX)
+)
+
+@with
+@end
+
+@why Imports of the dropped constant.
+@replace
+	"internal/byteorder"
+	"internal/cpu"
+	"unsafe"
+)
+@with
+	"internal/byteorder"
+)
+@end

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <limits>
 #include <mutex>
+#include <random>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -342,6 +343,42 @@ int64_t set_memory_limit(int64_t limit) noexcept {
         return swap_setting(memory_limit, -2, parse_memlimit);
     }
     return swap_setting(memory_limit, limit, parse_memlimit);
+}
+
+uint64_t splitmix64(uint64_t& state) noexcept {
+    state += 0x9E3779B97F4A7C15ull;
+    uint64_t z = state;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+
+uint64_t runtime_rand() noexcept {
+    // The state is per thread; its seed mixes two draws of the system's source with the address of
+    // the state.
+    thread_local uint64_t state = [] {
+        std::random_device rd;
+        uint64_t a = rd(), b = rd();
+        thread_local char anchor;
+        return (a << 32) ^ b ^ reinterpret_cast<uintptr_t>(&anchor) ^ 0x9E3779B97F4A7C15ull;
+    }();
+    return splitmix64(state);
+}
+
+thread_local uintptr_t stack_floor = 0;
+
+int64_t stack_room_slow() noexcept {
+    // The lowest address that a frame may use plus the reserve, worked out once for each thread
+    // (the stack of a thread does not move). A thread whose stack is not known (yet) asks again
+    // each time.
+    uintptr_t lo = 0, hi = 0;
+    if (!gp::os::stack_bounds(lo, hi)) {
+        return std::numeric_limits<int64_t>::max();
+    }
+    auto size = static_cast<int64_t>(hi - lo);
+    stack_floor = lo + static_cast<uintptr_t>(
+                           std::clamp<int64_t>(size / 16, int64_t(128) << 10, int64_t(512) << 10));
+    return stack_room();
 }
 
 int64_t set_max_stack(int64_t bytes) noexcept {

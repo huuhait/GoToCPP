@@ -19,6 +19,7 @@
 internal/cppgen/testdata/emit/closures.gp | closure-self | g++=72/2 clang++=72/2 | recursion through a variable: a closure that calls itself holds the box that holds the closure
 tests/diff/closure_iface_options.gp | closure-self | g++=1400/6 clang++=1400/6 | the memoized fib is a closure that holds itself through a variable
 tests/run/closures_recursive.gp | closure-self | g++=288/8 clang++=288/8 | fib calls itself through the variable that holds it: the closure and its box hold each other
+tests/run/containers_cycles.gp | doubly-linked | g++=984/17 clang++=984/17 | the elements of a container/list and the nodes of a container/ring point at each other, and the list root points at itself
 tests/run/context_gotest_x.gp | context-tree | g++=35704/175 clang++=35704/175 | the layered-context tests (TestLayers*, TestCause, custom contexts) make children that are never canceled: a child holds its parent and the parent's children map holds the child (cancelCtx.propagateCancel, Done); 43 of the 47 leak stacks go through package context, the other 4 are the test's own context values and a channel held by that tree
 tests/run/derive_cycle.gp | self-pointer | g++=72/1 clang++=72/1 | a value that points back to itself (the test of what Equal and Clone do about references)
 tests/run/embed_later_types.gp | mutual-pointers | g++=80/2 clang++=80/2 | two structs that embed pointers to each other
@@ -28,6 +29,7 @@ tests/run/generics_ops_closures.gp | closure-self | g++=192/4 clang++=192/4 | Fi
 tests/run/generics_types_cache.gp | doubly-linked | g++=176/2 clang++=176/2 | a cache with a doubly linked list: prev and next are strong
 tests/run/generics_types_mutual.gp | mutual-pointers | g++=792/9 clang++=792/9 | mutually recursive generic types: each instance refers to the other
 tests/run/iface_mv_func_values.gp | closure-self | g++=200/5 clang++=200/5 | a func value that calls itself through the variable g (var g func(int) int), next to method values stored in interfaces
+tests/run/json_marshal_errors.gp | cyclic-data | g++=1704/10 clang++=1704/10 | the cycle tests of Marshal build values that hold themselves (a node that points back to the list, a slice and a map that contain themselves) to see "encountered a cycle via ..."
 tests/run/rangefunc_literals_recursion.gp | closure-self | g++=72/2 clang++=72/2 | a func literal that calls itself through the variable rec (var rec func(n int) int; rec = func ...)
 tests/run/reflect_deepequal_cycles.gp | cyclic-data | g++=3608/25 clang++=3608/25 | reflect.DeepEqual on values with cycles: a node that points to itself, a tree whose children point to the parent
 tests/run/sync_cond_broadcast_generations.gp | cond-locker | g++=128/2 clang++=128/2 | the barrier's Cond has a Locker that is a pointer into the barrier struct that holds the Cond (b.cond = sync.NewCond(&b.mu))

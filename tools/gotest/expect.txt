@@ -7,7 +7,6 @@ abi/bad_select_crash.go needs 9.3
 abi/idata.go needs 9.11
 abi/uglyfib.go needs perf
 bombad.go needs matcher
-chan/sieve2.go needs 9.11
 cmplxdivide.go needs bug
 directive2.go needs bug
 fixedbugs/bug121.go needs matcher
@@ -44,7 +43,6 @@ fixedbugs/issue14006.go needs bug
 fixedbugs/issue14520.go needs matcher
 fixedbugs/issue15992.go needs bug
 fixedbugs/issue16369.go needs bug
-fixedbugs/issue16870.go needs 9.11
 fixedbugs/issue18092.go needs matcher
 fixedbugs/issue18149.go needs bug
 fixedbugs/issue18419.go needs matcher
@@ -52,8 +50,6 @@ fixedbugs/issue18747.go needs matcher
 fixedbugs/issue18911.go needs bug
 fixedbugs/issue18915.go needs matcher
 fixedbugs/issue19113.go needs 9.3
-fixedbugs/issue19201.go needs 9.11
-fixedbugs/issue19217.go needs 9.11
 fixedbugs/issue20027.go needs bug
 fixedbugs/issue20233.go needs matcher
 fixedbugs/issue20245.go needs matcher
@@ -77,20 +73,14 @@ fixedbugs/issue25897b.go needs 9.3
 fixedbugs/issue26335.go needs 9.3
 fixedbugs/issue27836.go needs bug
 fixedbugs/issue29190.go needs bug
-fixedbugs/issue29870.go needs 9.11
-fixedbugs/issue30116.go needs 9.11
-fixedbugs/issue30116u.go needs 9.11
 fixedbugs/issue31053.go needs matcher
 fixedbugs/issue31419.go needs bug
 fixedbugs/issue31546.go needs bug
-fixedbugs/issue32187.go needs 9.11
 fixedbugs/issue33386.go needs bug
 fixedbugs/issue34503.go needs bug
 fixedbugs/issue42058a.go needs bug
 fixedbugs/issue42058b.go needs bug
 fixedbugs/issue42568.go needs bug
-fixedbugs/issue43942.go needs 9.11
-fixedbugs/issue44823.go needs 9.11
 fixedbugs/issue4562.go needs bug
 fixedbugs/issue4618.go needs bug
 fixedbugs/issue46653.go needs bug
@@ -114,7 +104,6 @@ fixedbugs/issue58563.go needs runner
 fixedbugs/issue59411.go needs bug
 fixedbugs/issue5957.go needs matcher
 fixedbugs/issue61187.go needs 9.3
-fixedbugs/issue62203.go needs 9.11
 fixedbugs/issue62360.go needs 9.11
 fixedbugs/issue62515.go needs bug
 fixedbugs/issue68292.go needs matcher
@@ -125,11 +114,8 @@ fixedbugs/issue7538a.go needs matcher
 fixedbugs/issue79186.go needs perf
 fixedbugs/issue8004.go needs 9.3
 fixedbugs/issue9608.go needs bug
-goprint.go needs 9.11
 goto.go needs matcher
 import6.go needs bug
-ken/divconst.go needs 9.11
-ken/modconst.go needs 9.11
 label.go needs matcher
 label1.go needs matcher
 nul1.go needs matcher
@@ -170,7 +156,6 @@ typeparam/issue23536.go needs bug
 typeparam/issue45722.go needs 9.11
 typeparam/issue48185a.go needs runner
 typeparam/issue48185b.go needs bug
-typeparam/issue48317.go needs 9.11
 typeparam/issue48318.go needs 9.11
 typeparam/issue48454.go needs bug
 typeparam/issue49241.go needs bug

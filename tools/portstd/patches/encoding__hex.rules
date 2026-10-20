@@ -1,0 +1,11 @@
+# encoding/hex (step 9.11, ADR-102): Go's package; the decoder does not hold a slice of its own array.
+
+@note `decoder.Read` sets `d.in = d.arr[:numCopy+numRead]`, a slice of the array field `arr` that is stored in the decoder itself. In gocpp a slice of an array field holds a counted reference to the block that owns the array, which is the decoder: the decoder owned itself and was never freed (D1). The patch copies the bytes into a slice of their own (one more allocation for each `Read` that fills the buffer); `d.in` holds the same bytes, so the output is unchanged. Same reason as the rules of `encoding/base64`, `regexp/syntax` and `regexp`.
+
+@file hex.go
+@why `d.in = d.arr[:numCopy+numRead]` makes the decoder hold a counted reference to itself.
+@replace
+		d.in = d.arr[:numCopy+numRead]
+@with
+		d.in = append([]byte(nil), d.arr[:numCopy+numRead]...)
+@end

@@ -95,19 +95,20 @@ Three additions, each of them optional and each of them off unless you write the
 
 ## What is not there
 
-- **The standard library is a subset of Go's.** gocpp has 37 packages (plus `unsafe`, which the
+- **The standard library is a subset of Go's.** gocpp has 51 packages (plus `unsafe`, which the
   language provides), and the [standard library reference](../stdlib/index.html) is generated from them.
 
-  <!-- stdlib: present bufio bytes cmp context embed encoding encoding/json errors flag fmt io io/fs iter maps math math/bits os path reflect regexp regexp/syntax runtime runtime/cgo runtime/debug slices sort strconv strings sync sync/atomic syscall testing time unicode unicode/utf16 unicode/utf8 weak -->
-  `bufio`, `bytes`, `cmp`, `context`, `embed`, `encoding`, `encoding/json`, `errors`, `flag`, `fmt`,
-  `io`, `io/fs`, `iter`, `maps`, `math`, `math/bits`, `os`, `path`, `reflect`, `regexp`,
+  <!-- stdlib: present bufio bytes cmp container/heap container/list container/ring context embed encoding encoding/base64 encoding/binary encoding/hex encoding/json errors flag fmt hash hash/crc32 hash/fnv io io/fs iter log maps math math/bits math/rand math/rand/v2 os path path/filepath reflect regexp regexp/syntax runtime runtime/cgo runtime/debug slices sort strconv strings sync sync/atomic syscall testing text/tabwriter time unicode unicode/utf16 unicode/utf8 weak -->
+  `bufio`, `bytes`, `cmp`, `container/heap`, `container/list`, `container/ring`, `context`, `embed`, `encoding`,
+  `encoding/base64`, `encoding/binary`, `encoding/hex`, `encoding/json`, `errors`, `flag`, `fmt`, `hash`,
+  `hash/crc32`, `hash/fnv`, `io`, `io/fs`, `iter`, `log`, `maps`, `math`, `math/bits`, `math/rand`, `math/rand/v2`, `os`, `path`, `path/filepath`, `reflect`, `regexp`,
   `regexp/syntax`, `runtime`, `runtime/cgo`, `runtime/debug`, `slices`, `sort`, `strconv`,
-  `strings`, `sync`, `sync/atomic`, `syscall`, `testing`, `time`, `unicode`, `unicode/utf16`,
+  `strings`, `sync`, `sync/atomic`, `syscall`, `testing`, `text/tabwriter`, `time`, `unicode`, `unicode/utf16`,
   `unicode/utf8` and `weak`.
 
-  <!-- stdlib: stubs encoding/json embed encoding -->
-  `encoding/json`, `embed` and `encoding` are declaration stubs today: a program that imports
-  them type-checks, but they have no implementation yet.
+  <!-- stdlib: stubs embed -->
+  `embed` is a declaration stub today: a program that imports it type-checks, but it has no
+  implementation yet.
 
   <!-- stdlib: native-stubs fmt weak -->
   `fmt` and `weak` are stubs too, but the runtime implements them itself.
@@ -117,10 +118,9 @@ Three additions, each of them optional and each of them off unless you write the
 - **Packages you may expect and will not find** (`gocpp check` reports `package X is not available
   yet`, whatever phase the message names):
 
-  <!-- stdlib: missing log math/rand path/filepath encoding/hex encoding/base64 encoding/binary container/list container/heap container/ring text/template net/url math/big hash hash/crc32 hash/fnv hash/maphash crypto crypto/sha256 crypto/md5 crypto/sha1 crypto/rand os/user html net net/http os/exec os/signal plugin encoding/csv compress/gzip archive/zip -->
-  `log`, `math/rand`, `path/filepath`, `encoding/hex`, `encoding/base64`, `encoding/binary`,
-  `container/list`, `container/heap`, `container/ring`, `text/template`, `net/url`, `math/big`,
-  `hash` and its subpackages (`hash/crc32`, `hash/fnv`, `hash/maphash`), `crypto` and its
+  <!-- stdlib: missing text/template net/url math/big hash/maphash hash/adler32 hash/crc64 testing/iotest image mime crypto crypto/sha256 crypto/md5 crypto/sha1 crypto/rand os/user html net net/http os/exec os/signal plugin encoding/csv compress/gzip archive/zip -->
+  `text/template`, `net/url`, `math/big`,
+  `hash/maphash`, `hash/adler32`, `hash/crc64`, `testing/iotest`, `image`, `mime`, `crypto` and its
   subpackages (`crypto/sha256`, `crypto/md5`, `crypto/sha1`, `crypto/rand`), `os/user`, `html`,
   and the packages that are not planned or come much later: `net`, `net/http`, `os/exec`,
   `os/signal`, `plugin`, `encoding/csv`, `compress/gzip` and `archive/zip`. The tiers of the plan

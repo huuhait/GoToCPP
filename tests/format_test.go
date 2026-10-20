@@ -1114,7 +1114,7 @@ func TestMakefileTestPhase(t *testing.T) {
 // another test needs a deliberate edit here. A pending test of a finished phase is an error
 // (checkPending).
 func TestPendingFiles(t *testing.T) {
-	want := []string{"../examples/macros/main.gp", "../tests/run/derive_json.gp"}
+	var want []string // examples/macros and tests/run/derive_json.gp waited for encoding/json and #Derive(JSON) (step 9.11)
 	var got []string
 	for _, root := range []string{"../tests", "../examples"} {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {

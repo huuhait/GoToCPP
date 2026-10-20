@@ -35,3 +35,17 @@ The other tests of the package:
 
 `proc_unix_test.go` and `proc_other_test.go` run the commands in a process group that dies with the test.
 The fixtures need `go` in the PATH (they skip without it); `-short` skips all of them.
+
+## Go's own tests of the ported packages (step 9.11, ADR-102)
+
+The folders `testdata/*_internal` are made by `python3 tools/portstd/gotests/convert.py PKG` (from the repository root; the Go tarball
+must be in the cache of `tools/portstd`): a module that holds **a copy of the port** (`stdlib/PKG/*.gp`, byte for byte, except the imports of
+Go's `internal/` packages, which a program cannot import: those point at small copies or shims in the module, listed in `portpatches.json`) and
+Go 1.25.14's own `_test.go` files with the patches of `tools/portstd/gotests/packages/PKG.py` (every patch and every dropped function has its
+reason in that file). `TestGoTest` runs it with `gocpp test -v` and with `go test -v` and compares the two outputs, so Go is the oracle;
+`TestPortCopies` fails when a copy differs from the port (run `convert.py` again). A new package: write `packages/PKG.py` (the list of test
+files and the patches), run `convert.py PKG`, add the folder to `portCopies` in `port_copies_test.go`.
+Today: `encoding/json` (86 tests, 13 examples), `encoding/base64`, `encoding/hex`, `encoding/binary`, `container/{list,heap,ring}`, `hash/{fnv,crc32}`,
+`text/tabwriter`, `log`, `path/filepath`, `internal/chacha8rand`, `math/rand` and `math/rand/v2`.
+Each takes 15 to 80 seconds (a C++ build of the package and its tests): `go test ./tests/gotest -run 'TestGoTest/encoding_json_internal'`.
+

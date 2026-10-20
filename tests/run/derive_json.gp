@@ -1,5 +1,4 @@
 // phase: 09
-// pending: step 9.11 (encoding/json is a stub) and #Derive(JSON): this test shows what the generator must do
 
 // #Derive(JSON) on a struct (the exit criterion of Phase 10): MarshalJSON and UnmarshalJSON from the struct tags,
 // and the output equals what encoding/json prints for the same struct without the line. The twin

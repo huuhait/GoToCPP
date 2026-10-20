@@ -170,6 +170,34 @@ void set_traceback(const gp::string& level) noexcept;
 // free_os_memory is debug.FreeOSMemory: it gives the allocator's free memory back to the system.
 void free_os_memory() noexcept;
 
+// runtime_rand is runtime.rand (math/rand and math/rand/v2 call it for their global generator): a
+// uniformly random uint64 from a generator of the thread, seeded from the system
+// (std::random_device) the first time the thread asks. It is not Go's ChaCha8 stream; it needs no
+// lock.
+uint64_t runtime_rand() noexcept;
+
+// stack_room returns how many bytes of the calling thread's stack can still be used before a
+// reserve (a sixteenth of the stack, between 128 KiB and 512 KiB) that is kept for what runs after
+// the check: negative when a recursive function must stop. encoding/json calls it at every level of
+// its recursion (a stack is fixed here, D24). A thread whose stack the runtime does not know (a
+// thread of a C library) has all the room there is: INT64_MAX.
+// stack_floor is the lowest address that the code of this thread may use before the reserve (0
+// until stack_room_slow has worked it out).
+extern thread_local uintptr_t stack_floor;
+int64_t stack_room_slow() noexcept;
+inline int64_t stack_room() noexcept {
+    uintptr_t floor = stack_floor;
+    if (floor == 0) {
+        return stack_room_slow();
+    }
+    return static_cast<int64_t>(reinterpret_cast<uintptr_t>(__builtin_frame_address(0))) -
+           static_cast<int64_t>(floor);
+}
+
+// splitmix64 advances the state and returns the next value of the generator that runtime_rand uses
+// (Vigna's SplitMix64). It is here so that a test can check the mixing against known answers.
+uint64_t splitmix64(uint64_t& state) noexcept;
+
 // write_stderr writes the bytes to standard error with one write (debug.PrintStack).
 void write_stderr(gp::slice<uint8_t> bytes) noexcept;
 

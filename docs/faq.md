@@ -81,8 +81,8 @@ Yes, a function marked `//export` is callable when the package is built as a C a
 
 ## Which standard packages exist?
 
-A subset of Go's: 37 packages, listed in the [standard library reference](stdlib/index.html). `log`,
-`math/rand`, `path/filepath`, `net/http` and others are missing; the list is in
+A subset of Go's: 51 packages, listed in the [standard library reference](stdlib/index.html). `text/template`,
+`net/url`, `net/http` and others are missing; the list is in
 [what is not there](guides/go-developers.md#what-is-not-there).
 
 ## How do I see the C++ that gocpp generates?

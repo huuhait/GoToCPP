@@ -1,0 +1,9 @@
+{
+ "patches": [
+  [
+   "//gocpp:native gp::runtime::stack_room\nfunc stackRoom() int64\n",
+   "func stackRoom() int64 { return 1 << 40 }\n"
+  ]
+ ],
+ "extra": []
+}

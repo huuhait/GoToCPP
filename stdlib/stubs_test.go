@@ -40,6 +40,19 @@ func stubPackages(t *testing.T) []string {
 	return paths
 }
 
+// isMajorVersion reports whether the last element of an import path is a major version (v2, v3...), which is not part of the package name.
+func isMajorVersion(elem string) bool {
+	if len(elem) < 2 || elem[0] != 'v' || elem == "v1" || elem == "v0" {
+		return false
+	}
+	for _, c := range elem[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // TestStubsParse checks that each .gp file in the FS parses with the
 // parser fork without errors, is formatted like gocpp fmt formats it, has
 // the package name of its folder, and is in the folder of a standard
@@ -62,8 +75,12 @@ func TestStubsParse(t *testing.T) {
 			t.Errorf("%s is not formatted (gocpp fmt -l), error %v", p, err)
 		}
 		dir := path.Dir(p)
-		if f.Name.Name != path.Base(dir) {
-			t.Errorf("%s: package %s, want %s", p, f.Name.Name, path.Base(dir))
+		want := path.Base(dir)
+		if isMajorVersion(want) {
+			want = path.Base(path.Dir(dir)) // math/rand/v2 is package rand: the folder v2 is the major version of the import path
+		}
+		if f.Name.Name != want {
+			t.Errorf("%s: package %s, want %s", p, f.Name.Name, want)
 		}
 		if !stdlib.IsStd(dir) {
 			t.Errorf("%s: %s is not a standard package", p, dir)

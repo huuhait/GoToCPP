@@ -128,7 +128,7 @@ are in; tests are `tests/run/reflect_*.gp` (104 programs compared with real Go, 
 | `sort.Slice` | built: `Swapper` (Go's panics and the 0, 1 and 2 byte-size cases are one generic swap) |
 | `flag` | built: `New`, `Zero` (also `Indirect`, `PointerTo`) |
 | `fmt` (`Sscan`) | built: `MakeSlice`, `Append`, `AppendSlice`, `Copy`; `fmt` itself prints a `reflect.Value` operand |
-| `encoding/json` | built: `New`, `Zero`, `MakeSlice`, `MakeMap(WithSize)`, `PointerTo`, `Addr`, `Set*`, `SetMapIndex`, `SetLen`, `SetCap`, `Grow`, `Overflow*`, `MapRange`, `SetZero`, struct tags (`StructTag.Get/Lookup`). **Missing for 9.11:** `Value.Method`/`Call` (the `Marshaler` check should use the interface assertion, which needs no reflect), `MapOf`, `ArrayOf`, `Select`, channel `Send`/`Recv`, `Value.Seq` |
+| `encoding/json` | built: `New`, `Zero`, `MakeSlice`, `MakeMap(WithSize)`, `PointerTo`, `Addr`, `Set*`, `SetMapIndex`, `SetLen`, `SetCap`, `Grow`, `Overflow*`, `MapRange`, `SetZero`, struct tags (`StructTag.Get/Lookup`). Step 9.11 found that this is all Go's `encoding/json` uses: the `Marshaler` checks are interface assertions, so `Value.Method`/`Call`, `MapOf`, `ArrayOf`, `Select`, channel `Send`/`Recv` and `Value.Seq` stay out (ADR-102) |
 | ported tests | built: `DeepEqual` (cycles, NaN, nil versus empty, funcs, Go's exact rules) |
 | `context`, `errors` | built through `internal/reflectlite` (the Phase 05 `errors` keeps its natives) |
 
@@ -276,6 +276,12 @@ files pass".
 10. **9.10 Run Go's tests** for tier 1 and the deferred suites (§2.8): test-only packages, patches
     with reasons, the counting rule; fix the gocpp bugs they find.
 11. **9.11 Tier-2 packages**, `encoding/json` first.
+    *Built (ADR-102):* `encoding/json` is Go's own package (`tools/portstd`, no patch rule), on the reflect subset of 9.3 as it was (nothing was added to `reflect`);
+    `encoding`, `encoding/base64`, `encoding/hex`, `encoding/binary`, `container/list`, `container/heap`, `container/ring`, `hash`, `hash/fnv`, `hash/crc32`, `text/tabwriter`, `log`, `path/filepath`, `math/rand` and `math/rand/v2` are ports too (new native `runtime.rand`).
+    `#Derive(JSON)` is built: `MarshalJSON` and `UnmarshalJSON` call `encoding/json` on a method-less copy of the struct, so they are exactly Go's output (an API shim, no faster than a plain struct); the file must
+    import `encoding/json`; `examples/macros` runs. Tests: `tests/run/json_*.gp` (16 programs, 984 lines of output, compared with real Go), `derive_json_plain.gp`, and Go's own tests of each ported package run by
+    `gocpp test` in a copy of the port and compared with `go test -v` (`tests/gotest/testdata/*_internal`, made by `tools/portstd/gotests/convert.py`): all 86 tests, 13 examples and 2 fuzz seeds of `encoding/json`
+    pass. One compiler gap found and fixed on the way: `[]Uint8("abc")` and `string(u8s)` for a named byte or rune element. Left: `crypto/*`, `os/exec`, `hash/maphash`, `hash/adler32`, `hash/crc64`, `text/template`; `reflect.Value.Method`/`Call` (needed only by the `TestRegress` of the rand packages).
 12. **9.12 Docs**: package list, what differs from Go, how to port a package.
 13. **9.13 v0.1 release candidate**: tag, changelog, install notes.
 

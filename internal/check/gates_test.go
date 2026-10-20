@@ -689,10 +689,30 @@ func exampleErrors(t *testing.T, dir string, phase int, tests bool) []string {
 }
 
 // maskedExamples are the examples with an error that is no gate and that stays until a step lands (their
-// pending: line); the error hides the gates (step 10.12: examples/macros uses #Derive(JSON), which waits
-// for encoding/json, step 9.11). Its phase line (09) is the latest gate once the error is gone.
-var maskedExamples = map[string]string{
-	"macros": "./main.gp:77:9: #Derive(JSON) is not available yet: it needs encoding/json, which is a declaration stub until step 9.11",
+// pending: line); the error hides the gates. There is none now: examples/macros waited for encoding/json
+// and #Derive(JSON) (step 9.11).
+var maskedExamples = map[string]string{}
+
+// shiftingExamples are the examples in which lifting a gate moves another gate error to an earlier place: an
+// error is reported once for a message and a place on the same declaration, so in macros (a generic macro whose
+// result type is the type parameter, and a func literal with an error result) "generic functions are not supported
+// yet" is at 19:25 while "function values" hides it at 19:7, and at 19:7 afterwards. The test compares their gate
+// errors without the places.
+var shiftingExamples = map[string]bool{"macros": true}
+
+// withoutPlaces returns the error lines without their "file:line:col: " prefix, sorted and without repeats.
+func withoutPlaces(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if parts := strings.SplitN(l, ": ", 2); len(parts) == 2 {
+			l = parts[1]
+		}
+		if !slices.Contains(out, l) {
+			out = append(out, l)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // TestGateExamples checks the 19 examples: at each phase from 02 to 15,
@@ -794,6 +814,9 @@ func TestGateExamples(t *testing.T) {
 					} else {
 						others = append(others, l)
 					}
+				}
+				if shiftingExamples[name] {
+					gates, wantGates = withoutPlaces(gates), withoutPlaces(wantGates)
 				}
 				if !slices.Equal(gates, wantGates) {
 					t.Errorf("Phase %02d: got gate errors\n%s\nwant\n%s", phase, strings.Join(gates, "\n"), strings.Join(wantGates, "\n"))

@@ -363,6 +363,8 @@ func (g *deriveGen) run() bool {
 		methods = []string{g.equal()}
 	case "Clone":
 		methods = []string{g.clone()}
+	case "JSON":
+		methods = g.jsonMethods()
 	}
 	if g.bad || len(methods) != len(g.gen.Funcs) {
 		return false
@@ -991,6 +993,55 @@ func (g *deriveGen) leave(n *types.Named) {
 	if n != nil {
 		g.stack = g.stack[:len(g.stack)-1]
 	}
+}
+
+// ---- JSON ----
+
+// jsonMethods writes MarshalJSON and UnmarshalJSON of a struct. Both call encoding/json on a type
+// with the same fields and no methods (type gp_plain T), so the output and the input are exactly
+// what encoding/json does for the struct: tags, omitempty, embedded structs, escaping, number
+// formats and errors are encoding/json's own (ADR-102). The file must import encoding/json.
+func (g *deriveGen) jsonMethods() []string {
+	name := g.named.Obj().Name()
+	u := g.named.Underlying()
+	st, isStruct := u.(*types.Struct)
+	if !isStruct {
+		g.errorf("#Derive(JSON): %s is not a struct type (encoding/json handles slices, arrays and maps by itself)", name)
+		return nil
+	}
+	if g.checkInvalid(st) {
+		return nil
+	}
+	pkg, ok := g.df.names["encoding/json"]
+	if !ok {
+		g.errorf("#Derive(JSON): the methods call encoding/json, which the file does not import: add import \"encoding/json\" to the file of %s", name)
+		return nil
+	}
+	if pkg != "" {
+		pkg += "."
+	}
+	// MarshalJSON
+	g.begin(fmt.Sprintf("func (%s %s) MarshalJSON() ([]byte, error)", g.recv, g.recvType))
+	plain := g.fresh("gp_plain")
+	g.w("type %s %s", plain, g.recvType)
+	g.w("return %sMarshal(%s(%s))", pkg, plain, g.recv)
+	marshal := g.finish()
+	// UnmarshalJSON
+	data := g.d.Data
+	g.begin(fmt.Sprintf("func (%s *%s) UnmarshalJSON(%s []byte) error", g.recv, g.recvType, data))
+	g.used[data] = true
+	g.w("return %sUnmarshal(%s, %s.GoCPPJSONPlainPtr())", pkg, data, g.recv) // (no local type of its own: the generated code stays small)
+	unmarshal := g.finish()
+	// The method that encoding/json calls to get the address of the value as a pointer to a struct without methods (stdlib/encoding/json: derivedPlainPtr).
+	g.begin(fmt.Sprintf("func (%s *%s) GoCPPJSONPlainPtr() any", g.recv, g.recvType))
+	plain = g.fresh("gp_plain")
+	g.w("type %s %s", plain, g.recvType)
+	g.w("return (*%s)(%s)", plain, g.recv)
+	plainPtr := g.finish()
+	if g.bad {
+		return nil
+	}
+	return []string{marshal, unmarshal, plainPtr}
 }
 
 // ---- Clone ----

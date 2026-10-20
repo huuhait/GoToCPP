@@ -1,0 +1,296 @@
+# encoding/json (step 9.11, ADR-102): Go's package, with the stack guard at the end of this file. The notes are the differences that come from the machine.
+
+@note Nesting depth. Go's decoder refuses a document nested over 10000 deep before it builds anything (`Valid` and `Unmarshal` into a `RawMessage` do exactly that here, in every build), but building the value recurses on the C++ stack, which is fixed (8 MiB for the main thread and for each goroutine, divergence D24), so what a build can nest below 10000 depends on the compiler and the mode: see the stack guard note below, which turns the rest into an error.
+
+@note Reference cycles. `Marshal` finds a cycle of pointers, maps or slices as Go does (an error after 1000 levels), but a value that is a cycle is never freed (D1), like any cyclic value. A cycle through types that have `#Derive(JSON)` is found the same way (a patch repeats `ptrEncoder`'s detection for them).
+
+@note Types with `#Derive(JSON)`. They get two methods besides `MarshalJSON` and `UnmarshalJSON` (`GoCPPJSONPlain`, `GoCPPJSONPlainPtr`: the value, and its address, as a struct of the same fields with no methods), and the decoder (`indirect`) and the encoder (`marshalerEncoder`, `addrMarshalerEncoder`) use them to decode and encode the value as the struct it stands for, without calling the two methods: those write each level to a buffer and scan it again, which makes a nested value cost the square of its depth (ADR-102). The options of the `Decoder` and the `Encoder` reach such a value, as they reach a struct without methods.
+
+@note Speed. About 3 to 7 times Go's time at `-O2`, and the stack guard costs less than 2% (ADR-102 has the numbers): the encoder and the decoder are reflection and interface heavy, and a counted pointer or slice costs an atomic operation where Go's collector costs none.
+
+# ---- The stack guard (step 9.11 review): a nesting that the C++ stack cannot hold is an error, not a crash ----
+
+@note Stack guard. Go's goroutine stack grows to 1 GB, so its decoder and encoder recurse as deep as the data goes (the decoder refuses documents nested over 10000 deep; the encoder has no limit). gocpp's stacks are fixed (8 MiB for the main thread and for each goroutine, D24) and a frame of the reflective code is several KB at `-O0`, so a hostile document or a deep value could end the program with `fatal error: stack overflow`. The patches ask the runtime how much stack is left (`stackRoom`: the bytes between the stack pointer and a reserve of 1/16 of the stack, 128 to 512 KiB, below which nothing else needs to run) at every level of the recursion and give an error when there is none: the decoder (`value`, `valueInterface`) a `*SyntaxError` "exceeded max depth (...)", the encoder (`ptrEncoder`, `sliceEncoder`, `mapEncoder`, `interfaceEncoder` and the four that call a `MarshalJSON` or `MarshalText` method) an `*UnsupportedValueError` "exceeded max depth (...)". Go's own limit of 10000 for the decoder stays and is checked first by the scanner. What a build can nest depends on the compiler and the mode: documents nested over 10000 deep are always a clean error; below that, with the 8 MiB stack, `Unmarshal` into `any` reaches about 9100 (g++ -O0), 6800 (clang++ -O0), 4700 (-asan) and 10000 (-release), into a recursive struct about 1400, 1000, 680 and 2200 to 4100, and `Marshal` of a linked list about 3200, 2600, 1600 and 5100 to 7000 (measured before the guard; the reserve takes about 6% of these, and the exact figure is the stack's). The guard costs one call into the runtime for each value that can recurse.
+
+@file decode.go
+@why Go's goroutine stacks grow; gocpp's are fixed: stackRoom asks the runtime how much is left (see the note), and a nesting that does not fit is an error.
+@replace
+func (d *decodeState) unmarshal(v any) error {
+	rv := reflect.ValueOf(v)
+@with
+// stackRoom returns how many bytes of this goroutine's stack can still be used before the reserve that the runtime keeps; it is negative when the
+// recursion must stop. gocpp's runtime provides it.
+func stackRoom() int64
+
+// errTooDeep is what the decoder and the encoder report when the stack has no room for one more level of nesting.
+const errTooDeep = "exceeded max depth (the value is nested too deep for the stack)"
+
+// tooDeepPanic is what valueInterface (which has no error result) panics with; unmarshal turns it into the error.
+type tooDeepPanic struct{}
+
+// derivedPlainPtr is implemented by the types that have #Derive(JSON): the method returns the address of the value as a pointer to a struct type with the
+// same fields and no methods of its own (the type that the generated MarshalJSON and UnmarshalJSON encode and decode). The encoder and the decoder use it to
+// work on that struct directly, as they do for a struct without methods: nothing is written to a buffer and scanned again at each level, so a deeply nested
+// value costs what a plain one costs instead of the square of its depth.
+type derivedPlainPtr interface{ GoCPPJSONPlainPtr() any }
+
+func (d *decodeState) unmarshal(v any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(tooDeepPanic); ok {
+				err = &SyntaxError{errTooDeep, int64(d.off)}
+				return
+			}
+			panic(r)
+		}
+	}()
+	rv := reflect.ValueOf(v)
+@end
+
+@why err is a result of unmarshal now (the recover sets it): it is assigned, not declared.
+@replace
+	err := d.value(rv)
+	if err != nil {
+		return d.addErrorContext(err)
+	}
+	return d.savedError
+@with
+	err = d.value(rv)
+	if err != nil {
+		return d.addErrorContext(err)
+	}
+	return d.savedError
+@end
+
+@why The recursion value -> object/array -> value must stop when the stack is full.
+@replace
+func (d *decodeState) value(v reflect.Value) error {
+	switch d.opcode {
+@with
+func (d *decodeState) value(v reflect.Value) error {
+	if stackRoom() < 0 {
+		return &SyntaxError{errTooDeep, int64(d.off)}
+	}
+	switch d.opcode {
+@end
+
+@why The recursion valueInterface -> arrayInterface/objectInterface -> valueInterface must stop when the stack is full.
+@replace
+func (d *decodeState) valueInterface() (val any) {
+	switch d.opcode {
+@with
+func (d *decodeState) valueInterface() (val any) {
+	if stackRoom() < 0 {
+		panic(tooDeepPanic{})
+	}
+	switch d.opcode {
+@end
+
+@why A type with #Derive(JSON) is decoded as the struct it stands for, without calling its UnmarshalJSON (which would scan the document again at each level).
+@replace
+			if u, ok := v.Interface().(Unmarshaler); ok {
+				return u, nil, reflect.Value{}
+			}
+@with
+			if u, ok := v.Interface().(Unmarshaler); ok {
+				if dp, ok := u.(derivedPlainPtr); ok && derivedPlainType(v.Type().Elem()) != nil {
+					// The struct stands for the type: go on with a pointer to it, which finds the methods that it has by promotion (an embedded time.Time, say).
+					v = reflect.ValueOf(dp.GoCPPJSONPlainPtr())
+					haveAddr = false
+					continue
+				}
+				return u, nil, reflect.Value{}
+			}
+@end
+
+@file encode.go
+@why The encoders that recurse (pointers, slices, maps, interfaces) must stop when the stack is full.
+@replace
+func (pe ptrEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func (pe ptrEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: the slice encoder recurses into its elements.
+@replace
+func (se sliceEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func (se sliceEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: the map encoder recurses into its values.
+@replace
+func (me mapEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func (me mapEncoder) encode(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: the interface encoder recurses into the value it holds; tooDeep is defined here.
+@replace
+func interfaceEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+// tooDeep gives an error (like a cycle does) when the stack has no room for one more level of nesting. (The callers test stackRoom themselves, and the error has no Value: passing v on made Marshal about 4% slower.)
+func (e *encodeState) tooDeep() {
+	e.error(&UnsupportedValueError{reflect.Value{}, errTooDeep})
+}
+
+func interfaceEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: a method of the value (MarshalJSON, MarshalText) can call Marshal again, which is how a type with #Derive(JSON) nests: the recursion goes through these encoders and no other.
+@replace
+func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func marshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: a method of the value (MarshalJSON, MarshalText) can call Marshal again, which is how a type with #Derive(JSON) nests: the recursion goes through these encoders and no other.
+@replace
+func addrMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func addrMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: a method of the value (MarshalJSON, MarshalText) can call Marshal again, which is how a type with #Derive(JSON) nests: the recursion goes through these encoders and no other.
+@replace
+func textMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func textMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why Same: a method of the value (MarshalJSON, MarshalText) can call Marshal again, which is how a type with #Derive(JSON) nests: the recursion goes through these encoders and no other.
+@replace
+func addrTextMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+@with
+func addrTextMarshalerEncoder(e *encodeState, v reflect.Value, opts encOpts) {
+	if stackRoom() < 0 {
+		e.tooDeep()
+	}
+@end
+
+@why A type with #Derive(JSON) is encoded as the struct it stands for, without calling its MarshalJSON (which would write each level to a buffer and scan it again): the encoder of the type is chosen here, once.
+@replace
+func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
+@with
+// derivedCache holds, for each struct type, the struct type that it stands for when it has #Derive(JSON), or nil: the answer is found once (derivedPlainType).
+var derivedCache sync.Map // map[reflect.Type]reflect.Type
+
+// derivedPlainType returns the struct type that the type t stands for when t is a struct with #Derive(JSON), and nil otherwise. That is a property of the type,
+// found without a value of it that matters: the method of a zero value is called once, inside a recover (a method that t gets by promotion through a nil embedded
+// pointer panics, and a type whose method is not the one that #Derive writes is not derived: the type that the method returns must be a struct called gp_plain...
+// that t converts to and from).
+func derivedPlainType(t reflect.Type) reflect.Type {
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	if c, ok := derivedCache.Load(t); ok {
+		pt, _ := c.(reflect.Type)
+		return pt
+	}
+	pt := computeDerivedPlain(t)
+	derivedCache.Store(t, pt)
+	return pt
+}
+
+func computeDerivedPlain(t reflect.Type) (plain reflect.Type) {
+	defer func() {
+		if recover() != nil {
+			plain = nil
+		}
+	}()
+	dp, ok := reflect.New(t).Interface().(derivedPlainPtr)
+	if !ok {
+		return nil
+	}
+	r := reflect.ValueOf(dp.GoCPPJSONPlainPtr())
+	if !r.IsValid() || r.Kind() != reflect.Pointer {
+		return nil
+	}
+	et := r.Type().Elem()
+	if et == t || et.Kind() != reflect.Struct || !strings.HasPrefix(et.Name(), "gp_plain") || !et.ConvertibleTo(t) || !t.ConvertibleTo(et) {
+		return nil
+	}
+	return et
+}
+
+// derivedEncoder returns the encoder of the struct type t, or of the pointer type t, that has #Derive(JSON), and nil for any other type. It encodes the
+// struct that the type stands for: through the address of the value when there is one (a pointer, or an addressable value: no copy, and the struct can be
+// addressed, as the struct a pointer leads to can), as a converted copy otherwise. The encoder of a pointer is ptrEncoder's: nil, and the cycle detection.
+func derivedEncoder(t reflect.Type) encoderFunc {
+	if t.Kind() == reflect.Pointer {
+		if plain := derivedPlainType(t.Elem()); plain != nil {
+			enc := typeEncoder(plain)
+			return func(e *encodeState, v reflect.Value, opts encOpts) {
+				if stackRoom() < 0 {
+					e.tooDeep()
+				}
+				if v.IsNil() {
+					e.WriteString("null")
+					return
+				}
+				pv := reflect.ValueOf(v.Interface().(derivedPlainPtr).GoCPPJSONPlainPtr()).Elem()
+				opts = encOpts{escapeHTML: opts.escapeHTML}
+				if e.ptrLevel++; e.ptrLevel > startDetectingCyclesAfter {
+					e.derivedDeep(enc, v, pv, opts)
+				} else {
+					enc(e, pv, opts)
+				}
+				e.ptrLevel--
+			}
+		}
+		return nil
+	}
+	if plain := derivedPlainType(t); plain != nil {
+		enc := typeEncoder(plain)
+		return func(e *encodeState, v reflect.Value, opts encOpts) {
+			if stackRoom() < 0 {
+				e.tooDeep()
+			}
+			opts = encOpts{escapeHTML: opts.escapeHTML}
+			if v.CanAddr() {
+				enc(e, reflect.ValueOf(v.Addr().Interface().(derivedPlainPtr).GoCPPJSONPlainPtr()).Elem(), opts)
+			} else {
+				enc(e, v.Convert(plain), opts)
+			}
+		}
+	}
+	return nil
+}
+
+// derivedDeep is the encoder of a derived pointer that is more than startDetectingCyclesAfter levels down: the pointer must not be on the way to itself.
+func (e *encodeState) derivedDeep(enc encoderFunc, v, pv reflect.Value, opts encOpts) {
+	ptr := v.UnsafePointer()
+	if _, ok := e.ptrSeen[ptr]; ok {
+		e.error(&UnsupportedValueError{v, fmt.Sprintf("encountered a cycle via %s", v.Type())})
+	}
+	e.ptrSeen[ptr] = struct{}{}
+	defer delete(e.ptrSeen, ptr)
+	enc(e, pv, opts)
+}
+
+func newTypeEncoder(t reflect.Type, allowAddr bool) encoderFunc {
+	if enc := derivedEncoder(t); enc != nil {
+		return enc
+	}
+@end
