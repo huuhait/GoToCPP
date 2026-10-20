@@ -330,6 +330,11 @@ type renamer struct {
 	res     *result
 	newName string
 	docs    *docs
+
+	// These facts are recorded by the existing conflict/test-declaration guards.
+	bindingsChecked bool
+	declFilesKnown  bool
+	declHasTests    bool
 }
 
 // An fileEdits are the edits of one file, for the file's text in the
@@ -378,6 +383,7 @@ func (rn *renamer) edits(ctx context.Context) (map[string]*fileEdits, error) {
 		if err := rn.checkTestDecls(ctx); err != nil {
 			return nil, err
 		}
+		rn.bindingsChecked = true
 	}
 	files := make(map[string]*fileEdits)
 	for _, h := range res.hits {
@@ -472,10 +478,12 @@ func (rn *renamer) checkTestDecls(ctx context.Context) error {
 	if err != nil {
 		return nil
 	}
+	rn.declFilesKnown = true
 	for _, name := range files {
 		if !strings.HasSuffix(name, "_test.gp") || filepath.Dir(name) != sym.declDir {
 			continue
 		}
+		rn.declHasTests = true
 		pf, err := rn.e.snapshot.ParsePath(ctx, name, cache.ParseFull)
 		if err != nil || pf.File == nil || pf.File.Name == nil || pf.File.Name.Name != sym.q.types.Name() {
 			continue // an external test package has its own scope
@@ -1049,12 +1057,15 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 			}
 		}
 	}
+	unchecked := rn.qualifiedOnly() // (renamefast.go)
+	if rn.declaringScopeProvesResult(ctx, dirs, unchecked) {
+		return ctx.Err()
+	}
 	after, release, err := rn.e.snapshot.Edited(texts)
 	if err != nil {
 		return err
 	}
 	defer release()
-	unchecked := rn.qualifiedOnly() // (renamefast.go)
 	var sorted []string
 	for d := range dirs {
 		if !unchecked[d] {

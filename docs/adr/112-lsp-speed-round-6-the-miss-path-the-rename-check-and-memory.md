@@ -145,6 +145,62 @@ second of 1.472 → 0.889 ms and type-check medians 3.480 → 3.528 ms; their sp
 reduction nor a memory improvement. It is bounded wall-latency evidence, not proof that every
 budget or the beat-gopls-on-every-row goal is met.
 
+## Cached declaring-scope rename proof (2026-10-20)
+
+The next frozen baseline, `9a2b0871`, includes the normal-loader follow-up. A targeted medium
+rename profile found one fresh declaring-package check for each of 201 renames (200 measured
+plus one warm-up): median rename 4.457 ms, of which the package check was 3.925 ms. Most
+importers already satisfied `qualifiedOnly`; repeatedly checking the declaring package remained
+the dominant cost.
+
+A second proof now reuses the existing `checkDeclaration`, `checkCapture`, `checkUse` and
+test-declaration guards, rather than replacing them with another lookup algorithm. It applies
+only to an exported, nongeneric, package-level ordinary function with a body, renamed to
+another exported identifier other than reserved `C`, in a domain-qualified module path.
+Standard/runtime-shaped and command-line paths retain full checks because compiler rules can
+give particular function spellings extra meaning. Every remaining package must satisfy the
+existing qualified/no-dot-import proof. The prior mixed qualified/dot-import counterexample
+therefore still takes scratch validation.
+
+All searched views must be the exact complete checked AST/type-info/file-set views, with no
+errors, partial/provisional/stale checks, repaired trees, opaque expressions/types, known
+foreign rewrites, directives, macros or bang origins. The declaring snapshot must establish
+that it has no test files, and no test checks may be involved. A package memo stores only
+immutable checked-package eligibility facts; mutable probe state is checked separately.
+The checked identifier index must show that every own-package declaration/use of the function
+is an edit, with a known scope. Unknown or missing facts fall back to the unchanged scratch
+checker. Binding is unchanged, so this function-name change changes neither its type nor any
+method set, initializer dependency or import usage. Scope/import collisions and capture still
+fail through the existing guards before the proof is considered.
+
+This is the checked Go/GP binding model, like the full validator: it does not discover or
+rewrite references in untracked C++ companion files. It is not a C++ refactoring guarantee.
+`TestRenameDeclaringBindingProof` compares positive edits and negative refusals with the full
+validator, including declaring/file-import/dot-import collisions, same-typed local capture,
+generic caller capture, Unicode/UTF-16 positions, the prior mixed-import counterexample and
+conservative fallbacks. Separate tests force a missing occurrence, disabled conflict guards
+and cancellation. The proof suite was repeated ten times with the race detector. A bounded
+baseline/candidate differential run compared 2,395 answers on each of small/medium, with no
+differences or failed replies; its diagnostic/settling limitations still apply.
+
+Final timing used two balanced pairs, cores 16–23/GOMAXPROCS 8, Go 1.25.14 and generated Go
+1.25 modules, identical current data/configuration, and 80 unique prepare+rename samples per
+project/process. Every timed RPC succeeded; no matching errors/refusals count as samples.
+The earlier four-pair prototype predates the final path restriction and is retained separately,
+not pooled into these figures. Milliseconds, medians of the two runs' own statistics:
+
+| Project | p50 baseline → candidate | p95 baseline → candidate | First request |
+|---|---:|---:|---:|
+| small | 2.951 → 0.151 | 3.727 → 0.232 | 4.219 → 1.518 |
+| medium | 4.617 → 0.256 | 6.835 → 0.324 | 11.659 → 6.047 |
+
+RSS medians were 50.82 → 42.35 MiB (small) and 134.37 → 100.66 MiB (medium); maximum
+observed peaks were 51.27 → 42.61 and 134.74 → 100.75 MiB. Separate instrumented medium
+sessions, excluded from the quantiles, recorded 201 declaring-package checks → none after
+opening; CPU samples totaled 2.32 → 0.52 seconds. These are bounded rename-only results,
+not a gopls comparison or an all-row speed-contract claim. Other rename forms retain full
+validation and can remain substantially slower.
+
 ## Not done, and why
 
 - **Checking only the function bodies that an edit changed.** go/types has no entry for one body, and

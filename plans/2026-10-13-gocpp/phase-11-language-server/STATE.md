@@ -39,6 +39,17 @@
 
 ## Decisions / notes
 
+- 2026-10-20: Restricted rename binding proof integrated after clean four-file review at
+  `aa9a004b` and manager build/vet/proof tests under race. It reuses declaration, capture,
+  use and test-name guards, proves own-package occurrence completeness, and preserves
+  qualified/dot-import validation. Only exact complete ordinary exported nongeneric Go
+  functions in eligible packages qualify; unsupported or uncertain forms keep full checks.
+  Matched rename-only evidence (two balanced pairs, 80 unique samples per project/process)
+  recorded p95 3.727 → 0.232 ms small and 6.835 → 0.324 ms medium, with zero failed replies.
+  This is not a fresh gopls or all-row acceptance claim, and untracked C++ refactoring is
+  outside the binding model. The independently reviewed rename paths were committed
+  separately; unrelated staged receiver work was not included or discarded.
+
 - 2026-10-20: Normal-loader parallel parsing follow-up integrated after clean four-file
   review at `541db0ab`. File selection, hooks/overlays and build constraints stay serial;
   workers parse captured bytes in private FileSets, then commit ASTs/errors/positions in

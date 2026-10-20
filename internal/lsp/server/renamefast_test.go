@@ -1,12 +1,16 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
+	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
 
 // fastFiles is a module for the shortcut of the check of a rename (renamefast.go): a
@@ -93,22 +97,29 @@ func Fn() int { return a.F() + G() + W }
 // edited files (or the error) and the number of package checks the rename made.
 func fastRename(t *testing.T, all bool, mark, newName string) (string, int) {
 	t.Helper()
+	return fastRenameFiles(t, fastFiles, "a/a.gp", all, mark, newName)
+}
+
+func fastRenameFiles(
+	t *testing.T, sourceFiles map[string]string, file string, all bool, mark, newName string,
+) (string, int) {
+	t.Helper()
 	recheckAllImporters = all
 	defer func() { recheckAllImporters = false }()
-	root := writeTree(t, fastFiles)
+	root := writeTree(t, sourceFiles)
 	srv := newServer(nil, testConfig(), debounce.RealClock{})
-	c := &refClient{dclient: &dclient{client: startServer(t, srv, nil), root: root}, src: fastFiles}
+	c := &refClient{dclient: &dclient{client: startServer(t, srv, nil), root: root}, src: sourceFiles}
 	c.call("initialize", plainInit)
 	c.notify("initialized", "{}")
 	c.skipShown = true
-	c.open("a/a.gp", fastFiles["a/a.gp"])
-	c.next("a/a.gp")
+	c.open(file, sourceFiles[file])
+	c.next(file)
 	// The searches check the importers once; the rename's own checks are counted.
-	if _, err := c.rename("a/a.gp", mark, newName+"Warm"); err != nil {
+	if _, err := c.rename(file, mark, newName+"Warm"); err != nil {
 		_ = err // (a refusal also leaves the importers checked)
 	}
 	_, _, before := srv.pipeline.Stats()
-	edits, rerr := c.rename("a/a.gp", mark, newName)
+	edits, rerr := c.rename(file, mark, newName)
 	_, _, after := srv.pipeline.Stats()
 	if rerr != nil {
 		return "error: " + rerr.Message, int(after - before)
@@ -119,6 +130,262 @@ func fastRename(t *testing.T, all bool, mark, newName string) (string, int) {
 	}
 	slices.Sort(files)
 	return strings.Join(files, "\n"), int(after - before)
+}
+
+func bindingProofFiles() map[string]string {
+	return map[string]string{
+		"gocpp.mod": "module example.com/binding\n",
+		"a/a.gp": `package a
+// Emoji before the declaration exercises UTF-16 positions: 🙂
+func F(n int) int {
+	if n == 0 { return 0 }
+	return F(n - 1)
+}
+func Use() int { return F(2) }
+var V = 1
+const K = 2
+type T struct{}
+func (T) M() int { return 1 }
+`,
+		"a/other.gp": `package a
+func Shadowed() int {
+	F := func(int) int { return 9 }
+	return F(0)
+}
+`,
+		"b/b.gp": `package b
+import alias "example.com/binding/a"
+func Use() int { return alias.F(1) }
+`,
+	}
+}
+
+func TestRenameDeclaringBindingProof(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setup   func(map[string]string)
+		file    string
+		mark    string
+		newName string
+		outcome string
+	}{
+		{name: "recursive and shadowed old-name uses", outcome: "proved"},
+		{name: "request at own-package use", mark: "return |F(n", outcome: "proved"},
+		{name: "request at qualified importer use", file: "b/b.gp", mark: "return alias.|F(",
+			outcome: "proved"},
+		{name: "unrelated local new-name declaration", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = strings.ReplaceAll(files["a/other.gp"], "F", "Renamed")
+			}},
+		{name: "Unicode identifier and UTF-16 positions", mark: "func |𝑭(",
+			newName: "Édit", outcome: "proved", setup: func(files map[string]string) {
+				for name, text := range files {
+					files[name] = strings.ReplaceAll(text, "F", "𝑭")
+				}
+			}},
+		{name: "declaring-scope collision", outcome: "refuse", setup: func(files map[string]string) {
+			files["a/other.gp"] += "\nvar Renamed = 1\n"
+		}},
+		{name: "same-typed local capture", outcome: "refuse", setup: func(files map[string]string) {
+			files["a/other.gp"] = "package a\nfunc Other() int {\n" +
+				"Renamed := func(int) int { return 9 }; return F(2)\n}\n"
+		}},
+		{name: "unedited declaring-file import collision", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["c/c.gp"] = "package c\nconst Value = 1\n"
+				files["a/other.gp"] = "package a\nimport Renamed \"example.com/binding/c\"\n" +
+					"func Other() int { return Renamed.Value }\n"
+			}},
+		{name: "declaring-file dot-import binding", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["c/c.gp"] = "package c\nfunc Renamed() int { return 1 }\n"
+				files["a/other.gp"] = "package a\nimport . \"example.com/binding/c\"\n" +
+					"func Other() int { return Renamed() }\n"
+			}},
+		{name: "mixed qualified and dot-import counterexample", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["b/dot.gp"] = "package b\nimport . \"example.com/binding/a\"\n" +
+					"var Keep = K\nfunc Renamed() int { return 1 }\n"
+			}},
+		{name: "generic caller type-parameter capture", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\n" +
+					"func Generic[Renamed any](n Renamed) int { return F(1) }\n"
+			}},
+		{name: "unrelated generic caller", outcome: "proved", setup: func(files map[string]string) {
+			files["a/other.gp"] = "package a\nfunc Generic[U any](n U) int { return F(1) }\n"
+		}},
+		{name: "broken importer retains scratch validation", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Broken = undefinedName\n"
+			}},
+		{name: "visibility loss", newName: "renamed", outcome: "refuse"},
+		{name: "reserved C name", newName: "C", outcome: "refuse"},
+		{name: "stdlib-shaped module path", outcome: "fallback", setup: func(files map[string]string) {
+			for name, text := range files {
+				files[name] = strings.ReplaceAll(text, "example.com/binding", "fmt")
+			}
+		}},
+		{name: "generic function target", mark: "func |F[", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/a.gp"] = strings.ReplaceAll(files["a/a.gp"],
+					"func F(n int) int", "func F[T ~int](n T) T")
+			}},
+		{name: "variable target", mark: "var |V", outcome: "fallback"},
+		{name: "constant target", mark: "const |K", outcome: "fallback"},
+		{name: "type target", mark: "type |T", outcome: "fallback"},
+		{name: "method target", mark: "func (T) |M", outcome: "fallback"},
+		{name: "untouched test file", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/unrelated_test.gp"] = "package a\nfunc TestHelper() int { return 3 }\n"
+		}},
+		{name: "bang-origin package", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/a.gp"] += "\nfunc Might() (int, error) { return 1, nil }\n" +
+				"func Handler() (int, error) { return Might!(), nil }\n"
+		}},
+		{name: "builtin macro origin", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/a.gp"] += "\nfunc Place() string { return #file() }\n"
+		}},
+		{name: "macro declaration", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/a.gp"] += "\nmacro Identity(v int) int { return v }\n"
+		}},
+		{name: "Go-only validator with untracked companion source", outcome: "proved",
+			setup: func(files map[string]string) {
+				// The snapshot/full validator models GP files, not C++ references.
+				files["a/native.c"] = "int native_value = 1;\n"
+			}},
+		{name: "directive-bearing package", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/a.gp"] = "//gocpp:link m\n" + files["a/a.gp"]
+		}},
+		{name: "broken declaring package", outcome: "fallback", setup: func(files map[string]string) {
+			files["a/other.gp"] = "package a\nvar Broken = undefinedName\n"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := bindingProofFiles()
+			if tc.setup != nil {
+				tc.setup(files)
+			}
+			mark := tc.mark
+			if mark == "" {
+				mark = "func |F("
+			}
+			newName := tc.newName
+			if newName == "" {
+				newName = "Renamed"
+			}
+			file := tc.file
+			if file == "" {
+				file = "a/a.gp"
+			}
+			full, fullChecks := fastRenameFiles(t, files, file, true, mark, newName)
+			fast, fastChecks := fastRenameFiles(t, files, file, false, mark, newName)
+			if full != fast {
+				t.Fatalf("proof changes the full-validator answer\nfull:\n%s\nproof:\n%s", full, fast)
+			}
+			refused := strings.HasPrefix(fast, "error:")
+			if refused != (tc.outcome == "refuse") {
+				t.Fatalf("unexpected refusal/success: %s", fast)
+			}
+			if tc.outcome == "proved" && (fastChecks != 0 || fullChecks == 0) {
+				t.Fatalf("proof=%d checks, full=%d; want 0 vs positive", fastChecks, fullChecks)
+			}
+			if tc.outcome == "fallback" && fastChecks == 0 {
+				t.Fatal("unproven form did not fall back to scratch validation")
+			}
+		})
+	}
+}
+
+func TestRenameBindingProofRequiresConflictGuards(t *testing.T) {
+	skipConflictChecks = true
+	defer func() { skipConflictChecks = false }()
+	files := bindingProofFiles()
+	full, _ := fastRenameFiles(t, files, "a/a.gp", true, "func |F(", "Renamed")
+	fast, checks := fastRenameFiles(t, files, "a/a.gp", false, "func |F(", "Renamed")
+	if full != fast || strings.HasPrefix(fast, "error:") || checks == 0 {
+		t.Fatal("binding proof was used without the existing conflict guards")
+	}
+}
+
+func bindingProofRenamer(t *testing.T) *renamer {
+	t.Helper()
+	files := bindingProofFiles()
+	root := writeTree(t, files)
+	srv := newServer(nil, testConfig(), debounce.RealClock{})
+	client := &refClient{
+		dclient: &dclient{client: startServer(t, srv, nil), root: root},
+		src:     files,
+	}
+	client.call("initialize", plainInit)
+	client.notify("initialized", "{}")
+	client.skipShown = true
+	client.open("a/a.gp", files["a/a.gp"])
+	client.next("a/a.gp")
+	snapshot, release := srv.session.Snapshot()
+	t.Cleanup(release)
+	var params protocol.TextDocumentPositionParams
+	if err := json.Unmarshal([]byte(client.posParams(
+		"a/a.gp", files["a/a.gp"], "func |F(")), &params); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	query, err := newRefQuery(ctx, snapshot, params.TextDocument.URI, params.Position)
+	if err != nil || query == nil {
+		t.Fatalf("query: %v", err)
+	}
+	symbol, err := query.symbolAt(ctx, true)
+	if err != nil || symbol == nil {
+		t.Fatalf("symbol: %v", err)
+	}
+	result, err := srv.search(ctx, symbol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &renamer{
+		s: srv, e: env{snapshot: snapshot}, sym: symbol, res: result,
+		newName: "Renamed", docs: newDocs(snapshot),
+	}
+}
+
+func TestRenameBindingProofRequiresEveryOccurrence(t *testing.T) {
+	rn := bindingProofRenamer(t)
+	result := *rn.res
+	result.hits = slices.Clone(result.hits)
+	rn.res = &result
+	removed := false
+	for i, h := range result.hits {
+		if !h.def && h.path == rn.sym.q.file.Path {
+			result.hits = append(result.hits[:i:i], result.hits[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	if !removed {
+		t.Fatal("fixture has no own-package occurrence to omit")
+	}
+	recheckAllImporters = true
+	defer func() { recheckAllImporters = false }()
+	_, fullErr := rn.edits(context.Background())
+	recheckAllImporters = false
+	_, proofErr := rn.edits(context.Background())
+	if fullErr == nil || proofErr == nil || fullErr.Error() != proofErr.Error() {
+		t.Fatalf("missing occurrence: full=%v, proof=%v", fullErr, proofErr)
+	}
+}
+
+func TestRenameBindingProofCancellation(t *testing.T) {
+	rn := bindingProofRenamer(t)
+	defer func() { recheckAllImporters = false }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, all := range []bool{true, false} {
+		recheckAllImporters = all
+		_, err := rn.edits(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("full=%v: got %v, want context.Canceled", all, err)
+		}
+	}
+	recheckAllImporters = false
 }
 
 // TestRenameQualifiedOnlyShortcut: the answer of a rename is what it is without

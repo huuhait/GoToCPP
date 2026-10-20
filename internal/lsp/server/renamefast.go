@@ -1,15 +1,18 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // recheckAllImporters is set by a test to see what the check of the result
-// finds without the shortcut of qualifiedOnly.
+// finds without qualifiedOnly or the declaring-scope binding proof.
 var recheckAllImporters bool
 
 // qualifiedOnly returns the folders of the packages that need no check of the
@@ -126,6 +129,169 @@ func (rn *renamer) qualifiedUse(h hit) bool {
 	}
 	pn, ok := v.info.Uses[x].(*types.PkgName)
 	return ok && pn.Imported() != nil && pn.Imported().Path() == rn.sym.declPath
+}
+
+// declaringScopeProvesResult applies only after the existing declaration,
+// capture, use and test-name conflict guards succeeded. For an exported,
+// nongeneric ordinary Go function, changing the package-scope name changes no
+// type or method set. Those guards establish unchanged binding at edited uses,
+// no imported/file/package name collision and no capture of existing uses of
+// the new name. Completeness below proves every own-package occurrence is an
+// edit. Other packages must already satisfy qualifiedOnly's existing proof.
+// Everything outside this boundary keeps the scratch-check validator.
+func (rn *renamer) declaringScopeProvesResult(
+	ctx context.Context, dirs, qualified map[string]bool,
+) bool {
+	sym := rn.sym
+	if ctx.Err() != nil || recheckAllImporters || skipConflictChecks || !rn.bindingsChecked ||
+		!rn.declFilesKnown || rn.declHasTests || len(rn.res.tests) != 0 ||
+		sym.scope != scopeImports || !sym.packageLevel() || !dirs[sym.declDir] ||
+		!token.IsExported(sym.name) || !token.IsExported(rn.newName) || rn.newName == "C" {
+		return false
+	}
+	// Runtime/standard-library paths can give function spellings extra compiler
+	// meaning (fmt's formatting gates, for example). Prove only domain-qualified
+	// module paths; short and command-line package paths keep full validation.
+	head, _, _ := strings.Cut(sym.declPath, "/")
+	if !strings.Contains(head, ".") {
+		return false
+	}
+	for dir := range dirs {
+		if dir != sym.declDir && !qualified[dir] {
+			return false
+		}
+	}
+	for _, view := range rn.res.views {
+		if !view.normalBindingFacts() {
+			return false
+		}
+	}
+
+	var declaration hit
+	found := false
+	for _, h := range rn.res.hits {
+		if h.def && filepath.Dir(h.path) == sym.declDir {
+			if found {
+				return false
+			}
+			declaration = h
+			found = true
+		}
+	}
+	v := declaration.v
+	fn, ok := declaration.obj.(*types.Func)
+	if !found || !ok || declaration.id == nil || !v.normalBindingFacts() {
+		return false
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() != nil || sig.TypeParams().Len() != 0 ||
+		fn.Parent() != v.types.Scope() || v.types.Scope().Lookup(sym.name) != fn {
+		return false
+	}
+	file := v.files[declaration.path]
+	if file == nil {
+		return false
+	}
+	ordinary := false
+	for _, node := range file.Decls {
+		if decl, ok := node.(*ast.FuncDecl); ok && decl.Name == declaration.id {
+			ordinary = decl.Recv == nil && decl.Body != nil
+		}
+	}
+	if !ordinary {
+		return false
+	}
+
+	// Do not infer completeness from hit counts: source mapping or a repaired
+	// view can omit an occurrence. Reuse the checked package's identifier index.
+	seen := make(map[*ast.Ident]bool)
+	for _, h := range rn.res.hits {
+		if filepath.Dir(h.path) != sym.declDir {
+			continue
+		}
+		if h.v != v || h.obj != fn || h.id == nil || h.spec != nil ||
+			h.id.Name != sym.name || v.info.ObjectOf(h.id) != fn ||
+			v.types.Scope().Innermost(h.id.Pos()) == nil {
+			return false
+		}
+		seen[h.id] = true
+	}
+	list := v.identIndex().byName[sym.name]
+	if list == nil {
+		return false
+	}
+	for _, entries := range [][]identObj{list.defs, list.uses} {
+		for _, entry := range entries {
+			if entry.obj == fn && !seen[entry.id] {
+				return false
+			}
+		}
+	}
+	return ctx.Err() == nil
+}
+
+type renameBindingFactsKey struct{}
+
+// normalBindingFacts rejects partial, provisional, repaired or extension-bearing
+// views. The memo derives only from the immutable checked package, never from a
+// view-specific repair or mutable probe state. Like the full validator, these
+// facts describe checked Go/GP files, not references in untracked C++ companions.
+func (v *view) normalBindingFacts() bool {
+	if v == nil || v.test || v.pkg == nil || v.pkg.Check == nil || v.pkg.Program == nil {
+		return false
+	}
+	pkg := v.pkg
+	cp := pkg.Check
+	lp := cp.Load
+	if lp == nil || len(pkg.Program.Roots) != 1 || pkg.Program.Roots[0] != lp ||
+		v.info != cp.Info || v.types != cp.Types || v.fset != pkg.Fset() ||
+		pkg.Provisional() || pkg.Stale() || len(v.files) != len(lp.Files) {
+		return false
+	}
+	for _, file := range lp.Files {
+		if v.files[file.Path] != file.AST {
+			return false
+		}
+	}
+	return pkg.Memo(renameBindingFactsKey{}, func() any {
+		if !cp.Checked() || cp.Info == nil || cp.Partial != nil || lp.Std || lp.Incomplete ||
+			len(lp.Files) == 0 || pkg.Program.Errors == nil || cp.Errors == nil || lp.Errors == nil ||
+			pkg.Program.Errors.HasErrors() || cp.Errors.HasErrors() || lp.Errors.HasErrors() ||
+			cp.Must != nil ||
+			len(lp.Macros)+len(lp.MacroUses)+len(lp.Derives)+len(lp.CFiles)+len(lp.CXXFiles) != 0 ||
+			len(cp.Conversions)+len(cp.Consts) != 0 {
+			return false
+		}
+		for range cp.Opaque.TypeExprs() {
+			return false
+		}
+		for _, file := range lp.Files {
+			if file.AST == nil || file.Info == nil || cp.Info.Scopes[file.AST] == nil ||
+				len(file.Synthetic)+len(file.Directives)+len(file.Info.Includes)+
+					len(file.Info.NamespaceRenames) != 0 || len(file.Src) == 0 ||
+				bytes.Contains(file.Src, []byte("#")) ||
+				bytes.Contains(file.Src, []byte("//go:")) ||
+				bytes.Contains(file.Src, []byte("//gocpp:")) {
+				return false
+			}
+			if rewrite := file.Rewrite; rewrite != nil &&
+				(len(rewrite.Uses)+len(rewrite.Namespaces)+len(rewrite.Renames) != 0 ||
+					rewrite.ImportC != nil) {
+				return false
+			}
+			clean := true
+			ast.Inspect(file.AST, func(node ast.Node) bool {
+				if expr, ok := node.(ast.Expr); ok && cp.Opaque.IsOpaque(expr) {
+					clean = false
+				}
+				return clean
+			})
+			if !clean {
+				return false
+			}
+		}
+		return true
+	}).(bool)
 }
 
 // dotImports reports whether a file of the view imports the package path with a
