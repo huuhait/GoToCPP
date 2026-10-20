@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6a and 15.7b merged; 15.6b in progress; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6 and 15.7b merged; 15.7c in progress; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -15,9 +15,9 @@
   - [x] targeted pointer/value generators and owner-drop regressions under ASan; corrected real-runner smoke passed, not a full campaign
 - [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
 - [x] 15.5 Swiss-table maps
-- [~] 15.6 Devirtualization + bounds-check help
+- [x] 15.6 Devirtualization + bounded bounds-check help; broader performance acceptance remains open
   - [x] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved, clean independent review and focused manager source/integration checks
-  - [~] 15.6b Bounds-check help: verify existing range snapshots and branch hints, add focused coverage, and change code only for a demonstrated safe opportunity
+  - [x] 15.6b Existing range snapshots and failure-branch hints documented and regression-tested after clean review and integrated manager checks; no compiler/runtime change or new speedup claim
 - [~] 15.7 Compile-time work (`extern template`, ccache/sccache, C++20 modules evaluation)
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
@@ -49,6 +49,19 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.6b integrated from reviewed source `8d1c5c63`. Existing slice ranges
+  retain their original header/owner and check the hidden index before reading the range
+  value. Explicit body indexing still checks the current source slice after callbacks or
+  replacement. Existing slicing/conversion failure hints are documented without adding
+  unchecked access or changing compiler/runtime code. The new differential regression
+  covers append within capacity, shared-element mutation, exactly-once range evaluation,
+  callback replacement and shortening followed by the required index panic.
+  Independent review is clean. Manager checks passed on the integrated tree: the new and
+  existing panic-order differential cases on GCC/Clang with checks on and O2, documentation
+  markers and all 224 docsite pages. No selected case skipped. The assembly evidence is a
+  direct-runtime probe, not universal emitted-code BCE or a timing benchmark. No new
+  speedup, sanitizer sweep, Windows run or global performance acceptance is claimed.
 
 - 2026-10-20: 15.7b integrated from reviewed source `724fac60` (bounded ADR-105 option 1).
   Larger generic-type methods are emitted once in a using package's descriptor unit, retaining

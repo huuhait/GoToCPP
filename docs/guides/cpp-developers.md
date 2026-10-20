@@ -138,6 +138,41 @@ The sizes are the C++ sizes (a `string` is 32 bytes, a slice 40), not Go's
 ([D15](../spec/language.md#d15-different-sizes)). Each generated struct has a `static_assert`
 on its size, so the type checker and the C++ compiler cannot disagree.
 
+### Bounds checks and range loops
+
+Checks are on by default for Go slices, arrays and strings. Their inline index helpers check
+signed and unsigned indexes against the current length before accessing an element. Slice
+expressions and slice-to-array conversions use the inline helpers in `gocpp/bounds.hpp`, whose
+failure branches are marked `[[unlikely]]`; that hint does not remove a check or change which
+invalid bound panics first. C++ values still follow C++'s own rules, not these helpers.
+
+A slice range already saves its bound as part of a copy of the slice header. The emitted loop
+has this shape (the generated names vary):
+
+```cpp
+for (auto it = gp::range_slice(s); gp::range_next(it);) {
+    int64_t i = it.gp_i;
+    auto v = it.gp_v();
+    // the Go loop body
+}
+```
+
+`range_slice` evaluates its argument once and retains the original owner, data pointer and
+length. `range_next` compares the hidden index with that saved length; only after it succeeds
+does `gp_v` read the element, without a second index check. Appending or assigning to the source
+slice does not change the range. Writes to shared elements are still visible when reached,
+unless an append has moved the source to another array. Empty and nil slices take no iterations.
+Array ranges similarly compare against their fixed length, while preserving Go's array-copy
+rules and the nil check when a range value is read through an array pointer.
+
+This is not a general bounds-check-elimination pass. An explicit `s[i]` in the body is still a
+checked access to **the current `s`**, not to the saved range header: a callback can shorten or
+replace `s` even though `i` remains a valid range index. The C++ optimizer can remove redundant
+inline checks when it proves them unnecessary, for example in a simple loop from zero to
+`len(s)` with no mutation. That depends on the program and compiler; range syntax alone does
+not prove arbitrary body accesses safe. No unchecked-index API or `-nochecks` is needed for the
+range iterator's own element read.
+
 ## Memory: reference counting, no garbage collector
 
 A gocpp value is freed when the last reference goes. A pointer to a gocpp type is a

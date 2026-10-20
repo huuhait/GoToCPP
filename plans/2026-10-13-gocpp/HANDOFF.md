@@ -13,8 +13,10 @@ independent review and manager recomputation: eight consistent wins, four inconc
 typing rows, no qualifying slowdown or code change. Step 15.6a concrete-interface dispatch
 is integrated after clean review and focused source/integration checks. Step 15.7b generic
 body placement is also integrated: measured headers are smaller, but whole-build speed
-benefit remains inconclusive. Active jobs are 12.13a background header indexing/completion
-re-review, bounded 15.6b bounds-check help, and a 15.7c C++20 modules evaluation.
+benefit remains inconclusive. Step 15.6b existing range-bound help is documented and
+regression-tested after clean review and integrated checks, without a compiler/runtime change.
+Active jobs are 12.13a background header indexing/completion re-review and a 15.7c C++20
+modules evaluation.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -26,14 +28,14 @@ User-owned `c4/` has not been changed by the manager.
 | 15.2 escape analysis | `../GoToCPP-15.2` / `job/15.2` | Integrated from `b68eb6ac` after clean whole-net review and passing focused/combined manager checks. Array aliases, shared stack budgets, generic facts and shadow-dependent holders are covered. Full benchmarks and platform acceptance remain open. |
 | 15.6a concrete interface calls | `../GoToCPP-15.6a` / `job/15.6a` | Integrated from `01ec0226` after clean whole-net review and focused source/integrated manager checks. Ownership, ordering, nil/recover and fallback behavior preserved; kernel-only performance evidence. Bounds checks and full Phase 15 acceptance remain open. |
 | 9.12 stdlib documentation | `../GoToCPP-9.12` / `job/9.12` | Integrated from `b5c96982` after clean round-2 review and passing manager inventory/link/snippet/whitespace checks. The release candidate and full Phase 09 acceptance remain open. |
+| 15.6b range-bound help | `../GoToCPP-15.6b` / `job/15.6b` | Integrated from `8d1c5c63` after clean review and focused integrated GCC/Clang/Go checks. Documents existing range snapshots and checked body access; adds a callback/mutation regression. No compiler/runtime change or new speedup claim. |
 | 15.7a compiler-cache integration | `../GoToCPP-15-15.7` / `job/15-15.7` | Existing launcher support documented/tested and integrated from `a67c4e69` after clean review and manager checks. No production change, real cache-hit evidence or speedup claim. Remaining 15.7 work is open. |
 | 15.7b generic body placement | `../GoToCPP-15.7b` / `job/15.7b` | Integrated from `724fac60` after clean review and focused source/integrated checks. Larger bodies emitted once, small methods kept inline. Measured header size falls about 14%; whole-build speed benefit is inconclusive. Modules and full 15.7 acceptance remain open. |
 | 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Three
-workers are active: the 12.13a independent re-reviewer, the 15.6b coder, and the 15.7c
-prototype worker. The module evaluation is in `../GoToCPP-15.7c` on `job/15.7c`, based on
+no delegation by workers, and final reports only except genuinely blocked decisions. Two
+workers are active: the 12.13a independent re-reviewer and the 15.7c prototype worker. The module evaluation is in `../GoToCPP-15.7c` on `job/15.7c`, based on
 `a4316076`; it does not authorize production module adoption. The bounds-check worktree is
 `../GoToCPP-15.6b` on `job/15.6b`, based on `a07dda2a`; existing safe range and branch-hint
 behavior is checked before considering any new optimization. The new 15.7b worktree is
