@@ -31,8 +31,8 @@
 - [x] 11.13 `!` and macro support (after Phase 10): hovers, inlay hints for handled calls, code actions, expand macro (whole-current-net review clean at `c69600da`; manager focused and receiver-integration checks passed)
 - [~] 11.14 Fresh-typing and completion speed pass (ADR-115)
   - [x] Guarded focused checks and quick publication: clean whole-net review, manager focused checks passed; line-mapped packages conservatively use full checks
-  - [~] 11.14b Targeted current-build typing/completion measurements and a settle-active workload; profile the remaining gap before changing code
-  - [ ] Consistent every-row gopls wins: historical all-round results still lose some typing rows
+  - [x] 11.14b Targeted current-implementation typing/completion measurements and a settle-active workload: independent review and manager recomputation passed; no code change warranted by the predeclared rule
+  - [ ] Consistent every-row gopls wins: eight measured rows meet the consistency rule, four small-project typing rows remain inconclusive; full-project/default-phase/platform acceptance remains open
 
 ## Exit criteria
 
@@ -42,6 +42,40 @@
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
 ## Decisions / notes
+
+- 2026-10-20: 11.14b measurements accepted after clean independent review and deterministic
+  manager recomputation. No production code changed. The frozen source is `ca4819df`, whose
+  LSP, checker, loader, CLI, measurement tools and Go dependencies match `de635431`; this is
+  evidence for that current implementation, not a rebuilt release/package binary.
+  Four predeclared balanced rounds retained all 16 invocations. There were 5,760 measured
+  successes, 224 warmup successes, zero refusals/failures, and 128 separate initialize/open
+  samples outside the comparison. Linux, phase 15, CPU 16-23, GOMAXPROCS=8; fast pauses were
+  25 ms for typing and 80 ms for completion reverts, while the separate settle workload used
+  160 ms. The two workloads were never pooled together. All-round nearest-rank p95, ms:
+
+  | Workload | Project | Fresh typing: gocpp / gopls | Imported typing | Completion |
+  |---|---|---:|---:|---:|
+  | Fast | Small | 2.454 / 2.539 | 2.625 / 3.053 | 2.925 / 3.307 |
+  | Fast | Medium | 3.061 / 3.468 | 2.928 / 3.156 | 3.255 / 4.073 |
+  | Settle | Small | 2.722 / 2.678 | 2.731 / 3.056 | 2.862 / 3.621 |
+  | Settle | Medium | 2.825 / 4.012 | 2.909 / 3.361 | 3.080 / 4.677 |
+
+  The predeclared win rule requires pooled p95 < 0.95x gopls and a lower per-round p95 in
+  at least three of four rounds; a gap requires > 1.05x and slower in at least three rounds.
+  Eight rows meet the win rule: all medium rows and small completion in both workloads.
+  All four small typing rows are inconclusive, with no qualifying stable gap. In particular,
+  fast small imported typing loses three round comparisons despite its favorable pooled
+  value. These are bounded operational classifications, not statistical proof of superiority.
+  Trace review verifies delayed full checks in 323/323 profile intervals and 12/12 separate
+  imported-typing proof intervals, with zero dropped trace events. Profiles include startup
+  and background work; they suggest check/load/allocation investigation but do not justify
+  a speculative change or attribute the tiny foreground difference to GC.
+  Gocpp was built with Go 1.25.14; pinned gopls 0.21.1 was built with Go 1.26.1 and used its
+  established 30 ms diagnostics delay. The external Go command was 1.25.14. Shared-host load
+  was 0.57-9.54. Source/config identities and every raw hash/sample were audited. No large
+  project, C++/Windows/default-phase comparison, unfinished-check collision workload,
+  all-row matrix, manual editor acceptance or full sweep was run. Every-row acceptance
+  remains open; the earlier measurements below remain historical, not replacement samples.
 
 - 2026-10-20: The guarded-check implementation of 11.14 (ADR-115) is integrated from
   reviewed source `4e444985`; the overall speed goal remains open. Whole-net independent

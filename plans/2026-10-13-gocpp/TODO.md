@@ -20,7 +20,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
 - [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
 - [~] 12.13a: background header indexing and header/namespace completion; member/hover work remains separate.
-- [~] 11.14b: targeted current-build typing/completion comparisons, including a workload where settle runs.
+- [x] 11.14b: current-implementation rapid-edit and settle-active measurements independently reviewed and recomputed by the manager; eight consistent wins, four inconclusive small typing rows, no qualifying slowdown. No source change; every-row/all-project acceptance remains open.
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
 - [~] 15.6a: proven-concrete interface calls, preserving dynamic fallback and ownership.
 - [~] 15.7b: generic-type method body placement, with small-method inlining and matched compile-time measurements; modules remain separate.
