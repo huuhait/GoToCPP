@@ -511,3 +511,34 @@ func TestRewrite(t *testing.T) {
 		t.Errorf("Rewrite changed the old list: %v", l.diags)
 	}
 }
+
+// TestDiagnosticsOfNothingIsNil: a list with no diagnostics answers nil, not an empty list.
+func TestDiagnosticsOfNothingIsNil(t *testing.T) {
+	var l List
+	if ds := l.Diagnostics(); ds != nil {
+		t.Fatalf("Diagnostics() of an empty list = %#v, want nil", ds)
+	}
+}
+
+// TestDiagnosticsAreMadeAtOnce: the list that Diagnostics returns is made at its size, so the
+// allocations of the call do not grow with the number of diagnostics (appending one by one
+// allocated again at every doubling).
+func TestDiagnosticsAreMadeAtOnce(t *testing.T) {
+	list := func(n int) *List {
+		l := new(List)
+		for i := 0; i < n; i++ {
+			l.Add(e("a.gp", i+1, 1, "m"))
+		}
+		return l
+	}
+	small := list(4)
+	large := list(400)
+	if got := len(large.Diagnostics()); got != 400 {
+		t.Fatalf("Diagnostics() has %d entries, want 400", got)
+	}
+	few := testing.AllocsPerRun(20, func() { small.Diagnostics() })
+	many := testing.AllocsPerRun(20, func() { large.Diagnostics() })
+	if many > few+1 {
+		t.Fatalf("Diagnostics() allocates %.0f times for 400 diagnostics and %.0f for 4", many, few)
+	}
+}

@@ -392,7 +392,13 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 		syms []wsSymbol
 		miss bool
 	}
-	var slots []slot
+	// The table holds an entry for each file the earlier calls saw, which is the size of the list.
+	// Growing it by appends was part of the 76 MiB that this function allocated in the 33 rows of
+	// the large benchmark (38 MiB with this).
+	s.symbols.filesMu.Lock()
+	known := len(s.symbols.files)
+	s.symbols.filesMu.Unlock()
+	slots := make([]slot, 0, known)
 	for i, pkg := range pkgs {
 		files, err := snap.SourceFiles(pkg.dir)
 		if err != nil {
@@ -448,23 +454,6 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 		}
 	}
 	return out, nil
-}
-
-// workspaceSymbols returns the symbols of every package of the workspace in
-// the snapshot.
-func (s *Server) workspaceSymbols(ctx context.Context, snap *cache.Snapshot) ([]wsSymbol, error) {
-	files, err := s.workspaceFileSymbols(ctx, snap)
-	if err != nil {
-		return nil, err
-	}
-	var all []wsSymbol
-	for _, f := range files {
-		for _, sym := range f.syms {
-			sym.container = f.container
-			all = append(all, sym)
-		}
-	}
-	return all, nil
 }
 
 // flatOf returns the workspace symbols of the file for the content with the
@@ -594,7 +583,10 @@ func (s *Server) warmSymbols() {
 			snap, release := s.session.Snapshot()
 			defer release()
 			ctx := s.comp.index.ctx
-			if _, err := s.workspaceSymbols(ctx, snap); err != nil && ctx.Err() == nil {
+			// The files' symbols are made and kept by the call; the list of all of them that
+			// workspaceSymbols used to build (a copy of every symbol, 1.7 MiB for the large
+			// benchmark project, for each didOpen) was never read.
+			if _, err := s.workspaceFileSymbols(ctx, snap); err != nil && ctx.Err() == nil {
 				s.log.Printf("the symbol index: %v", err)
 			}
 		}); p != nil {

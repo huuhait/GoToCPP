@@ -245,6 +245,10 @@ func (l *List) Diagnostics() []Diagnostic {
 //  4. It drops exact duplicates: the same place and the same message.
 func (l *List) view(limit int) (ds []Diagnostic, stopPos token.Position, stop bool) {
 	fileOrder := make(map[string]int)
+	if len(l.diags) > 0 { // none keeps ds nil, as before
+		// Growing the list by appending was 20 MiB of garbage in a benchmark session.
+		ds = make([]Diagnostic, 0, len(l.diags))
+	}
 	var last *Diagnostic // the last error that was kept
 	count := 0           // the errors that were kept
 	for i := range l.diags {

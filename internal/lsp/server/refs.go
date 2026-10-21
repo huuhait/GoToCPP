@@ -100,6 +100,7 @@ func (s *Server) references(ctx context.Context, e env, params json.RawMessage) 
 	}
 	warn(e, "references", res)
 	s.warnModules(e, "references", q, sym, false)
+	defer res.recycleHits()
 	docs := newDocsFor(e.snapshot, res.hits)
 	locs = make([]protocol.Location, 0, len(res.hits))
 	for _, h := range res.hits {
@@ -658,6 +659,9 @@ func (h hit) position() token.Position {
 // A result is what a search found.
 type result struct {
 	hits []hit
+	// hitBuf is the list that hits was made in (which it may be shorter than); recycleHits
+	// gives it back.
+	hitBuf []hit
 	// keys are the objects that stand for the symbol, with the symbol's own.
 	keys []objKey
 	// views are what was searched, by folder; test views are the test checks.
@@ -842,7 +846,7 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 	if r.fileInfo == nil {
 		r.fileInfo = make(map[*token.File]fileInfo, tfiles)
 	}
-	all := make([]hit, 0, r.hitCapacity(views, keys))
+	all := takeHits(r.hitCapacity(views, keys))
 	for _, v := range views {
 		all = r.scan(v, keys, declPos, all)
 	}
@@ -865,6 +869,7 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 	res.hits = slices.CompactFunc(all, func(a, b hit) bool {
 		return a.path == b.path && a.off == b.off
 	})
+	res.hitBuf = all
 	return res, nil
 }
 
@@ -936,6 +941,67 @@ func (r *searcher) moreDirs(keys *keySet, searched map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// spareHits holds lists of hits that finished requests gave back: a search of a popular name
+// made a list of 300 KiB for each request, garbage that the next requests paid for while a
+// collection was running (ADR-125). It is a short list under a lock, not a sync.Pool: a pool
+// keeps a list in the P that put it, and the next request runs on another P.
+var spareHits struct {
+	sync.Mutex
+	lists [][]hit
+}
+
+// maxPooledHits is the longest list that is kept for the next search: a rare search of a name
+// with tens of thousands of hits does not leave megabytes behind.
+const maxPooledHits = 1 << 14
+
+// maxSpareHits is how many lists are kept (searches that overlap are rare).
+const maxSpareHits = 2
+
+// takeHits returns an empty list with room for n hits.
+func takeHits(n int) []hit {
+	if n <= maxPooledHits {
+		spareHits.Lock()
+		defer spareHits.Unlock()
+		for i, list := range spareHits.lists {
+			if cap(list) >= n {
+				last := len(spareHits.lists) - 1
+				spareHits.lists[i] = spareHits.lists[last]
+				spareHits.lists[last] = nil
+				spareHits.lists = spareHits.lists[:last]
+				return list[:0]
+			}
+		}
+	}
+	return make([]hit, 0, n)
+}
+
+// recycleHits gives the list of the hits back for the next search. The caller must not use
+// res.hits after it (references makes its locations first).
+func (res *result) recycleHits() {
+	list := res.hitBuf
+	res.hitBuf = nil
+	res.hits = nil
+	if cap(list) == 0 || cap(list) > maxPooledHits {
+		return
+	}
+	list = list[:cap(list)]
+	clear(list) // the pointers of the hits would keep the checks of old packages alive
+	list = list[:0]
+	spareHits.Lock()
+	defer spareHits.Unlock()
+	if len(spareHits.lists) < maxSpareHits {
+		spareHits.lists = append(spareHits.lists, list)
+		return
+	}
+	// Full: the longer list stays.
+	for i, kept := range spareHits.lists {
+		if cap(kept) < cap(list) {
+			spareHits.lists[i] = list
+			return
+		}
+	}
 }
 
 // hitCapacity is the number of names that can be hits of the keys in the views: every name of a
@@ -1270,12 +1336,22 @@ func (r *searcher) views(ctx context.Context, dirs []string) ([]*view, []string,
 	return views, missing, ctx.Err()
 }
 
+type viewMemoKey struct{}
+
 // viewOf returns the view of a checked package, or nil when it has no types
-// (not even partial ones).
+// (not even partial ones). The view depends on the check alone and nothing
+// changes it, so it is made once for the package (cache.Package.Memo) and
+// shared by every request and snapshot that has the package; making it for
+// each request cost a map of the package's files, 150 KiB of garbage a search
+// on the large benchmark project.
 func viewOf(pkg *cache.Package) *view {
 	if len(pkg.Program.Roots) == 0 || pkg.Check == nil {
 		return nil
 	}
+	return pkg.Memo(viewMemoKey{}, func() any { return makeView(pkg) }).(*view)
+}
+
+func makeView(pkg *cache.Package) *view {
 	cp := pkg.Check
 	v := &view{dir: pkg.Program.Roots[0].Dir, fset: pkg.Fset(), pkg: pkg, files: make(map[string]*ast.File)}
 	switch {

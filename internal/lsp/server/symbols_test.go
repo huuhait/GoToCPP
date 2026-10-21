@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/lsp/debounce"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
@@ -329,6 +330,42 @@ func TestSymbolTableForgetsDeleted(t *testing.T) {
 		t.Error("the symbols of the deleted file are still in the table")
 	}
 	sameList(t, "after", c.workspaceSymbols("Double"), []string{})
+}
+
+// warmedRoot starts a server on the workspace and waits until the background symbol index has run.
+// The request is a barrier: a notification is handled before the next message is read, so after
+// the answer the server has handled `initialized`, which starts the index.
+func warmedRoot(t *testing.T) *refClient {
+	t.Helper()
+	c := startRefsRoot(t, wsFiles)
+	if resp := c.call(GocppStats, "{}"); resp.Error != nil {
+		t.Fatalf("%s: %v", GocppStats, resp.Error)
+	}
+	for c.s.symbols.warming.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	return c
+}
+
+// TestWarmSymbolsFillsTable: the background index of the workspace puts the symbols of every
+// file into the table, with no query made.
+func TestWarmSymbolsFillsTable(t *testing.T) {
+	c := warmedRoot(t)
+	c.s.symbols.filesMu.Lock()
+	n := len(c.s.symbols.files)
+	_, has := c.s.symbols.files[filepath.Join(c.root, "util", "util.gp")]
+	c.s.symbols.filesMu.Unlock()
+	if n == 0 || !has {
+		t.Fatalf("the table has %d files after the warm run, util/util.gp present: %v", n, has)
+	}
+}
+
+// TestQueryAfterWarmSymbols: the first query after the background index reads the symbols that it
+// made.
+func TestQueryAfterWarmSymbols(t *testing.T) {
+	c := warmedRoot(t)
+	want := []string{"Double (example.com/ws/util) util/util.gp:6"}
+	sameList(t, "query", c.workspaceSymbols("Double"), want)
 }
 
 // TestIndexNameOfSecondFile: a folder whose first file has a broken package

@@ -34,6 +34,7 @@
   - [x] 11.14b Targeted current-implementation typing/completion measurements and a settle-active workload: independent review and manager recomputation passed; no code change warranted by the predeclared rule
   - [x] 11.lspgap Guarded rename proofs (local name, type, field, method), focus memo keyed by content, unused-only opaque skip, GC headroom; ADR-119; clean three-round independent review
   - [x] 11.lspgap2 Rename proofs for package vars/consts/funcs/types (exported and unexported), import aliases and interface methods; printer line table, semantic-token encoding, nine rename rows in lspbench; ADR-123; two review rounds plus manager focused checks. 132 rows win and 7 do not (large references-popular p95 ratio about 1.44 to 1.79 is the main one); the cause of the tails is a hypothesis, not measured
+  - [x] 11.lspgap3 Tails of `large` traced to garbage-collector cycles (proved with GOGC=off and an execution trace) and lowered by allocating less: no throwaway workspace-symbol copy (28% of allocation), a per-package view memo, a reused references hit list; ADR-125; one review round plus manager focused checks. Allocation -33%, cycles 24 to 16. Not every row wins: in an independent 6-round run `large references-local` and `large rename` still had tails (which rows lose depends on where a cycle lands); open: `state.Clone` (5.4%) and `newInfoSized` (5.6%) allocation, `large keystroke-imported-new` (p95 0.96 vs the 0.95 bar)
   - [ ] Consistent every-row gopls wins: eight measured rows meet the consistency rule, four small-project typing rows remain inconclusive; full-project/default-phase/platform acceptance remains open
 
 ## Exit criteria
@@ -277,6 +278,7 @@
   wrapper's cc-params file in TMPDIR; waiting for probes at shutdown is an optional TODO); (5) go-to-definition into module headers
   (job 6.1b) needs one early return in Pipeline.HeaderFile; limits for vendor/replace are in TODO.md.
 
+- 2026-10-21: 11.lspgap3 integrated (ADR-125). The collector, not the request work, sets the tails; the cure is fewer bytes allocated per session, and the next biggest allocators are listed in the ADR.
 - 2026-10-21: 11.lspgap2 integrated (ADR-123). Renames of package-level names, import aliases and interface methods are proved without the scratch re-check where scope facts allow it; a package with `_test.gp` files falls back to the full check for import aliases. Still open for the every-row bar: large references-popular, large rename-import-alias and rename-unexported tails, cpp/macro/hover/cold rows, the 1.5x shared-project bar. Next candidates: more rename forms, revalidate budgets.
 - 2026-10-21: 11.lspgap integrated from reviewed source `53a61766` after clean round-3 review.
   Rename of a local name, a type, a field or a method that no interface, embedder or twin
