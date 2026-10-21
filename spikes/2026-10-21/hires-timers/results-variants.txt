@@ -1,0 +1,27 @@
+which=v2 spinners=0
+res start min=156250 max=5000 cur=10000 (100ns units)
+hr               1000  200 p10=  489 p25=  534 p75=  614 p90=  678 median=   559 p99=  1146 max=  1336 min=    23 cpu/wait=0.000ms
+hr               5000  200 p10=  251 p25=  449 p75=  597 p90=  665 median=   552 p99=  1067 max=  1234 min=    19 cpu/wait=0.000ms
+hr              15000  200 p10=  183 p25=  330 p75=  640 p90=  814 median=   508 p99=  1121 max=  1232 min=    59 cpu/wait=0.000ms
+res nt0.5 held min=156250 max=5000 cur=5000 (100ns units)
+hr+nt0.5         1000  200 p10=  309 p25=  498 p75=  952 p90= 1167 median=   553 p99=  1657 max=  1932 min=    33 cpu/wait=0.078ms
+hr+nt0.5         5000  200 p10=  151 p25=  382 p75=  921 p90= 1224 median=   550 p99=  2168 max=  2483 min=    57 cpu/wait=0.000ms
+hr+nt0.5        15000  200 p10=  115 p25=  199 p75=  779 p90= 1346 median=   498 p99=  2062 max= 13080 min=    26 cpu/wait=0.000ms
+hr+tbp1          1000  200 p10=  232 p25=  531 p75=  735 p90= 1145 median=   599 p99=  2009 max=  2653 min=    37 cpu/wait=0.000ms
+hr+tbp1          5000  200 p10=  117 p25=  278 p75=  744 p90= 1188 median=   528 p99=  1933 max=  2136 min=    45 cpu/wait=0.000ms
+hr+tbp1         15000  200 p10=  145 p25=  276 p75=  816 p90= 1433 median=   453 p99=  2224 max=  2744 min=    35 cpu/wait=0.000ms
+hr-pre250us      1000  200 p10=    0 p25=   23 p75=  244 p90= 1000 median=    62 p99=  1504 max=  2710 min=     0 cpu/wait=0.000ms
+hr-pre250us      5000  200 p10=    0 p25=   23 p75=  289 p90=  761 median=   106 p99=  1181 max=  1574 min=     0 cpu/wait=0.000ms
+hr-pre250us     15000  200 p10=   54 p25=  214 p75=  882 p90= 1362 median=   556 p99=  1973 max=  2317 min=     0 cpu/wait=0.000ms
+hr-pre500us      1000  200 p10=    0 p25=    0 p75=  105 p90=  907 median=     0 p99=  1178 max=  1731 min=     0 cpu/wait=0.156ms
+hr-pre500us      5000  200 p10=    0 p25=    0 p75=  572 p90= 1005 median=    77 p99=  1651 max=  1734 min=     0 cpu/wait=0.078ms
+hr-pre500us     15000  200 p10=    0 p25=   35 p75=  744 p90= 1109 median=   396 p99=  1557 max=  2907 min=     0 cpu/wait=0.000ms
+hr-pre1000us     1000  200 p10=    0 p25=    0 p75=    0 p90=    0 median=     0 p99=   754 max=  1276 min=     0 cpu/wait=0.938ms
+hr-pre1000us     5000  200 p10=    0 p25=    0 p75=    0 p90=  322 median=     0 p99=   979 max=  1009 min=     0 cpu/wait=0.625ms
+hr-pre1000us    15000  200 p10=    0 p25=    0 p75=    0 p90=  331 median=     0 p99=  1018 max=  1362 min=     0 cpu/wait=0.625ms
+plaintimer+tbp   1000  200 p10=  -43 p25=   12 p75=  996 p90= 1184 median=   470 p99=  1915 max=  2157 min=  -743 cpu/wait=0.000ms
+plaintimer+tbp   5000  200 p10=   -6 p25=  151 p75=  896 p90= 1271 median=   550 p99=  2110 max=  2510 min=  -892 cpu/wait=0.000ms
+plaintimer+tbp  15000  200 p10=    4 p25=  153 p75=  915 p90= 1435 median=   549 p99=  1897 max=  2408 min=  -662 cpu/wait=0.000ms
+wake-event          0  200 p10=    5 p25=    7 p75=   13 p90=   28 median=     8 p99=   119 max=   412 min=     3 cpu/wait=0.000ms
+wake-timerpast      0  200 p10=  549 p25=  618 p75=  997 p90= 1408 median=   772 p99=  2891 max=  3261 min=   389 cpu/wait=0.000ms
+done

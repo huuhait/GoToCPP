@@ -21,7 +21,7 @@ struct post_ext {
 
 struct waiter::gp_state {
     std::mutex mu;
-    std::condition_variable cv;
+    detail::precise_cv cv;
     bool permit = false;
     // A request that the parked thread runs a function of the asker's (gp_post), for the deadlock
     // report: req is set under mu by the asker and cleared by the parked thread when it takes it;
@@ -52,14 +52,12 @@ using clk = std::chrono::steady_clock;
 // overflowing.
 constexpr auto step = std::chrono::hours(24);
 
-// wait_step waits on cv for the time that is left, or one step of it (see timed_wait.hpp: the
-// last part of a long wait asks the system for accurate timers, the rest does not).
-void wait_step(std::unique_lock<std::mutex>& lk, std::condition_variable& cv, clk::duration left) {
+// wait_step waits on cv for the time that is left, or one step of it (see timed_wait.hpp: where
+// the system has precise timers the wait is on one, and elsewhere the last part of a long wait
+// asks for finer system ticks).
+void wait_step(std::unique_lock<std::mutex>& lk, detail::precise_cv& cv, clk::duration left) {
     auto next = left < step ? left : step;
-    auto plan =
-        detail::plan_timed_wait(std::chrono::duration_cast<std::chrono::nanoseconds>(next).count());
-    detail::fine_timer_scope fine(plan.fine);
-    cv.wait_for(lk, plan.wait);
+    cv.wait_for(lk, std::chrono::duration_cast<std::chrono::nanoseconds>(next));
 }
 
 } // namespace

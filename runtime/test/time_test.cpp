@@ -275,6 +275,437 @@ void test_fine_timer_scope() {
     CHECK_EQ(fine_timer_holders(), std::size_t(0));
 }
 
+// --- precise waits (src/timed_wait.hpp, ADR-133) ---
+
+void test_split_precise_wait() {
+    using gp::detail::split_precise_wait;
+    constexpr int64_t preroll = 300'000;
+    // Nothing to wait for.
+    for (int64_t ns : {int64_t(0), int64_t(-5)}) {
+        auto split = split_precise_wait(ns, preroll);
+        CHECK_EQ(split.timer_ns, int64_t(0));
+        CHECK_EQ(split.spin_ns, int64_t(0));
+    }
+    // A short wait is never only a spin (a loop of short sleeps would use a core): the spin is at
+    // most half of it, and the timer is the other half.
+    for (int64_t ns : {int64_t(1), int64_t(2), int64_t(3), int64_t(100'000), int64_t(300'000),
+                       int64_t(500'000), 2 * preroll}) {
+        auto split = split_precise_wait(ns, preroll);
+        CHECK(split.timer_ns > 0);
+        CHECK(split.spin_ns <= ns / 2);
+        CHECK(split.timer_ns >= split.spin_ns);
+        CHECK_EQ(split.timer_ns + split.spin_ns, ns);
+    }
+    CHECK_EQ(split_precise_wait(100'000, preroll).spin_ns, int64_t(50'000));
+    CHECK_EQ(split_precise_wait(1, preroll).timer_ns, int64_t(1));
+    // A long wait: the timer for all but the pre-roll, and the spin for the pre-roll.
+    for (int64_t ns : {2 * preroll + 1, int64_t(1'000'000), int64_t(86'400'000'000'000LL)}) {
+        auto split = split_precise_wait(ns, preroll);
+        CHECK_EQ(split.timer_ns, ns - preroll);
+        CHECK_EQ(split.spin_ns, preroll);
+    }
+    // A pre-roll of 0 is the timer alone.
+    auto split = split_precise_wait(1'000, 0);
+    CHECK_EQ(split.timer_ns, int64_t(1'000));
+    CHECK_EQ(split.spin_ns, int64_t(0));
+    CHECK_EQ(gp::detail::precise_preroll_ns, int64_t(300'000));
+}
+
+struct counted_slot {
+    int id;
+    bool open;
+};
+
+std::atomic<int> opens{0};
+std::atomic<int> closes{0};
+std::atomic<bool> open_fails{false};
+
+counted_slot* make_counted() noexcept {
+    static std::atomic<int> next{1};
+    return new counted_slot{next++, true};
+}
+
+counted_slot* make_none() noexcept {
+    return nullptr;
+}
+
+void close_counted(counted_slot* s) noexcept {
+    CHECK(s->open);
+    s->open = false;
+    closes++;
+}
+
+bool open_counted(counted_slot* s) noexcept {
+    if (open_fails.load()) {
+        return false;
+    }
+    CHECK(!s->open);
+    s->open = true;
+    opens++;
+    return true;
+}
+
+using counted_pool = gp::detail::slot_pool<counted_slot>;
+
+void test_slot_pool() {
+    counted_pool pool({&make_counted, &close_counted, &open_counted}, 4);
+    CHECK_EQ(pool.made(), std::size_t(0));
+    counted_slot* a = pool.acquire();
+    counted_slot* b = pool.acquire();
+    CHECK(a != nullptr && b != nullptr && a != b);
+    CHECK_EQ(pool.made(), std::size_t(2));
+    CHECK_EQ(pool.idle(), std::size_t(0));
+    // A released slot is the next one handed out: the count of slots is the most that were in use.
+    pool.release(a);
+    CHECK_EQ(pool.idle(), std::size_t(1));
+    CHECK(pool.acquire() == a);
+    CHECK_EQ(pool.made(), std::size_t(2));
+    pool.release(a);
+    pool.release(b);
+    delete a;
+    delete b;
+    // A system that cannot make a slot: null, and nothing counted.
+    counted_pool none({&make_none, &close_counted, &open_counted}, 4);
+    CHECK(none.acquire() == nullptr);
+    CHECK_EQ(none.made(), std::size_t(0));
+    // Threads take and give back at the same time: no slot is made twice for one use.
+    counted_pool shared({&make_counted, &close_counted, &open_counted}, 64);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; i++) {
+        threads.emplace_back([&shared] {
+            for (int n = 0; n < 2000; n++) {
+                counted_slot* s = shared.acquire();
+                shared.release(s);
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    CHECK(shared.made() >= 1 && shared.made() <= 8);
+    CHECK_EQ(shared.idle(), shared.made());
+    CHECK_EQ(shared.closed(), std::size_t(0));
+    std::size_t made = shared.made();
+    for (std::size_t i = 0; i < made; i++) {
+        delete shared.acquire();
+    }
+}
+
+void test_slot_pool_gives_handles_back() {
+    // A burst of 10 slots in use at once, then all released: 4 stay open, 6 give their handles
+    // back.
+    int closes0 = closes.load();
+    int opens0 = opens.load();
+    counted_pool pool({&make_counted, &close_counted, &open_counted}, 4);
+    std::vector<counted_slot*> slots;
+    for (int i = 0; i < 10; i++) {
+        slots.push_back(pool.acquire());
+    }
+    CHECK_EQ(pool.made(), std::size_t(10));
+    for (counted_slot* s : slots) {
+        pool.release(s);
+    }
+    CHECK_EQ(pool.idle(), std::size_t(4));
+    CHECK_EQ(pool.closed(), std::size_t(6));
+    CHECK_EQ(closes.load() - closes0, 6);
+    // Used again: the open ones first, then the closed ones are opened, and none is made.
+    std::vector<counted_slot*> again;
+    for (int i = 0; i < 10; i++) {
+        counted_slot* s = pool.acquire();
+        CHECK(s != nullptr && s->open);
+        again.push_back(s);
+    }
+    CHECK_EQ(pool.made(), std::size_t(10));
+    CHECK_EQ(opens.load() - opens0, 6);
+    CHECK_EQ(pool.closed(), std::size_t(0));
+    // A system that cannot open a slot again: the acquire fails, the slot stays in the pool.
+    for (counted_slot* s : again) {
+        pool.release(s);
+    }
+    open_fails = true;
+    for (int i = 0; i < 4; i++) {
+        CHECK(pool.acquire() != nullptr); // the open ones
+    }
+    CHECK(pool.acquire() == nullptr);
+    CHECK_EQ(pool.closed(), std::size_t(6));
+    open_fails = false;
+    CHECK(pool.acquire() != nullptr);
+    CHECK_EQ(pool.closed(), std::size_t(5));
+    CHECK_EQ(pool.made(), std::size_t(10));
+    for (counted_slot* s : slots) {
+        delete s;
+    }
+}
+
+// A fake backend for precise_cv, made of the C++ library's mutex and condition variable: the
+// logic of precise_cv (the slot that a notify wakes, the fallback) is plain C++ and is tested
+// here on every OS, while the real slots (a high-resolution timer on Windows) are tested by
+// test/sleep_test.cpp.
+struct fake_slot {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool woken = false;
+};
+
+struct fake_backend {
+    using slot = fake_slot;
+    static inline std::atomic<bool> on{true};
+    static inline std::atomic<int> waits{0}; // waits that went to a slot
+    static inline std::atomic<int> wakes{0}; // wake-ups sent to a slot
+    static fake_slot* make() noexcept { return new fake_slot; }
+    static void close(fake_slot*) noexcept {}
+    static bool open(fake_slot*) noexcept { return true; }
+    static gp::detail::slot_pool<fake_slot>& pool() {
+        static auto& p = *new gp::detail::slot_pool<fake_slot>({&make, &close, &open}, 64);
+        return p;
+    }
+    static bool available() { return on.load(); }
+    static fake_slot* acquire() {
+        fake_slot* s = pool().acquire();
+        std::lock_guard<std::mutex> lk(s->mu);
+        s->woken = false;
+        return s;
+    }
+    static void release(fake_slot* s) { pool().release(s); }
+    static void wait(fake_slot* s, int64_t ns) {
+        waits++;
+        std::unique_lock<std::mutex> lk(s->mu);
+        s->cv.wait_for(lk, std::chrono::nanoseconds(ns), [s] { return s->woken; });
+    }
+    static void wake(fake_slot* s) {
+        wakes++;
+        std::lock_guard<std::mutex> lk(s->mu);
+        s->woken = true;
+        s->cv.notify_all();
+    }
+};
+
+using fake_cv = gp::detail::basic_precise_cv<fake_backend>;
+
+void test_precise_cv_waits_its_time() {
+    // No notify: the wait lasts as long as asked, on a slot and on the fallback.
+    for (bool on : {true, false}) {
+        fake_backend::on = on;
+        int before = fake_backend::waits.load();
+        fake_cv cv;
+        std::mutex mu;
+        std::unique_lock<std::mutex> lk(mu);
+        int64_t start = now_ns();
+        cv.wait_for(lk, 20ms);
+        CHECK(now_ns() - start >= 19'000'000);
+        CHECK(lk.owns_lock());
+        CHECK_EQ(fake_backend::waits.load() - before, on ? 1 : 0);
+    }
+    fake_backend::on = true;
+    // The next wait of the same cv uses a slot again (the first one has let go of it).
+    {
+        int waits = fake_backend::waits.load();
+        fake_cv cv;
+        std::mutex mu;
+        std::unique_lock<std::mutex> lk(mu);
+        cv.wait_for(lk, 2ms);
+        cv.wait_for(lk, 2ms);
+        CHECK_EQ(fake_backend::waits.load() - waits, 2);
+    }
+    // Zero or negative: no wait, no slot.
+    int before = fake_backend::waits.load();
+    fake_cv cv;
+    std::mutex mu;
+    std::unique_lock<std::mutex> lk(mu);
+    cv.wait_for(lk, 0ns);
+    cv.wait_for(lk, -5ms);
+    CHECK_EQ(fake_backend::waits.load(), before);
+}
+
+void test_precise_cv_notify_wakes() {
+    // A notify ends a long precise wait: notify_one and notify_all, with the notifier holding the
+    // mutex and not holding it.
+    for (int variant = 0; variant < 4; variant++) {
+        fake_backend::on = true;
+        fake_cv cv;
+        std::mutex mu;
+        bool ready = false;
+        std::atomic<bool> waiting{false};
+        int64_t start = now_ns();
+        std::thread waiter([&] {
+            std::unique_lock<std::mutex> lk(mu);
+            waiting = true;
+            while (!ready) {
+                cv.wait_for(lk, 20s);
+            }
+        });
+        while (!waiting.load()) {
+            std::this_thread::yield();
+        }
+        {
+            std::unique_lock<std::mutex> lk(mu); // the waiter has let go of mu: it is in its wait
+            ready = true;
+            if (variant & 1) {
+                lk.unlock();
+            }
+            if (variant & 2) {
+                cv.notify_all();
+            } else {
+                cv.notify_one();
+            }
+        }
+        waiter.join();
+        CHECK(now_ns() - start < 10'000'000'000LL); // not the 20 s of the wait
+    }
+}
+
+void test_precise_cv_no_lost_wakeup() {
+    // The waiter and the notifier hand a turn to each other 20000 times. A wake-up lost between
+    // the waiter's check and its wait would cost the whole 5 s wait and show as a time over 3 s.
+    fake_backend::on = true;
+    fake_cv cv;
+    std::mutex mu;
+    int turn = 0; // even: the notifier's, odd: the waiter's
+    constexpr int rounds = 20000;
+    int64_t start = now_ns();
+    std::thread waiter([&] {
+        std::unique_lock<std::mutex> lk(mu);
+        for (int i = 0; i < rounds; i++) {
+            while (turn % 2 == 0) {
+                cv.wait_for(lk, 5s);
+            }
+            turn++;
+            cv.notify_one();
+        }
+    });
+    {
+        std::unique_lock<std::mutex> lk(mu);
+        for (int i = 0; i < rounds; i++) {
+            turn++;
+            cv.notify_one();
+            while (turn % 2 == 1) {
+                cv.wait_for(lk, 5s);
+            }
+        }
+    }
+    waiter.join();
+    CHECK_EQ(turn, 2 * rounds);
+    CHECK(now_ns() - start < 3'000'000'000LL);
+}
+
+void test_precise_cv_notify_right_after_unlock() {
+    // The notifier takes the mutex the moment the waiter lets go of it inside its wait, and
+    // notifies at once: the slot must be there by then. A slot published after the unlock misses
+    // that notify, and the waiter sleeps its whole 2 s.
+    fake_backend::on = true;
+    fake_cv cv;
+    std::mutex mu;
+    int phase = 0; // 0: the waiter is not waiting, 1: it is about to wait, 2: it has been notified
+    constexpr int rounds = 1000;
+    int64_t start = now_ns();
+    std::thread waiter([&] {
+        for (int i = 0; i < rounds; i++) {
+            std::unique_lock<std::mutex> lk(mu);
+            phase = 1;
+            while (phase != 2) {
+                cv.wait_for(lk, 2s);
+            }
+            phase = 0;
+        }
+    });
+    for (int i = 0; i < rounds; i++) {
+        for (;;) {
+            if (mu.try_lock()) {
+                if (phase == 1) {
+                    phase = 2;
+                    cv.notify_one();
+                    mu.unlock();
+                    break;
+                }
+                mu.unlock();
+            }
+        }
+    }
+    waiter.join();
+    CHECK(now_ns() - start < 1'500'000'000LL);
+}
+
+void test_precise_cv_one_slot() {
+    // Two threads wait with a timeout on one cv (the runtime never does): the second waits the old
+    // way, and a notify_all ends both.
+    fake_backend::on = true;
+    fake_cv cv;
+    std::mutex mu;
+    bool ready = false;
+    std::atomic<int> waiting{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 2; i++) {
+        threads.emplace_back([&] {
+            std::unique_lock<std::mutex> lk(mu);
+            waiting++;
+            while (!ready) {
+                cv.wait_for(lk, 60s);
+            }
+        });
+    }
+    while (waiting.load() < 2) {
+        std::this_thread::yield();
+    }
+    {
+        std::lock_guard<std::mutex> lk(mu); // both have let go of mu: both are waiting
+        ready = true;
+    }
+    cv.notify_all();
+    for (auto& t : threads) {
+        t.join();
+    }
+}
+
+void test_precise_cv_untimed() {
+    // wait(lk) is the condition variable's own.
+    fake_backend::on = true;
+    fake_cv cv;
+    std::mutex mu;
+    bool ready = false;
+    std::thread waiter([&] {
+        std::unique_lock<std::mutex> lk(mu);
+        while (!ready) {
+            cv.wait(lk);
+        }
+    });
+    for (int i = 0; i < 100; i++) {
+        std::this_thread::yield();
+    }
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        ready = true;
+    }
+    cv.notify_one();
+    waiter.join();
+}
+
+void test_precise_sleep() {
+    // The real backend: on Linux the plain sleep, never short; on Windows a precise one.
+    for (int64_t ns : {int64_t(0), int64_t(-1), int64_t(200'000), int64_t(3'000'000)}) {
+        int64_t start = now_ns();
+        gp::detail::precise_sleep(ns);
+        CHECK(ns <= 0 || now_ns() - start >= ns - 100'000);
+    }
+}
+
+// The runtime's own waits go through the real backend: a Sleep and a timer wake on time and
+// leave no slot in use.
+void test_precise_waits_are_released() {
+    gp::time::sleep(1'000'000);
+    auto ch = gp::make_chan<int64_t>(1);
+    gp::time::start_chan<int64_t>(
+        ch, now_ns() + 2'000'000, 0,
+        gp::func<void(gp::chan<int64_t>, int64_t)>(
+            [](gp::chan<int64_t> out, int64_t due) { gp::time::try_send(out, due); }));
+    gp::recv(ch);
+    // The slots made are those of the waits that were at one time: Linux makes none.
+    if (!gp::os::precise_timers()) {
+        CHECK_EQ(gp::detail::precise_slots_made(), std::size_t(0));
+    } else {
+        CHECK(gp::detail::precise_slots_made() >= 1 && gp::detail::precise_slots_made() <= 8);
+    }
+}
+
 // --- channel timers ---
 
 void test_timer_fires() {
@@ -592,9 +1023,10 @@ void test_ticker_grid() {
 void test_huge_deadline() {
     ticking t;
     t.start(INT64_MAX);
-    std::clock_t c0 = std::clock();
+    // (not std::clock: on Windows it is the wall clock)
+    int64_t c0 = gp::os::testing::cpu_time_ns();
     std::this_thread::sleep_for(300ms);
-    double cpu_ms = 1000.0 * double(std::clock() - c0) / double(CLOCKS_PER_SEC);
+    double cpu_ms = double(gp::os::testing::cpu_time_ns() - c0) / 1e6;
     CHECK(cpu_ms < 150);
     CHECK(gp::time::stop(t.c));
     ticking u;
@@ -856,6 +1288,17 @@ void run_unit_tests() {
     RUN(test_sleep);
     RUN(test_plan_timed_wait);
     RUN(test_fine_timer_scope);
+    RUN(test_split_precise_wait);
+    RUN(test_slot_pool);
+    RUN(test_slot_pool_gives_handles_back);
+    RUN(test_precise_cv_waits_its_time);
+    RUN(test_precise_cv_notify_wakes);
+    RUN(test_precise_cv_no_lost_wakeup);
+    RUN(test_precise_cv_notify_right_after_unlock);
+    RUN(test_precise_cv_one_slot);
+    RUN(test_precise_cv_untimed);
+    RUN(test_precise_sleep);
+    RUN(test_precise_waits_are_released);
     RUN(test_timer_fires);
     RUN(test_stop_reset_results);
     RUN(test_no_stale_value);

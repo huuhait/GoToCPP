@@ -1,0 +1,23 @@
+which=v3 spinners=0
+res start min=156250 max=5000 cur=10000 (100ns units)
+rnd-pre0us       1000  300 p10=   77 p25=  161 p75=  539 p90=  648 median=   340 p99=   681 max=   908 min=    27 cpu/wait=0.000ms
+rnd-pre0us       5000  300 p10=  167 p25=  233 p75=  482 p90=  582 median=   343 p99=   682 max=  1143 min=    33 cpu/wait=0.000ms
+rnd-pre0us      15000  300 p10=  150 p25=  248 p75=  607 p90= 1052 median=   426 p99=  1942 max=  2024 min=    27 cpu/wait=0.000ms
+rnd-pre0us     100000   60 p10=  135 p25=  268 p75=  758 p90= 1131 median=   402 p99=  1894 max=  1894 min=    43 cpu/wait=0.000ms
+rnd-pre250us     1000  300 p10=    0 p25=   37 p75=  401 p90= 1003 median=   124 p99=  1666 max=  2515 min=     0 cpu/wait=0.021ms
+rnd-pre250us     5000  300 p10=    0 p25=    9 p75=  342 p90=  897 median=   160 p99=  1844 max=  2287 min=     0 cpu/wait=0.021ms
+rnd-pre250us    15000  300 p10=    0 p25=   27 p75=  445 p90=  977 median=   201 p99=  1639 max=  1866 min=     0 cpu/wait=0.019ms
+rnd-pre250us   100000   60 p10=    0 p25=   96 p75=  558 p90= 1333 median=   212 p99=  1750 max=  1750 min=     0 cpu/wait=0.008ms
+rnd-pre500us     1000  300 p10=    0 p25=    0 p75=  264 p90=  847 median=     0 p99=  1573 max=  2389 min=     0 cpu/wait=0.153ms
+rnd-pre500us     5000  300 p10=    0 p25=    0 p75=  452 p90=  909 median=     0 p99=  1748 max=  2965 min=     0 cpu/wait=0.107ms
+rnd-pre500us    15000  300 p10=    0 p25=    0 p75=  181 p90=  834 median=     0 p99=  1278 max=  1400 min=     0 cpu/wait=0.132ms
+rnd-pre500us   100000   60 p10=    0 p25=    0 p75=  220 p90=  597 median=     0 p99=  1676 max=  1676 min=     0 cpu/wait=0.135ms
+rnd-pre750us     1000  300 p10=    0 p25=    0 p75=  117 p90=  618 median=     0 p99=  1319 max=  1549 min=     0 cpu/wait=0.257ms
+rnd-pre750us     5000  300 p10=    0 p25=    0 p75=  158 p90=  625 median=     0 p99=  1477 max=  1701 min=     0 cpu/wait=0.275ms
+rnd-pre750us    15000  300 p10=    0 p25=    0 p75=   83 p90=  585 median=     0 p99=  1202 max=  2379 min=     0 cpu/wait=0.264ms
+rnd-pre750us   100000   60 p10=    0 p25=    0 p75=  221 p90= 1030 median=     0 p99=  1593 max=  1593 min=     0 cpu/wait=0.277ms
+rnd-pre1000us    1000  300 p10=    0 p25=    0 p75=    0 p90=    0 median=     0 p99=   349 max=   612 min=     0 cpu/wait=1.009ms
+rnd-pre1000us    5000  300 p10=    0 p25=    0 p75=    0 p90=  253 median=     0 p99=  1047 max=  1337 min=     0 cpu/wait=0.499ms
+rnd-pre1000us   15000  300 p10=    0 p25=    0 p75=    0 p90=  208 median=     0 p99=  1118 max=  2466 min=     0 cpu/wait=0.536ms
+rnd-pre1000us  100000   60 p10=    0 p25=    0 p75=    0 p90=  219 median=     0 p99=   804 max=   804 min=     0 cpu/wait=0.461ms
+done

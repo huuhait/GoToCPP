@@ -1,0 +1,7 @@
+gosleep (Go 1.25 cross-built for windows/amd64, time.Sleep, back to back), same PC; microseconds late.
+gosleep   1000 n=200 median=554 p90=672 p99=1056 max=1145 min=3
+gosleep   2000 n=200 median=525 p90=649 p99=1058 max=1371 min=10
+gosleep   5000 n=200 median=518 p90=662 p99=983 max=1491 min=26
+gosleep  15000 n=200 median=408 p90=1059 p99=2049 max=2737 min=51
+gosleep 100000 n=20 median=494 p90=1129 p99=2645 max=2645 min=94
+(two later runs: 1 ms 570/714/965, 5 ms 548/704/1069, 15 ms 501/835/2061)

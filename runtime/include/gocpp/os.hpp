@@ -284,6 +284,45 @@ std::int64_t timer_margin_ns() noexcept;
 // a time: src/timed_wait.hpp counts the waits that want fine ticks and is the only caller.
 void fine_timer(bool on) noexcept;
 
+// Precise timed waits (ADR-133). Windows 10 version 1803 and later have high-resolution waitable
+// timers: a wait on one ends within about half a millisecond of its time and needs no request for
+// finer system ticks, so the machine keeps its idle tick while the process sleeps. A condition
+// variable cannot wait on one, so the runtime's timed waits (src/timed_wait.hpp) wait on a
+// wait_slot instead: a timer and a way for another thread to wake the wait early. Linux has no
+// such timers and rounds nothing: precise_timers is false there and the slot functions are not
+// called.
+struct wait_slot;
+
+// precise_timers says whether the system has high-resolution timers (found by trying to make one,
+// once). When it is false the runtime falls back to the fine ticks of ADR-132.
+bool precise_timers() noexcept;
+
+// wait_slot_new makes a slot with its handles open, or returns null when the system cannot. A
+// slot is never freed (a thread that wakes a slot late may still hold its pointer); an idle slot
+// can give its handles back with wait_slot_close and get them again with wait_slot_open.
+wait_slot* wait_slot_new() noexcept;
+
+// wait_slot_close closes the handles of an idle slot (no thread waits on it; a thread may still
+// wake it, which then does nothing), and wait_slot_open makes them again (false when the system
+// cannot; the slot stays closed). Both are called by one thread at a time for a slot.
+void wait_slot_close(wait_slot* s) noexcept;
+bool wait_slot_open(wait_slot* s) noexcept;
+
+// wait_slot_arm clears a wake-up that is left from the slot's last wait. One thread at a time may
+// arm and wait.
+void wait_slot_arm(wait_slot* s) noexcept;
+
+// wait_slot_wait blocks the calling thread for timer_ns nanoseconds on the slot's timer and then
+// spins for up to spin_ns more, or until another thread calls wait_slot_wake on s (a wake-up that
+// came after the arm and before the call counts), whichever comes first. The timer fires up to
+// about half a millisecond late, so a caller that wants the end to be exact gives the spin the
+// time before the end (src/timed_wait.hpp split_precise_wait). It never returns early unless
+// woken; a wake-up that is left over from an earlier wait can end it early once.
+void wait_slot_wait(wait_slot* s, std::int64_t timer_ns, std::int64_t spin_ns) noexcept;
+
+// wait_slot_wake ends the wait of s, from any thread (the next wait too, if none is going on).
+void wait_slot_wake(wait_slot* s) noexcept;
+
 // exit_now ends the process at once with the exit code, and does nothing else: no flush of C
 // stdio, no leak check, no atexit functions. It is async-signal-safe: for the stack overflow
 // hook. Everywhere else use exit.
@@ -378,6 +417,25 @@ void fd_close(int fd) noexcept;
 // interrupt_in arms a timer that, after ms milliseconds, interrupts the calling thread's system
 // call with a signal that is not restarted (EINTR); false when the system has none.
 bool interrupt_in(int ms) noexcept;
+
+// cpu_time_ns is the CPU time the whole process has used (user and system), and open_handles the
+// number of handles (Windows) or file descriptors (Linux) it holds: tests of the timed waits
+// (ADR-133) read them before and after to see that an idle wait costs no CPU and a wait leaks
+// no handle. Both are 0 when the system cannot tell.
+std::int64_t cpu_time_ns() noexcept;
+std::int64_t open_handles() noexcept;
+
+// force_fallback(true) makes precise_timers false from now on (false undoes it): a test program
+// runs the fine-tick path of ADR-132 on a system that has the timers. No wait may be going on
+// when it is called.
+void force_fallback(bool on) noexcept;
+
+// set_wake_pause_hook installs a function that wait_slot_wake calls between the two steps of the
+// wake-up (the event and the flag), returning the old one: a test holds a waker there to make
+// the interleaving of a late wake-up and the reuse of the slot happen (Windows; Linux has no
+// slots and never calls it).
+using wake_pause_hook = void (*)() noexcept;
+wake_pause_hook set_wake_pause_hook(wake_pause_hook hook) noexcept;
 
 } // namespace testing
 

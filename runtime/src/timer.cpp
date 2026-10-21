@@ -79,7 +79,7 @@ using key = std::pair<int64_t, uint64_t>; // (when, id): the order of firing, ti
 // (the thread may run while the process ends: static destructors would run under its feet).
 struct heap {
     std::mutex mu;
-    std::condition_variable cv;      // the thread waits on it for the earliest deadline
+    precise_cv cv;                   // the thread waits on it for the earliest deadline
     std::condition_variable gone_cv; // timers_shutdown waits on it for the thread to end
     std::map<key, entry> timers;
     uint64_t next_id = 1;
@@ -237,10 +237,9 @@ void thread_main() {
         auto it = h.timers.begin();
         int64_t due = it->first.first;
         if (due > now) {
-            // Fine timer ticks for the last part of the wait only (timed_wait.hpp).
-            auto plan = plan_timed_wait(wait_for(due, now).count());
-            fine_timer_scope fine(plan.fine);
-            h.cv.wait_for(lk, plan.wait);
+            // A precise wait where the system has precise timers, and fine timer ticks for the
+            // last part of the wait only elsewhere (timed_wait.hpp).
+            h.cv.wait_for(lk, wait_for(due, now));
             continue;
         }
         entry e = std::move(it->second);

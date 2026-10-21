@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <malloc.h>
@@ -253,6 +254,28 @@ std::int64_t timer_margin_ns() noexcept {
 
 void fine_timer(bool) noexcept {}
 
+// No high-resolution timers to ask for (a timed wait is exact enough already): the runtime never
+// makes a slot here.
+bool precise_timers() noexcept {
+    return false;
+}
+
+wait_slot* wait_slot_new() noexcept {
+    return nullptr;
+}
+
+void wait_slot_close(wait_slot*) noexcept {}
+
+bool wait_slot_open(wait_slot*) noexcept {
+    return false;
+}
+
+void wait_slot_arm(wait_slot*) noexcept {}
+
+void wait_slot_wait(wait_slot*, std::int64_t, std::int64_t) noexcept {}
+
+void wait_slot_wake(wait_slot*) noexcept {}
+
 std::vector<std::string> arguments(int argc, char** argv) {
     std::vector<std::string> args;
     for (int i = 0; i < argc && argv != nullptr && argv[i] != nullptr; i++) {
@@ -438,6 +461,34 @@ bool interrupt_in(int ms) noexcept {
     its.it_value.tv_sec = ms / 1000;
     its.it_value.tv_nsec = static_cast<long>(ms % 1000) * 1000000;
     return timer_settime(id, 0, &its, nullptr) == 0;
+}
+
+void force_fallback(bool) noexcept {}
+
+wake_pause_hook set_wake_pause_hook(wake_pause_hook) noexcept {
+    return nullptr;
+}
+
+std::int64_t cpu_time_ns() noexcept {
+    struct timespec ts{};
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+}
+
+std::int64_t open_handles() noexcept {
+    // The descriptors of /proc/self/fd, less the one that listing them opens.
+    DIR* dir = opendir("/proc/self/fd");
+    if (dir == nullptr) {
+        return 0;
+    }
+    std::int64_t n = 0;
+    while (readdir(dir) != nullptr) {
+        n++;
+    }
+    closedir(dir);
+    return n > 3 ? n - 3 : 0; // ".", ".." and the descriptor of the listing
 }
 
 } // namespace testing

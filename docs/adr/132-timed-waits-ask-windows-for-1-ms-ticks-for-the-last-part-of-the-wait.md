@@ -1,6 +1,6 @@
 # ADR-132: Timed waits ask Windows for 1 ms timer ticks, for the last part of the wait only
 
-Status: accepted (2026-10-21; job 14.sleep)
+Status: accepted (2026-10-21; job 14.sleep). On Windows 10 version 1803 and later [ADR-133](133-timed-waits-on-windows-use-high-resolution-timers-with-a-short-spin-at-the-end.md) takes over (high-resolution timers); this ADR is the fallback for older systems.
 
 ## Context
 

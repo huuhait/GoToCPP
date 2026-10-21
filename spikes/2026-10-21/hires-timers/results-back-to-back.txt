@@ -1,0 +1,54 @@
+which=all spinners=0
+res start min=156250 max=5000 cur=10000 (100ns units)
+cv               1000  200 median= 14577 p99= 15629 max= 15877 min=  3159 cpu/wait=0.078ms
+cv               2000  200 median= 13537 p99= 14820 max= 15217 min= 11199 cpu/wait=0.000ms
+cv               5000  200 median= 10546 p99= 11890 max= 12155 min=  9035 cpu/wait=0.000ms
+cv              15000  200 median= 15890 p99= 17903 max= 19204 min=   203 cpu/wait=0.000ms
+cv             100000   20 median=  8973 p99= 10162 max= 10162 min=  7008 cpu/wait=0.000ms
+res after cv min=156250 max=5000 cur=10000 (100ns units)
+res tbp1 min=156250 max=5000 cur=10000 (100ns units)
+cv+tbp1          1000  200 median=  1004 p99=  3003 max=  3410 min=   375 cpu/wait=0.000ms
+cv+tbp1          2000  200 median=  1300 p99=  3017 max=  3487 min=   264 cpu/wait=0.000ms
+cv+tbp1          5000  200 median=  1230 p99=  3204 max=  3782 min=   265 cpu/wait=0.000ms
+cv+tbp1         15000  200 median=  1238 p99=  2972 max=  3281 min=    41 cpu/wait=0.000ms
+cv+tbp1        100000   20 median=  1373 p99=  2407 max=  2407 min=   245 cpu/wait=0.000ms
+res nt0.5 min=156250 max=5000 cur=5000 (100ns units)
+cv+nt0.5ms       1000  200 median=  1008 p99=  3001 max=  3004 min=   370 cpu/wait=0.000ms
+cv+nt0.5ms       2000  200 median=  1028 p99=  2434 max=  2813 min=   225 cpu/wait=0.000ms
+cv+nt0.5ms       5000  200 median=  1044 p99=  2822 max=  3853 min=   203 cpu/wait=0.078ms
+cv+nt0.5ms      15000  200 median=  1117 p99=  2862 max= 15723 min=    85 cpu/wait=0.000ms
+cv+nt0.5ms     100000   20 median=  1018 p99=  2792 max=  2792 min=   171 cpu/wait=0.000ms
+res nt released min=156250 max=5000 cur=10000 (100ns units)
+hr               1000  200 median=   523 p99=  1563 max=  1653 min=    18 cpu/wait=0.000ms
+hr               2000  200 median=   505 p99=  2003 max=  2061 min=    12 cpu/wait=0.000ms
+hr               5000  200 median=   516 p99=  1781 max=  3185 min=    23 cpu/wait=0.000ms
+hr              15000  200 median=   457 p99=  1986 max=  2440 min=    47 cpu/wait=0.000ms
+hr             100000   20 median=   467 p99=  1927 max=  1927 min=    61 cpu/wait=0.000ms
+hr-multi         1000  200 median=   598 p99=  1750 max=  1997 min=    27 cpu/wait=0.000ms
+hr-multi         2000  200 median=   538 p99=  1854 max=  2005 min=    53 cpu/wait=0.000ms
+hr-multi         5000  200 median=   527 p99=  1733 max=  2029 min=    27 cpu/wait=0.000ms
+hr-multi        15000  200 median=   508 p99=  2123 max=  2753 min=    41 cpu/wait=0.000ms
+hr-multi       100000   20 median=   512 p99=  2435 max=  2435 min=    87 cpu/wait=0.000ms
+res after hr min=156250 max=5000 cur=10000 (100ns units)
+hybrid           1000  200 median=   536 p99=  1765 max=  2024 min=    16 cpu/wait=0.000ms
+hybrid           2000  200 median=   505 p99=  1802 max=  2805 min=    15 cpu/wait=0.000ms
+hybrid           5000  200 median=   504 p99=  1757 max=  1925 min=    11 cpu/wait=0.000ms
+hybrid          15000  200 median=   486 p99=  2104 max=  2330 min=    22 cpu/wait=0.078ms
+hybrid         100000   20 median=   379 p99=  1196 max=  1196 min=    69 cpu/wait=0.000ms
+hop              1000  200 median=   580 p99=  1870 max=  1976 min=    40 cpu/wait=0.000ms
+hop              2000  200 median=   519 p99=  1533 max=  1827 min=    72 cpu/wait=0.078ms
+hop              5000  200 median=   575 p99=  1865 max=  1959 min=    66 cpu/wait=0.000ms
+hop             15000  200 median=   473 p99=  2340 max=  8650 min=   100 cpu/wait=0.078ms
+hop            100000   20 median=   624 p99=  1901 max=  1901 min=   144 cpu/wait=0.000ms
+cv-notify           0  200 median=    17 p99=   105 max=   737 min=     6 cpu/wait=0.000ms
+cv+spin1ms       1000  200 median=     0 p99=   812 max=  1048 min=     0 cpu/wait=1.094ms
+cv+spin1ms       2000  200 median=     0 p99=  1110 max=  1267 min=     0 cpu/wait=1.797ms
+cv+spin1ms       5000  200 median=     0 p99=  1519 max=  1704 min=     0 cpu/wait=4.688ms
+cv+spin1ms      15000  200 median=     0 p99=   905 max=  1336 min=     0 cpu/wait=14.297ms
+cv+spin1ms     100000   20 median=     0 p99=     0 max=     0 min=     0 cpu/wait=10.156ms
+cv+yield1ms      1000  200 median=     0 p99=   712 max=   816 min=     0 cpu/wait=0.859ms
+cv+yield1ms      2000  200 median=     0 p99=   836 max=  1271 min=     0 cpu/wait=1.953ms
+cv+yield1ms      5000  200 median=     0 p99=   976 max=  1080 min=     0 cpu/wait=4.453ms
+cv+yield1ms     15000  200 median=     0 p99=  1781 max= 16384 min=     0 cpu/wait=13.594ms
+cv+yield1ms    100000   20 median=     0 p99=   372 max=   372 min=     0 cpu/wait=10.156ms
+done

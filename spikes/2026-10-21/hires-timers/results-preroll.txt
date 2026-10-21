@@ -1,0 +1,15 @@
+v4 (hires.exe v4), real PC, Windows 11 build 26200. A waitable high-resolution timer is set to fire
+P us before the deadline of a 3 ms wait, then the thread spins (YieldProcessor) to the deadline. A random
+busy jitter of 0 to 1.9 ms runs before each wait, so the phase against the system's interrupts is random.
+1500 waits per row, two rounds. Microseconds; "final" = late at the end of the spin, "raw" = how late the
+timer itself fired against its own time.
+P=   0 final p50= 401 p75= 553 p90= 958 p95=1383 p99=1939 | raw p50= 400 p90= 958 p99=1939 | spin avg 0 us
+P= 150 final p50= 311 p75= 533 p90=1051 p95=1387 p99=1958 | raw p50= 461 p90=1201 p99=2108 | spin avg 4 us
+P= 300 final p50= 173 p75= 413 p90= 917 p95=1275 p99=1821 | raw p50= 472 p90=1217 p99=2121 | spin avg 32 us
+P= 600 final p50=   0 p75=  72 p90= 585 p95= 961 p99=1454 | raw p50= 437 p90=1185 p99=2054 | spin avg 185 us
+P=1000 final p50=   0 p75=   0 p90= 260 p95= 532 p99=1044 | raw p50= 440 p90=1245 p99=2043 | spin avg 511 us
+P=   0 final p50= 424 p75= 583 p90=1072 p95=1460 p99=1998 | raw p50= 424 p90=1072 p99=1998 | spin avg 0 us
+P= 150 final p50= 273 p75= 470 p90=1005 p95=1325 p99=1788 | raw p50= 423 p90=1155 p99=1938 | spin avg 5 us
+P= 300 final p50= 129 p75= 306 p90= 846 p95=1140 p99=1758 | raw p50= 428 p90=1141 p99=2017 | spin avg 38 us
+P= 600 final p50=   0 p75=   0 p90= 485 p95= 742 p99=1356 | raw p50= 384 p90=1085 p99=1956 | spin avg 226 us
+P=1000 final p50=   0 p75=   0 p90= 119 p95= 402 p99= 891 | raw p50= 416 p90=1112 p99=1890 | spin avg 535 us

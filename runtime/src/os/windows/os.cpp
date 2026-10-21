@@ -6,11 +6,14 @@
 #include <gocpp/os.hpp>
 #include "windows.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <new>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -360,6 +363,155 @@ void fine_timer(bool on) noexcept {
     }
 }
 
+// A slot of a precise wait: a high-resolution waitable timer for the time, a manual-reset event
+// that wait_slot_wake sets, and a flag for the spin at the end of the wait. The lock keeps a late
+// wake-up from using the handles while wait_slot_close closes them.
+struct wait_slot {
+    SRWLOCK lock = SRWLOCK_INIT;
+    HANDLE timer = nullptr;
+    HANDLE wake = nullptr;
+    std::atomic<bool> woken{false};
+};
+
+namespace {
+
+// CREATE_WAITABLE_TIMER_HIGH_RESOLUTION (Windows 10 version 1803): older systems do not know the
+// flag and fail the call, so there is nothing to look up at run time.
+constexpr DWORD high_resolution_timer = 0x00000002;
+
+HANDLE new_timer() noexcept {
+    return CreateWaitableTimerExW(nullptr, nullptr, high_resolution_timer, TIMER_ALL_ACCESS);
+}
+
+// milliseconds is ns as a timeout of the Win32 waits: rounded up, and never INFINITE.
+DWORD milliseconds(std::int64_t ns) noexcept {
+    std::int64_t ms = ns / 1'000'000 + (ns % 1'000'000 != 0 ? 1 : 0);
+    return ms > 0xFFFFFFFEll ? 0xFFFFFFFEu : static_cast<DWORD>(ms);
+}
+
+// wake_hook is the test hook between the two steps of wait_slot_wake.
+std::atomic<testing::wake_pause_hook> wake_hook{nullptr};
+
+// fallback_forced is the test switch of force_fallback.
+std::atomic<bool> fallback_forced{false};
+
+} // namespace
+
+bool precise_timers() noexcept {
+    static const bool available = [] {
+        HANDLE t = new_timer();
+        if (t == nullptr) {
+            return false;
+        }
+        CloseHandle(t);
+        return true;
+    }();
+    return available && !fallback_forced.load(std::memory_order_acquire);
+}
+
+bool wait_slot_open(wait_slot* s) noexcept {
+    AcquireSRWLockExclusive(&s->lock);
+    if (s->timer == nullptr) {
+        s->timer = new_timer();
+    }
+    if (s->wake == nullptr) {
+        s->wake = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    }
+    bool ok = s->timer != nullptr && s->wake != nullptr;
+    ReleaseSRWLockExclusive(&s->lock);
+    if (!ok) {
+        wait_slot_close(s);
+    }
+    return ok;
+}
+
+void wait_slot_close(wait_slot* s) noexcept {
+    AcquireSRWLockExclusive(&s->lock);
+    if (s->timer != nullptr) {
+        CloseHandle(s->timer);
+        s->timer = nullptr;
+    }
+    if (s->wake != nullptr) {
+        CloseHandle(s->wake);
+        s->wake = nullptr;
+    }
+    ReleaseSRWLockExclusive(&s->lock);
+}
+
+wait_slot* wait_slot_new() noexcept {
+    auto* s = new (std::nothrow) wait_slot;
+    if (s == nullptr) {
+        return nullptr;
+    }
+    if (!wait_slot_open(s)) {
+        delete s; // (nothing else has the pointer yet)
+        return nullptr;
+    }
+    return s;
+}
+
+void wait_slot_arm(wait_slot* s) noexcept {
+    // Both are cleared every time: a wake-up that came after the last wait ended (a late waker,
+    // or the second step of one) must not end this one. Its second step may still come after
+    // this call; then it ends the wait once, early, and the next arm clears it.
+    s->woken.store(false);
+    ResetEvent(s->wake);
+}
+
+void wait_slot_wake(wait_slot* s) noexcept {
+    AcquireSRWLockShared(&s->lock);
+    if (s->wake != nullptr) {
+        SetEvent(s->wake);
+    }
+    if (auto hook = wake_hook.load(std::memory_order_acquire)) {
+        hook();
+    }
+    s->woken.store(true);
+    ReleaseSRWLockShared(&s->lock);
+}
+
+void wait_slot_wait(wait_slot* s, std::int64_t timer_ns, std::int64_t spin_ns) noexcept {
+    using clock = std::chrono::steady_clock;
+    auto end = clock::now() + std::chrono::nanoseconds(timer_ns + spin_ns);
+
+    if (timer_ns > 0) {
+        // The timer is relative (negative, in units of 100 ns). A SetWaitableTimerEx that is
+        // already armed is re-armed and its signal cleared, so a timer left from an earlier wait
+        // cannot end this one.
+        LARGE_INTEGER due;
+        due.QuadPart = -(timer_ns / 100);
+        if (due.QuadPart == 0) {
+            due.QuadPart = -1;
+        }
+        if (!SetWaitableTimerEx(s->timer, &due, 0, nullptr, nullptr, nullptr, 0)) {
+            // No timer: the event alone with a timeout of whole milliseconds (the old accuracy;
+            // the caller's loop looks at the clock).
+            WaitForSingleObject(s->wake, milliseconds(timer_ns + spin_ns));
+            return;
+        }
+        HANDLE handles[2] = {s->wake, s->timer};
+        DWORD got = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        if (got == WAIT_OBJECT_0) {
+            // Woken: the timer is still armed, and would fire into nobody.
+            CancelWaitableTimer(s->timer);
+            return;
+        }
+        if (got != WAIT_OBJECT_0 + 1) {
+            Sleep(1); // a failed wait must not become a busy loop of the caller
+            return;
+        }
+    }
+
+    // The end of the wait is a spin: the timer is only as exact as the system's interrupt, and
+    // this part is what makes the wait end on time.
+    while (clock::now() < end) {
+        if (s->woken.load(std::memory_order_acquire)) {
+            return;
+        }
+        YieldProcessor();
+    }
+}
+
 bool process_barrier_init() noexcept {
     return true;
 }
@@ -401,6 +553,53 @@ void fd_write(int, const char*, std::size_t) noexcept {}
 void fd_close(int) noexcept {}
 bool interrupt_in(int) noexcept {
     return false;
+}
+
+void force_fallback(bool on) noexcept {
+    fallback_forced.store(on, std::memory_order_release);
+}
+
+wake_pause_hook set_wake_pause_hook(wake_pause_hook hook) noexcept {
+    return gp::os::wake_hook.exchange(hook, std::memory_order_acq_rel);
+}
+
+std::int64_t cpu_time_ns() noexcept {
+    // GetProcessTimes counts in system ticks (15.6 ms), far too coarse for the 30 microseconds of
+    // CPU that a precise wait costs. QueryProcessCycleTime counts the cycles of the process's
+    // threads; the cycles per nanosecond are measured once, on this thread, against the
+    // performance counter (an estimate, good to a few percent).
+    static const double cycles_per_ns = [] {
+        double best = 0;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            ULONG64 c0 = 0;
+            ULONG64 c1 = 0;
+            LARGE_INTEGER f, t0, t1;
+            QueryPerformanceFrequency(&f);
+            QueryThreadCycleTime(GetCurrentThread(), &c0);
+            QueryPerformanceCounter(&t0);
+            do {
+                QueryPerformanceCounter(&t1);
+            } while ((t1.QuadPart - t0.QuadPart) * 1000 < f.QuadPart * 10); // 10 ms
+            QueryThreadCycleTime(GetCurrentThread(), &c1);
+            double ns = static_cast<double>(t1.QuadPart - t0.QuadPart) * 1e9 /
+                        static_cast<double>(f.QuadPart);
+            best = std::max(best, static_cast<double>(c1 - c0) / ns);
+        }
+        return best;
+    }();
+    ULONG64 cycles = 0;
+    if (cycles_per_ns <= 0 || !QueryProcessCycleTime(GetCurrentProcess(), &cycles)) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(static_cast<double>(cycles) / cycles_per_ns);
+}
+
+std::int64_t open_handles() noexcept {
+    DWORD n = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &n)) {
+        return 0;
+    }
+    return n;
 }
 
 } // namespace testing

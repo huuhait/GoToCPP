@@ -775,6 +775,99 @@ void test_win_runtime_args() {
     CHECK(envs.gp_len() == static_cast<int64_t>(gp::envs().size()));
     CHECK(gp::syscall::runtime_rand() != gp::syscall::runtime_rand());
 }
+
+// --- the wait slots of the precise timed waits (ADR-133) ---
+
+std::atomic<int> wake_hook_state{0}; // 1: the waker is between its two steps, 2: let it go on
+
+void hold_the_waker() noexcept {
+    wake_hook_state = 1;
+    while (wake_hook_state.load() != 2) {
+        std::this_thread::yield();
+    }
+}
+
+// nanoseconds that wait_slot_wait took with a timer of timer_ns (a wait that nothing wakes)
+int64_t slot_wait_ns(gp::os::wait_slot* s, int64_t timer_ns, int64_t spin_ns) {
+    auto start = std::chrono::steady_clock::now();
+    gp::os::wait_slot_wait(s, timer_ns, spin_ns);
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
+                                                                start)
+        .count();
+}
+
+void test_wait_slot_late_wake_does_not_poison() {
+    // A waker that is slow between the two steps of its wake-up (the event and the flag) while
+    // the slot is armed and used again: its wake-up ends at most one wait early, and the next
+    // wait on the slot waits its whole time. (With the flag first and the event later, and an arm
+    // that cleared the event only when the flag was set, the event stayed set for ever and every
+    // wait on the slot returned at once.)
+    gp::os::wait_slot* s = gp::os::wait_slot_new();
+    CHECK(s != nullptr);
+    if (s == nullptr) {
+        return;
+    }
+    wake_hook_state = 0;
+    gp::os::testing::set_wake_pause_hook(&hold_the_waker);
+    gp::os::wait_slot_arm(s);
+    std::thread waker([s] { gp::os::wait_slot_wake(s); });
+    while (wake_hook_state.load() != 1) {
+        std::this_thread::yield();
+    }
+    // The slot is used for a short wait and armed again while the waker is held.
+    gp::os::wait_slot_arm(s);
+    slot_wait_ns(s, 0, 100'000);
+    gp::os::wait_slot_arm(s);
+    wake_hook_state = 2;
+    waker.join();
+    gp::os::testing::set_wake_pause_hook(nullptr);
+    // The waker has finished: its step may have set the event or the flag after the arm. The
+    // next wait may end early once (a spurious wake-up), and after the arm that follows, it must
+    // last its whole 100 ms.
+    slot_wait_ns(s, 100'000'000, 0);
+    gp::os::wait_slot_arm(s);
+    CHECK(slot_wait_ns(s, 100'000'000, 0) >= 90'000'000);
+    gp::os::wait_slot_arm(s);
+    CHECK(slot_wait_ns(s, 0, 100'000'000) >= 90'000'000); // and a spin as well
+    gp::os::wait_slot_close(s);
+}
+
+void test_wait_slot_wake_before_wait() {
+    // A wake-up that comes after the arm and before the wait ends that wait at once, and only it.
+    gp::os::wait_slot* s = gp::os::wait_slot_new();
+    CHECK(s != nullptr);
+    if (s == nullptr) {
+        return;
+    }
+    gp::os::wait_slot_arm(s);
+    gp::os::wait_slot_wake(s);
+    CHECK(slot_wait_ns(s, 5'000'000'000LL, 0) < 1'000'000'000LL);
+    gp::os::wait_slot_arm(s);
+    gp::os::wait_slot_wake(s);
+    CHECK(slot_wait_ns(s, 0, 5'000'000'000LL) < 1'000'000'000LL);
+    gp::os::wait_slot_arm(s);
+    CHECK(slot_wait_ns(s, 20'000'000, 0) >= 15'000'000);
+    gp::os::wait_slot_close(s);
+}
+
+void test_wait_slot_close_and_open() {
+    // The handles of an idle slot are given back and made again; a wake-up of a closed slot does
+    // nothing, and the reopened slot waits its time.
+    gp::os::wait_slot* s = gp::os::wait_slot_new();
+    CHECK(s != nullptr);
+    if (s == nullptr) {
+        return;
+    }
+    int64_t open_before = gp::os::testing::open_handles();
+    gp::os::wait_slot_close(s);
+    CHECK(gp::os::testing::open_handles() <= open_before - 2);
+    gp::os::wait_slot_wake(s);
+    CHECK(gp::os::wait_slot_open(s));
+    CHECK(gp::os::testing::open_handles() == open_before);
+    gp::os::wait_slot_arm(s);
+    CHECK(slot_wait_ns(s, 20'000'000, 0) >= 15'000'000);
+    gp::os::wait_slot_close(s);
+}
 #endif
 
 // --- the tests ---
@@ -828,6 +921,9 @@ const named_test tests[] = {
     {"win_setenv_wtf8", test_win_setenv_wtf8},
     {"win_syscall_n", test_win_syscall_n},
     {"win_runtime_args", test_win_runtime_args},
+    {"wait_slot_late_wake_does_not_poison", test_wait_slot_late_wake_does_not_poison},
+    {"wait_slot_wake_before_wait", test_wait_slot_wake_before_wait},
+    {"wait_slot_close_and_open", test_wait_slot_close_and_open},
 #endif
     {"goroutine_channel", test_goroutine_channel},
     {"goroutines_many", test_goroutines_many},

@@ -408,6 +408,8 @@ var winUnitPrograms = []prog{
 	{src: "test/chan_test.cpp", weight: 4},
 	{src: "test/select_test.cpp", weight: 4},
 	{src: "test/deadlock_test.cpp", weight: 4},
+	{src: "test/time_test.cpp", weight: 6},
+	{src: "test/sync_test.cpp", weight: 4},
 	{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
 }
 
