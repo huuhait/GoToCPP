@@ -419,3 +419,131 @@ func main() { f(1) }
 		}
 	}
 }
+
+// The project of the Phase 13 exit criterion: a closure cycle in the program, a printf mistake
+// through a wrapper of another package (a wrapper of a wrapper), and a panicking ! in a library,
+// also through the library that it imports.
+var vetCriterionFiles = map[string]string{
+	"logx/logx.gp": `package logx
+
+import "fmt"
+
+// Infof forwards to fmt.Printf, so vet checks its callers like Printf's.
+func Infof(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+// Warnf forwards to Infof: a wrapper of a wrapper.
+func Warnf(format string, args ...any) {
+	Infof(format, args...)
+}
+`,
+	"parse/parse.gp": `package parse
+
+import "strconv"
+
+// Port panics with the error of Atoi: it has no error result.
+func Port(text string) int {
+	return strconv.Atoi!(text)
+}
+`,
+	"server/server.gp": `package server
+
+import "example.com/m/parse"
+
+// Listen is a library function that calls a panicking function of another package.
+func Listen(address string) int {
+	return parse.Port(address)
+}
+`,
+	"main.gp": `package main
+
+import "example.com/m/logx"
+
+func main() {
+	logx.Warnf("port %d", "eighty")
+	var retry func()
+	retry = func() { retry() }
+	retry()
+}
+`,
+}
+
+// A cycle, a printf mistake through two wrappers of another package, and a panicking ! in a
+// library are each found, at the .gp line, by gocpp vet over the whole project: vet runs once
+// and each finding is checked on its own.
+func TestVetPhase13ExitCriterion(t *testing.T) {
+	code, out, errOut := vetIn(t, vetCriterionFiles, "./...")
+	lines := strings.Split(strings.TrimSpace(errOut), "\n")
+	t.Run("exit status", func(t *testing.T) {
+		if code != 1 || out != "" {
+			t.Errorf("exit %d, stdout %q; want exit 1 and nothing on stdout\n%s", code, out, errOut)
+		}
+	})
+	findings := []struct {
+		name string
+		line string
+	}{
+		{"closure cycle", "./main.gp:8:2: reference cycle: retry holds a closure that captures retry"},
+		{"printf through two wrappers", `./main.gp:6:19: example.com/m/logx.Warnf format %d has arg "eighty" of wrong type string`},
+		{"panicking bang in a library", "parse/parse.gp:7:9: strconv.Atoi!(text) panics here: Port has no error result"},
+		{"panicking bang through the imported library", "server/server.gp:7:9: parse.Port can panic: parse.Port uses ! at parse.gp:7:9"},
+	}
+	for _, f := range findings {
+		t.Run(f.name, func(t *testing.T) {
+			if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, f.line) }) {
+				t.Errorf("no line starts with %q:\n%s", f.line, errOut)
+			}
+		})
+	}
+	t.Run("nothing else", func(t *testing.T) {
+		// The four findings and the three "# package" lines.
+		if len(lines) != len(findings)+3 {
+			t.Errorf("%d lines, want %d:\n%s", len(lines), len(findings)+3, errOut)
+		}
+	})
+}
+
+// The same project, mended: the call is right, the closure does not hold itself, and the library
+// returns its errors (a must function: its callers get the error). Nothing is reported.
+func TestVetPhase13ExitCriterionMended(t *testing.T) {
+	files := map[string]string{
+		"logx/logx.gp": vetCriterionFiles["logx/logx.gp"],
+		"parse/parse.gp": `package parse
+
+import "strconv"
+
+func Port!(text string) int {
+	return strconv.Atoi!(text)
+}
+`,
+		"server/server.gp": `package server
+
+import "example.com/m/parse"
+
+func Listen!(address string) int {
+	return parse.Port!(address)
+}
+`,
+		"main.gp": `package main
+
+import "example.com/m/logx"
+
+// retry is a top-level function: nothing captures it.
+func retry(attempts int) {
+	if attempts > 0 {
+		retry(attempts - 1)
+	}
+}
+
+func main() {
+	logx.Warnf("port %d", 80)
+	retry(3)
+}
+`,
+	}
+	code, out, errOut := vetIn(t, files, "./...")
+	if code != 0 || out != "" || errOut != "" {
+		t.Errorf("exit %d, stdout %q, stderr:\n%s", code, out, errOut)
+	}
+}

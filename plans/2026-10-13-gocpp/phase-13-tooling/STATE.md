@@ -28,7 +28,7 @@
 ## Exit criteria
 
 - [x] Scripted gdb/lldb sessions show gocpp values and stop on `.gp` breakpoints (also with `-trimpath`)
-- [ ] vet finds a closure cycle, a printf mistake (also through a cross-package wrapper), and a panicking `!` in a library
+- [x] vet finds a closure cycle, a printf mistake (also through a cross-package wrapper), and a panicking `!` in a library
 - [x] vet runs over every interop example without crashing
 - [x] ≥ 20 error tests show C++ errors with gocpp type names
 
@@ -45,3 +45,5 @@
   (prints its C++ fields; `gp_data_` up to a NUL is not the string's end: `*s.gp_data_@s.gp_len_`),
   int8/uint8 printed with a character (`4 '\004'`), `info locals` shows `gp_t0`/`gp_i0` and
   not-yet-declared variables; `step` at `}` enters `gp::string::~string` (ship `skip -gfi */gocpp/rt/*`).
+
+- 2026-10-20: Vet exit criterion evidenced end to end (job 13.vetexit, clean review after two rounds): `TestVetPhase13ExitCriterion` runs `gocpp vet ./...` over a four-package project and checks the closure cycle, a printf mistake through two cross-package wrappers and a panicking `!` in a library (reported in the library and through its importer) in named subtests; `TestVetPhase13ExitCriterionMended` vets the repaired project clean. No analyzer change; five mutations of the analyzers were caught. A wrapper that changes the format string (`"prefix: "+format`) is not followed, as in Go's printf analyzer.

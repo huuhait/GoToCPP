@@ -25,10 +25,10 @@
   - [x] two checks: find dropped errors with the first check's signatures, rewrite, check again
   - [x] declared-error form (`(cfg Config, err error)` + `errors.Wrapf`)
   - [x] `main!` / `init!` (print + exit 1), methods
-  - [ ] `defer f.Close()` inside; closures not handled; `go f()` → vet warning
+  - [x] `defer f.Close()` inside; closures not handled; `go f()` → vet warning
 - [x] 10.5 `!` lowering
   - [x] propagate (zero values + error, defers run)
-  - [ ] panic without an error result (incl. `init`, package-level vars); `t.Fatal` in tests
+  - [x] panic without an error result (incl. `init`, package-level vars); `t.Fatal` in tests
   - [x] `main`: print error (`<program>` = base name of `os.Args[0]`), exit 1
   - [x] per-context shapes: left-hoisting, loop condition + post, `else if`, `case`, `&&`/`||`
   - [x] `defer F!()` as a deferred closure (args evaluated at the defer)
@@ -109,3 +109,5 @@
   and race) had focused-test evidence from the job (364 focused tests passed; `TestPhase10NoHelpers`
   passes), but they stay unticked until the user's final review; the clang `cross` macro/hand
   ratio is unstable across builds (0.97 to 1.27, layout effect, `docs/benchmarks/must-macros.md`).
+
+- 2026-10-20: The two stale unticked sub-items of 10.4 and 10.5 were verified by job 13.vetexit (clean review): `defer f.Close()` in a must function, closures as their own context (a bare dropped-error call inside a closure stays dropped: `must_closure_bare_call_dropped`), the `go f()` vet warning (`gobang`), panic forms for functions without an error result, `init` (`must_init_plain_panic`), package-level variables and `t.Fatal` in tests (`TestGoTest/must_testing`, `must_bench`) are all implemented and tested against real Go.

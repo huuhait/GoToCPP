@@ -128,7 +128,8 @@ The loader parses with `Phase10Syntax` only when the gate phase is 10 or later, 
   handled by a must function and is not rejected when dropped; `named!()` is rejected.
 - `!` in the channel operation of a `select` case: rejected with a message (evaluate it before the `select`).
 - `!` on C and C++ functions: rejected with a message. `go f()` in a must function: not handled, as README says;
-  the `gocpp vet` warning is Phase 13. The `t.Fatal` form is written but no test runs it (no `testing` package yet).
+  `gocpp vet` warns about it (the `gobang` analyzer, `internal/vet/testdata/gobang.txtar`). The `t.Fatal` form is run by
+  the `gocpp test` fixtures `tests/gotest/testdata/must_testing` and `must_bench` (`TestGoTest/must_testing`).
 - Hover text, inlay hints and go-to-definition that explain `!` (what happens on error): Phase 11's later work.
   The positions map to the original source and the synthetic names are skipped, which is all this step needed.
   Stepping through `for i := f!(); i < g!(); i++` in a debugger stops on the closing brace for the error checks.
