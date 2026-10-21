@@ -35,5 +35,5 @@ func (s *FetcherSource) Versions(ctx context.Context, path string) ([]string, er
 
 // Retractions implements RetractionSource.
 func (s *FetcherSource) Retractions(ctx context.Context, path string) ([]*gocppmod.Retract, error) {
-	return s.F.Retractions(ctx, s.MainDir, path, s.Pending)
+	return s.F.Retractions(ctx, s.MainDir, path)
 }

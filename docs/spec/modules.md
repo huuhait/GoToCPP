@@ -308,7 +308,10 @@ archive. Details that follow Go and are tested against it (`go list -m all` and 
 - **`exclude`** (main module only): a requirement on an excluded version counts as nothing, and `gocpp get` never chooses it.
 - **`retract`** (in the module file of a later version of a module) does not change the selection of the build list;
   `gocpp get` skips retracted versions for `latest`, `upgrade` and `patch` and as the version that a downgrade falls back
-  to (Go's `CheckAllowed`), and warns when you name one.
+  to (Go's `CheckAllowed`), and warns when you name one. The retract lines are read from the module file of the highest
+  version, which is not a module of the build: its hashes are not written to `gocpp.sum`, and `gocpp get mod@v1.2.3` never
+  downloads that version's archive. A module proxy serves the `.mod` file alone, which is read; a git host has the file
+  only in the archive, so the warning is given only if that version is already in the module cache.
 - **Several `require` lines** for one module in one file (go.mod files have them) count as one, at the highest version.
 - **A cycle** is fine. **A path with `/v2`** is a module of its own (`example.com/a` and `example.com/a/v2` are both
   in the build list). **`+incompatible`** is a version of the same module: `v2.0.0+incompatible` equals `v2.0.0` for

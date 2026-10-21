@@ -157,3 +157,6 @@
   form; nesting up to 4, 1024 conditions and 100 errors per recipe; an unknown tag is false with a warning and a guess; the
   object-cache key still follows the statements that apply to the target. Open nits: `if(windows){` and `}else{` glued
   spellings still give the older file-level message.
+
+- 2026-10-21 job 06.getpin [x] merged (one review round, CLEAN): `gocpp get mod@v1.91.5` no longer downloads the newest version or records its hashes in `gocpp.sum`. Cause: the retraction check (`RetractionOf`, also `retractionsOf` and `versionHasModFile`) read the newest module file with real pending sums; on a git host (no `.mod` endpoint) that is the whole archive. Those reads now record into a throwaway set and a retraction check never downloads an archive (`FetchOptions.NoArchive`, `ErrArchiveNeeded`). Behavior change: on a git host a retracted pin gets no warning unless the newest version is already in the cache (a proxy still warns); a cheaper route needs host-specific raw URLs and was not taken. Real-network run: imgui@v1.91.5 sum went from two lines to one. Open nits: the `noArchive bool` parameter could be a named constant; a test of the cached-newest warning on a git host.
+

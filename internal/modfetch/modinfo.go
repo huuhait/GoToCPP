@@ -136,6 +136,9 @@ func (f *Fetcher) ModFile(ctx context.Context, mainDir, path, version string, op
 	if len(tried) > 0 && len(tried) == len(srcs) {
 		return nil, &ModuleNotFoundError{Path: path, Version: version, Tried: tried}
 	}
+	if opts.NoArchive {
+		return nil, ErrArchiveNeeded
+	}
 	m, err := f.Fetch(ctx, mainDir, path, version, opts)
 	if err != nil {
 		return nil, err
@@ -297,9 +300,21 @@ type QueryResult struct {
 	Module *Module
 }
 
-// retractionsOf returns the retract lines of the module file of a version.
-func (f *Fetcher) retractionsOf(ctx context.Context, mainDir, path, version string, pending *PendingSums) ([]*gocppmod.Retract, error) {
-	mi, err := f.ModFile(ctx, mainDir, path, version, FetchOptions{Record: !f.cfg.ReadOnly, Pending: pending})
+// retractionsOf returns the retract lines of the module file of a version. The
+// version is read for these lines only, usually the latest and not the one that
+// the build uses: its hashes go to a set of pending lines that is thrown away,
+// not to gocpp.sum (a line there would be one for a version that nothing needs).
+// With noArchive, a module that is not in the cache and has no module file of
+// its own at its source is not downloaded: there are no lines then.
+func (f *Fetcher) retractionsOf(ctx context.Context, mainDir, path, version string, noArchive bool) ([]*gocppmod.Retract, error) {
+	mi, err := f.ModFile(ctx, mainDir, path, version, FetchOptions{
+		Record:    !f.cfg.ReadOnly,
+		Pending:   &PendingSums{},
+		NoArchive: noArchive,
+	})
+	if errors.Is(err, ErrArchiveNeeded) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -316,12 +331,12 @@ func (f *Fetcher) retractionsOf(ctx context.Context, mainDir, path, version stri
 // Retractions returns the retract lines of the highest version of the module
 // (exclude lines ignored), which decide what is retracted, as in Go's
 // CheckRetractions; none if the module has no versions.
-func (f *Fetcher) Retractions(ctx context.Context, mainDir, path string, pending *PendingSums) ([]*gocppmod.Retract, error) {
+func (f *Fetcher) Retractions(ctx context.Context, mainDir, path string) ([]*gocppmod.Retract, error) {
 	vs, err := f.Versions(ctx, path)
 	if err != nil || len(vs) == 0 {
 		return nil, err
 	}
-	return f.retractionsOf(ctx, mainDir, path, vs[len(vs)-1], pending)
+	return f.retractionsOf(ctx, mainDir, path, vs[len(vs)-1], false)
 }
 
 // Retraction returns the rationale if the module version is retracted by the
@@ -415,7 +430,7 @@ func (f *Fetcher) Query(ctx context.Context, mainDir, path, query string, o Quer
 				if !strings.HasSuffix(v, "+incompatible") {
 					lastCompat = v
 				} else if lastCompat != "" {
-					has, err := f.versionHasModFile(ctx, mainDir, path, lastCompat, o.Pending)
+					has, err := f.versionHasModFile(ctx, mainDir, path, lastCompat)
 					if err != nil {
 						return nil, err
 					}
@@ -435,7 +450,7 @@ func (f *Fetcher) Query(ctx context.Context, mainDir, path, query string, o Quer
 		if !o.KeepRetracted {
 			top := all[len(all)-1] // exclude lines are ignored here, as in Go
 			var err error
-			if rets, err = f.retractionsOf(ctx, mainDir, path, top, o.Pending); err != nil {
+			if rets, err = f.retractionsOf(ctx, mainDir, path, top, false); err != nil {
 				return nil, err
 			}
 		}
@@ -567,8 +582,12 @@ func (f *Fetcher) olderThanPseudo(ctx context.Context, mainDir string, repo *Rep
 // its own: a gocpp.mod or a go.mod in its archive, or a .mod file from a proxy
 // that is not the one that a proxy makes up for a module with none
 // ("module <path>").
-func (f *Fetcher) versionHasModFile(ctx context.Context, mainDir, path, version string, pending *PendingSums) (bool, error) {
-	mi, err := f.ModFile(ctx, mainDir, path, version, FetchOptions{Record: !f.cfg.ReadOnly, Pending: pending})
+func (f *Fetcher) versionHasModFile(ctx context.Context, mainDir, path, version string) (bool, error) {
+	// Read for this answer only: its hashes are not the build's, so they are not recorded.
+	mi, err := f.ModFile(ctx, mainDir, path, version, FetchOptions{
+		Record:  !f.cfg.ReadOnly,
+		Pending: &PendingSums{},
+	})
 	if err != nil {
 		return false, err
 	}
@@ -770,8 +789,11 @@ func (f *Fetcher) SavePending(mainDir string, pending *PendingSums) (bool, error
 // RetractionOf says whether the module version is retracted by the module's
 // own retract lines (those of its highest version), and why. It asks the
 // source for the versions of the module: with no list (a module that can't be
-// listed, or downloads that are off) it answers "not retracted".
-func (f *Fetcher) RetractionOf(ctx context.Context, mainDir, path, version string, pending *PendingSums) (string, bool, error) {
+// listed, or downloads that are off) it answers "not retracted". The highest
+// version is not the one that the build uses, so its hashes are not recorded in
+// gocpp.sum, and a module that has to be downloaded as a whole to read its
+// module file (a git host) is not: it answers "not retracted" then too.
+func (f *Fetcher) RetractionOf(ctx context.Context, mainDir, path, version string) (string, bool, error) {
 	if f.cfg.Offline {
 		return "", false, nil
 	}
@@ -779,7 +801,7 @@ func (f *Fetcher) RetractionOf(ctx context.Context, mainDir, path, version strin
 	if err != nil || len(vs) == 0 {
 		return "", false, nil
 	}
-	rets, err := f.retractionsOf(ctx, mainDir, path, vs[len(vs)-1], pending)
+	rets, err := f.retractionsOf(ctx, mainDir, path, vs[len(vs)-1], true)
 	if err != nil {
 		return "", false, err
 	}

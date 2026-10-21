@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -22,6 +24,18 @@ import (
 type gitHost struct {
 	srv   *httptest.Server
 	repos map[string]map[string][]byte // "owner/repo" -> tag -> archive
+
+	mu       sync.Mutex
+	requests []string // the URL path of every request, in order
+}
+
+// requested returns the URL paths that the host was asked for, and forgets them.
+func (h *gitHost) requested() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	got := h.requests
+	h.requests = nil
+	return got
 }
 
 func archiveOf(top string, files map[string]string) []byte {
@@ -51,6 +65,9 @@ func archiveAt(top string, files map[string]string, mtime time.Time) []byte {
 func startGitHost(t *testing.T) *gitHost {
 	h := &gitHost{repos: map[string]map[string][]byte{}}
 	h.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.mu.Lock()
+		h.requests = append(h.requests, r.URL.Path)
+		h.mu.Unlock()
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		if len(parts) >= 3 && parts[len(parts)-1] != "" {
 			repo := parts[0] + "/" + parts[1]
@@ -204,10 +221,15 @@ func TestGetIncompatibleVersionFromGitHost(t *testing.T) {
 		t.Errorf("gocpp.mod = %q", mod)
 	}
 	// A library whose releases have no module file: "latest" is its newest tag, v2.0.0, as Go does.
-	inDir(t, map[string]string{"gocpp.mod": "module example.com/app\n"})
+	latestDir := inDir(t, map[string]string{"gocpp.mod": "module example.com/app\n"})
 	r = gocppRun("", false, "get", "github.com/acme/legacy")
 	if r.code != 0 || !strings.Contains(r.stderr, "added github.com/acme/legacy v2.0.0+incompatible") {
 		t.Errorf("latest: %+v", r)
+	}
+	// Finding that v1.9.0 has no module file reads it for that answer only: its hashes are not kept.
+	sum := readFile(t, filepath.Join(latestDir, "gocpp.sum"))
+	if strings.Contains(sum, "github.com/acme/legacy v1.9.0") {
+		t.Errorf("gocpp.sum records v1.9.0, which get did not ask for:\n%s", sum)
 	}
 	// One whose v1 has a module file stays on v1; the version is named to cross.
 	h.tag("acme/modern", "v1.0.0", map[string]string{"gocpp.mod": "module github.com/acme/modern\n"})
@@ -279,5 +301,144 @@ func TestGetFromAPseudoVersionNeverGoesBackToAnOlderTag(t *testing.T) {
 		} else if !strings.Contains(r.stderr, c.want) {
 			t.Errorf("release %v: stderr lacks %q:\n%s", c.release, c.want, r.stderr)
 		}
+	}
+}
+
+// sumVersions returns the version column of every line of gocpp.sum, without the
+// "/gocpp.mod" and "/go.mod" suffixes, as "module version" pairs without duplicates.
+func sumVersions(t *testing.T, dir string) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "gocpp.sum"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		version, _, _ := strings.Cut(fields[1], "/")
+		pair := fields[0] + " " + version
+		if !seen[pair] {
+			seen[pair] = true
+			out = append(out, pair)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// mentioning returns the requests whose path contains text.
+func mentioning(requests []string, text string) []string {
+	var out []string
+	for _, r := range requests {
+		if strings.Contains(r, text) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// "gocpp get lib@v1.91.5" names a version: no content of the newer v1.93.0 is
+// downloaded, and gocpp.sum lists only the modules of the build list.
+func TestGetExactVersionDownloadsOnlyThatVersion(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		files func(version string) map[string]string
+	}{
+		{"no module file", func(version string) map[string]string {
+			return map[string]string{"imgui.h": "int imgui;\n"}
+		}},
+		{"module file", func(version string) map[string]string {
+			return map[string]string{"gocpp.mod": "module github.com/acme/imgui\n", "imgui.h": "int imgui;\n"}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := startGitHost(t)
+			h.tag("acme/imgui", "v1.91.5", c.files("v1.91.5"))
+			h.tag("acme/imgui", "v1.93.0", c.files("v1.93.0"))
+			h.env(t)
+			dir := inDir(t, map[string]string{"gocpp.mod": "module example.com/app\n"})
+			h.requested()
+
+			r := gocppRun("", false, "get", "github.com/acme/imgui@v1.91.5")
+			if r.code != 0 {
+				t.Fatalf("get: %+v", r)
+			}
+
+			requests := h.requested()
+			if got := mentioning(requests, "v1.93.0"); len(got) > 0 {
+				t.Errorf("the host was asked for v1.93.0: %q", got)
+			}
+			if got := mentioning(requests, "v1.91.5.tar.gz"); len(got) == 0 {
+				t.Errorf("the pinned archive was not downloaded: %q", requests)
+			}
+			want := []string{"github.com/acme/imgui v1.91.5"}
+			if got := sumVersions(t, dir); !slices.Equal(got, want) {
+				t.Errorf("gocpp.sum versions = %q, want %q:\n%s", got, want, readFile(t, filepath.Join(dir, "gocpp.sum")))
+			}
+		})
+	}
+}
+
+// twoLibraries is a host with a newer tag for each of two libraries, a project
+// that has not required anything, and the host's requests cleared.
+func twoLibraries(t *testing.T) (*gitHost, string) {
+	t.Helper()
+	h := startGitHost(t)
+	for _, lib := range []string{"imgui", "implot"} {
+		h.tag("acme/"+lib, "v1.0.0", map[string]string{lib + ".h": "int old;\n"})
+		h.tag("acme/"+lib, "v1.1.0", map[string]string{lib + ".h": "int newer;\n"})
+	}
+	h.env(t)
+	dir := inDir(t, map[string]string{"gocpp.mod": "module example.com/app\n"})
+	h.requested()
+	return h, dir
+}
+
+// A second "get" of another module, also pinned, leaves gocpp.sum with the
+// versions of the two modules and nothing else.
+func TestGetSecondPinnedModuleKeepsSumMinimal(t *testing.T) {
+	h, dir := twoLibraries(t)
+	for _, arg := range []string{"github.com/acme/imgui@v1.0.0", "github.com/acme/implot@v1.0.0"} {
+		if r := gocppRun("", false, "get", arg); r.code != 0 {
+			t.Fatalf("get %s: %+v", arg, r)
+		}
+	}
+
+	if got := mentioning(h.requested(), "v1.1.0"); len(got) > 0 {
+		t.Errorf("the host was asked for v1.1.0: %q", got)
+	}
+	want := []string{"github.com/acme/imgui v1.0.0", "github.com/acme/implot v1.0.0"}
+	if got := sumVersions(t, dir); !slices.Equal(got, want) {
+		t.Errorf("gocpp.sum versions = %q, want %q", got, want)
+	}
+}
+
+// "gocpp get" with no module downloads the build list as it is: no other version
+// of a required module is asked for or recorded.
+func TestGetWithoutArgumentsDownloadsOnlyTheBuildList(t *testing.T) {
+	h, dir := twoLibraries(t)
+	mod := "module example.com/app\n\nrequire github.com/acme/imgui v1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "gocpp.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := gocppRun("", false, "get")
+	if r.code != 0 {
+		t.Fatalf("get: %+v", r)
+	}
+
+	if got := mentioning(h.requested(), "v1.1.0"); len(got) > 0 {
+		t.Errorf("the host was asked for v1.1.0: %q", got)
+	}
+	want := []string{"github.com/acme/imgui v1.0.0"}
+	if got := sumVersions(t, dir); !slices.Equal(got, want) {
+		t.Errorf("gocpp.sum versions = %q, want %q", got, want)
 	}
 }

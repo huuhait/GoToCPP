@@ -326,7 +326,7 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 		if r.version == mvs.None || r.version == "" || file.FindReplace(r.path, r.version) != nil && file.FindReplace(r.path, r.version).Local() {
 			continue
 		}
-		why, bad, err := f.RetractionOf(ctx, dir, r.path, r.version, pending)
+		why, bad, err := f.RetractionOf(ctx, dir, r.path, r.version)
 		if err != nil {
 			continue // a warning, not a reason to fail
 		}

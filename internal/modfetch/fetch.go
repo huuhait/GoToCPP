@@ -488,7 +488,17 @@ type FetchOptions struct {
 	// together). The lines of Pending count as listed for the next Fetch with
 	// the same Pending.
 	Pending *PendingSums
+
+	// NoArchive is for ModFile: a module file that can be read only by
+	// downloading the whole module (a git host has no smaller file) is not
+	// read: the error is ErrArchiveNeeded. A module that is in the cache, or
+	// whose module file a module proxy serves alone, is read as usual.
+	NoArchive bool
 }
+
+// ErrArchiveNeeded is the error of ModFile with NoArchive for a module that is
+// not in the module cache and has no source for its module file alone.
+var ErrArchiveNeeded = errors.New("the module file is only in the module's archive, which is not downloaded for this")
 
 // A MissingSumError says that gocpp.sum has no line for a module and may
 // not get one.
