@@ -1,0 +1,7 @@
+Unwrap calls made by the hops: 0
+-- a wrapper that gocpp did not make: the trace restarts at the first ! that sees it
+  etrace_foreign.gp:66 main.run
+true decorate
+true
+-- a typed nil pointer has no identity: nothing is claimed for it
+  (no trace)

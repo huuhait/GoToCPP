@@ -1,0 +1,5 @@
+-- a ! in a closure inside the body of a wrap macro
+  etrace_macros.gp:37 main.load
+  etrace_macros.gp:44 main.viaWrap.func1
+-- a ! in a value macro: no error result, so it panics; read in the handler
+  etrace_macros.gp:28 main.Parse

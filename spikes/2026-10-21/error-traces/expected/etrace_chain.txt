@@ -1,0 +1,7 @@
+disk full
+-- a fresh error through two must functions
+  etrace_chain.gp:34 main.save
+  etrace_chain.gp:39 main.flush
+3 <nil>
+-- no error, no trace
+  (no trace)

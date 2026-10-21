@@ -1,0 +1,8 @@
+-- path 1: a2, a1, leaf
+  etrace_siblings.gp:33 main.a1
+  etrace_siblings.gp:38 main.a2
+-- path 2: b1, leaf, a sibling of a2 at the same depth
+  etrace_siblings.gp:43 main.b1
+-- path 1 again
+  etrace_siblings.gp:33 main.a1
+  etrace_siblings.gp:38 main.a2

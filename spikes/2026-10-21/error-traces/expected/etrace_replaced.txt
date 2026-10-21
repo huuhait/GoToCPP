@@ -1,0 +1,7 @@
+-- err1 just after the call
+  etrace_replaced.gp:34 main.step
+-- err2 just after its call
+  etrace_replaced.gp:34 main.step
+-- err1 again: err2 is in flight now
+  (no trace)
+true true

@@ -1,0 +1,12 @@
+handled and dropped: permission denied
+-- g wraps the sentinel with %w: the wrapper inherits the hops of a
+  etrace_nowrapf.gp:35 main.a
+  etrace_nowrapf.gp:47 main.f2
+handled and dropped: permission denied
+-- g2 returns the bare sentinel: the hops of a
+  etrace_nowrapf.gp:35 main.a
+  etrace_nowrapf.gp:59 main.f3
+handled and dropped: permission denied
+-- j joins the sentinel: the Join inherits the hops of a
+  etrace_nowrapf.gp:35 main.a
+  etrace_nowrapf.gp:71 main.f4

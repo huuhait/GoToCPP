@@ -1,0 +1,13 @@
+-- a deferred Close! that becomes the error
+  etrace_closure_defer_recover.gp:36 main.use
+-- the deferred hop is linked to the hop of the caller
+  etrace_closure_defer_recover.gp:36 main.use
+  etrace_closure_defer_recover.gp:73 main.useUp
+-- a ! inside a closure leaves through the closure's result
+  etrace_closure_defer_recover.gp:48 main.step
+  etrace_closure_defer_recover.gp:81 main.main.func1
+-- inside the handler
+  etrace_closure_defer_recover.gp:48 main.step
+  etrace_closure_defer_recover.gp:53 main.mustStep
+-- after the recover: the next ! starts from the frame it is in
+  etrace_closure_defer_recover.gp:68 main.outer

@@ -1,0 +1,2 @@
+-- COST: a wrapper made only for a log line takes the trace; the real error restarts at top
+  etrace_logwrap.gp:41 main.top

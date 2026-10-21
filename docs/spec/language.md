@@ -558,7 +558,7 @@ func loadConfig!(path string) (cfg Config, err error) {
   | Addition | What it does | Phase |
   |---|---|---|
   | `errors.Wrapf(&err, format, args...)` | used with `defer`: puts context in front of the error that the function returns. It wraps like `fmt.Errorf` with `%w`, so `errors.Is(err, fs.ErrNotExist)` and `errors.As` still find the original error | 10 |
-  | `errors.Trace(err)` | shows the path an error took (an **optional** step, see [open points](#open-points)) | 10 |
+  | `errors.Trace(err)`, `errors.Traced(err)` | `Trace` returns the `!` sites an error passed (an **optional** step, designed in [ADR-124](../adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md), not built: [Error return traces](#error-return-traces-designed-not-built)); `Traced` wraps an error and takes its trace into the wrapper, to send or store it (`Traced(err) != err`) | 10 |
   | `C.cstr(s)` | a NUL-terminated `const char*` for `s`, valid until the end of the statement | 04 |
   | `C.wstr(s)`, `C.WString(s)`, `C.GoStringW(p)`, `C.GoStringWN(p, n)` | wide strings (UTF-16 on Windows) for the `W` functions | 14 |
   | hidden helper packages `gocpp/must`, `gocpp/cgoh` (the path `gocpp/macro` is reserved) | the compiler adds and uses them for its rewrites; you don't import them | 04, 10 |
@@ -1217,6 +1217,67 @@ This holds for `F!` and for the calls a must function handles.
 `go func() error { ... F!() ... }()` drops the error just like `go F!()` would. `gocpp vet` warns
 about it (`gobang`).
 
+### Error return traces (designed, not built)
+
+Designed in [ADR-124](../adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md);
+the ADR is proposed, and steps 10.7b to 10.7e build it. Until then `errors.Trace` is gated (Phase 10) and nothing below runs.
+
+Every `!` that passes an error up records its place in a small per-goroutine register. The error
+value is **not changed or wrapped**: `err == io.EOF`, `errors.Is`, `errors.As` and type switches
+behave as without traces.
+
+```go
+frames := errors.Trace(err) // []errors.Frame{Function, File, Line}, origin first; nil when there is none
+fmt.Printf("%+v\n", err)    // the text of Error(), then the trace
+```
+
+```text
+open app.json: no such file or directory
+error return trace:
+	/work/app.gp:14 main.loadConfig
+	/work/app.gp:30 main.main
+```
+
+- **What a trace is:** the `!` sites that one error object passed in its latest propagation in
+  one goroutine, in the order it went up the stack, each one made in the function that the one before
+  returned into. `%+v` is the only verb that prints it, and only for an error that is
+  an operand of the verb itself (an error inside a struct, slice or map prints as with `%v`); `%v`,
+  `%s` and `Error()` are unchanged, and a Go program has no `!`, so `%+v` of an error is Go's.
+- **Where it starts:** at the first `!` that sees the error. Errors made in plain Go code, in the
+  standard library or in C++ have no earlier hop; the `return` that made the error in a callee
+  without `!` is not in the trace.
+- **What it promises:** every site is a `!` that an object of one identity chain passed (the error, or a `Wrapf`, `%w` or `Join` wrapper of it that took its hops over; with the limit of **Shared values**
+  below), and every two neighbours were checked
+  to be a callee and its caller (except around a gap frame: more than 32 hops keep the first 16 and the last 16). A pair that cannot be checked is **cut**, and a trace is the part above the
+  cut: it can be shorter than the path, and the part it loses is the origin side. A cut is made by a function
+  without `!` that returns the error (`return f()`), a recovered panic (read the trace inside the handler), a
+  function that is called through an interface value or a function value, a callee that the compiler inlined, a
+  wrapper type of your own, and a binary without symbols (there the trace is the last site). Make the
+  function a `!` function to keep the path. The length depends on the build: `-O0` and `-release` can differ.
+- **Wrapping:** `Wrapf`, `fmt.Errorf("%w")` and `errors.Join` take the trace over: the error they
+  return has it, and the error they wrapped does not. A wrapper made only to be logged takes the trace
+  too, so the real error that goes up restarts its trace at the next `!` (a shorter trace).
+  A wrapper of an error that is not the one in flight changes nothing. A wrapper or `Join` of the one in flight **inherits its earlier hops** (see **Shared values**). A wrapper type that you write yourself
+  (a struct with `Unwrap`) is not looked into: the first `!` that sees it starts a new trace.
+- **One at a time:** a goroutine keeps the latest propagation only. When another error passes a
+  `!`, the earlier trace is gone, and `errors.Trace(old)` is nil.
+- **Shared values:** one `io.EOF` returned from many places has one trace per propagation, never
+  one for the value, whatever the layout of the frames. One shape is not told apart: the trace can begin
+  with hops of an earlier propagation when a function F handled a shared error that came back from a callee
+  (the callee's hop returned into F), and a later `!` in F, in the same call or in another call of F, puts the
+  same object up again, or a wrapper or `Join` of it made by the runtime (`fmt.Errorf("g: %w", ErrPerm)`), which inherits the hops. Each hop in it is a real `!` of an object of the chain, but not of
+  this propagation: a later `!` in the function that the last hop returned into can show hops that the error it now passes never made. An error that does not wrap the one in flight
+  (`errors.New`, `fmt.Errorf` without `%w` of it) starts its own trace. A handled and dropped `Wrapf` wrapper is not revived by a wrapper of its sentinel; a handled bare sentinel is.
+- **Goroutines:** the trace stays in the goroutine whose `!` recorded it. To send an error with its
+  trace to another goroutine, or to store it, wrap it: `errc <- errors.Traced(err)`. The wrapper takes the
+  hops (the trace is shown once, and `errors.Trace(err)` of the inner error is nil afterwards), has `Unwrap`, so
+  `errors.Is` and `errors.As` work, and **`Traced(err) != err`**: do not use it on a value that the receiver
+  compares with `==` (`Traced(io.EOF) != io.EOF`).
+- **The `main!` message and panics:** the `<program>: <error>` line of `main!`/`init!`, and the
+  panic message of an error value, are followed by the same `error return trace:` block.
+- **Switch:** `-errtrace=on|off`; on by default, off in `-release`. With `off` no code is added,
+  `errors.Trace` returns nil and `errors.Traced` still wraps.
+
 ### Reading `!`
 
 | You write | It means |
@@ -1654,7 +1715,7 @@ The plan has not settled these yet. This document will describe each one when a 
 | Operator overloading or destructors for gocpp types | open; revisit after v0.1 (Go has neither) | [TODO: open questions](../../plans/2026-10-13-gocpp/TODO.md#open-questions-no-decision-needed-yet) |
 | `!` for comma-ok results (`v := m[k]!` fails when the key is missing) | not in v1; revisit after Phase 10 | [TODO: open questions](../../plans/2026-10-13-gocpp/TODO.md#open-questions-no-decision-needed-yet) |
 | `err := #body()`, so wrap macros can look at the function's error (a `#Retry(3)` macro) | planned right after v1 | [Phase 10 §2.2](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros) |
-| Error return traces (`errors.Trace(err)`, `%+v`) | optional step; it starts with a design note (when a trace starts, how it is attached, when it is cleared) | [Phase 10 §2.1](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must) |
+| Error return traces (`errors.Trace(err)`, `errors.Traced(err)`, `%+v`) | optional step; designed ([ADR-124](../adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md), [section](#error-return-traces-designed-not-built)), built by steps 10.7b to 10.7e | [Phase 10 §2.1](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#21-part-a--must) |
 | User-written macros on types, macros that generate declarations, procedural macros | backlog | [Phase 10 §2.2](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md#22-part-b-macros), [TODO: backlog](../../plans/2026-10-13-gocpp/TODO.md#ideas--backlog-not-scheduled) |
 | An inline C++ preamble for tiny helpers | backlog (v1: a header next to the `.gp` file) | [TODO: backlog](../../plans/2026-10-13-gocpp/TODO.md#ideas--backlog-not-scheduled) |
 | `#!` shebang lines, so `.gp` files can run as scripts | backlog | [TODO: backlog](../../plans/2026-10-13-gocpp/TODO.md#ideas--backlog-not-scheduled) |

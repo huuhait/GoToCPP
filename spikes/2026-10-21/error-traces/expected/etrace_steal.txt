@@ -1,0 +1,5 @@
+-- an unrelated wrapper of the sentinel, made after Wrapf: ignored
+  etrace_steal.gp:37 main.load
+  etrace_steal.gp:42 main.boot
+-- COST: a log-only wrapper takes the trace, so the Wrapf that follows does not match
+  etrace_steal.gp:59 main.bootLog

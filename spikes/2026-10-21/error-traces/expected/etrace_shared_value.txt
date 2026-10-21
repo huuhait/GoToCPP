@@ -1,0 +1,8 @@
+true
+-- request 1: serve, fetch, lookup
+  etrace_shared_value.gp:36 main.fetch
+  etrace_shared_value.gp:41 main.serve
+true
+-- request 2: the same value again, a different path
+  etrace_shared_value.gp:46 main.direct
+  etrace_shared_value.gp:51 main.outer

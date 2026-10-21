@@ -29,7 +29,11 @@ import (
 // them is left in the C++. The one exception is Exit, which the lowering
 // of func main!() and func init!() calls on purpose: it prints the error
 // as "<program>: <error>" to stderr and exits with the code 1 (the
-// lowerer emits gp::must_exit for it). None of them has a body: a call
+// lowerer emits gp::must_exit for it). ADR-124 (proposed: error return traces,
+// steps 10.7b to 10.7e) adds a second one that stays: Hop(err, file, line,
+// function), the first statement of each error branch, which the lowerer emits as
+// gp::etrace::hop; then this comment and dropImports (the import stays while a
+// Hop is left) change. None of them has a body: a call
 // that is left (a check with errors) never gets to the lowerer.
 //
 // (The plan had a second hidden package, gocpp/macro, with the type of the use-site record of the macros:

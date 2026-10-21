@@ -1,0 +1,8 @@
+-- LIMIT: the handled propagation of a shared value is still there
+  etrace_limits.gp:36 main.inner
+  etrace_limits.gp:47 main.caller
+-- LIMIT: the same function again, in another call
+  etrace_limits.gp:61 main.lookupB
+  etrace_limits.gp:67 main.handle
+33 main.rec main.rec
+frame 16: ... 9 hops omitted

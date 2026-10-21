@@ -1,0 +1,6 @@
+-- a function without ! in the middle: the trace begins above it
+  etrace_passthrough.gp:42 main.upper
+-- the same chain with ! at every level
+  etrace_passthrough.gp:33 main.lower
+  etrace_passthrough.gp:47 main.adapterBang
+  etrace_passthrough.gp:52 main.upper2

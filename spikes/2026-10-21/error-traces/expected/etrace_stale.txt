@@ -1,0 +1,6 @@
+handled and dropped: a x: permission denied
+-- g wraps the sentinel and never called open: the trace must not say it did
+  etrace_stale.gp:46 main.f2
+handled and dropped: a x: permission denied
+-- g2 returns the bare sentinel: the same
+  etrace_stale.gp:58 main.f3

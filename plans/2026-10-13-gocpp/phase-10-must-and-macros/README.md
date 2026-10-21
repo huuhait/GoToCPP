@@ -194,9 +194,24 @@ func loadConfig!(path string) (cfg Config, err error) {
 `.gp` call site, so `errors.Trace(err)` or `%+v` can show the path the error took, like Zig's
 error return traces, without wrapping the error value (`err == io.EOF` must keep working). The
 audit showed the hard parts: shared sentinel errors like `io.EOF`, errors that are handled and
-dropped, and errors sent over channels. So this step starts with a short design note that defines
-when a trace starts, how it is attached and when it is cleared. It is the first thing to move
-after v1 if time is short.
+dropped, and errors sent over channels. So the step started with a design note, job 10.7a:
+[ADR-124](../../../docs/adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md)
+(spec: [Error return traces](../../../docs/spec/language.md#error-return-traces-designed-not-built)).
+It proposes: the trace is a per-goroutine register of the `!` sites that one error object passed in its
+latest propagation, matched by the identity of the error (a weak reference, no user code in a hop);
+a hop is one call in the error branch of the `!` lowering and never runs on the nil path; there is no clearing event,
+and when a trace is read it keeps the longest suffix of hops whose neighbours were checked as callee and caller
+(by return address and symbol name; a link that cannot be checked is a cut, never accepted). So a plain function
+that returns the error, a recovered panic, an interface or function-value call, an inlined callee and a binary
+without symbols cut a trace, and the part lost is the origin side; the user decides in the ADR's open question 4 whether
+the lost hops come back under a marker. `Wrapf`, `%w` and `Join` take the trace over (so does a wrapper made only to be logged: a named cost, the real error restarts above it), a wrapper type of the user restarts it; a trace does not cross goroutines except through
+`errors.Traced(err)`, which moves it into the wrapper (`Traced(err) != err`); `errors.Trace(err)` and `%+v` (top-level
+operands) show origin first; the switch `-errtrace=on|off` is off in `-release`. What is not promised (traces of errors that
+never passed a `!`, the part below a cut, the same trace in every build, one propagation per goroutine, and the one shape where
+a later `!` in the function that the last hop returned into shows hops of an earlier propagation in front, also through a wrapper or `Join` of the identity, which inherits them) is in the ADR,
+with seventeen scenario programs and measurements. The ADR is *proposed* until the user has answered its open
+questions. Built by 10.7b (lowering, runtime, end-to-end check), 10.7c (flag, tools), 10.7d (API, format, docs) and 10.7e (tests and
+benchmarks).
 
 #### How `!` is implemented (validated on 2026-10-13)
 
@@ -286,7 +301,8 @@ with the shapes of item 6), one more check types it, and the C++ lowerer sees pl
 `main` is `gp_must.Exit(must_main())` (the runtime's `gp::must_exit`). New names are `must_t1`, `must_e1`,
 `must_f1`, `must_err`, not `gp_...`. `defer f.Close()` keeps the other results of the function.
 Not built: `return err` in `main!`/`init!`, the `testing.T` form is written but no test runs it,
-`gocpp vet` and hover/inlay hints (Phases 11 and 13), the optional error return traces.
+`gocpp vet` and hover/inlay hints (Phases 11 and 13), the optional error return traces (designed:
+step 10.7, [ADR-124](../../../docs/adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md)).
 
 ### 2.2 Part B: macros
 
@@ -629,6 +645,25 @@ at the call site **and** at the macro or derive that produced it.
    `&&`/`||`); the `defer F!()` closure; closures; reject `go F!()` and `!` in lazy arguments.
 6. **10.6 `errors.Wrapf(&err, ...)`** helper (a gocpp extension in the `errors` package).
 7. **10.7 (optional) Error return traces**: design note first, then `errors.Trace` / `%+v`.
+   *Design note written (job 10.7a, [ADR-124](../../../docs/adr/124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md),
+   proposed; revised after the independent reviews): the spike `spikes/2026-10-21/error-traces` has the simulation of
+   the rules, seventeen scenario programs with their exact output, and the measurements.* The build is four jobs:
+   - **10.7b lowering, runtime and an end-to-end check**: the `gp_must.Hop(err, file, line, func)` statement at the head of
+     each error branch (every shape of 10.5, the position of the `!`, a static site with the function's name; the import of `gocpp/must`
+     stays; the comment of `mustpkg.go` and ADR-037 amended; `defer F!()` saves the function's return address), `gp::etrace::hop(&site, err, return address)`,
+     the register (`runtime/src/etrace.cpp`, `etrace.hpp` in the packaged runtime headers; reset at the end of a goroutine and
+     by `release_adopted`), `rekey` in `Wrapf`, native `%w` and `errors.Join`, the link check (unverifiable is a cut) and the names through
+     `frames.cpp` (which also hides the hop frame), `main!`/`init!` and panics print the trace block (no user code, `try_lock`), a gated experiment
+     to link thunks. Checked end to end by `main!` programs whose stderr is the trace block. `errors.Trace` is still gated.
+   - **10.7c flag and tools** (needs 10.7b): `-errtrace=on|off` on the commands (off in `-release`; usage text and the stamp key `keyParts`),
+     `gocpp expand` hides the hop, the gdb script skips `gp::etrace::` (`runtime/debug/gocpp-gdb.py`, regenerate the `.inc`), the packaging check.
+   - **10.7d API, format and documents** (needs 10.7b): `stdlib/errors/trace.gp` (`Frame`, `Trace`, `Traced`), the
+     `%+v` block in the native `fmt` (top-level operands only), the gate rows lifted (`errors.Trace`, `errors.Traced`,
+     `errors.Frame`), spec, guides (`error-traces.md`), `ports.txt` own file.
+   - **10.7e tests and benchmarks**: the scenario programs as `tests/run/etrace_*.gp` (per-build expected files), the on/off
+     differential and lowering-golden tests, the register unit tests, TSan/ASan/race programs, the
+     real Windows PC, the rows `must_chain_nil`, `must_chain_fresh`, `must_chain_shared`, `must_chain_wrapf` and `must_defer_close`, and the
+     numbers for the default of `-release` (gates in the ADR: nil path +8 instructions at most, 8 ns per fresh hop, 20 ns per `Wrapf` level).
 8. **10.8 Built-in macros** (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`.
    *Built (step 10.8, [ADR-058](../../../docs/adr/058-builtin-macros-and-embed-in-the-loader.md)):* a rewrite
    in the loader (`internal/load/builtins.go`, `embed.go`), when `Config.Phase10Syntax` is on: each use becomes a

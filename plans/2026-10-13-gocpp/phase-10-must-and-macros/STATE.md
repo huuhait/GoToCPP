@@ -34,7 +34,13 @@
   - [x] `defer F!()` as a deferred closure (args evaluated at the defer)
   - [x] closures; reject `go F!()` and `!` inside lazy arguments
 - [x] 10.6 `errors.Wrapf(&err, ...)`
-- [ ] 10.7 (optional) Error return traces: design note, then `errors.Trace` / `%+v`
+- [ ] 10.7 (optional) Error return traces (user said go, 2026-10-21)
+  - [x] 10.7a design note: ADR-124 (proposed), spec section, 17 simulated scenarios in `spikes/2026-10-21/error-traces/`; reviewed in 5 rounds, the limits (scenario 11, thunk hops cut, log-only wrappers) are named in the ADR
+  - [ ] 10.7b lowering and runtime (`gp::etrace::hop`, register), thunk experiment
+  - [ ] 10.7c flag `-errtrace`, `keyParts`, `expand`, gdb, packaging, `-release` default
+  - [ ] 10.7d `errors.Trace` / `errors.Traced` / `%+v`, docs
+  - [ ] 10.7e tests, goldens from the real build, benchmarks
+  - waiting for the user's four answers (creation sites, `-release` default, default printing, what a cut does)
 - [x] 10.8 Built-in macros (`#file`, `#line`, `#func`, `#text`, `#body`, `#embed`) + `//go:embed`
 - [x] 10.9 User macros (merged 2026-10-19; design deviates from the sub-steps below: generic functions with hidden constant arguments instead of header templates and `Site`: ADR-075)
   - [x] `macro` decl → inline header template with hidden `gp_site` param; `#file/#line/#func/#text` → use site

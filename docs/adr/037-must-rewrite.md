@@ -1,6 +1,6 @@
 # ADR-037: `!` is a rewrite of the Go AST around go/types, and the lowerer sees plain Go
 
-Status: accepted (2026-10-18); the Gate paragraph is superseded by [ADR-095](095-must-and-macros-are-always-available.md). Builds [ADR-013](013-must-errors.md) (what `!` means) with
+Status: accepted (2026-10-18); the Gate paragraph is superseded by [ADR-095](095-must-and-macros-are-always-available.md). Amended by [ADR-124](124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md) (proposed): the error branch gets one more statement, a call of the second helper `gp_must.Hop`, which stays in the output like `Exit`. Builds [ADR-013](013-must-errors.md) (what `!` means) with
 steps 10.2 to 10.6 of [Phase 10](../../plans/2026-10-13-gocpp/phase-10-must-and-macros/README.md).
 It replaces the README's plan to lower the helper calls in the C++ lowerer (README §2.1 items 5
 to 7) with a rewrite of the Go AST. Everything the user sees (the rules of
@@ -133,7 +133,7 @@ The loader parses with `Phase10Syntax` only when the gate phase is 10 or later, 
 - Hover text, inlay hints and go-to-definition that explain `!` (what happens on error): Phase 11's later work.
   The positions map to the original source and the synthetic names are skipped, which is all this step needed.
   Stepping through `for i := f!(); i < g!(); i++` in a debugger stops on the closing brace for the error checks.
-- `gocpp expand` (prints the rewritten code) and the error return traces (`errors.Trace`): not built.
+- `gocpp expand` (prints the rewritten code) and the error return traces (`errors.Trace`): not built. The traces are designed in [ADR-124](124-error-return-traces-are-a-register-of-hops-per-goroutine-matched-by-error-identity.md): `failStmts` would add `gp_must.Hop(err, file, line, func)` as the first statement of each error branch.
 
 ## Test notes (2026-10-19, step 10.13; evidence only, the decisions above are unchanged)
 

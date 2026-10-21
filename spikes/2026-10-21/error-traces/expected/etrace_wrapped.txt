@@ -1,0 +1,15 @@
+load /etc/shadow: permission denied
+true false
+-- through Wrapf: the wrapper carries on the trace
+  etrace_wrapped.gp:34 main.load
+  etrace_wrapped.gp:39 main.boot
+-- the sentinel alone is not the error in flight
+  (no trace)
+-- fmt.Errorf with %w: the new wrapper has the trace
+  etrace_wrapped.gp:34 main.load
+  etrace_wrapped.gp:39 main.boot
+-- the error it wrapped does not
+  (no trace)
+-- errors.Join does the same
+  etrace_wrapped.gp:34 main.load
+  etrace_wrapped.gp:39 main.boot

@@ -1,0 +1,19 @@
+-- received over a channel as it is
+  (no trace)
+-- received as errors.Traced(err)
+  etrace_goroutines.gp:34 main.step
+  etrace_goroutines.gp:39 main.job
+-- after a ! in the receiving goroutine
+  etrace_goroutines.gp:34 main.step
+  etrace_goroutines.gp:39 main.job
+  etrace_goroutines.gp:48 main.report
+true empty input
+-- Traced of a traced error: each hop once
+  etrace_goroutines.gp:34 main.step
+  etrace_goroutines.gp:39 main.job
+  etrace_goroutines.gp:48 main.report
+-- Traced(err) read in the goroutine that made it: each hop once
+  etrace_goroutines.gp:34 main.step
+  etrace_goroutines.gp:39 main.job
+-- err itself: the trace moved to the wrapper
+  (no trace)

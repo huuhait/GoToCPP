@@ -1,0 +1,4 @@
+-- a hop in a method called through an interface: the trace begins above it
+  etrace_iface.gp:45 main.run
+-- an unrelated propagation of the same value after it: no old hop in front
+  etrace_iface.gp:54 main.h2

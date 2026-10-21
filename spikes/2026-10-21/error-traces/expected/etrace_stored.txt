@@ -1,0 +1,5 @@
+-- stored, then returned later: the trace begins at the late hop
+  etrace_stored.gp:57 main.report
+-- stored with errors.Traced: the history comes with it
+  etrace_stored.gp:38 main.step
+  etrace_stored.gp:57 main.report
