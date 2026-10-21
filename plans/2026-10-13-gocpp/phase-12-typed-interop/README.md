@@ -341,6 +341,8 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   variable, and `ctype.Parse` for the types; everything else comes from clang's `-E -dD` and JSON AST dump (read by its own streaming
   scanner). Struct macros are folded with C's rules and checked against the compiler by a seeded fuzz test.
   Not done: Windows headers, the documentation comments of the header, the clang 17 to 20 comparison (12.12).
+  Review of the views of raylib, sqlite3 and SDL2 (exit line "`bindgen` output ... is reviewed"): [docs/guides/bindgen-review.md](../../../docs/guides/bindgen-review.md),
+  [ADR-120](../../../docs/adr/120-bindgen-views-of-real-headers-are-tested-by-properties-and-write-deprecated-lines.md); four bindgen defects fixed, one test per library (`cmd/gocpp/bindgen_libs_test.go`).
 - **12.11 (modes)**, done: [ADR-101](../../../docs/adr/101-the-interop-mode-is-chosen-by-a-flag-and-falls-back-to-opaque-without-clang.md),
   spec §13. `-interop=typed|opaque|auto` on `check`, `build`, `run`, `test`, `emit`, `vet` and `expand`, `GOCPP_INTEROP`
   (the flag wins; `GOCPP_TYPED_INTEROP=1` is an alias for typed), `typedinterop.ResolveMode/Decide/Hooks` (the language

@@ -103,6 +103,10 @@ func (t *table) add(n *jnode, scope []string, x *addCtx) {
 			if d.complete && !old.complete {
 				old.node, old.complete, old.file = d.node, true, d.file
 				old.inScope = old.inScope || d.inScope
+
+				// the forward declaration had no body, so the nested types are
+				// the ones of the definition (typedef struct S S; struct S { struct N {...} *p; })
+				t.addNested(d, scope, x)
 			}
 			t.byID[d.id] = old
 			old.inScope = old.inScope || d.inScope
@@ -111,17 +115,7 @@ func (t *table) add(n *jnode, scope []string, x *addCtx) {
 		t.all = append(t.all, d)
 		t.byID[d.id] = d
 		t.types[d.qname()] = d
-		// the nested types of a class
-		if d.kind == "record" {
-			sub := appendScope(scope, d.name)
-			for i := range n.Inner {
-				c := &n.Inner[i]
-				switch c.Kind {
-				case "CXXRecordDecl", "RecordDecl", "EnumDecl", "TypedefDecl", "TypeAliasDecl":
-					t.add(c, sub, x)
-				}
-			}
-		}
+		t.addNested(d, scope, x)
 	case "TypedefDecl", "TypeAliasDecl":
 		d := t.newDecl(n, scope, file, inScope)
 		d.kind = "typedef"
@@ -145,6 +139,41 @@ func (t *table) add(n *jnode, scope []string, x *addCtx) {
 		d.kind = "template"
 		t.all = append(t.all, d)
 	}
+}
+
+// addNested records the types declared inside a class (the nested structs,
+// enums and typedefs), which are named from the scope of the class. A type
+// that is only declared there by an elaborated type specifier (struct B *p;)
+// is not a member: it belongs to the namespace around the class.
+func (t *table) addNested(d *gdecl, scope []string, x *addCtx) {
+	if d.kind != "record" {
+		return
+	}
+	sub := appendScope(scope, d.name)
+	for i := range d.node.Inner {
+		c := &d.node.Inner[i]
+		switch c.Kind {
+		case "CXXRecordDecl", "RecordDecl", "EnumDecl", "TypedefDecl", "TypeAliasDecl":
+			if c.ParentDeclContextID != "" {
+				t.add(c, t.namespaceOf(scope), x)
+				continue
+			}
+			t.add(c, sub, x)
+		}
+	}
+}
+
+// namespaceOf drops the classes from the end of a scope: what is left is the
+// namespace that a name declared by an elaborated type specifier lands in.
+func (t *table) namespaceOf(scope []string) []string {
+	for len(scope) > 0 {
+		last := t.types[strings.Join(scope, "::")]
+		if last == nil || last.kind != "record" {
+			break
+		}
+		scope = scope[:len(scope)-1]
+	}
+	return scope
 }
 
 func appendScope(scope []string, name string) []string {
@@ -250,6 +279,7 @@ func quickLoc(data []byte) *jloc {
 type enumerator struct {
 	Name  string
 	Value *big.Int
+	Doc   string // the "Deprecated:" paragraph of a deprecated enumerator
 }
 
 // enumValues returns the enumerators of an enum with their values. Clang
@@ -269,7 +299,7 @@ func enumValues(n *jnode) []enumerator {
 				v = x
 			}
 		}
-		out = append(out, enumerator{c.Name, v})
+		out = append(out, enumerator{Name: c.Name, Value: v, Doc: deprecation("", c)})
 		next = new(big.Int).Add(v, big.NewInt(1))
 	}
 	return out

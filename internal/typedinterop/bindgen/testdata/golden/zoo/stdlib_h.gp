@@ -64,16 +64,15 @@ type __compar_d_fn_t = func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer) C.in
 
 type __compar_fn_t = func(unsafe.Pointer, unsafe.Pointer) C.int
 
+// incomplete type: declared, not defined
+type __locale_data struct{}
+
 type __locale_struct struct {
-	__locales                        [13]*__locale_struct___locale_data
+	__locales                        [13]*__locale_data
 	__ctype_b                        *C.ushort
 	__ctype_tolower, __ctype_toupper *C.int
 	__names                          [13]*C.char
 }
-
-// struct __locale_struct::__locale_data
-// incomplete type: declared, not defined
-type __locale_struct___locale_data struct{}
 
 type __locale_t = *__locale_struct
 
@@ -111,19 +110,6 @@ func strtoq(nptr *C.char, endptr **C.char, base C.int) C.longlong
 func strtouq(nptr *C.char, endptr **C.char, base C.int) C.ulonglong
 func strtoll(nptr *C.char, endptr **C.char, base C.int) C.longlong
 func strtoull(nptr *C.char, endptr **C.char, base C.int) C.ulonglong
-
-// overload: strtol(nptr *C.char, endptr **C.char, base C.int) C.long
-
-// overload: strtoul(nptr *C.char, endptr **C.char, base C.int) C.ulong
-
-// overload: strtoq(nptr *C.char, endptr **C.char, base C.int) C.longlong
-
-// overload: strtouq(nptr *C.char, endptr **C.char, base C.int) C.ulonglong
-
-// overload: strtoll(nptr *C.char, endptr **C.char, base C.int) C.longlong
-
-// overload: strtoull(nptr *C.char, endptr **C.char, base C.int) C.ulonglong
-
 func strfromd(dest *C.char, size C.size_t, format *C.char, f C.double) C.int
 func strfromf(dest *C.char, size C.size_t, format *C.char, f C.float) C.int
 func strfroml(dest *C.char, size C.size_t, format *C.char, f C.longdouble) C.int
@@ -136,15 +122,6 @@ func strtol_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.long
 func strtoul_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.ulong
 func strtoll_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.longlong
 func strtoull_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.ulonglong
-
-// overload: strtol_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.long
-
-// overload: strtoul_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.ulong
-
-// overload: strtoll_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.longlong
-
-// overload: strtoull_l(nptr *C.char, endptr **C.char, base C.int, loc locale_t) C.ulonglong
-
 func strtod_l(nptr *C.char, endptr **C.char, loc locale_t) C.double
 func strtof_l(nptr *C.char, endptr **C.char, loc locale_t) C.float
 func strtold_l(nptr *C.char, endptr **C.char, loc locale_t) C.longdouble
@@ -192,9 +169,6 @@ func calloc(nmemb C.size_t, size C.size_t) unsafe.Pointer
 func realloc(ptr unsafe.Pointer, size C.size_t) unsafe.Pointer
 func free(ptr unsafe.Pointer)
 func reallocarray(ptr unsafe.Pointer, nmemb C.size_t, size C.size_t) unsafe.Pointer
-
-// overload: reallocarray(ptr unsafe.Pointer, nmemb C.size_t, size C.size_t) unsafe.Pointer
-
 func valloc(size C.size_t) unsafe.Pointer
 func posix_memalign(memptr *unsafe.Pointer, alignment C.size_t, size C.size_t) C.int
 func aligned_alloc(alignment C.size_t, size C.size_t) unsafe.Pointer

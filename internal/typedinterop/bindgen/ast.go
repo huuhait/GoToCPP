@@ -70,6 +70,10 @@ type jnode struct {
 	Decl               *jref   `json:"decl"`
 	ReferencedDecl     *jref   `json:"referencedDecl"`
 	Operator           string  `json:"-"`
+	Message            string  `json:"message"` // a DeprecatedAttr's text
+	// ParentDeclContextID is set when the declaration is written inside another one but belongs
+	// to a different scope: "struct A { struct B *p; };" declares B in A's namespace, not in A.
+	ParentDeclContextID string `json:"parentDeclContextId"`
 
 	Value       json.RawMessage `json:"value"`
 	Field       *jref           `json:"field"`

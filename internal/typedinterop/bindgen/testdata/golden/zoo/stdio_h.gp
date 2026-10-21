@@ -185,23 +185,9 @@ func dprintf(fd C.int, fmt *C.char, args ...any) C.int
 func fscanf(stream *FILE, format *C.char, args ...any) C.int
 func scanf(format *C.char, args ...any) C.int
 func sscanf(s *C.char, format *C.char, args ...any) C.int
-
-// overload: fscanf(stream *FILE, format *C.char, args ...any) C.int
-
-// overload: scanf(format *C.char, args ...any) C.int
-
-// overload: sscanf(s *C.char, format *C.char, args ...any) C.int
-
 func vfscanf(s *FILE, format *C.char, arg C.va_list) C.int
 func vscanf(format *C.char, arg C.va_list) C.int
 func vsscanf(s *C.char, format *C.char, arg C.va_list) C.int
-
-// overload: vfscanf(s *FILE, format *C.char, arg C.va_list) C.int
-
-// overload: vscanf(format *C.char, arg C.va_list) C.int
-
-// overload: vsscanf(s *C.char, format *C.char, arg C.va_list) C.int
-
 func fgetc(stream *FILE) C.int
 func getc(stream *FILE) C.int
 func getchar() C.int

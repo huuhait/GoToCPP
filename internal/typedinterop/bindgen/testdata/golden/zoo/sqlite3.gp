@@ -614,10 +614,10 @@ type sqlite3_vtab struct {
 
 type sqlite3_index_info struct {
 	nConstraint                       C.int
-	aConstraint                       *sqlite3_index_constraint
+	aConstraint                       *sqlite3_index_info_sqlite3_index_constraint
 	nOrderBy                          C.int
-	aOrderBy                          *sqlite3_index_orderby
-	aConstraintUsage                  *sqlite3_index_constraint_usage
+	aOrderBy                          *sqlite3_index_info_sqlite3_index_orderby
+	aConstraintUsage                  *sqlite3_index_info_sqlite3_index_constraint_usage
 	idxNum                            C.int
 	idxStr                            *C.char
 	needToFreeIdxStr, orderByConsumed C.int
@@ -649,6 +649,25 @@ type sqlite3_module struct {
 	xSavepoint, xRelease, xRollbackTo func(*sqlite3_vtab, C.int) C.int
 	xShadowName                       func(*C.char) C.int
 	xIntegrity                        func(*sqlite3_vtab, *C.char, *C.char, C.int, **C.char) C.int
+}
+
+// struct sqlite3_index_info::sqlite3_index_constraint
+type sqlite3_index_info_sqlite3_index_constraint struct {
+	iColumn     C.int
+	op, usable  C.uchar
+	iTermOffset C.int
+}
+
+// struct sqlite3_index_info::sqlite3_index_orderby
+type sqlite3_index_info_sqlite3_index_orderby struct {
+	iColumn C.int
+	desc    C.uchar
+}
+
+// struct sqlite3_index_info::sqlite3_index_constraint_usage
+type sqlite3_index_info_sqlite3_index_constraint_usage struct {
+	argvIndex C.int
+	omit      C.uchar
 }
 
 // incomplete type: declared, not defined
@@ -794,17 +813,6 @@ type fts5_api struct {
 	xCreateTokenizer_v2 func(*fts5_api, *C.char, unsafe.Pointer, *fts5_tokenizer_v2, func(unsafe.Pointer)) C.int
 	xFindTokenizer_v2   func(*fts5_api, *C.char, *unsafe.Pointer, **fts5_tokenizer_v2) C.int
 }
-
-// Referenced types: declared in other headers, or private to this one
-
-// C++: sqlite3_index_constraint
-type sqlite3_index_constraint struct{}
-
-// C++: sqlite3_index_constraint_usage
-type sqlite3_index_constraint_usage struct{}
-
-// C++: sqlite3_index_orderby
-type sqlite3_index_orderby struct{}
 
 // Variables
 

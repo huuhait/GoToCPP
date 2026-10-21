@@ -48,7 +48,7 @@
 - [x] E1 and E2 work with stock go/types (12.12)
 - [x] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode (77 diagnostics; 287-program sweep, 0 typed errors)
 - [~] Warm overhead < 50 ms (met: 0-30 ms); cold probing < 0.5 s per example package (NOT met: 0.5-2.0 s typed minus opaque; clang runs ~14 times for cpp-std; see decisions)
-- [ ] `bindgen` output reviewed for raylib, sqlite3, SDL
+- [x] `bindgen` output reviewed for raylib, sqlite3, SDL (docs/guides/bindgen-review.md, ADR-120, TestBindgenRaylib/SQLite3/SDL2)
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
@@ -151,3 +151,16 @@
   is unqualified and only valid inside its declaration context. Manager focused checks (gofmt,
   vet, hover/member server and cache tests) passed. Richer named API/member hover and
   go-to-definition into headers (12.13c2) remain open.
+
+- 2026-10-21: 12.bindgen integrated from reviewed source `27f3e765` (three review rounds, ADR
+  wording fixed at merge). raylib (597 functions, 305 enumerators), sqlite3 and SDL2 views were
+  checked against the real headers from the nix shell; four bindgen defects were fixed with a
+  regression test each: types nested in a forward-declared struct, a struct merely named by a
+  field filed as a class member, dropped deprecation attributes (now `// Deprecated:` for
+  functions, variables, structs, enums, typedefs and enumerators), and a same-type redeclaration
+  listed as an overload (real C++ const/reference overloads stay listed). Library tests run the
+  CLI with `-pkg-config` and check floors, exact lines, determinism, fmt/check and typed mode
+  (with a wrong-argument failure under clang++). Known limits (macros that rename a function,
+  pointer macros, Linux x86-64 host only, deprecation on a later redeclaration, deprecated fields
+  and member functions) are in the guide. Manager focused checks (gofmt, vet, bindgen package,
+  TestBindgen, docsite site tests) passed. No Windows run.

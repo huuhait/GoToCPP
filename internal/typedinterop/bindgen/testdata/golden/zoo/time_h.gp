@@ -131,16 +131,15 @@ type __clock_t = C.long
 
 type __clockid_t = C.int
 
+// incomplete type: declared, not defined
+type __locale_data struct{}
+
 type __locale_struct struct {
-	__locales                        [13]*__locale_struct___locale_data
+	__locales                        [13]*__locale_data
 	__ctype_b                        *C.ushort
 	__ctype_tolower, __ctype_toupper *C.int
 	__names                          [13]*C.char
 }
-
-// struct __locale_struct::__locale_data
-// incomplete type: declared, not defined
-type __locale_struct___locale_data struct{}
 
 type __locale_t = *__locale_struct
 

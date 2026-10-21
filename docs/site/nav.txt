@@ -30,6 +30,7 @@ spec/interop.md | Interop guide
 spec/interop-cookbook.md | Cookbook
 guides/interop-examples.md | Examples walkthrough
 spec/typed-interop.md | Typed interop
+guides/bindgen-review.md | Review of gocpp bindgen
 guides/libraries.md | Calling gocpp from C and C++
 
 # Windows

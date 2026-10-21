@@ -184,6 +184,44 @@ func (g *gen) firstOverload(d *gdecl) *gdecl {
 	return d
 }
 
+// declaredBefore says that an earlier declaration of the same name has the type of d, as C++ counts
+// it: the same function again (glibc declares strtol twice in a row, the second time with an asm
+// label), not an overload.
+func (g *gen) declaredBefore(d *gdecl) bool {
+	want := overloadKey(d)
+	if want == "" {
+		return false
+	}
+	for _, o := range g.tab.values[d.qname()] {
+		if o == d {
+			return false
+		}
+		if o.kind == "func" && g.visible(o) && !o.node.Deleted && overloadKey(o) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// overloadKey is what makes a function a different overload: the parameter and result types, but
+// not the names of the parameters, and not const or volatile on the parameter itself
+// (void f(const int y) is void f(int x), void f(int *const p) is void f(int *p)). The qualifiers
+// of what a parameter points to, references, and the result type keep overloads apart. It is ""
+// when the type cannot be read.
+func overloadKey(d *gdecl) string {
+	ft, err := ctype.Parse(d.node.qual())
+	if err != nil || ft.Kind != ctype.Func {
+		return ""
+	}
+	ft = ft.Clone()
+	for _, param := range ft.Params {
+		// the qualifiers of the parameter itself; those of what it points to are in param.Elem
+		param.Const = false
+		param.Volatile = false
+	}
+	return ft.String()
+}
+
 // need marks a declaration as used by another one. One that the main pass
 // does not write is queued to be written as a referenced declaration.
 func (g *gen) need(d *gdecl) {
@@ -259,13 +297,14 @@ func (g *gen) writeTypedef(b *strings.Builder, d *gdecl) {
 		g.standIn(b, d)
 		return
 	}
-	b.WriteString(g.noteLine())
+	note := g.noteLine()
+	doc := deprecation(note+g.cxxComment(d), d.node)
 	if ty == "struct{}" {
-		b.WriteString(g.cxxComment(d))
+		b.WriteString(doc)
 		fmt.Fprintf(b, "type %s struct{}\n\n", d.goName)
 		return
 	}
-	b.WriteString(g.cxxComment(d))
+	b.WriteString(doc)
 	fmt.Fprintf(b, "type %s = %s\n\n", d.goName, ty)
 }
 
@@ -288,7 +327,7 @@ func (g *gen) writeEnum(b *strings.Builder, d *gdecl) {
 		vals = kept
 	}
 	if d.goName != "" {
-		b.WriteString(g.cxxComment(d))
+		b.WriteString(deprecation(g.cxxComment(d), d.node))
 		fmt.Fprintf(b, "type %s %s\n\n", d.goName, under)
 	}
 	if !d.complete || len(vals) == 0 {
@@ -306,6 +345,7 @@ func (g *gen) writeEnum(b *strings.Builder, d *gdecl) {
 			name = g.fresh(goBaseOf(prefix, e.Name))
 			g.enumGo[d.id+"/"+q] = name
 		}
+		b.WriteString(e.Doc)
 		if d.goName != "" {
 			fmt.Fprintf(b, "\t%s %s = %s\n", name, d.goName, e.Value)
 		} else {
@@ -370,10 +410,10 @@ func (g *gen) writeRecord(b *strings.Builder, d *gdecl) {
 	}
 	if !d.complete {
 		head.WriteString("// incomplete type: declared, not defined\n")
-		fmt.Fprintf(b, "%stype %s struct{}\n\n", head.String(), d.goName)
+		fmt.Fprintf(b, "%stype %s struct{}\n\n", deprecation(head.String(), n), d.goName)
 		return
 	}
-	b.WriteString(head.String())
+	b.WriteString(deprecation(head.String(), n))
 	fmt.Fprintf(b, "type %s ", d.goName)
 	g.layoutHere = false
 	body, methods, extras := g.structBody(n, scope, d.tag == "class", d.goName)
@@ -547,7 +587,11 @@ func (g *gen) field(c *jnode, anon *jnode, scope []string) *field {
 		if comment != "" {
 			comment += ", "
 		}
-		comment += "bit field of " + w + " bits"
+		unit := " bits"
+		if w == "1" {
+			unit = " bit"
+		}
+		comment += "bit field of " + w + unit
 	}
 	return &field{names: []string{goIdent(c.Name)}, typ: ty, comment: comment}
 }
@@ -647,12 +691,16 @@ func (g *gen) writeFunc(b *strings.Builder, d *gdecl) {
 		return
 	}
 	if d.goName == "" {
+		if g.declaredBefore(d) {
+			return
+		}
+
 		// an overload of a function that is already written
 		fmt.Fprintf(b, "// overload: %s(%s)%s\n\n", d.qname(), params, tail)
 		return
 	}
-	b.WriteString(g.noteLine())
-	b.WriteString(g.cxxComment(d))
+	note := g.noteLine()
+	b.WriteString(deprecation(note+g.cxxComment(d), n))
 	fmt.Fprintf(b, "func %s(%s)%s\n", d.goName, params, tail)
 }
 
@@ -664,8 +712,8 @@ func (g *gen) writeVar(b *strings.Builder, d *gdecl) {
 		g.untranslated(b, "variable "+d.qname(), err)
 		return
 	}
-	b.WriteString(g.noteLine())
-	b.WriteString(g.cxxComment(d))
+	note := g.noteLine()
+	b.WriteString(deprecation(note+g.cxxComment(d), d.node))
 	fmt.Fprintf(b, "var %s %s\n", d.goName, ty)
 }
 
@@ -916,6 +964,30 @@ func attrMarks(n *jnode) []string {
 		}
 	}
 	return out
+}
+
+// deprecation returns the comment of a declaration, with the paragraph "Deprecated: ..." added when
+// the header marks the declaration deprecated ([[deprecated("use New")]] or
+// __attribute__((deprecated))). Go tools only read the word at the start of a paragraph, so a bare
+// "//" line separates it from the comment that is already there (comment: lines that each end with
+// a newline; it may be empty).
+func deprecation(comment string, n *jnode) string {
+	for i := range n.Inner {
+		c := &n.Inner[i]
+		if c.Kind != "DeprecatedAttr" {
+			continue
+		}
+		// one line, whatever the message has in it
+		text := strings.Join(strings.Fields(c.Message), " ")
+		if text == "" {
+			text = "the header marks it deprecated."
+		}
+		if comment != "" {
+			comment += "//\n"
+		}
+		return comment + "// Deprecated: " + scrub(text) + "\n"
+	}
+	return comment
 }
 
 // note remembers that the type being written lost something.

@@ -944,7 +944,9 @@ the same way; a type that no header in reach declares is an empty struct with a 
 | `namespace geo { struct Vec; }` | `geo_Vec` with `// struct geo::Vec` |
 | a class | its public data members, its public bases embedded, its public methods as `func (this *C) m(...)` (value receiver when `const`), the rest as `//` lines after the type |
 | a template | `// struct template geo::Box<typename T>` |
-| a second overload | `// overload: geo::dot(...)` |
+| a second overload | `// overload: geo::dot(...)` (a declaration again with the same type is the same function: nothing is written) |
+| a struct, enum or typedef written inside a struct (`struct S { struct N { int a; } *p; };`) | `type S_N struct { a C.int }` with `// struct S::N`, also when `S` was forward declared first (`typedef struct S S;`); a struct that a field only names (`struct Later *next;`) is no member: it belongs to the namespace around the class |
+| `[[deprecated("use g")]]`, `__attribute__((deprecated))` on a function, variable, struct, enum, typedef or enumerator (not on a field or a member function) | a `// Deprecated: use g` paragraph above the declaration, after a bare `//` line when another comment is there (`// Deprecated: the header marks it deprecated.` without a message) |
 | `struct { int key; } entries[16];`, `struct { char c; } *cursor;`, `extern struct { int x; } g;`, `typedef struct { int a; } *P;` | the unnamed struct, union or enum is written inline, inside the declarators: `entries [16]struct { key C.int }`, `cursor *struct { c C.char }`, `var g struct { x C.int }`, `type P = *struct { a C.int }` (an unnamed enum is its underlying integer type) |
 | `typedef int v4 __attribute__((vector_size(16)));`, `_BitInt(24)` | `type v4 [16]byte`, `type bi24 [4]byte`: a stand-in of the compiler's `sizeof`, with `// aligned(N)` for its alignment (a 3-lane `double` vector is 32 bytes); the declarations that use it still check. If the size cannot be asked it is the tree's reckoning, else an empty struct |
 | `_Atomic(int) x;`, `int X::*pm`, `decltype(expr)` | `x C.int // _Atomic`, and `unsafe.Pointer` with a comment that says what was lost |
@@ -977,7 +979,7 @@ macros were run: no wrong value). A group of macros that the compiler warns abou
 What is not translated, and where it goes: function-like macros, pointer macros, macros that are not an expression or not a constant, and macros that depend on where
 they are used (`__FILE__`) are listed by reason under `// Not translated`; templates are comments; operators,
 constructors, destructors, static members, conversions and member templates are comments after their class; default
-arguments, attributes, `noexcept`, access other than public, and the documentation comments of the header are dropped.
+arguments, attributes other than the layout ones and `deprecated`, `noexcept`, access other than public, and the documentation comments of the header are dropped.
 
 ### 12.4 The probe cache, and what depends on the machine
 
@@ -1000,6 +1002,9 @@ and literal rules), golden files for the headers of `testdata/headers` (C, C++, 
 `-std`, patterns, `-pkg`) with a `gocpp fmt` and `gocpp check` of each, the header zoo (`<stdio.h>` ... `<regex>`, sqlite3,
 zlib, SDL2, raylib: checked, deterministic, facts asserted; goldens guarded by a hash of clang and the header files) and the
 error cases (missing header, missing include, a header that does not compile, no clang). `cmd/gocpp/bindgen_test.go` runs the command.
+`cmd/gocpp/bindgen_libs_test.go` runs it over the real headers of raylib, sqlite3 and SDL2 (one test each: counts above a floor, exact
+signatures, the view under `gocpp fmt` and `gocpp check`, and typed interop in agreement with it); the review that they come from is
+[docs/guides/bindgen-review.md](../guides/bindgen-review.md).
 
 ## 13. The interop mode (step 12.11, ADR-101)
 
