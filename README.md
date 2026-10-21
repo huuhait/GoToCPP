@@ -98,7 +98,7 @@ A command that is not built yet says which phase builds it.
 ## Install
 
 ```sh
-go install github.com/huuhait/gocpp/cmd/gocpp@latest    # needs Go 1.25 and a C++ compiler (g++ 13+ or clang++ 17+)
+go install github.com/huuhait/gocpp/cmd/gocpp@latest    # needs Go 1.25 and a C++ compiler (g++ 13+ or clang++ 17+; clang++ also turns on typed interop)
 nix run github:huuhait/gocpp -- run hello.gp             # brings g++ and clang++
 ```
 

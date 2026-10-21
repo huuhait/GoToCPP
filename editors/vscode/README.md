@@ -75,10 +75,11 @@ restart the server. The command **gocpp: Restart Language Server** (in the Comma
 restarts it at any time.
 
 **C and C++ names.** The interop mode is chosen by `-interop=typed|opaque|auto` or the variable `GOCPP_INTEROP`
-(`typed` asks clang++ for the types of the C/C++ names and needs it; `auto` uses it when it is installed). A build
-or `gocpp check` task you start from VS Code takes the variable from its `env`. The language server
-does not read the mode yet: its C/C++ knowledge comes with step 12.13 of the plan, which will take it from
-`GOCPP_INTEROP` in `gocpp.lsp.env` (or `-interop` in `gocpp.lsp.args`), so the extension needs no new setting.
+(`typed` asks clang++ for the types of the C/C++ names and needs it; `auto`, the default, uses it when it is
+installed; `opaque` leaves everything to the C++ compiler). A build or `gocpp check` task you start from VS Code takes
+the variable from its `env`. The language server reads `GOCPP_INTEROP` from `gocpp.lsp.env` and runs its C/C++
+completion and hover index in the background (a missing clang++ leaves the other answers as they are); set
+`GOCPP_INTEROP=opaque` there to turn the background clang runs off. The extension needs no new setting.
 
 The extension sets these defaults for `.gp` files, as the Go extension does for `.go` files:
 

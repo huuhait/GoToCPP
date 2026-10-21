@@ -23,9 +23,11 @@ does **not** carry is a C++ compiler: g++ 13 or newer, or clang++ 17 or newer, m
   Start with [gocpp on Windows](windows.md); [Windows from Linux](windows-cross.md) is the cross build.
 - **macOS** is not a target.
 - **C++ compiler**: `g++` 13 or newer, or `clang++` 17 or newer (the Nix package brings GCC 15 and clang 21).
-  These are minimum requirements, not a tested-version matrix. Typed interop separately needs
-  Clang 17+ for probes; its recorded matrix ran Clang 21 only, not 17–20, and the default remains
-  opaque ([typed interop status](../spec/typed-interop.md#14-the-tests-of-step-1212)).
+  These are minimum requirements, not a tested-version matrix. Typed interop, which is on by default,
+  needs Clang 17+ for its probes and uses it when it finds one; without clang++ gocpp builds in opaque mode and says
+  nothing. Its recorded matrix ran Clang 21 only, not 17–20 ([typed interop status](../spec/typed-interop.md#14-the-tests-of-step-1212)),
+  so install clang++ 21 for the tested combination, or set `GOCPP_INTEROP=opaque`
+  ([ADR-131](../adr/131-typed-interop-is-the-default-mode.md)).
 - **`go install`** needs a Go toolchain of version 1.25 or newer (`go.mod` says `go 1.25.0`); the release archives and
   the Nix package need no Go.
 

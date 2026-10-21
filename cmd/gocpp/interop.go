@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"sync"
 
@@ -30,6 +31,31 @@ import (
 // typedinterop.DefaultMode. The rules live in internal/typedinterop/mode.go (the language server
 // uses them too).
 
+// interopStampParts are the parts of the up-to-date key (uptodate.go) that come from the interop mode:
+// the mode that applies (the flag, the variables and the default, so that a default that moves between
+// versions does not keep an old stamp), and, unless the mode is opaque, where the clang++ for the
+// probes is found now (a path lookup, no process), so that installing clang++ later, which changes
+// auto from opaque to typed without changing PATH or any variable, makes the next build run again.
+func interopStampParts(flagValue, goos, goarch string) []string {
+	setting, err := typedinterop.ResolveMode(flagValue, os.Getenv)
+	if err != nil {
+		return []string{"interop=" + flagValue} // the build fails on the bad value before it is stamped
+	}
+	parts := []string{"interop=" + setting.Mode.String()}
+	if setting.Mode == typedinterop.Opaque {
+		return parts
+	}
+	names := []string{"clang++"}
+	if goos == "windows" && goarch == "amd64" {
+		names = append(names, "x86_64-w64-mingw32-clang++")
+	}
+	for _, name := range names {
+		path, _ := exec.LookPath(name)
+		parts = append(parts, "clang="+path)
+	}
+	return parts
+}
+
 // exitNoClang is the exit status of -interop=typed when clang++ is not installed (the status of
 // gocpp bindgen without clang++, too).
 const exitNoClang = 3
@@ -41,9 +67,10 @@ C++ code is an error in Go's words before the C++ compile, constant macros
 work as array lengths and constants ([cstdio.BUFSIZ]byte), the members of
 embedded C++ classes are promoted, and the generated C++ is more exact.
 opaque leaves all of that to the C++ compiler. auto is typed when clang++ is
-installed and opaque otherwise, with no message (-v says which). typed
-without clang++ is an error (status 3). GOCPP_INTEROP takes the same
-values; the flag wins. See docs/spec/typed-interop.md, section 13.
+installed and opaque otherwise, with no message (-v says which); it is the
+default. typed without clang++ is an error (status 3). GOCPP_INTEROP takes
+the same values; the flag wins. -interop=opaque gives Phase 04's behavior.
+See docs/spec/typed-interop.md, section 13.
 
 `
 
@@ -54,7 +81,7 @@ type interopFlag struct {
 
 // register adds -interop to flags.
 func (f *interopFlag) register(flags *flag.FlagSet) {
-	flags.Var(interopValue{f}, "interop", "how C/C++ names are understood: typed (clang answers the types), opaque (the C++ compiler decides) or auto (typed when clang++ is installed); default: GOCPP_INTEROP, else "+typedinterop.DefaultMode.String())
+	flags.Var(interopValue{f}, "interop", "how C/C++ names are understood: typed (clang answers the types), opaque (the C++ compiler decides) or auto (typed when clang++ is installed, else opaque); default: GOCPP_INTEROP, else "+typedinterop.DefaultMode.String())
 }
 
 type interopValue struct{ f *interopFlag }

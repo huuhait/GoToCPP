@@ -44,8 +44,9 @@ const (
 	EnvLegacy = "GOCPP_TYPED_INTEROP"
 )
 
-// DefaultMode is the mode when no flag and no variable says anything.
-const DefaultMode = Opaque
+// DefaultMode is the mode when no flag and no variable says anything: auto, so typed interop runs
+// wherever clang++ is installed (ADR-131, which replaced ADR-101's opaque default).
+const DefaultMode = Auto
 
 // ParseMode reads "typed", "opaque" or "auto".
 func ParseMode(s string) (Mode, bool) {

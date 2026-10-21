@@ -1,6 +1,6 @@
 # ADR-108: Typed interop becomes the default when three measurements pass, and the clang policy is a tested matrix
 
-Status: proposed (2026-10-20). Post-1.0 direction. Carries out the switch that ADR-101 (step 12.11, "Opaque is the default for now") prepared as one constant; builds on [ADR-060](060-typed-interop-probes.md), [ADR-087](087-typed-interop-code-generation.md), [ADR-088](088-typed-interop-caches-every-compiler-answer-per-reference-under-the-headers-contents.md) and the contract in [typed-interop.md](../spec/typed-interop.md) §13 (added by step 12.11). The ADR-101 text is not linked because that ADR is on its step branch at the time of writing.
+Status: proposed (2026-10-20); overtaken by [ADR-131](131-typed-interop-is-the-default-mode.md) (2026-10-21), where the user made `auto` the default now without waiting for the three measurements (the clang matrix and the Windows corpus are still wanted). Post-1.0 direction. Carries out the switch that ADR-101 (step 12.11, "Opaque is the default for now") prepared as one constant; builds on [ADR-060](060-typed-interop-probes.md), [ADR-087](087-typed-interop-code-generation.md), [ADR-088](088-typed-interop-caches-every-compiler-answer-per-reference-under-the-headers-contents.md) and the contract in [typed-interop.md](../spec/typed-interop.md) §13 (added by step 12.11). The ADR-101 text is not linked because that ADR is on its step branch at the time of writing.
 
 ## Context
 

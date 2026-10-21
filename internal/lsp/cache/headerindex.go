@@ -17,7 +17,7 @@ import (
 	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
-// Header indexing is opt-in with the existing typed/auto interop setting. It never installs
+// Header indexing is on with the default interop mode (auto) and with typed, off with opaque. It never installs
 // typed checking hooks: ordinary checks, diagnostics and requests don't wait for clang.
 // Slots belong to one snapshot and one exact file include/flag set. The runner can reuse a
 // completed product only after validating its compiler identity and dependency contents.

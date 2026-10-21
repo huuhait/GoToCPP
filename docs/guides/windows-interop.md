@@ -319,7 +319,7 @@ code page, gocpp gives the compiler the short name of the path ([Windows page](w
 - A function pointer that you get from `GetProcAddress` cannot be called from Go code, and there is no `NewCallback`; link to the function instead.
 - COM: the interfaces are C++ classes in MinGW's headers. `dxgi.CreateDXGIFactory1(dxgi.IID_IDXGIFactory1, ...)` works (pass the IID without `&`, call
   `factory.Release()`), but the GUID constants live in libraries (`//gocpp:link dxgi dxguid`), and `__uuidof` has no gocpp form.
-- Typed interop (`GOCPP_INTEROP=typed` or `-interop=typed`) for the Windows target: its probes run a `clang++` for the target (the order is
+- Typed interop (the default, `-interop=auto`; `typed` requires it, `opaque` turns it off) for the Windows target: its probes run a `clang++` for the target (the order is
   `GOCPP_CLANG`, `x86_64-w64-mingw32-clang++`, the compiler of the build when it is clang, the pinned llvm-mingw's clang when it is installed, then the
   `clang++` in PATH) with `--target=x86_64-w64-mingw32`, `-D_WIN32_WINNT=0x0A00` and the Win32 defaults of the package, and, on a system other than
   Windows, with the include folders of the MinGW-w64 `g++` that the cross build uses (a host clang has no Windows headers of its own). Types follow

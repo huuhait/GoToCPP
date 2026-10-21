@@ -89,9 +89,9 @@ Three additions, each of them optional and each of them off unless you write the
 > your own development set `GOCPP_GATE_PHASE` to the phase (`GOCPP_GATE_PHASE=09 gocpp run .` opens
 > everything up to 09). The syntax of must functions and macros (phase 10) needs no switch;
 > `gocpp version` prints the last finished phase, and the [feature matrix](../spec/feature-matrix.md)
-> lists each feature with its phase. Typed interop (`-interop=typed`, or
-> `GOCPP_INTEROP=typed`) is a separate switch for C and C++ names, off unless you ask:
-> [typed interop](../spec/typed-interop.md).
+> lists each feature with its phase. Typed interop is on by default when
+> clang++ is installed (`-interop=opaque` or `GOCPP_INTEROP=opaque` turns it off): gocpp asks clang++ what the
+> C and C++ names are and reports mistakes in them early. [typed interop](../spec/typed-interop.md).
 
 ## What is not there
 

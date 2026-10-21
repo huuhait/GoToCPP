@@ -90,6 +90,8 @@ release:
     ## gocpp {{ .Tag }}
 
     gocpp compiles to C++20: you need a C++ compiler (g++ 13 or newer, or clang++ 17 or newer) on the PATH.
+    With clang++ installed, gocpp also asks it about the C and C++ names of your program (typed interop, the default;
+    `-interop=opaque` turns it off); without clang++ it builds as before.
     The runtime and the standard library are inside the binary.
 
     For Windows targets gocpp uses a MinGW-w64 compiler from the PATH, or downloads its pinned

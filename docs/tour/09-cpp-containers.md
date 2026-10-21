@@ -62,8 +62,9 @@ dlrow ,olleh 12
 
 - **C++ values follow C++ rules.** Reading a missing key of a `std::map` inserts it. A
   `std::vector` has no bounds check on `v[i]` (use `v.at(i)`). The C++ compiler checks the types:
-  gocpp does not model them (this is the "opaque" mode), and a mistake comes back as the C++ error
-  with the line of your `.gp` file.
+  gocpp does not model them (this is the "opaque" mode; typed interop, which is on by default when clang++ is
+  installed, reports many of the mistakes earlier, in Go's words), and a mistake that gets through comes back
+  as the C++ error with the line of your `.gp` file.
 - What a C++ function returns is a C++ value, not a Go value. Convert it where Go needs a Go
   number or string: `int(nums.size())`, `string(s)`.
 - `range` works over a C++ container ([D21](../spec/language.md#d21-range-over-c-containers)),

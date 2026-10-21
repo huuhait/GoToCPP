@@ -142,6 +142,7 @@ var envVars = []envVar{
 		return ""
 	}, doc: "the folder in which the runtime is extracted"},
 	{name: "GOCPPVERSION", found: true, def: func(*envState) string { return version.Version }, doc: "the version of gocpp"},
+	{name: "GOCPP_ALLOW_BODYLESS", doc: "1: accept a function without a body (func f()) in a .gp file; a switch for the Go test runner of gocpp (tools/gotest) only, not for programs"},
 	{name: "GOCPP_AR", doc: "the archiver (and its arguments) for the runtime library and -lto, instead of the search for ar, gcc-ar or llvm-ar"},
 	{name: "GOCPP_ARCH", doc: "the architecture to build for, like -arch (amd64 or arm64); default: GOARCH, else this system's"},
 	{name: "GOCPP_CC", doc: "the C compiler for the .c files of packages (a program, maybe with arguments); default: the C compiler of the C++ compiler's toolchain (gcc for g++, clang for clang++)"},
@@ -156,7 +157,7 @@ var envVars = []envVar{
 	{name: "GOCPP_EXCERPT", doc: "always or never: show the source line and a caret under each error (the -excerpt flag wins); default: on a terminal"},
 	{name: "GOCPP_EXEC", doc: "the program that gocpp run starts the program with, with arguments if needed (wine for windows, qemu-aarch64), like go run -exec"},
 	{name: "GOCPP_GATE_PHASE", doc: "two digits: accept the features of the plan's phases up to this one (gocpp's own development and tests)"},
-	{name: "GOCPP_INTEROP", def: func(*envState) string { return typedinterop.DefaultMode.String() }, doc: "typed, opaque or auto: how C/C++ names are understood (the -interop flag wins). typed asks clang++ for the real types (early errors, constant macros, promoted members); opaque leaves C++ to the C++ compiler; auto is typed when clang++ is installed, else opaque"},
+	{name: "GOCPP_INTEROP", def: func(*envState) string { return typedinterop.DefaultMode.String() }, doc: "typed, opaque or auto: how C/C++ names are understood (the -interop flag wins). typed asks clang++ for the real types (early errors, constant macros, promoted members); opaque leaves C++ to the C++ compiler; auto, the default, is typed when clang++ is installed, else opaque (no message); -interop=opaque or GOCPP_INTEROP=opaque turns typed mode off"},
 	{name: "GOCPP_LDFLAGS", doc: "trusted flags for every link, not checked"},
 	{name: "GOCPP_LDFLAGS_ALLOW", doc: "regular expression: link flags of //gocpp: directives that are allowed besides the allow-list"},
 	{name: "GOCPP_LDFLAGS_DISALLOW", doc: "regular expression: link flags of //gocpp: directives that are refused, also allowed ones"},

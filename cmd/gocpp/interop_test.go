@@ -1,11 +1,14 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The interop mode (Phase 12 step 12.11, ADR-101): -interop and GOCPP_INTEROP, the order of their
@@ -61,6 +64,15 @@ func interopSetup(t *testing.T, files map[string]string) {
 	t.Setenv("GOCPP_TYPED_INTEROP", "")
 	t.Setenv("GOCPP_CXX", "clang++")
 	inDir(t, files)
+	// A file written a moment ago is "racy" for the object cache (internal/build/objcache.go): a build
+	// that starts within 2 s of the write is not stamped, and a test of the up-to-date check would
+	// see "no record of an earlier build". Make the files old.
+	old := time.Now().Add(-time.Hour)
+	for name := range files {
+		if err := os.Chtimes(name, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // note returns the line of "check -v" about the mode ("interop: typed mode (-interop=typed)").
@@ -109,10 +121,11 @@ func TestInteropPrecedence(t *testing.T) {
 			}
 		})
 	}
-	t.Run("default", func(t *testing.T) {
+	t.Run("default is typed with clang++", func(t *testing.T) {
 		got, r := note(t, "a.gp")
-		if r.code != 0 || !strings.HasPrefix(got, "interop: ") || !strings.Contains(got, "(the default mode)") {
-			t.Fatalf("exit %d, note %q\n%s", r.code, got, r.stderr)
+		const want = "interop: typed mode (the default mode)"
+		if r.code != 0 || got != want {
+			t.Fatalf("exit %d, note %q, want %q\n%s", r.code, got, want, r.stderr)
 		}
 	})
 	t.Run("bad flag", func(t *testing.T) {
@@ -198,6 +211,18 @@ func TestInteropNoClang(t *testing.T) {
 		const note = "interop: no usable clang++ (not found, or it does not work), using opaque mode"
 		if r.code != 0 || !strings.HasPrefix(got, note) || strings.Count(r.stderr, "\n") != 1 {
 			t.Fatalf("exit %d, note %q, stderr (want one line):\n%s", r.code, got, r.stderr)
+		}
+	})
+	t.Run("default is opaque without a word", func(t *testing.T) {
+		// Nothing is set (interopSetup clears the variables): the default mode is auto.
+		r := gocppRun("", false, "check", "a.gp")
+		if r.code != 0 || r.stderr != "" || r.stdout != "" {
+			t.Fatalf("exit %d: the default mode must check without clang++ and without a word\n%s%s", r.code, r.stdout, r.stderr)
+		}
+		got, r := note(t, "a.gp")
+		const note = "interop: no usable clang++ (not found, or it does not work), using opaque mode"
+		if r.code != 0 || !strings.HasPrefix(got, note) || !strings.Contains(got, "(the default mode;") {
+			t.Fatalf("exit %d, note %q\n%s", r.code, got, r.stderr)
 		}
 	})
 	t.Run("run and build go on", func(t *testing.T) {
@@ -315,6 +340,85 @@ func TestInteropUpToDate(t *testing.T) {
 	t.Setenv("GOCPP_INTEROP", "opaque")
 	if r := build(); isUpToDate(r.stderr) {
 		t.Fatalf("the variable changes the mode, the build can't be up to date:\n%s", r.stderr)
+	}
+}
+
+// TestInteropUpToDateSeesClangAppear: the build of a program without headers does not run clang++,
+// but its up-to-date key records the clang++ that a path lookup finds, so that a clang++ installed
+// into the same directory (auto becomes typed) makes the next build run once and not be hidden by
+// the old stamp.
+func TestInteropUpToDateSeesClangAppear(t *testing.T) {
+	interopSetup(t, map[string]string{"a.gp": "package main\n\nfunc main() {}\n"})
+	t.Setenv("GOCPP_NOOBJCACHE", "0")
+	t.Setenv("GOCPP_NOUPTODATE", "")
+	t.Setenv("GOCPP_INTEROP", "")
+	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	bin := t.TempDir()
+	for _, tool := range []string{"g++", "gcc", "c++", "cc", "ar", "ld", "as"} {
+		if path, err := exec.LookPath(tool); err == nil {
+			if err := os.Symlink(path, filepath.Join(bin, tool)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("GOCPP_CXX", "g++")
+	if _, err := exec.LookPath("clang++"); err == nil {
+		t.Fatal("the test directory must not have clang++ yet")
+	}
+	build := func() result {
+		t.Helper()
+		r := gocppRun("", false, "build", "-x", "-o", "o", "a.gp")
+		if strings.Contains(r.stderr, "WORK=") {
+			workDir(t, r.stderr)
+		}
+		if r.code != 0 {
+			t.Fatalf("build: exit %d\n%s", r.code, r.stderr)
+		}
+		return r
+	}
+	build()
+	if r := build(); !isUpToDate(r.stderr) {
+		t.Fatalf("the second build without clang++ is not up to date:\n%s", r.stderr)
+	}
+	stub := filepath.Join(bin, "clang++")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if r := build(); isUpToDate(r.stderr) {
+		t.Fatalf("a clang++ appeared and the build is still up to date:\n%s", r.stderr)
+	}
+	if r := build(); !isUpToDate(r.stderr) {
+		t.Fatalf("the build after the clang++ appeared is not up to date again:\n%s", r.stderr)
+	}
+}
+
+// TestInteropStampParts: the up-to-date key follows the mode that applies and, unless it is opaque,
+// the clang++ that a path lookup finds, so that installing clang++ later (auto becomes typed) is
+// not hidden by an old stamp.
+func TestInteropStampParts(t *testing.T) {
+	t.Setenv("GOCPP_INTEROP", "")
+	t.Setenv("GOCPP_TYPED_INTEROP", "")
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	without := interopStampParts("", "linux", "amd64")
+	if want := []string{"interop=auto", "clang="}; !slices.Equal(without, want) {
+		t.Fatalf("without clang++ the parts are %q, want %q", without, want)
+	}
+	clang := filepath.Join(bin, "clang++")
+	if err := os.WriteFile(clang, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	with := interopStampParts("", "linux", "amd64")
+	if want := []string{"interop=auto", "clang=" + clang}; !slices.Equal(with, want) {
+		t.Fatalf("with clang++ the parts are %q, want %q", with, want)
+	}
+	if got := interopStampParts("opaque", "linux", "amd64"); !slices.Equal(got, []string{"interop=opaque"}) {
+		t.Fatalf("for opaque the parts are %q, want only the mode", got)
+	}
+	t.Setenv("GOCPP_INTEROP", "opaque")
+	if got := interopStampParts("", "linux", "amd64"); !slices.Equal(got, []string{"interop=opaque"}) {
+		t.Fatalf("with GOCPP_INTEROP=opaque the parts are %q, want only the mode", got)
 	}
 }
 

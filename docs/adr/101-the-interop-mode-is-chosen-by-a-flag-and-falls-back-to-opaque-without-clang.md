@@ -1,6 +1,6 @@
 # ADR-101: The interop mode is chosen by a flag, and typed falls back to opaque without clang
 
-Status: accepted (2026-10-20). Builds on [ADR-005](005-interop-header-packages.md) (opaque interop),
+Status: accepted (2026-10-20); decision 4 (the default is opaque) superseded by [ADR-131](131-typed-interop-is-the-default-mode.md) (2026-10-21: the default is `auto`). Builds on [ADR-005](005-interop-header-packages.md) (opaque interop),
 [ADR-060](060-typed-interop-probes.md) (the probes), [ADR-079](079-typed-interop-checker-reports-only-what-the-compiler-reports.md)
 (the checker), [ADR-087](087-typed-interop-code-generation.md) (the code generation), [ADR-097](097-typed-interop-puts-the-values-of-c-constants-into-the-program-before-go-types.md)
 (constants) and [ADR-098](098-promoted-members-of-embedded-cpp-classes-are-decided-by-the-compiler-in-a-second-pass.md)

@@ -57,8 +57,8 @@ hello, interop
   Go function works too. The [cookbook](../spec/interop-cookbook.md) has SQLite, zlib, SDL2 and
   raylib recipes, and [Interop examples](../guides/interop-examples.md) walks through the
   programs of `examples/`.
-- Typed interop (`-interop=typed`) is the next step for these calls: gocpp asks clang++
-  for the types and checks them itself. It is not on by default (`-interop=auto` turns it on
-  when clang++ is installed); see the [typed interop spec](../spec/typed-interop.md).
+- Typed interop is on by default when clang++ is installed (`-interop=auto`): gocpp asks clang++
+  for the types of these calls and checks them itself. `-interop=opaque` turns it off, and
+  without clang++ it is off anyway; see the [typed interop spec](../spec/typed-interop.md).
 
 Next: [Must functions](11-must-functions.md).

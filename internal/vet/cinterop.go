@@ -673,8 +673,9 @@ func storedInStack(stack []ast.Node) bool {
 // C.int(n) with n an int is Go's explicit conversion: it keeps the low 32 bits, and a larger value
 // changes silently. Typed interop (Phase 12) accepts the same cut implicitly where C++ does
 // (docs/spec/typed-interop.md: "narrowing conversions get a gocpp vet warning instead of an
-// error"); that part waits for the typed mode to be the default, because it needs the types of the
-// C++ parameters. What this analyzer checks needs only the width of the C type that the user
+// error"); that part is not done and not scheduled: it needs the types of the C++ parameters, which
+// only the probes know, and `gocpp vet` does not run them (typed mode is the default now, but the
+// vet analyzers still work from the written code alone). What this analyzer checks needs only the width of the C type that the user
 // names: a conversion C.T(x) to a C integer type (char, short, int, long long, their unsigned forms
 // and the int<N>_t types) from a gocpp integer with more bits, or C.float(x) from a float64. Not
 // reported: a constant (the compiler checks it), a plain int or uint converted to a type of 32 bits

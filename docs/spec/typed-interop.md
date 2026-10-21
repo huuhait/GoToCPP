@@ -1012,9 +1012,11 @@ signatures, the view under `gocpp fmt` and `gocpp check`, and typed interop in a
 
 ## 13. The interop mode (step 12.11, ADR-101)
 
-[ADR-101](../adr/101-the-interop-mode-is-chosen-by-a-flag-and-falls-back-to-opaque-without-clang.md) has the reasons.
+[ADR-101](../adr/101-the-interop-mode-is-chosen-by-a-flag-and-falls-back-to-opaque-without-clang.md) has the reasons
+for the flag and the fallback, [ADR-131](../adr/131-typed-interop-is-the-default-mode.md) for the default.
 Opaque mode (Phase 04) leaves every question about a C/C++ name to the C++ compiler. Typed mode (this phase) asks
-clang++ with probes. The mode is the user's choice, with a safe automatic one.
+clang++ with probes. The mode is the user's choice, and the default is the automatic one: typed where clang++ is
+installed, opaque where it is not.
 
 ### 13.1 Choosing the mode
 
@@ -1028,7 +1030,7 @@ clang++ with probes. The mode is the user's choice, with a safe automatic one.
 An empty variable is unset. A value that is not a mode is an error: for the flag the usual flag error, for the variable
 `gocpp: GOCPP_INTEROP=fast: want typed, opaque or auto` (status 2; the flag hides a bad variable). The up-to-date check
 of `gocpp build` has the flag in its key (the variables are in it already). The mode of a user who sets nothing is
-**opaque** today; §13.6 says why and how it switches.
+**auto** (`typedinterop.DefaultMode`); §13.6 says why.
 
 - `typed`: the probes run. No clang++ is an error.
 - `opaque`: nothing of this phase runs; the output is Phase 04's, byte for byte.
@@ -1060,8 +1062,8 @@ Phase 13's). A build for another system than this one is typed only when every h
 ### 13.3 Without clang++ (the fallback)
 
 `typedinterop.Decide(ctx, setting, needed)` looks for clang++ (`GOCPP_CLANG`, else `clang++` in `PATH`; clang 17 or newer,
-like every compiler of gocpp) **only when the program has something to probe**: a package that is not the standard
-library's imports a C/C++ header (`typedinterop.Needed`). A program of Go alone never asks.
+like every compiler of gocpp) **only when the program has something to probe**: a package that is not one of gocpp's own
+standard library packages (`load.Package.Std`) imports a C/C++ header, a C++ standard header such as `<vector>` included (`typedinterop.Needed`). A program of Go alone never asks.
 
 | Mode | clang++ there | clang++ missing |
 |---|---|---|
@@ -1108,13 +1110,27 @@ and `addr_loopvar_error` (with clang++ the early error of the typed checker, `ca
 
 ### 13.6 The default
 
-`typedinterop.DefaultMode` is **opaque**. The evidence of §13.5 and of §13.7 (warm overhead) supports `auto`, but the
-default stays until these hold, which this step cannot show: (1) cold probing of the examples is 0.9 to 2.4 s on a
-lightly loaded machine (§13.7), above the 0.5 s of the exit criterion; (2) only clang 21 was
-available (step 12.12 built the matrix script, `tools/clang-matrix.sh`, and ran clang 21 only: §14.4); (3) the probe for a Windows host was written and ran on the real PC with the pinned llvm-mingw's clang (step 14.6, `TestWindowsTypedNative`), but the interop corpus has not run there. Switching is one constant
-(`DefaultMode = Auto`) and the words of the documents that say "opaque is the default" (ADR-101 lists them); the test
-suites of `cmd/gocpp` and `tests` set `GOCPP_INTEROP=opaque` in their `TestMain`, so that they keep testing the
-opaque pipeline when the default moves, and `TestCorpusTyped` keeps testing the typed one. (A dry run with `DefaultMode = Auto` failed only the two goldens of `gocpp env`, which show the default.)
+`typedinterop.DefaultMode` is **auto** ([ADR-131](../adr/131-typed-interop-is-the-default-mode.md), user decision of
+2026-10-21; until then it was opaque, ADR-101). A user who sets nothing gets typed interop when a clang++ is found and
+Phase 04's opaque pipeline, with no message, when it is not. What the user sees:
+
+- a program of Go alone, or one that imports only gocpp's own standard library packages (`fmt`, `os`, ...), pays nothing for the
+  clang search: clang++ is looked for only when a package that is not one of those imports a C/C++ header (§13.3). A program
+  that imports a C++ standard header itself (`<vector>`, `<algorithm>`) is probed like any other (`examples/cpp-std`: 1.56 s cold);
+- a build of a program that imports a header costs the probes: warm 0 to 30 ms, and on an empty result cache (the
+  first build of a program, or after a header changed) 0.5 to 0.7 s for C-style or own headers and 1.2 to 1.6 s for
+  programs that include large C++ library headers themselves (§13.7);
+- early errors in Go's words before the C++ compile (with g++ as the build compiler they are warnings, ADR-079),
+  constant macros as array lengths (E1), promoted members (E2), the string-to-`const char*` conversion;
+- `-interop=opaque` or `GOCPP_INTEROP=opaque` (also in a script or an editor's server environment) gives
+  Phase 04's behavior, byte for byte, and costs nothing.
+
+The three conditions that ADR-101 and ADR-108 had put before the switch were not all shown (cold probing under 0.5 s
+for every example, clang 17 to 20, the interop corpus on a Windows host); the user accepted the measured cold cost and
+the wording of the exit criterion (Phase 12 README §5), and the risks are in ADR-131. The test suites of `cmd/gocpp`
+and `tests` set `GOCPP_INTEROP=opaque` in their `TestMain`, so that they keep testing the opaque pipeline (the
+contract of Phase 04) whatever the default is; `TestCorpusTyped` runs the programs that import headers in typed mode,
+and `TestInteropPrecedence` (the `default` case) and `TestDefaultModeIsAuto` pin the default itself.
 
 ### 13.7 Cost
 
@@ -1135,10 +1151,13 @@ in this step: `gocpp check` did not keep the compiler detection between runs (`b
 so every warm typed check started clang++ twice (0.3 s on a loaded machine). The cold runs fill the probe cache (§9) with
 one compiler run for the kinds, one batch of the probes and a run for each declaration group, three stages one after
 the other; most of the time is the parsing of the C++ library's headers by clang (2 to 5 CPU seconds for the examples).
-**The cold cost exceeded the 0.5 s exit criterion** in the earlier measurements. Step 12.14 retains PCH acceleration
-for expression/function probes and overlaps include discovery, but review removed its unsound smaller type preamble
-(ADR-117, §14.3). Measurements made with that preamble are historical, not current acceptance evidence. A retained-PCH
-check is not a fully cold check. The all-example cold criterion remains open, keeping the default opaque (§13.6).
+**The cold cost exceeded the 0.5 s of the earlier criterion** in the measurements of this table. Step 12.14 retains PCH
+acceleration for expression/function probes and overlaps include discovery, but review removed its unsound smaller type
+preamble (ADR-117, §14.3). Measurements made with that preamble are historical, not current acceptance evidence. A
+retained-PCH check is not a fully cold check. The current numbers are in ADR-121 and §14.3 (fully cold, typed minus
+opaque: `raylib` 0.66 s, `sqlite` 0.65 s, `multi-pkg` 0.47 s, `mixed-sources` 1.17 s, `cpp-std` 1.56 s), and the criterion
+in the Phase 12 README §5 is worded after them. With the default `auto` (§13.6) a user meets these numbers on the first
+build of a program on a cold cache.
 
 ### 13.8 Tests
 
@@ -1264,8 +1283,9 @@ Floors (ADR-121): a compile of the library block costs 315 ms, making its header
 names the types, so a fully cold check costs at least the kind probe + one block compile + one header-assisted stage (about
 0.52 s before any bookkeeping, 0.65 s measured). **The criterion is met with a retained header for C-style packages (0.44 to
 0.46 s; `multi-pkg` 0.25 s), not fully cold (0.65 s), and not for packages that include large C++ library headers themselves
-(`mixed-sources`, `cpp-std`: 1.2 to 1.6 s, bounded by the compile of those headers and the dumps of std types).** The default
-stays opaque. `TestPCHOracle` compares 288 programs with and without the header (0 differences, exact dependency lists; 8 type
+(`mixed-sources`, `cpp-std`: 1.2 to 1.6 s, bounded by the compile of those headers and the dumps of std types).** The criterion
+was reworded after these numbers (Phase 12 README §5) and the default is `auto` ([ADR-131](../adr/131-typed-interop-is-the-default-mode.md), §13.6).
+`TestPCHOracle` compares 288 programs with and without the header (0 differences, exact dependency lists; 8 type
 runs were refused and made again).
 
 ### 14.4 Clang versions

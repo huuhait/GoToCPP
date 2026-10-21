@@ -7,16 +7,17 @@ C/C++ side is built.
 
 | | |
 |---|---|
-| Status | complete for Phase 04 (opaque interop, step 4.19): every feature of steps 4.1 to 4.17 is described here, with its limits. Typed interop (Phase 12) will change the "known gaps" only. The [cookbook](interop-cookbook.md) has task-oriented recipes whose programs are tests |
+| Status | complete for Phase 04 (opaque interop, step 4.19): every feature of steps 4.1 to 4.17 is described here, with its limits. Typed interop (Phase 12), which is the default when clang++ is installed, adds to this and closes the "known gaps". The [cookbook](interop-cookbook.md) has task-oriented recipes whose programs are tests |
 | Source | [Phase 01 §2.3–2.5](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#23-import-classification) and [§2.8](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#28-the-opaque-pass), [Phase 04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md), and the other READMEs linked below |
 | See also | [interop-cookbook.md](interop-cookbook.md) (recipes), [modules.md](modules.md), [language.md](language.md) ([D2](language.md#d2-header-imports-instead-of-cgo), [D14](language.md#d14-cc-values-follow-c-rules), [D16](language.md#d16-unsafepointer-and-pointers-from-c)), [cpp-mapping.md](cpp-mapping.md) |
 
-**Opaque mode.** gocpp does not try to understand C++ (templates, overloads, macros). Every
+**Opaque mode** (what you get with `-interop=opaque`, or when no clang++ is installed). gocpp does not try to understand C++ (templates, overloads, macros). Every
 C/C++ name is **opaque**: gocpp writes it into the C++ output almost unchanged, and the C++
 compiler, which understands C++ perfectly, checks it. That is why almost every header, library
 and template works from the start. gocpp only needs two small facts from the compiler: is a name
 a macro, and is it a namespace, a type, a template or a value ([the probes](#the-two-compiler-probes)).
-Typed interop (Phase 12, `-interop=typed`; [what it adds](#what-typed-interop-adds)) asks clang for real types.
+Typed interop (Phase 12; on by default when clang++ is installed, [what it adds](#what-typed-interop-adds)) asks clang for real types
+in addition; this document describes the opaque mode, which is also what typed mode falls back to for anything a probe does not answer.
 
 **Contents.**
 [A first example](#a-first-example) ·
@@ -2545,9 +2546,9 @@ Source: [Phase 14 §2.4](../../plans/2026-10-13-gocpp/phase-14-windows/README.md
 Opaque mode has limits because gocpp does not know C/C++ types: it writes what you wrote, and the C++
 compiler decides. They fall in three groups.
 
-### Gaps that typed interop (Phase 12) will close
+### Gaps that typed interop (Phase 12) closes or narrows
 
-| Gap | Until Phase 12 | What you can do |
+| Gap | In opaque mode (`-interop=opaque`, or no clang++) | What you can do |
 |---|---|---|
 | a struct that embeds **several** C/C++ types, with promoted access (`struct{ std.vector[int]; std.string }`, then `mv.push_back(1)`) | the error "not supported yet (Phase 12)": gocpp doesn't know which type has the member. (With one embedded C/C++ type the members are promoted since Phase 05, [above](#embedded-c-types).) | name the field: `mv.vector.push_back(1)` |
 | a C macro as a compile-time constant (`var buf [cstdio.BUFSIZ]byte`, `const d = lib.MAX + 1`) | the error "not supported yet (Phase 12)" | |
@@ -2665,7 +2666,7 @@ produces it. Beyond it:
 
 ## What typed interop adds
 
-Typed interop (Phase 12; `-interop=typed`) asks clang for the real types of exactly the C/C++ names a program uses, through small
+Typed interop (Phase 12; the default when clang++ is installed, `-interop=typed` to require it) asks clang for the real types of exactly the C/C++ names a program uses, through small
 generated "probe" files, the way cgo asks gcc about C names.
 
 - **Earlier, better errors:** many C/C++ mistakes are reported before the C++ compile, with
@@ -2696,9 +2697,11 @@ generated "probe" files, the way cgo asks gcc about C names.
   as `gp::cgo::as<T>(x)`; narrowing conversions get a `gocpp vet` warning instead of an error.
 - **Modes** (step 12.11, [the spec](typed-interop.md#13-the-interop-mode-step-1211-adr-101)): `-interop=typed`,
   `-interop=opaque` or `-interop=auto` on `check`, `build`, `run`, `test`, `emit`, `vet` and `expand`, and
-  `GOCPP_INTEROP` with the same values (the flag wins; `GOCPP_TYPED_INTEROP=1` still means typed). Opaque, the
-  mode of this document, is what you get when you set nothing; typed mode passes the same programs (294 programs that
-  import headers print the same in both). Probing needs `clang++`, also when the build uses `g++`. `auto` is typed when
-  clang++ is installed and opaque otherwise, with no message; `typed` without clang++ is an error (status 3).
+  `GOCPP_INTEROP` with the same values (the flag wins; `GOCPP_TYPED_INTEROP=1` still means typed). **`auto` is what you get when you set nothing**
+  ([ADR-131](../adr/131-typed-interop-is-the-default-mode.md)): typed when clang++ is installed and opaque otherwise, with no
+  message; `typed` without clang++ is an error (status 3); `-interop=opaque` is the mode of this document, with no probes.
+  Typed mode passes the same programs (294 programs that import headers print the same in both). Probing needs `clang++`,
+  also when the build uses `g++`. The probes cost time on the first build of a program on a cold cache (0.5 to 1.6 s,
+  tens of milliseconds on a warm one: [typed-interop.md §13.6](typed-interop.md#136-the-default)).
 
 Source: [Phase 12](../../plans/2026-10-13-gocpp/phase-12-typed-interop/README.md).

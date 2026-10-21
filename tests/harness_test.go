@@ -102,8 +102,9 @@ func TestMain(m *testing.M) {
 	// standard library's internal packages for the error tests.
 	os.Unsetenv(allowInternalName)
 	os.Setenv("GOCPP_OFFLINE", "1")
-	// The suites check the opaque pipeline, the contract of Phase 04, whatever the default mode of a user is
-	// (typedinterop.DefaultMode, ADR-101); TestCorpusTyped runs the C/C++ programs again in typed mode.
+	// The suites check the opaque pipeline, the contract of Phase 04, explicitly: the default mode of a user is
+	// auto, typed where clang++ is installed (typedinterop.DefaultMode, ADR-131). TestCorpusTyped runs the C/C++
+	// programs again in typed mode, and the tests of cmd/gocpp (TestInteropPrecedence, TestInteropNoClang) pin the default.
 	os.Setenv("GOCPP_INTEROP", "opaque")
 	// A work folder that something else removes is an error here, not a build that goes again: a real bug
 	// of gocpp must not be hidden by the self-healing that users get (docs/spec/build.md).

@@ -909,7 +909,7 @@ func TestCUserErrors(t *testing.T) {
 		{"_ = lib.FILE{a: C.wstr(\"x\")}", "C.wstr(\"x\") (C.wstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.WString and C.free for a retained C string"},
 		{"_ = C.GoStringW(C.wstr(\"x\"))", `C.wstr("x") can be only an argument of a C/C++ function or the value of a new variable (name := C.wstr("x")): its C string lives only as long as that; for a C string that lives longer, use C.WString and C.free`},
 		{"h := C.wstr(\"x\"); h2 := h; _ = lib.FILE{h2}", "h2 (C.wstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.WString and C.free for a retained C string"},
-		{"var a [lib.NMAX]C.char; _ = a", "a C/C++ macro in an array length (lib.NMAX) needs typed interop (-interop=typed, which needs clang++); or write the number, such as [260]windows.WCHAR for MAX_PATH"},
+		{"var a [lib.NMAX]C.char; _ = a", "a C/C++ macro in an array length (lib.NMAX) needs typed interop (install clang++ 17 or newer, and do not use -interop=opaque); or write the number, such as [260]windows.WCHAR for MAX_PATH"},
 		{"_ = lib.FILE{a: C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		{"_ = lib.FILE{C.cstr(\"x\")}", "C.cstr(\"x\") (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		{"h := C.cstr(\"x\"); h2 := h; var h3 = h2; _ = lib.FILE{a: h3}", "h3 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},

@@ -41,14 +41,14 @@
   - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
   - [x] Type dumps retain the full preamble; the unsound smaller-preamble optimization and stale approval cache were removed
   - [x] Signature types asked beside the probe run; type runs of the program's own types load the PCH and are redone with the full preamble when the answer is not whole (ADR-121); clean second-round review
-  - [ ] Cold < 0.5 s per example: NOT met. Typed minus opaque, fully cold: raylib 0.66 s, sqlite 0.65 s, multi-pkg 0.47 s, mixed-sources 1.17 s, cpp-std 1.56 s (retained PCH: 0.46, 0.44, 0.25, 1.15, 1.52 s). Floors: compile of the library block 0.3 s, PCH build 0.4 s. Criterion wording is the user's decision (ADR-121 proposal)
+  - [x] Cold-probing criterion reworded after the measurements (ADR-121 proposal accepted by the user 2026-10-21; typed interop is the default, ADR-131). Typed minus opaque, fully cold: raylib 0.66 s, sqlite 0.65 s, multi-pkg 0.47 s, mixed-sources 1.17 s, cpp-std 1.56 s (retained PCH: 0.46, 0.44, 0.25, 1.15, 1.52 s). Floors: compile of the library block 0.3 s, PCH build 0.4 s. Criterion wording is the user's decision (ADR-121 proposal)
 
 ## Exit criteria
 
 - [ ] Phase 04 suite + header zoo green in typed and opaque modes
 - [x] E1 and E2 work with stock go/types (12.12)
 - [x] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode (77 diagnostics; 287-program sweep, 0 typed errors)
-- [~] Warm overhead < 50 ms (met: 0-30 ms); cold probing < 0.5 s per example package (NOT met: 0.47-1.56 s typed minus opaque after 12.14b; floors measured in ADR-121)
+- [x] Warm overhead < 50 ms (met: 0-30 ms); cold probing criterion reworded per ADR-121 (0.47-1.56 s typed minus opaque; accepted by the user 2026-10-21; floors measured in ADR-121)
 - [x] `bindgen` output reviewed for raylib, sqlite3, SDL (docs/guides/bindgen-review.md, ADR-120, TestBindgenRaylib/SQLite3/SDL2)
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
@@ -123,7 +123,7 @@
   probing measured: cpp-std 2.0 s, mixed-sources 1.8 s, sqlite 1.3 s, raylib 1.0 s, multi-pkg 0.5 s
   over opaque; a PCH of the preamble costs 0.62 s once and then a probe run takes 0.10 s instead of
   0.51 s. Open decision: parallelize/merge the three sequential probe stages, add a PCH, prime the
-  cache, or change the criterion (ADR-108 measurement 2); this blocks flipping `DefaultMode` to auto.
+  cache, or change the criterion (ADR-108 measurement 2); (obsolete: the default became auto on 2026-10-21, ADR-131).
   Clang 17-20 are untested (dev shell has 21 only); the matrix script and tolerance tests are ready.
   Old note about named types over C (`type Handle geo.handle`) could not become tests: `gocpp build`
   refuses them ("not supported yet"), `gocpp check` accepts them silently.
@@ -208,3 +208,5 @@
   (`true`, `static_assert`) are still located. Known and not from this branch: under `-race`
   `TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate` and `TestMemberQueryTimeoutJoinsCompiler`
   fail the same way at the base commit (watchdog and a 500 ms timeout too tight).
+
+- 2026-10-21 12.default [x] merged (ADR-131): `typedinterop.DefaultMode = Auto`: typed when clang++ is found, otherwise opaque silently; `-interop=opaque` gives the old behavior. Two review rounds. Cold typed cost once per probe cache: raylib/sqlite about 1 s, Windows-header demos 6.6 s (imgui) and 14.4 s (imgui-dx11). Not run: clang 17-20, typed corpus on the real Windows PC, LSP speed rows re-measured with the background indexers on. Reviewer-found, not from this job: none open.

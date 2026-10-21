@@ -67,6 +67,21 @@ func TestResolveMode(t *testing.T) {
 	}
 }
 
+// TestDefaultModeIsAuto pins the decision of ADR-131: a user who sets nothing gets typed interop
+// when clang++ is installed (auto), and opaque without a word when it is not.
+func TestDefaultModeIsAuto(t *testing.T) {
+	got, err := ResolveMode("", envOf(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != Auto || got.Source != "default" {
+		t.Fatalf("with nothing set the setting is %+v, want the mode auto from the default", got)
+	}
+	if DefaultMode != Auto {
+		t.Fatalf("DefaultMode = %v, want auto", DefaultMode)
+	}
+}
+
 func TestSettingString(t *testing.T) {
 	for _, tt := range []struct {
 		s    Setting

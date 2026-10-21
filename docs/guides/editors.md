@@ -132,9 +132,11 @@ are declared in headers, not in gocpp code: references and highlights show nothi
 and rename says that it does not rename them. The Go names around them (a variable that holds a
 C value, a Go function that returns one) are ordinary names.
 
-With `GOCPP_INTEROP=typed` or `GOCPP_INTEROP=auto` in the server's environment, a background clang
-index supplies completion names after a header package (`api.` for `import "./api.hpp"`) or a
-namespace (`std.`, including renamed and nested namespaces). The default opaque mode is unchanged.
+With the default interop mode (`auto`: typed when clang++ is installed) or `GOCPP_INTEROP=typed` in the
+server's environment, a background clang index supplies completion names after a header package (`api.` for
+`import "./api.hpp"`) or a namespace (`std.`, including renamed and nested namespaces). With
+`GOCPP_INTEROP=opaque` the server runs no clang and these names are not offered. No request waits on clang: a
+request reads the answers that are ready, and the editor features of Go code are as fast with or without it.
 The first request can have no C/C++ candidates; ask again after indexing finishes. Missing or failed
 clang leaves the existing Go answers intact and does not delay diagnostics. Names and macros are
 indexed here, not signatures or locations (hover and definition of a name have their own facts, below).

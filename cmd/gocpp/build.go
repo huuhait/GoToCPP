@@ -231,8 +231,8 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 	-interop mode
 		how C/C++ names are understood: typed (clang++ answers their
 		types), opaque (the C++ compiler decides) or auto (typed when
-		clang++ is installed); default GOCPP_INTEROP, else auto or opaque
-		as "gocpp env GOCPP_INTEROP" shows
+		clang++ is installed, else opaque); default GOCPP_INTEROP, else
+		auto
 	-lto
 		link-time optimization: the runtime and the generated C++
 		compile with -flto (-flto=auto for g++, -flto=thin for clang++)

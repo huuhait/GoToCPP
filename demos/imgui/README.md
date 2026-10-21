@@ -41,6 +41,9 @@ On a Windows host with MinGW-w64 (MSYS2: `mingw-w64-x86_64-glfw`), `gocpp build 
 
 ## Notes
 
+- Typed interop is the default when a clang++ is found, and it builds this demo without a flag. Its probes read the ImGui and
+  GLFW headers: about 6 s more on a first build with an empty probe cache (the machine was loaded), a few hundred milliseconds
+  more on a build with a warm one. `-interop=opaque` (or `GOCPP_INTEROP=opaque`) skips the probes; the program is the same.
 - `//gocpp:` link flags are in the recipe: `link glfw3dll opengl32 gdi32 dwmapi` in an `if windows { ... }` block. The recipe
   has no block for Linux or macOS, so this folder builds only for Windows; for another system add a block with the GLFW and
   OpenGL libraries (on Linux `pkg-config glfw3` and `link GL` in an `if linux { ... }` block,

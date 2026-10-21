@@ -83,7 +83,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("GOCPP_OFFLINE", "1")
 	// The tests of this package check the opaque pipeline, the contract of Phase 04, unless a test sets the
 	// interop mode itself (the typed*_test.go files and interop_test.go do): the mode of a user who sets
-	// nothing is typedinterop.DefaultMode, and these tests must not move when it changes (ADR-101).
+	// nothing is typedinterop.DefaultMode (auto since ADR-131), and these tests must not move when it changes.
 	os.Setenv("GOCPP_INTEROP", "opaque")
 	os.Setenv("GOCPP_WORKLOST", "fail") // a lost work folder is an error in the tests (worklost_test.go sets what it tests)
 	// The children that re-run this binary do not sleep a second at exit under -race.

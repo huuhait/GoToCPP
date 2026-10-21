@@ -242,5 +242,6 @@ gocpp run .          # needs the sqlite3 library (pkg-config sqlite3)
 ```
 
 The dev shell of the repository (`nix develop`) has sqlite, raylib, SDL2 and zlib.
-Typed interop (`-interop=typed`, which needs clang++) checks the types of these calls itself
-instead of leaving them to the C++ compiler: [typed interop](../spec/typed-interop.md).
+Typed interop (the default when clang++ is installed; `-interop=opaque` turns it off) checks the
+types of these calls itself instead of leaving them to the C++ compiler: [typed interop](../spec/typed-interop.md).
+The first build of an example on a cold cache is 0.5 to 1.6 s slower for the probes; the examples print the same in both modes.

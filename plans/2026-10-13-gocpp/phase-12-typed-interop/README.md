@@ -167,8 +167,8 @@ accepted. Narrowing conversions get a `gocpp vet` warning instead.
 Probe results are cached by hash(include set, flags, compiler version, probe text **and the
 contents of every header the probe included**, taken from the `-MD` depfile, as in Phase 06).
 Without the header contents, editing `./engine.hpp` would leave stale answers. New references
-only add new probes (built in 12.7: the cache is per reference, ADR-088). Probing runs in parallel with other build work. Targets: cold < 0.5 s per
-package, warm ≈ 0.
+only add new probes (built in 12.7: the cache is per reference, ADR-088). Probing runs in parallel with other build work. Targets: warm ≈ 0; cold: see
+the wording of the exit criterion in §5 (measured in ADR-121).
 
 ### 2.7 `gocpp bindgen <header>`
 
@@ -196,9 +196,10 @@ Go syntax, one package per header (`func InitWindow(width C.int, height C.int, t
 - For Windows builds the probes run with the Windows target and its headers
   (`--target=x86_64-w64-windows-gnu` plus the MinGW-w64 sysroot, Phase 14), because
   `<windows.h>` and friends only make sense for that target.
-- `-interop=typed|opaque|auto` (step 12.11, built). Opaque stays the default until typed mode is shown
-  on a quiet machine and with clang 17 to 20 (ADR-101 says what blocks the switch and how to make it); the Phase 04
-  suite and the header zoo already pass in typed mode (294 programs, `TestCorpusTyped`).
+- `-interop=typed|opaque|auto` (step 12.11, built). **The default is `auto`** (user decision 2026-10-21,
+  [ADR-131](../../../docs/adr/131-typed-interop-is-the-default-mode.md), which supersedes the default part of ADR-101): typed when
+  clang++ is installed, opaque without a word when not; `-interop=opaque` (or `GOCPP_INTEROP=opaque`) gives Phase 04's behavior.
+  The Phase 04 suite and the header zoo pass in typed mode (294 programs, `TestCorpusTyped`).
 
 ### 2.9 C/C++ in the language server (without slowing it down)
 
@@ -240,7 +241,7 @@ so it is added **only in the background**:
 8. **12.8 Gap E1**: constant macros probed first and substituted before `go/types`.
 9. **12.9 Gap E2**: second pass (a hook of check, answered by the C++ compiler) that decides the promoted C++ members of embedded classes; typed code generation writes them through the embedded field (ADR-098).
 10. **12.10 `gocpp bindgen`** (struct-valued macros as `var`).
-11. **12.11 Modes + clang-missing fallback**; switch the default when ready.
+11. **12.11 Modes + clang-missing fallback**; the default switched to `auto` on 2026-10-21 (ADR-131).
 12. **12.12 Tests**: the whole Phase 04 suite + header zoo in **both** modes; ≥ 30 early-error tests;
     E1/E2 tests; `T&` parameters and results; mixed C/gocpp arithmetic; float and string macros;
     a header edit invalidating probes; probe-speed benchmarks; clang 17–21 JSON compatibility.
@@ -262,7 +263,14 @@ so it is added **only in the background**:
 - ≥ 30 early-error tests give clear gocpp-style messages before the C++ compile, and no program
   that compiles in opaque mode gets a typed-mode error (compatibility tests: `T&` parameters,
   assignable `T&` results, mixed arithmetic).
-- Warm builds add < 50 ms; cold probing < 0.5 s per example package.
+- Warm builds add < 50 ms. Typed probing of a package whose headers are C-style or its own, with the library
+  header already made for its flags (any later check on a machine), adds < 0.5 s over opaque on an empty
+  result cache; the first check on a machine, which makes that header, adds < 0.7 s; a package that includes
+  large C++ library headers itself (`<algorithm>`, `<filesystem>`, `<map>`) is bounded by the compile of those
+  headers: about 1.2 to 1.6 s. (Accepted by the user on 2026-10-21 with the measured numbers of ADR-121: fully cold
+  `raylib` 0.66 s, `sqlite` 0.65 s, `multi-pkg` 0.47 s, `mixed-sources` 1.17 s, `cpp-std` 1.56 s; retained header
+  0.46, 0.44, 0.25 s for the C-style three; warm 0 to 30 ms. Typed interop is the default, so these costs are what a
+  first build on a cold cache shows, [ADR-131](../../../docs/adr/131-typed-interop-is-the-default-mode.md).)
 - `bindgen` output for `raylib.h`, `sqlite3.h` and `SDL.h` is reviewed.
 - In the editor, `raylib.` and `std.` completion works on the interop examples, the C/C++ data arrives
   in < 2 s, no request waits on clang (slow-clang test), and the Phase 11 budgets still pass.
@@ -349,8 +357,8 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   server of 12.13 takes its hooks from there). `auto` is typed when clang++ is installed, else opaque without a word;
   `typed` without clang++ is exit status 3. `check` now runs the whole typed pipeline in typed mode: the constants and members
   hooks, then one `Analyze` per package whose report feeds both the interop checker (its early errors are in `gocpp check`
-  and `build`) and the lowering. The default stays opaque (cold probing 0.9 to 2.4 s, above the 0.5 s of the exit criterion; clang 17 to 20 untested);
-  `DefaultMode = Auto` is the switch. Not done: the mode in the language server (12.13), narrowing warnings in `gocpp vet`.
+  and `build`) and the lowering. The default was opaque here (cold probing 0.9 to 2.4 s); it is `auto` since 2026-10-21
+  ([ADR-131](../../../docs/adr/131-typed-interop-is-the-default-mode.md)). Not done: the mode in the language server (12.13), narrowing warnings in `gocpp vet`.
 - **12.12 (tests)**, done: [spec §14](../../../docs/spec/typed-interop.md#14-the-tests-of-step-1212) maps each exit criterion to its tests and has the
   measurements. New: `TestTypedCheckCorpus` (287 corpus programs, both compilers, no typed error), `TestTypedHeaderEditInvalidatesProbes`,
   `TestTypedWarmRunsNoCompiler`, `BenchmarkTypedCheck`, the early-error inventory (77 diagnostics in 22 programs), the reader's tolerance
@@ -360,6 +368,7 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   program's own types load the PCH (answer used only when no declaration comes from a file the header was made of, else the full
   block). Typed minus opaque, retained PCH: `raylib` 0.46 s, `sqlite` 0.44 s, `multi-pkg` 0.25 s (met with a retained header, not fully cold); fully cold: 0.66, 0.65,
   0.47 (floor about 0.52 s for the stages that cannot overlap); `mixed-sources` 1.17 s and `cpp-std` 1.56 s (bounded by the kind probe and the
-  std type dumps). The criterion's wording needs a decision (ADR-121 proposes one).
+  std type dumps). The criterion's wording (ADR-121's proposal, §5) was accepted by the user on 2026-10-21 together with the default switch
+  (ADR-131).
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

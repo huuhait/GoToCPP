@@ -36,9 +36,12 @@ task with `/it`). Closing the window ends the program, which prints `window clos
   body and a `//gocpp:extern` line in its doc comment (C++ linkage, the global namespace, the library's own parameter
   types written with the `<windows.h>` header package): gocpp writes the declaration into the generated header, so the
   folder has no C++ file ([ADR-128](../../docs/adr/128-extern-functions-are-declared-in-gp-with-a-directive.md)).
-
 - The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32` in an `if windows { ... }` block. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
   `#pragma comment(lib, ...)`, which MinGW ignores, so the recipe names it. `dxguid` holds the `IID_` constants.
+- Typed interop is the default when a clang++ is found, and it builds this demo without a flag. Its probes read `<windows.h>`,
+  `<d3d11.h>`, `<dxgi.h>` and the ImGui headers: about 14 s more on a first build with an empty probe cache (the machine was
+  loaded), 0.3 to 0.4 s more on a build with a warm one. `-interop=opaque` (or `GOCPP_INTEROP=opaque`) skips the probes; the
+  program is the same.
 - `GetBuffer` wants a `void**`: `var raw unsafe.Pointer` and `&raw`, then a conversion to the interface pointer.
 - A covered or minimized window: `Present` returns at once with `DXGI_STATUS_OCCLUDED` instead of waiting for the
   screen, so the loop sleeps (10 ms) until a test `Present` says the window is visible again. Measured on the PC

@@ -340,7 +340,7 @@ var features = [numFeatures]feature{
 
 	{id: featPromotedCpp, Name: "promoted fields and methods of several embedded C/C++ types", Plural: true, Phase: 12,
 		Detect: "a selector that go/types can't find, on a struct that embeds more than one C/C++ type (one is fine: check/promoted.go)",
-		Notes:  "A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, opaque mode can't tell which one has the member: name the field, `mv.vector.push_back(1)`. Typed interop (`-interop=typed`, which needs clang++) asks the C++ compiler and promotes them."},
+		Notes:  "A struct that embeds one C/C++ type has its members promoted from Phase 05 (`mv.push_back(1)` for `std.vector[int]`). With several, opaque mode can't tell which one has the member: name the field, `mv.vector.push_back(1)`. Typed interop (the default when clang++ is installed; `-interop=typed` requires it) asks the C++ compiler and promotes them."},
 	{id: featPromotedCppShadow, Name: "selectors that a Go member and a member of an embedded C/C++ type could both match (name the field)", Plural: true, Phase: 12,
 		Detect: "a selector that go/types resolved to a Go member of a struct that also embeds a C/C++ type at the same or a shallower depth (check/promoted.go: cMayShadow)",
 		Notes:  "In Go the shallowest member wins and the same depth is ambiguous, but opaque mode can't know the members of a C/C++ type, so it can't tell whether `s.x` is the Go field or the C++ member. Name the field: `s.epoint.x` or `s.Deep.Inner.x`. Typed interop (`-interop=typed`) asks the compiler and applies Go's rule."},
@@ -349,7 +349,7 @@ var features = [numFeatures]feature{
 		Notes:  "`MV.size`, `(*MV).push_back` for a struct that embeds `std.vector[int]`. Use a func literal instead: `func(m MV) { m.size() }`. Typed interop does not change this."},
 	{id: featCConstants, Name: "C macros in constant expressions", Plural: true, Phase: 12,
 		Detect: "a C/C++ name in an array length or a const declaration",
-		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. Typed interop (`-interop=typed`, which needs clang++) probes the value of the macro and accepts them; opaque mode reports them. Write the number in a program that must build without clang++."},
+		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. Typed interop (the default when clang++ is installed; `-interop=typed` requires it) probes the value of the macro and accepts them; opaque mode reports them. Write the number in a program that must build without clang++."},
 
 	{id: featWideStrings, Name: "C.wstr and C.GoStringW", Plural: true, Phase: 14,
 		Detect: "the selectors C.wstr, C.GoStringW and C.GoStringWN",
