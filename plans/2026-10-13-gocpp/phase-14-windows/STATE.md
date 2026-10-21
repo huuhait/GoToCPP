@@ -23,7 +23,7 @@
 - [ ] Phase 00 target programs build and run on Windows (Wine in CI + a real Windows machine)
 - [ ] Run, error and differential suites pass for windows/amd64 under Wine
 - [ ] `gocpp.exe` works natively; VS Code edits, builds and debugs on Windows
-- [x] Win32 example (`MessageBoxW` + a small window) and raylib/SDL example run on Windows (real PC, console desktop, 2026-10-21; SDL2 is the hidden-window test program, not a visible example)
+- [x] Win32 example (`MessageBoxW` + a small window) and raylib/SDL example run on Windows (real PC, console desktop, 2026-10-21, all seen by the user; the visible SDL2 program was a scratch program, not in the repository)
 - [ ] Phase 11 editor budgets hold on Windows
 
 ## Decisions / notes
@@ -47,5 +47,7 @@
   `glfw3.dll` beside the program) opened its 800 x 450 window, ran 828 frames of the bouncing ball
   until the user closed it, and printed `window closed`; the user confirmed it worked. The SDL2 test program
   (`tests/testdata/windows/libsdl2.gp`, MinGW sdl2-compat; `SDL2.dll` and `SDL3.dll` beside it) was then run the
-  same way: exit code 0, nothing printed (its window is hidden and it prints only on failure). The exit line is ticked.
+  same way: exit code 0, nothing printed (its window is hidden and it prints only on failure). A scratch SDL2
+  program with a visible 480 x 270 window and a bouncing box was then run the same way and the user saw the
+  box move on the desktop (stopped with taskkill afterwards; task and folder deleted). The exit line is ticked.
 
