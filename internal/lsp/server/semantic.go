@@ -146,10 +146,9 @@ func semanticTokens(ctx context.Context, e env, uri protocol.DocumentURI, rng *p
 		// The tokens of the whole file depend on the check and the text
 		// alone: made once for the package (every request of an editor that
 		// scrolls or reopens the file asks again).
-		data := q.pkg.Memo(semanticKey{q.file.Path}, func() any {
-			return q.encodeTokens(q.semanticTokens(), 0, len(q.src))
-		}).([]uint32)
-		return &protocol.SemanticTokens{Data: data}, nil
+		return q.pkg.Memo(semanticKey{q.file.Path}, func() any {
+			return protocol.EncodeTokens(q.encodeTokens(q.semanticTokens(), 0, len(q.src)))
+		}).(*protocol.EncodedTokens), nil
 	}
 	toks := q.semanticTokens()
 	lo, hi := 0, len(q.src)
@@ -187,7 +186,7 @@ func (q *query) staleTokens(rng *protocol.Range) (any, error) {
 	return &protocol.SemanticTokens{Data: nq.encodeTokens(toks, lo, hi)}, nil
 }
 
-// semanticKey is the key of the encoded tokens of a file in the package's memo.
+// semanticKey is the key of the answer (the encoded tokens) for a file in the package's memo.
 type semanticKey struct{ path string }
 
 // encodeTokens returns the tokens that lie in [lo, hi) in the protocol's

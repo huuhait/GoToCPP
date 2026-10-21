@@ -128,12 +128,24 @@ func NewWriter(w io.Writer) *Writer {
 
 // Write writes one message with the body.
 func (w *Writer) Write(body []byte) error {
+	return w.WriteParts(body)
+}
+
+// WriteParts writes one message whose body is the parts one after the other, without putting
+// them together first.
+func (w *Writer) WriteParts(parts ...[]byte) error {
+	length := 0
+	for _, part := range parts {
+		length += len(part)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.buf = append(w.buf[:0], "Content-Length: "...)
-	w.buf = strconv.AppendInt(w.buf, int64(len(body)), 10)
+	w.buf = strconv.AppendInt(w.buf, int64(length), 10)
 	w.buf = append(w.buf, "\r\n\r\n"...)
-	w.buf = append(w.buf, body...)
+	for _, part := range parts {
+		w.buf = append(w.buf, part...)
+	}
 	_, err := w.w.Write(w.buf)
 	if cap(w.buf) > 1<<20 {
 		w.buf = nil // don't keep a big buffer after a big message

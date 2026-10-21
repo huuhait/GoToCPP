@@ -59,6 +59,9 @@ var ErrStop = errors.New("protocol: stop serving")
 // that are still running (their contexts are cancelled then).
 const stopWait = time.Second
 
+// closingBrace ends a response message that WriteParts writes in parts; it is never changed.
+var closingBrace = []byte("}")
+
 // A Conn is a JSON-RPC 2.0 connection over a byte stream with the LSP
 // framing (stdin and stdout for "gocpp lsp").
 //
@@ -579,6 +582,12 @@ func (c *Conn) write(m Message) error {
 	c.mu.Unlock()
 	if ended {
 		return ErrClosed
+	}
+	if resp, ok := m.(*Response); ok {
+		if head, ok := resp.trustedHead(); ok {
+			// A big result goes into the frame once, not into a message and then the frame.
+			return c.w.WriteParts(head, resp.Result, closingBrace)
+		}
 	}
 	data, err := EncodeMessage(m)
 	if err != nil {

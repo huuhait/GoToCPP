@@ -164,6 +164,31 @@ func Use() int { return alias.F(1) }
 	}
 }
 
+// genericTypeSource is a generic type of the package a with a method and a function that makes it.
+const genericTypeSource = `
+type G[P any] struct{ Item P }
+
+func (g G[P]) Get() P { return g.Item }
+
+func NewG[P any](item P) G[P] { return G[P]{Item: item} }
+`
+
+// addHelpers gives the package a names that are not exported: a function, a variable, a constant
+// and a type, used by the package.
+func addHelpers(files map[string]string) {
+	files["a/a.gp"] += `
+func helper() int { return hidden + limit }
+
+var hidden = 1
+
+const limit = 2
+
+type token struct{ n int }
+
+func Use2() int { return helper() + token{n: limit}.n }
+`
+}
+
 func TestRenameDeclaringBindingProof(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -230,13 +255,90 @@ func TestRenameDeclaringBindingProof(t *testing.T) {
 				files[name] = strings.ReplaceAll(text, "example.com/binding", "fmt")
 			}
 		}},
-		{name: "generic function target", mark: "func |F[", outcome: "fallback",
+		{name: "generic function target", mark: "func |F[", outcome: "proved",
 			setup: func(files map[string]string) {
 				files["a/a.gp"] = strings.ReplaceAll(files["a/a.gp"],
 					"func F(n int) int", "func F[T ~int](n T) T")
 			}},
-		{name: "variable target", mark: "var |V", outcome: "fallback"},
-		{name: "constant target", mark: "const |K", outcome: "fallback"},
+		{name: "generic function target instantiated by an importer", mark: "func |F[",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["a/a.gp"] = strings.ReplaceAll(files["a/a.gp"],
+					"func F(n int) int", "func F[T ~int](n T) T")
+				files["b/b.gp"] += "\nfunc Twice() int { return alias.F[int](2) }\n"
+			}},
+		{name: "generic function target hidden by its own type parameter", mark: "func |F[",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/a.gp"] = strings.ReplaceAll(files["a/a.gp"],
+					"func F(n int) int", "func F[Renamed ~int](n Renamed) Renamed")
+			}},
+		{name: "generic function target renamed to a type that it converts to", mark: "func |F[",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/a.gp"] = strings.ReplaceAll(files["a/a.gp"],
+					"func F(n int) int", "func F[T ~int](n T) T")
+				files["a/other.gp"] = "package a\ntype Renamed int\n"
+			}},
+		{name: "variable target", mark: "var |V", outcome: "proved"},
+		{name: "constant target", mark: "const |K", outcome: "proved"},
+		{name: "variable target used by an importer", mark: "var |V", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Held = alias.V + alias.K\n"
+			}},
+		{name: "variable target of a group with another name", file: "a/other.gp", mark: "|Second",
+			outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nvar (\n\tFirst = 1\n\tSecond = First + 1\n)\n"
+			}},
+		{name: "variable target of a multiple declaration", file: "a/other.gp", mark: "|Q",
+			outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nvar P, Q = 1, 2\n"
+			}},
+		{name: "constant target of an iota group", file: "a/other.gp", mark: "|Warn", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nconst (\n\tDebug = iota\n\tWarn\n\tFatal\n)\n" +
+					"func Level() int { return Warn }\n"
+			}},
+		{name: "variable target hidden by a local of the new name", mark: "var |V",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Hide() int {\n\tRenamed := 1\n\treturn V + Renamed\n}\n"
+			}},
+		{name: "constant target hiding a local of the new name", mark: "const |K",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Hide() int {\n\tRenamed := 1\n\treturn K + Renamed\n}\n"
+			}},
+		{name: "variable target with a declared new name", mark: "var |V", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nconst Renamed = 4\n"
+			}},
+		{name: "variable target used by a dot importer", mark: "var |V", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["b/dot.gp"] = "package b\nimport . \"example.com/binding/a\"\n" +
+					"var Dotted = V\nvar Renamed = 1\n"
+			}},
+		{name: "variable target named like a field", mark: "var |V", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Box struct{ V int }\nvar Item = Box{V: V}\n"
+			}},
+		{name: "variable target renamed to the name of a field", mark: "var |V", newName: "N",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Box struct{ N int }\nvar Item = Box{N: V}\n"
+			}},
+		{name: "variable target used by a broken importer", mark: "var |V", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Broken = undefinedName\n"
+			}},
+		{name: "constant target of a generic declaring package", mark: "const |K", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Generic[U any](n U) int { return K }\n"
+			}},
+		{name: "constant target hidden by a type parameter", mark: "const |K", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Generic[Renamed any](n Renamed) int { return K }\n"
+			}},
+		{name: "local variable of the same name is not the target", mark: "var |V",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Local() int {\n\tV := 3\n\treturn V\n}\n"
+			}},
 		{name: "type target", mark: "type |T", outcome: "proved"},
 		{name: "type target used by an importer", mark: "type |T", outcome: "proved",
 			setup: func(files map[string]string) {
@@ -277,9 +379,24 @@ func TestRenameDeclaringBindingProof(t *testing.T) {
 			newName: "Error", outcome: "proved", setup: func(files map[string]string) {
 				files["a/other.gp"] = "package a\nfunc Fail() error { return nil }\n"
 			}},
-		{name: "generic type target", mark: "type |G", outcome: "fallback",
+		{name: "generic type target", mark: "type |G", outcome: "proved",
 			setup: func(files map[string]string) {
-				files["a/a.gp"] += "\ntype G[P any] struct{ Item P }\n"
+				files["a/a.gp"] += genericTypeSource
+			}},
+		{name: "generic type target instantiated by an importer", mark: "type |G",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["a/a.gp"] += genericTypeSource
+				files["b/b.gp"] += "\nvar Held alias.G[int]\n\n" +
+					"func Make() alias.G[string] { return alias.NewG(\"x\") }\n"
+			}},
+		{name: "generic type target hidden by a type parameter of a method", mark: "type |G",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/a.gp"] += genericTypeSource +
+					"\nfunc (g G[Renamed]) Peek() G[Renamed] { return g }\n"
+			}},
+		{name: "generic type target embedded in its package", mark: "type |G",
+			outcome: "fallback", setup: func(files map[string]string) {
+				files["a/a.gp"] += genericTypeSource + "\ntype Outer struct{ G[int] }\n"
 			}},
 		{name: "alias type target", mark: "type |Alias", outcome: "fallback",
 			setup: func(files map[string]string) {
@@ -289,7 +406,111 @@ func TestRenameDeclaringBindingProof(t *testing.T) {
 			setup: func(files map[string]string) {
 				files["b/b.gp"] += "\nvar Broken = undefinedName\n"
 			}},
+		{name: "unexported function", mark: "func |helper(", newName: "assist", outcome: "proved",
+			setup: addHelpers},
+		{name: "unexported variable", mark: "var |hidden", newName: "secret", outcome: "proved",
+			setup: addHelpers},
+		{name: "unexported constant", mark: "const |limit", newName: "ceiling", outcome: "proved",
+			setup: addHelpers},
+		{name: "unexported type", mark: "type |token", newName: "mark", outcome: "proved",
+			setup: addHelpers},
+		{name: "unexported function renamed to an exported name", mark: "func |helper(",
+			newName: "Assist", outcome: "fallback", setup: addHelpers},
+		{name: "unexported function renamed to a name of the package", mark: "func |helper(",
+			newName: "limit", outcome: "refuse", setup: addHelpers},
+		{name: "unexported function renamed to main", mark: "func |helper(", newName: "main",
+			outcome: "fallback", setup: addHelpers},
+		{name: "unexported function hidden by a local of the new name", mark: "func |helper(",
+			newName: "assist", outcome: "refuse", setup: func(files map[string]string) {
+				addHelpers(files)
+				files["a/other.gp"] += "\nfunc Hide() int {\n\tassist := 1\n\treturn helper() + assist\n}\n"
+			}},
+		{name: "unexported type embedded in its package", mark: "type |token", newName: "mark",
+			outcome: "fallback", setup: func(files map[string]string) {
+				addHelpers(files)
+				files["a/other.gp"] += "\ntype Wrapper struct{ token }\n"
+			}},
+		{name: "unexported function used by a test file", mark: "func |helper(", newName: "assist",
+			outcome: "fallback", setup: func(files map[string]string) {
+				addHelpers(files)
+				files["a/helper_test.gp"] = "package a\nfunc testHelper() int { return helper() }\n"
+			}},
+		{name: "import name at its declaration", file: "b/b.gp", mark: "import |alias",
+			outcome: "proved"},
+		{name: "import name at a use", file: "b/b.gp", mark: "return |alias.F", outcome: "proved"},
+		{name: "import without a name", file: "b/b.gp", mark: "return |a.F(1)",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["b/b.gp"] = "package b\nimport \"example.com/binding/a\"\n" +
+					"func Use() int { return a.F(1) }\n"
+			}},
+		{name: "import name renamed to a name of the package", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Renamed = 1\n"
+			}},
+		{name: "import name renamed to a name of another file's package scope", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/other.gp"] = "package b\nvar Renamed = 1\n"
+			}},
+		{name: "import name hidden by a local of the new name", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nfunc Hide() int {\n\tRenamed := 2\n\treturn alias.F(1) + Renamed\n}\n"
+			}},
+		{name: "import name renamed to a predeclared name that the file uses", file: "b/b.gp",
+			mark: "import |alias", newName: "len", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nfunc Size(s string) int { return len(s) }\n"
+			}},
+		{name: "import name renamed to the name of another import", file: "b/b.gp",
+			mark: "|alias \"example", newName: "fmt", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] = strings.Replace(files["b/b.gp"], "import alias \"example.com/binding/a\"",
+					"import (\n\t\"fmt\"\n\talias \"example.com/binding/a\"\n)", 1) +
+					"\nfunc Show() { fmt.Println() }\n"
+			}},
+		{name: "import name renamed to a local of another file", file: "b/b.gp",
+			mark: "import |alias", outcome: "proved", setup: func(files map[string]string) {
+				files["b/other.gp"] = "package b\nfunc Other() int {\n\tRenamed := 1\n\treturn Renamed\n}\n"
+			}},
+		{name: "import name renamed to a field name", file: "b/b.gp", mark: "import |alias",
+			newName: "Item", outcome: "proved", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\ntype Box struct{ Item int }\n\nvar Held = Box{Item: alias.F(1)}\n"
+			}},
+		{name: "import name renamed to init", file: "b/b.gp", mark: "import |alias",
+			newName: "init", outcome: "refuse"},
+		{name: "import name used by a name that the loader does not write", file: "b/b.gp",
+			mark: "import |alias", outcome: "fallback", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nfunc Place() string { return #file() }\n"
+			}},
 		{name: "method target", mark: "func (T) |M", outcome: "proved"},
+		{name: "import name renamed to a variable that a test file declares", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nvar Renamed = 1\n"
+			}},
+		{name: "import name renamed to a function that a test file declares", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nfunc Renamed() int { return 1 }\n"
+			}},
+		{name: "import name renamed to a type that a test file declares", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\ntype Renamed int\n"
+			}},
+		{name: "import name renamed to a constant that a test file declares", file: "b/b.gp",
+			mark: "import |alias", outcome: "refuse", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nconst Renamed = 1\n"
+			}},
+		{name: "import name renamed to the name that a test file gives its own import", file: "b/b.gp",
+			mark: "import |alias", outcome: "fallback", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nimport Renamed \"example.com/binding/a\"\n\n" +
+					"var Used = Renamed.F(1)\n"
+			}},
+		{name: "import name of a package that has a test file", file: "b/b.gp", mark: "import |alias",
+			outcome: "fallback", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nvar Unrelated = 1\n"
+			}},
+		{name: "import name of a package that has an external test file", file: "b/b.gp",
+			mark: "import |alias", outcome: "fallback", setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b_test\n\nvar Renamed = 1\n"
+			}},
 		{name: "untouched test file", outcome: "fallback", setup: func(files map[string]string) {
 			files["a/unrelated_test.gp"] = "package a\nfunc TestHelper() int { return 3 }\n"
 		}},
@@ -297,6 +518,10 @@ func TestRenameDeclaringBindingProof(t *testing.T) {
 			files["a/a.gp"] += "\nfunc Might() (int, error) { return 1, nil }\n" +
 				"func Handler() (int, error) { return Might!(), nil }\n"
 		}},
+		{name: "hash character in a string and a comment", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\n// issue #12\nvar Tag = \"#tag\"\nvar Mark = '#'\n"
+			}},
 		{name: "builtin macro origin", outcome: "fallback", setup: func(files map[string]string) {
 			files["a/a.gp"] += "\nfunc Place() string { return #file() }\n"
 		}},
@@ -587,7 +812,7 @@ func TestRenameTypeProofHelpers(t *testing.T) {
 		ordinary, embedding bool
 	}{
 		{"type |T struct", true, true},
-		{"type |G[", false, false},
+		{"type |G[", true, false},
 		{"type |Alias =", false, false},
 	} {
 		t.Run(tc.mark, func(t *testing.T) {
@@ -608,6 +833,174 @@ func TestRenameTypeProofHelpers(t *testing.T) {
 			}
 			if got := rn.embedsType(tn); got != tc.embedding {
 				t.Errorf("embedsType = %v, want %v", got, tc.embedding)
+			}
+		})
+	}
+}
+
+func TestHasMacroName(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"no hash", "package a\nvar V = 1\n", false},
+		{"string", "package a\nvar V = \"#x(y)\"\n", false},
+		{"raw string", "package a\nvar V = `#z`\n", false},
+		{"character", "package a\nvar V = '#'\n", false},
+		{"line comment", "package a\n// issue #12\nvar V = 1\n", false},
+		{"block comment", "package a\n/* #file() */\nvar V = 1\n", false},
+		{"builtin macro", "package a\nvar V = #file()\n", true},
+		{"macro use", "package a\nfunc F() { #mac.Dbg(1) }\n", true},
+		{"hash then string", "package a\nvar V = \"#\" + #line()\n", true},
+		{"bare hash", "package a\nvar V = # 1\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasMacroName([]byte(tc.src)); got != tc.want {
+				t.Fatalf("hasMacroName = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestImportNameProofChecksTheFile: with the outcome of the guards assumed, the proof of the
+// rename of an import holds exactly where nothing in the file or the package scope has the new
+// name.
+func TestImportNameProofChecksTheFile(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setup   func(map[string]string)
+		mark    string
+		newName string
+		proved  bool
+	}{
+		{name: "nothing of the new name", proved: true},
+		{name: "a declaration of the package", proved: false, setup: func(files map[string]string) {
+			files["b/b.gp"] += "\nvar Renamed = 1\n"
+		}},
+		{name: "a declaration of another file of the package", proved: false,
+			setup: func(files map[string]string) {
+				files["b/other.gp"] = "package b\nvar Renamed = 1\n"
+			}},
+		{name: "a local that hides the import", proved: false, setup: func(files map[string]string) {
+			files["b/b.gp"] += "\nfunc Hide() int {\n\tRenamed := 2\n\treturn alias.F(1) + Renamed\n}\n"
+		}},
+		{name: "a parameter of the new name", proved: false, setup: func(files map[string]string) {
+			files["b/b.gp"] += "\nfunc Param(Renamed int) int { return alias.F(Renamed) }\n"
+		}},
+		{name: "a use of a predeclared name", newName: "len", proved: false,
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nfunc Size(s string) int { return len(s) }\n"
+			}},
+		{name: "another import of the name", newName: "fmt", proved: false,
+			mark: "|alias \"example",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] = strings.Replace(files["b/b.gp"], "import alias \"example.com/binding/a\"",
+					"import (\n\t\"fmt\"\n\talias \"example.com/binding/a\"\n)", 1) +
+					"\nfunc Show() { fmt.Println() }\n"
+			}},
+		{name: "a local of another file", proved: true, setup: func(files map[string]string) {
+			files["b/other.gp"] = "package b\nfunc Other() int {\n\tRenamed := 1\n\treturn Renamed\n}\n"
+		}},
+		{name: "a field of the new name", newName: "Item", proved: true,
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\ntype Box struct{ Item int }\n\nvar Held = Box{Item: alias.F(1)}\n"
+			}},
+		{name: "a name that a dot import brings", newName: "K", proved: false,
+			mark: "|alias \"example",
+			setup: func(files map[string]string) {
+				// The file dot-imports a, which has K, and imports it by a name too. The package
+				// declares nothing that a has, so the check has no error: only the file scope of K
+				// tells that the new name is taken.
+				files["b/b.gp"] = "package b\n\nimport (\n\t. \"example.com/binding/a\"\n" +
+					"\talias \"example.com/binding/a\"\n)\n\nfunc Mine() int { return alias.F(1) + V }\n"
+			}},
+		{name: "a test file of the package that declares the new name", proved: false,
+			setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nvar Renamed = 1\n"
+			}},
+		{name: "a test file of the package that declares something else", proved: false,
+			setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b\n\nvar Other = 1\n"
+			}},
+		{name: "an external test file of the package", proved: false,
+			setup: func(files map[string]string) {
+				files["b/b_test.gp"] = "package b_test\n\nvar Other = 1\n"
+			}},
+		{name: "a test file of another package", proved: true, setup: func(files map[string]string) {
+			files["a/a_test.gp"] = "package a\n\nvar Renamed = 1\n"
+		}},
+		{name: "a blank name", newName: "_", proved: false},
+		{name: "init", newName: "init", proved: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := bindingProofFiles()
+			if tc.setup != nil {
+				tc.setup(files)
+			}
+			newName := tc.newName
+			if newName == "" {
+				newName = "Renamed"
+			}
+			mark := tc.mark
+			if mark == "" {
+				mark = "import |alias"
+			}
+			rn := renamerFor(t, files, "b/b.gp", mark, newName)
+			if rn.importNameProvesResult(context.Background(), map[string]bool{rn.sym.declDir: true}) {
+				t.Fatal("a rename without the guards is proved")
+			}
+			rn.bindingsChecked = true
+			dirs := map[string]bool{rn.sym.declDir: true}
+			if got := rn.importNameProvesResult(context.Background(), dirs); got != tc.proved {
+				t.Fatalf("proved = %v, want %v", got, tc.proved)
+			}
+		})
+	}
+}
+
+// TestImportNameProofNeedsEveryOccurrence: a use of the import, or an import without a name, that
+// the search did not find keeps the scratch check.
+func TestImportNameProofNeedsEveryOccurrence(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(map[string]string)
+		mark  string
+		drop  func(hit) bool
+	}{
+		{name: "a use", mark: "import |alias", drop: func(h hit) bool { return !h.def && h.spec == nil }},
+		{name: "an import without a name", mark: "return |a.F(1)", setup: func(files map[string]string) {
+			files["b/b.gp"] = "package b\nimport \"example.com/binding/a\"\n" +
+				"func Use() int { return a.F(1) }\n"
+		}, drop: func(h hit) bool { return h.spec != nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := bindingProofFiles()
+			if tc.setup != nil {
+				tc.setup(files)
+			}
+			rn := renamerFor(t, files, "b/b.gp", tc.mark, "Renamed")
+			rn.bindingsChecked = true
+			dirs := map[string]bool{rn.sym.declDir: true}
+			if !rn.importNameProvesResult(context.Background(), dirs) {
+				t.Fatal("the complete search is not proved")
+			}
+			partial := *rn.res
+			partial.hits = nil
+			dropped := false
+			for _, h := range rn.res.hits {
+				if !dropped && tc.drop(h) {
+					dropped = true
+					continue
+				}
+				partial.hits = append(partial.hits, h)
+			}
+			if !dropped {
+				t.Fatal("the fixture has nothing to drop")
+			}
+			rn.res = &partial
+			if rn.importNameProvesResult(context.Background(), dirs) {
+				t.Fatal("a search without one occurrence is proved")
 			}
 		})
 	}

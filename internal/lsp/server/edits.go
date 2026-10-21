@@ -36,12 +36,13 @@ func computeEdits(ctx context.Context, m *protocol.Mapper, after string) []proto
 	}
 	// Each distinct line (its text, and whether it has a line end) gets a
 	// number; the diff compares the numbers.
-	ids := make(map[string]int)
+	type lineKey struct {
+		text   string
+		hasEnd bool
+	}
+	ids := make(map[lineKey]int, len(a))
 	key := func(text string, l line) int {
-		k := text[l.start:l.content]
-		if l.end > l.content {
-			k += "\n"
-		}
+		k := lineKey{text[l.start:l.content], l.end > l.content}
 		id, ok := ids[k]
 		if !ok {
 			id = len(ids)

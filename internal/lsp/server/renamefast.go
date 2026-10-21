@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/syntax/scanner"
 )
 
 // recheckAllImporters is set by a test to see what the check of the result
@@ -159,10 +162,12 @@ func (rn *renamer) qualifiedUse(h hit) bool {
 }
 
 // declaringScopeProvesResult applies only after the existing declaration,
-// capture, use and test-name conflict guards succeeded. For an exported,
-// nongeneric ordinary Go function, or a nongeneric defined type that no field
-// embeds, changing the package-scope name changes no type or method set (the
-// types are the same objects under another name). Those guards establish
+// capture, use and test-name conflict guards succeeded. For an exported
+// ordinary Go function, a package-level variable or constant, or a defined type
+// that no field embeds, changing the package-scope name changes no type or method
+// set (the types are the same objects under another name). A name that is not
+// exported, renamed to another one that is not, is the same with no importer to
+// look at. Those guards establish
 // unchanged binding at edited uses, no imported/file/package name collision and
 // no capture of existing uses of the new name. Completeness below proves every
 // own-package occurrence is an edit. Other packages must already satisfy
@@ -174,8 +179,16 @@ func (rn *renamer) declaringScopeProvesResult(
 	sym := rn.sym
 	if ctx.Err() != nil || recheckAllImporters || skipConflictChecks || !rn.bindingsChecked ||
 		!rn.declFilesKnown || rn.declHasTests || len(rn.res.tests) != 0 ||
-		!sym.seenByImporters() || !sym.packageLevel() || !dirs[sym.declDir] ||
-		!token.IsExported(sym.name) || !token.IsExported(rn.newName) || rn.newName == "C" {
+		!sym.packageLevel() || !dirs[sym.declDir] || rn.newName == "C" {
+		return false
+	}
+	// An exported name is seen by the importers (qualified below); a name that is not exported,
+	// renamed to another one, is seen by the package alone. Neither visibility changes.
+	exported := token.IsExported(sym.name)
+	switch {
+	case exported && token.IsExported(rn.newName) && sym.seenByImporters():
+	case !exported && !token.IsExported(rn.newName) && rn.newName != "main" && rn.newName != "init":
+	default:
 		return false
 	}
 	// Runtime/standard-library paths can give function spellings extra compiler
@@ -228,6 +241,14 @@ func (rn *renamer) declaringScopeProvesResult(
 		if !ordinaryType(obj, file, declaration.id) || rn.embedsType(obj) {
 			return false
 		}
+	case *types.Var:
+		if obj.IsField() || !packageValue(file, declaration.id) {
+			return false
+		}
+	case *types.Const:
+		if !packageValue(file, declaration.id) {
+			return false
+		}
 	default:
 		return false
 	}
@@ -260,11 +281,13 @@ func (rn *renamer) declaringScopeProvesResult(
 	return ctx.Err() == nil
 }
 
-// ordinaryFunction reports whether fn is a nongeneric function with a body,
-// declared by the declaration with the name id of the file, and not a method.
+// ordinaryFunction reports whether fn is a function with a body (generic or not), declared by
+// the declaration with the name id of the file, and not a method. The name of a generic function
+// is looked up like any other: the type parameters are names of the function's own scope, which
+// the capture guard looks at like the scope of a variable.
 func ordinaryFunction(fn *types.Func, file *ast.File, id *ast.Ident) bool {
 	sig, ok := fn.Type().(*types.Signature)
-	if !ok || sig.Recv() != nil || sig.TypeParams().Len() != 0 {
+	if !ok || sig.Recv() != nil {
 		return false
 	}
 	for _, node := range file.Decls {
@@ -275,14 +298,40 @@ func ordinaryFunction(fn *types.Func, file *ast.File, id *ast.Ident) bool {
 	return false
 }
 
-// ordinaryType reports whether tn is a nongeneric defined type (not an alias),
-// declared by the type declaration with the name id of the file.
+// packageValue reports whether id is a name declared by a var or const specification at the top
+// level of the file (not a field, parameter or local name, which have other scopes). The name of
+// a variable or constant is only looked up: nothing selects it, embeds it or ties it to an
+// interface, and its type and value do not depend on it, so renaming it changes no type.
+func packageValue(file *ast.File, id *ast.Ident) bool {
+	for _, node := range file.Decls {
+		decl, ok := node.(*ast.GenDecl)
+		if !ok || decl.Tok != token.VAR && decl.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range decl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range value.Names {
+				if name == id {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// ordinaryType reports whether tn is a defined type (not an alias), generic or not, declared by
+// the type declaration with the name id of the file. The instances of a generic type are made
+// of the type's own object, which keeps its identity under another name.
 func ordinaryType(tn *types.TypeName, file *ast.File, id *ast.Ident) bool {
 	if tn.IsAlias() {
 		return false
 	}
 	named, ok := tn.Type().(*types.Named)
-	if !ok || named.TypeParams().Len() != 0 || named.Obj() != tn {
+	if !ok || named.Obj() != tn || named.Origin() != named {
 		return false
 	}
 	for _, node := range file.Decls {
@@ -292,7 +341,7 @@ func ordinaryType(tn *types.TypeName, file *ast.File, id *ast.Ident) bool {
 		}
 		for _, spec := range decl.Specs {
 			if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name == id {
-				return ts.Assign == token.NoPos && ts.TypeParams == nil
+				return ts.Assign == token.NoPos
 			}
 		}
 	}
@@ -407,6 +456,121 @@ func (rn *renamer) localProvesResult(ctx context.Context, dirs map[string]bool) 
 	return ctx.Err() == nil
 }
 
+// packageHasTests reports whether the folder has a _test.gp file, or whether its files are not
+// known: the test files are not part of the check of the package, so a name that they declare is
+// unknown to the proofs (the full validator checks them).
+func (rn *renamer) packageHasTests(dir string) bool {
+	files, err := rn.e.snapshot.PackageFiles(&load.Package{Dir: dir})
+	if err != nil {
+		return true
+	}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.gp") && filepath.Dir(name) == dir {
+			return true
+		}
+	}
+	return false
+}
+
+// importNameProvesResult applies after the conflict guards succeeded. The name of an import (the
+// name it is written with, or the name of the package when it is written without one) is a name of
+// the scope of its file: no other file sees it, and a package-level name of the new name is a
+// clash that the guards and the package scope look at. The rename can make an error only where the
+// new name is found instead of something else in that file, so
+//
+//   - the file's scope and the package's scope have nothing of the new name (a name of another
+//     import, a name that a dot import brings, a declaration of the package);
+//   - no name in the file is written as the new name, except by selection or key: a declaration of
+//     a block that would hide the import where it is used, or a use of a predeclared or other name
+//     that the import would now hide;
+//   - every occurrence of the import in the file is an edit (the index of the checked package lists
+//     them all), and every edit is an occurrence of it;
+//
+// then each edited name finds the import first and no other name changes its binding. Types,
+// method sets and the declarations of the package do not change. The new name is not `_`, `init`
+// or `C`, which are not names of an ordinary import. Anything else keeps the scratch check.
+func (rn *renamer) importNameProvesResult(ctx context.Context, dirs map[string]bool) bool {
+	sym := rn.sym
+	if ctx.Err() != nil || recheckAllImporters || skipConflictChecks || !rn.bindingsChecked ||
+		sym.scope != scopeLocal || len(sym.objs) != 1 || len(sym.extra) != 0 || len(dirs) != 1 ||
+		len(rn.res.tests) != 0 || rn.packageHasTests(sym.declDir) {
+		return false
+	}
+	switch rn.newName {
+	case "_", "init", "C":
+		return false
+	}
+	obj, ok := sym.objs[0].(*types.PkgName)
+	if !ok || obj.Pkg() == nil || obj.Parent() == nil || obj.Parent() == obj.Pkg().Scope() ||
+		obj.Parent() == types.Universe {
+		return false
+	}
+	var v *view
+	seen := make(map[*ast.Ident]bool, len(rn.res.hits))
+	specs := make(map[*ast.ImportSpec]bool)
+	for _, h := range rn.res.hits {
+		if v == nil {
+			v = h.v
+		}
+		if h.v != v || !dirs[filepath.Dir(h.path)] {
+			return false
+		}
+		if h.spec != nil {
+			// An import without a name gets one: the edit is before its path.
+			if h.id != nil || h.obj != obj || v.info.Implicits[h.spec] != obj {
+				return false
+			}
+			specs[h.spec] = true
+			continue
+		}
+		if h.id == nil || h.obj != obj || h.id.Name != sym.name || v.info.ObjectOf(h.id) != obj {
+			return false
+		}
+		seen[h.id] = true
+	}
+	if v == nil || !v.normalBindingFacts() || obj.Pkg() != v.types {
+		return false
+	}
+	fileScope := obj.Parent()
+	if fileScope.Lookup(rn.newName) != nil || v.types.Scope().Lookup(rn.newName) != nil {
+		return false
+	}
+	file := v.files[v.fset.Position(obj.Pos()).Filename]
+	if file == nil {
+		return false
+	}
+	// The occurrences of the import: every one is a hit.
+	index := v.identIndex()
+	if list := index.byName[sym.name]; list != nil {
+		for _, entries := range [][]identObj{list.defs, list.uses} {
+			for _, entry := range entries {
+				if entry.obj == obj && !seen[entry.id] {
+					return false
+				}
+			}
+		}
+	}
+	for _, spec := range index.specs[sym.name] {
+		if v.info.Implicits[spec] == obj && !specs[spec] {
+			return false
+		}
+	}
+	// No name of the file is the new name (except by selection or key).
+	if list := index.byName[rn.newName]; list != nil {
+		for _, entries := range [][]identObj{list.defs, list.uses} {
+			for _, entry := range entries {
+				if selectedName(entry.obj) {
+					continue
+				}
+				if v.fset.Position(entry.id.Pos()).Filename == v.fset.Position(file.Pos()).Filename {
+					return false
+				}
+			}
+		}
+	}
+	return ctx.Err() == nil
+}
+
 // bareReturnShadows reports whether a return with no operands between first and last is in a
 // function (declaration or literal) that has a result called name.
 func bareReturnShadows(file *ast.File, first, last token.Pos, name string) bool {
@@ -502,7 +666,7 @@ func (v *view) normalBindingFacts() bool {
 			if file.AST == nil || file.Info == nil || cp.Info.Scopes[file.AST] == nil ||
 				len(file.Synthetic)+len(file.Directives)+len(file.Info.Includes)+
 					len(file.Info.NamespaceRenames) != 0 || len(file.Src) == 0 ||
-				bytes.Contains(file.Src, []byte("#")) ||
+				hasMacroName(file.Src) ||
 				bytes.Contains(file.Src, []byte("//go:")) ||
 				bytes.Contains(file.Src, []byte("//gocpp:")) {
 				return false
@@ -525,6 +689,33 @@ func (v *view) normalBindingFacts() bool {
 		}
 		return true
 	}).(bool)
+}
+
+// hasMacroName reports whether the source has a name that starts with # (a macro use or a
+// built-in macro: the loader replaces the built-in ones in the syntax tree, so only the text
+// shows them). A # in a string, a character or a comment is only text, which no name of the
+// package depends on.
+func hasMacroName(src []byte) bool {
+	if bytes.IndexByte(src, '#') < 0 {
+		return false
+	}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(src))
+	var sc scanner.Scanner
+	sc.Init(file, src, func(token.Position, string) {}, scanner.Phase10Syntax)
+	for {
+		_, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			return false
+		}
+		// A # that is not followed by a letter is an error of the scanner, which the
+		// checked package would have reported.
+		hashIdent := tok == token.IDENT && strings.HasPrefix(lit, "#")
+		hashToken := tok == token.ILLEGAL && lit == "#"
+		if hashIdent || hashToken {
+			return true
+		}
+	}
 }
 
 // dotImports reports whether a file of the view imports the package path with a

@@ -100,7 +100,7 @@ func (s *Server) references(ctx context.Context, e env, params json.RawMessage) 
 	}
 	warn(e, "references", res)
 	s.warnModules(e, "references", q, sym, false)
-	docs := newDocs(e.snapshot)
+	docs := newDocsFor(e.snapshot, res.hits)
 	locs = make([]protocol.Location, 0, len(res.hits))
 	for _, h := range res.hits {
 		if h.def && !p.Context.IncludeDeclaration {
@@ -832,42 +832,38 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 		res.moduleDirs = []string{q.lp.Dir}
 	}
 	res.keys = keys.list
-	// What each view found, so that the lists are made once at their size.
-	found := make([][]hit, 0, len(views)+len(tviews))
-	total := 0
+	// The hits of every view go into one list, made once at the size that the names allow: a
+	// popular name has thousands of them, and growing a list of them was a good part of the
+	// cost of the request (and of the garbage that its collection left for the next one).
+	var tfiles int
 	for _, v := range views {
-		hs := r.scan(v, keys, declPos)
-		found, total = append(found, hs), total+len(hs)
+		tfiles += len(v.files)
 	}
-	seen := make(map[hitKey]struct{}, total)
-	res.hits = make([]hit, 0, total)
-	addHit := func(h hit) {
-		k := hitKey{h.path, h.off}
-		if _, dup := seen[k]; !dup {
-			seen[k] = struct{}{}
-			res.hits = append(res.hits, h)
-		}
+	if r.fileInfo == nil {
+		r.fileInfo = make(map[*token.File]fileInfo, tfiles)
 	}
-	for _, hs := range found {
-		for _, h := range hs {
-			addHit(h)
-		}
+	all := make([]hit, 0, r.hitCapacity(views, keys))
+	for _, v := range views {
+		all = r.scan(v, keys, declPos, all)
 	}
 	// The names that have no object: the declaring name of a type switch.
 	for _, id := range sym.extra {
 		if h, ok := r.hitOf(q.view(), id, nil, true); ok {
-			addHit(h)
+			all = append(all, h)
 		}
 	}
 	// The names of the test files.
 	for _, v := range tviews {
 		res.views = append(res.views, v)
-		for _, h := range r.scan(v, keys, declPos) {
-			addHit(h)
-		}
+		all = r.scan(v, keys, declPos, all)
 	}
-	slices.SortFunc(res.hits, func(a, b hit) int {
+	// Sorted by place, and a place once: the first hit found there is the one that stays (views
+	// overlap: the checks with test files see the files of the package again).
+	slices.SortStableFunc(all, func(a, b hit) int {
 		return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(a.off, b.off))
+	})
+	res.hits = slices.CompactFunc(all, func(a, b hit) bool {
+		return a.path == b.path && a.off == b.off
 	})
 	return res, nil
 }
@@ -942,10 +938,31 @@ func (r *searcher) moreDirs(keys *keySet, searched map[string]bool) []string {
 	return out
 }
 
-type hitKey struct {
-	path string
-	off  int
+// hitCapacity is the number of names that can be hits of the keys in the views: every name of a
+// key's spelling, whatever it is the name of.
+func (r *searcher) hitCapacity(views []*view, keys *keySet) int {
+	var spelled map[string]bool
+	n := 0
+	for _, k := range keys.list {
+		if spelled[k.name] {
+			continue
+		}
+		if spelled == nil {
+			spelled = make(map[string]bool, len(keys.list))
+		}
+		spelled[k.name] = true
+		for _, v := range views {
+			if l := v.identIndex().byName[k.name]; l != nil {
+				n += len(l.defs) + len(l.uses)
+			}
+		}
+	}
+	return min(n, maxHitCapacity)
 }
+
+// maxHitCapacity bounds the list that hitCapacity asks for: a name that is spelled by a hundred
+// thousand names (and is one of the symbol's few of them) does not make a list of that size.
+const maxHitCapacity = 1 << 16
 
 // A posKey is the place of a declaration.
 type posKey struct {
@@ -1348,9 +1365,9 @@ func buildIdentIndex(info *types.Info) *identIndex {
 }
 
 // scan returns the hits of the keys in the view: the names that declare or
-// use one of the objects, in the files of the view. declPos gets the place of
-// each declaration that it finds.
-func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
+// use one of the objects, in the files of the view, added to hits (which may be nil). declPos gets
+// the place of each declaration that it finds.
+func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool, hits []hit) []hit {
 	// An object is one of the symbol's by its key (it is found in this check's
 	// types), or by the place of its declaration, when it is declared in a
 	// file that this check loaded from source: the places are exact there,
@@ -1384,7 +1401,6 @@ func (r *searcher) scan(v *view, keys *keySet, declPos map[posKey]bool) []hit {
 		known[obj] = m
 		return m
 	}
-	var hits []hit
 	add := func(id *ast.Ident, obj types.Object, def bool) {
 		if obj == nil || !matches(obj) {
 			return
@@ -1495,6 +1511,19 @@ type docEntry struct {
 }
 
 func newDocs(snap *cache.Snapshot) *docs { return &docs{snap: snap, m: make(map[string]*docEntry)} }
+
+// newDocsFor is newDocs for the files of the hits: the table is made at its size.
+func newDocsFor(snap *cache.Snapshot, hits []hit) *docs {
+	files := 0
+	last := ""
+	for _, h := range hits { // sorted by file
+		if h.path != last {
+			files++
+			last = h.path
+		}
+	}
+	return &docs{snap: snap, m: make(map[string]*docEntry, files)}
+}
 
 func (d *docs) entry(path string) (*docEntry, error) {
 	d.mu.Lock()

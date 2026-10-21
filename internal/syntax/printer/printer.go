@@ -55,6 +55,9 @@ type printer struct {
 	// Configuration (does not change after initialization)
 	Config
 	fset *token.FileSet
+	// The line table of the file being printed, shared with the printers that measure
+	// the size of a node: token.FileSet.PositionFor locks and searches on every call.
+	lines *lineTable
 
 	// Current state
 	output       []byte       // raw printer result
@@ -182,14 +185,13 @@ func (p *printer) linesFrom(line int) int {
 }
 
 func (p *printer) posFor(pos token.Pos) token.Position {
-	// not used frequently enough to cache entire token.Position
-	return p.fset.PositionFor(pos, false /* absolute position */)
+	return p.lines.position(p.fset, pos)
 }
 
 func (p *printer) lineFor(pos token.Pos) int {
 	if pos != p.cachedPos {
 		p.cachedPos = pos
-		p.cachedLine = p.fset.PositionFor(pos, false /* absolute position */).Line
+		p.cachedLine = p.lines.position(p.fset, pos).Line
 	}
 	return p.cachedLine
 }
@@ -1332,11 +1334,14 @@ var printerPool = sync.Pool{
 	},
 }
 
-func newPrinter(cfg *Config, fset *token.FileSet, nodeSizes map[ast.Node]int) *printer {
+func newPrinter(
+	cfg *Config, fset *token.FileSet, nodeSizes map[ast.Node]int, lines *lineTable,
+) *printer {
 	p := printerPool.Get().(*printer)
 	*p = printer{
 		Config:    *cfg,
 		fset:      fset,
+		lines:     lines,
 		pos:       token.Position{Line: 1, Column: 1},
 		out:       token.Position{Line: 1, Column: 1},
 		wsbuf:     p.wsbuf[:0],
@@ -1357,9 +1362,11 @@ func (p *printer) free() {
 }
 
 // fprint implements Fprint and takes a nodesSizes map for setting up the printer state.
-func (cfg *Config) fprint(output io.Writer, fset *token.FileSet, node any, nodeSizes map[ast.Node]int) (err error) {
+func (cfg *Config) fprint(
+	output io.Writer, fset *token.FileSet, node any, nodeSizes map[ast.Node]int, lines *lineTable,
+) (err error) {
 	// print node
-	p := newPrinter(cfg, fset, nodeSizes)
+	p := newPrinter(cfg, fset, nodeSizes, lines)
 	defer p.free()
 	if err = p.printNode(node); err != nil {
 		return
@@ -1421,7 +1428,7 @@ type CommentedNode struct {
 // The node type must be *[ast.File], *[CommentedNode], [][ast.Decl], [][ast.Stmt],
 // or assignment-compatible to [ast.Expr], [ast.Decl], [ast.Spec], or [ast.Stmt].
 func (cfg *Config) Fprint(output io.Writer, fset *token.FileSet, node any) error {
-	return cfg.fprint(output, fset, node, make(map[ast.Node]int))
+	return cfg.fprint(output, fset, node, make(map[ast.Node]int), new(lineTable))
 }
 
 // Fprint "pretty-prints" an AST node to output.

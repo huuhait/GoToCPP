@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"go/types"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -178,9 +179,63 @@ func TestRenameMemberProof(t *testing.T) {
 		{name: "method used by an importer", mark: "func (i Item) |Name()", newName: "Called",
 			outcome: "proved"},
 		{name: "method of an interface", mark: "|Speak() string }", newName: "Say",
-			outcome: "fallback"},
+			outcome: "proved"},
 		{name: "method that an interface needs", mark: "func (Dog) |Speak()", newName: "Say",
-			outcome: "fallback"},
+			outcome: "proved"},
+		{name: "method of an interface beside an unrelated interface of the same method",
+			mark: "|Speak() string }", newName: "Say", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\ntype Barker interface{ Speak() string }\n\ntype Cat struct{}\n\n" +
+					"func (Cat) Speak() string { return \"meow\" }\n\n" +
+					"func Hear(b Barker) string { return b.Speak() }\n\n" +
+					"func UseCat() string { return Hear(Cat{}) }\n"
+			}},
+		{name: "method of an interface that an importer calls", mark: "|Speak() string }",
+			newName: "Say", outcome: "proved", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nfunc Run() string { return Hear(a.Dog{}) }\n\n" +
+					"func Hear(s a.Speaker) string { return s.Speak() }\n"
+			}},
+		{name: "method of an interface that an importer's second interface needs",
+			mark: "func (Dog) |Speak()", newName: "Say", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\ntype Barker interface{ Speak() string }\n\n" +
+					"func Hear(b Barker) string { return b.Speak() }\n\n" +
+					"func Run() string { return Hear(a.Dog{}) }\n"
+			}},
+		{name: "method of an interface that an embedder has", mark: "|Speak() string }",
+			newName: "Say", outcome: "proved", setup: func(files map[string]string) {
+				files["a/a.gp"] += "\ntype Loud struct{ Dog }\n\n" +
+					"func Shout(s Speaker) string { return s.Speak() }\n\n" +
+					"func UseLoud() string { return Shout(Loud{}) }\n"
+			}},
+		{name: "method of an interface to the name of a method of a tied interface",
+			mark: "|Speak() string }", newName: "Say", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/a.gp"] += "\ntype Talker interface{ Say() string }\n\ntype Cat struct{}\n\n" +
+					"func (Cat) Say() string { return \"meow\" }\n\n" +
+					"func Chat(t Talker) string { return t.Say() }\n\n" +
+					"func UseCat() string { return Chat(Cat{}) }\n"
+			}},
+		{name: "method of an interface to a name that an embedder gets from another type",
+			mark: "|Speak() string }", newName: "Say", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["c/c.gp"] = "package c\n\ntype Talker interface{ Say() string }\n\n" +
+					"type Cat struct{}\n\nfunc (Cat) Say() string { return \"meow\" }\n"
+				files["b/b.gp"] += "\ntype Both struct {\n\ta.Dog\n\tc.Cat\n}\n\n" +
+					"func Use(t c.Talker) string { return t.Say() }\n\n" +
+					"func Run() string { return Use(Both{}) }\n"
+				files["b/b.gp"] = strings.Replace(files["b/b.gp"],
+					"import \"example.com/members/a\"",
+					"import (\n\t\"example.com/members/a\"\n\t\"example.com/members/c\"\n)", 1)
+			}},
+		{name: "method of an interface to the name of a method that the type has",
+			mark: "|Speak() string }", newName: "Wag", outcome: "refuse"},
+		{name: "method of an interface that a type assertion takes out",
+			mark: "|Speak() string }", newName: "Say", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/a.gp"] += "\nfunc Ask(v any) string {\n\tif s, ok := v.(Speaker); ok {\n" +
+					"\t\treturn s.Speak()\n\t}\n\treturn \"\"\n}\n"
+			}},
 		{name: "method to a name that the package writes", mark: "func (i *Item) |Bump()",
 			newName: "Make", outcome: "fallback"},
 		{name: "method to a field name of its type", mark: "func (i *Item) |Bump()",
@@ -377,5 +432,56 @@ func TestMethodProofNeedsEveryPackage(t *testing.T) {
 	rn.bindingsChecked = false
 	if rn.methodProvesResult(context.Background(), dirs, edited, viewOf) {
 		t.Fatal("a rename without the guards is proved")
+	}
+}
+
+// speakTie returns the tie of Dog to Speaker in the view of the package a of the renamer.
+func speakTie(t *testing.T, rn *renamer) tie {
+	t.Helper()
+	for _, v := range rn.res.views {
+		for _, candidate := range v.ties() {
+			if candidate.names["Speak"] && candidate.src != nil && !candidate.asserted {
+				return candidate
+			}
+		}
+	}
+	t.Fatal("the fixture has no tie of Dog to Speaker")
+	return tie{}
+}
+
+// TestTieIsRenamedAlike: a tie that has the old name is harmless when its two ends are renamed
+// together or neither is, and not when only one end is (it would no longer be satisfied).
+func TestTieIsRenamedAlike(t *testing.T) {
+	rn := renamerFor(t, memberProofFiles(), "a/a.gp", "|Speak() string }", "Say")
+	tie := speakTie(t, rn)
+	var speaker, dog *types.Func
+	for m := range tie.dst.Underlying().(*types.Interface).Methods() {
+		speaker = m
+	}
+	obj, _, _ := types.LookupFieldOrMethod(tie.src, true, speaker.Pkg(), "Speak")
+	dog = obj.(*types.Func)
+	family := rn.familyKeys()
+	if !family[keyOf(speaker)] || !family[keyOf(dog)] {
+		t.Fatal("the family of the method does not have both ends of the tie")
+	}
+	if !rn.tieIsRenamedAlike(tie) {
+		t.Fatal("a tie renamed on both ends is not alike")
+	}
+	delete(family, keyOf(dog))
+	if rn.tieIsRenamedAlike(tie) {
+		t.Fatal("a tie whose value's method is not renamed is alike")
+	}
+	family[keyOf(dog)] = true
+	delete(family, keyOf(speaker))
+	if rn.tieIsRenamedAlike(tie) {
+		t.Fatal("a tie whose interface method is not renamed is alike")
+	}
+	delete(family, keyOf(dog))
+	if !rn.tieIsRenamedAlike(tie) {
+		t.Fatal("a tie that the rename does not touch is not alike")
+	}
+	tie.asserted = true
+	if rn.tieIsRenamedAlike(tie) {
+		t.Fatal("an assertion is alike")
 	}
 }

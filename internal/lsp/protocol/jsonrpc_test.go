@@ -151,3 +151,36 @@ func TestEncodeTrustedResponse(t *testing.T) {
 		}
 	}
 }
+
+// TestTrustedHeadMakesTheEncodedMessage: the head of a trusted response, its result and a closing
+// brace are the bytes of the message that EncodeMessage makes (the connection writes the parts
+// without joining them), and a response that is not trusted has no head.
+func TestTrustedHeadMakesTheEncodedMessage(t *testing.T) {
+	id := IntID(7)
+	for _, rid := range []*ID{&id, nil} {
+		resp := &Response{ID: rid, Result: json.RawMessage(`[{"uri":"file:///a"}]`), trusted: true}
+		head, ok := resp.trustedHead()
+		if !ok {
+			t.Fatal("a trusted response has no head")
+		}
+		want, err := EncodeMessage(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(head) + string(resp.Result) + "}"
+		if got != string(want) {
+			t.Errorf("id %v: parts give %s, EncodeMessage %s", rid, got, want)
+		}
+	}
+	for name, resp := range map[string]*Response{
+		"not trusted": {ID: &id, Result: json.RawMessage(`[]`)},
+		"an error": {
+			ID: &id, Result: json.RawMessage(`[]`), trusted: true, Error: &ResponseError{Code: 1},
+		},
+		"no result": {ID: &id, trusted: true},
+	} {
+		if _, ok := resp.trustedHead(); ok {
+			t.Errorf("%s: the response has a head", name)
+		}
+	}
+}

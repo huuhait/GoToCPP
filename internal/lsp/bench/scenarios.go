@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -59,6 +60,15 @@ const (
 	ScRenameMethod    = "rename-method"
 	ScRenameField     = "rename-field"
 	ScRenameLocal     = "rename-local"
+	ScRenameVar       = "rename-var"
+	ScRenameConst     = "rename-const"
+	ScRenameFanout    = "rename-fanout"
+	ScRenameIface     = "rename-iface-method"
+	ScRenameHidden    = "rename-unexported"
+	ScRenameAlias     = "rename-import-alias"
+	ScRenameGenFunc   = "rename-generic-func"
+	ScRenameGenType   = "rename-generic-type"
+	ScRenameGenMethod = "rename-generic-method"
 	ScWorkspaceSymbol = "workspace-symbol"
 	ScDocumentSymbol  = "document-symbol"
 	ScSemanticTokens  = "semantic-tokens"
@@ -96,6 +106,8 @@ var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWar
 	ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
 	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename,
 	ScRenameType, ScRenameMethod, ScRenameField, ScRenameLocal,
+	ScRenameVar, ScRenameConst, ScRenameFanout, ScRenameIface,
+	ScRenameHidden, ScRenameAlias, ScRenameGenFunc, ScRenameGenType, ScRenameGenMethod,
 	ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
 	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix,
 	ScHoverMacro, ScHoverBang, ScInlayBang, ScTokensMacro, ScCompletionMacro, ScCodeAction,
@@ -167,6 +179,14 @@ func scenarios(p *Project) []scenario {
 		renameForm(ScRenameMethod, p.Hot, ") Collect(f func", 2, "Gather%d"),
 		renameForm(ScRenameField, p.Hot, "\tTitle ", 1, "Heading%d"),
 		renameForm(ScRenameLocal, p.Hot, "\tsum := 0\n", 1, "total%d"),
+		// The package-level names of core that the other packages use: a variable, a constant and
+		// a function that every package calls; and a method as the interface of the hot package
+		// lists it, which the type's method follows (a project of short files has no such
+		// interface: it renames the method of the type, which core.Adder lists).
+		renameForm(ScRenameVar, p.Core, "var ErrEmpty", 4, "ErrBlank%d"),
+		renameForm(ScRenameConst, "core/log", "\tWarn\n", 1, "Alert%d"),
+		renameForm(ScRenameFanout, p.Core, "func Clamp(", 5, "Limit%d"),
+		renameFormAny(ScRenameIface, p.Hot, []mark{{"\n\tFind(tag", 2}, {") Add(tag", 2}}, "Locate%d"),
 		workspaceSymbol(p.Queries, 30),
 		whole(ScDocumentSymbol, "textDocument/documentSymbol", hot, 40),
 		whole(ScSemanticTokens, "textDocument/semanticTokens/full", hot, 20),
@@ -177,7 +197,56 @@ func scenarios(p *Project) []scenario {
 	if p.MacroFile != "" {
 		scs = append(scs, macroScenarios(p.MacroFile)...)
 	}
+	// The forms that the generated files do not have (an import under another name, generics)
+	// are in a file that the scenarios add to the hot package, so they run last.
+	scs = append(scs,
+		renameForm(ScRenameHidden, p.Core, "var nextID", 4, "lastID%d"),
+		renameInExtra(p, ScRenameAlias, "import c ", 7, "kore%d"),
+		renameInExtra(p, ScRenameGenFunc, "func Pick[", 5, "Choose%d"),
+		renameInExtra(p, ScRenameGenType, "type Pair[", 5, "Duo%d"),
+		renameInExtra(p, ScRenameGenMethod, ") Swap(", 2, "Flip%d"),
+	)
 	return scs
+}
+
+// extraFile returns the file that the rename scenarios of the generic and import-alias forms use,
+// and its text: the hot package gets an import of core under the name c, a generic function that
+// uses it, a generic type and a method of it.
+func extraFile(p *Project) (rel, text string) {
+	pkg := p.HotPkg
+	rel = pkg + "/zz_extra"
+	text = "package " + pkg + "\n\nimport c \"" + p.Module + "/core\"\n\n" +
+		"// Pick returns a, or b when the clamp of 1 is empty.\n" +
+		"func Pick[T any](a, b T) T {\n\tif c.Clamp(1, 2, 3) == 0 {\n\t\treturn b\n\t}\n" +
+		"\treturn a\n}\n\n" +
+		"// Pair holds a key and a value.\n" +
+		"type Pair[K comparable, V any] struct {\n\tKey K\n\tVal V\n}\n\n" +
+		"// Swap returns the pair.\n" +
+		"func (p Pair[K, V]) Swap() Pair[K, V] { return p }\n\n" +
+		"// UsePick uses all of them.\n" +
+		"func UsePick() int {\n\tp := Pair[string, int]{Key: \"k\", Val: Pick(1, 2)}\n" +
+		"\treturn p.Swap().Val + len(p.Key) + c.Clamp(4, 0, 9)\n}\n"
+	return rel, text
+}
+
+// renameInExtra is renameFormAny in extraFile's file, which the first of these scenarios writes
+// and opens.
+func renameInExtra(p *Project, name string, anchor string, delta int, format string) scenario {
+	rel, text := extraFile(p)
+	sc := renameFormAny(name, rel, []mark{{anchor, delta}}, format)
+	inner := sc.prep
+	sc.prep = func(ctx context.Context, s *Session) error {
+		if s.docs[rel] == nil {
+			if err := os.WriteFile(s.path(rel), []byte(text), 0o644); err != nil {
+				return err
+			}
+			if _, err := s.openAndWait(ctx, rel); err != nil {
+				return err
+			}
+		}
+		return inner(ctx, s)
+	}
+	return sc
 }
 
 // macroScenarios are the scenarios of the features for `!`, macros and #Derive (step 11.13) on the
@@ -508,6 +577,12 @@ func renameLabel(p *Project) scenario {
 // a local variable). A new name each time, like renameLabel; format has %d for the repetition
 // (and %s for the old name of the type, which keeps the name exported).
 func renameForm(name, rel, anchor string, delta int, format string) scenario {
+	return renameFormAny(name, rel, []mark{{anchor, delta}}, format)
+}
+
+// renameFormAny is renameForm with the places to try in order: the first anchor that the file has
+// (a project of short files lacks some of the methods of a full one).
+func renameFormAny(name, rel string, anchors []mark, format string) scenario {
 	var off int
 	var old string
 	return scenario{
@@ -516,7 +591,11 @@ func renameForm(name, rel, anchor string, delta int, format string) scenario {
 			if _, err := s.Open(rel); err != nil {
 				return err
 			}
-			off, err = s.Find(rel, anchor, delta)
+			for _, m := range anchors {
+				if off, err = s.Find(rel, m.needle, m.delta); err == nil {
+					break
+				}
+			}
 			if err != nil {
 				return err
 			}

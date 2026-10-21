@@ -21,7 +21,13 @@ func (l LocationList) compactJSON() []byte {
 	if l == nil {
 		return []byte("[]")
 	}
-	b := make([]byte, 0, 2+len(l)*120)
+	// The size of the answer, so that the buffer is not grown (and copied) as it is filled: the
+	// fixed text of a location is 84 bytes, and the four numbers take about 4 digits each.
+	size := 2
+	for _, loc := range l {
+		size += len(loc.URI) + 100
+	}
+	b := make([]byte, 0, size)
 	b = append(b, '[')
 	for i, loc := range l {
 		if i > 0 {

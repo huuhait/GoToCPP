@@ -197,3 +197,23 @@ func TestLocationListEscapes(t *testing.T) {
 		}
 	}
 }
+
+// TestEncodedTokensJSON: the encoded answer has the bytes that encoding/json gives for the same
+// tokens, for no tokens, for a nil list (null) and for numbers of every width.
+func TestEncodedTokensJSON(t *testing.T) {
+	for _, data := range [][]uint32{
+		{}, nil, {0, 0, 7, 3, 1}, {1, 2, 3, 4, 5, 4294967295, 10, 100, 1000, 0},
+	} {
+		want, err := json.Marshal(protocol.SemanticTokens{Data: data})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := protocol.EncodeTokens(data).MarshalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("data %v:\n got  %s\n want %s", data, got, want)
+		}
+	}
+}

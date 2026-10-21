@@ -210,3 +210,25 @@ func TestWriterConcurrent(t *testing.T) {
 		seen[body] = true
 	}
 }
+
+// TestWriteParts: the frame of a body given in parts is the frame of the whole body, for one part,
+// several, an empty one and none.
+func TestWriteParts(t *testing.T) {
+	for name, parts := range map[string][][]byte{
+		"one part":    {[]byte(`{"a":1}`)},
+		"three parts": {[]byte(`{"a":`), []byte(`[1,2]`), []byte(`}`)},
+		"empty part":  {[]byte(`{`), nil, []byte(`}`)},
+		"no part":     nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := NewWriter(&out).WriteParts(parts...); err != nil {
+				t.Fatal(err)
+			}
+			want := frame(string(bytes.Join(parts, nil)))
+			if out.String() != want {
+				t.Fatalf("frame %q, want %q", out.String(), want)
+			}
+		})
+	}
+}

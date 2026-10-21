@@ -154,6 +154,27 @@ func TestSemanticTokens(t *testing.T) {
 	sameList(t, "the tokens of lines 19 and 20", c.semTokens("sem/sem.gp", rng), want[14:20])
 }
 
+// TestSemanticTokensFullAnswerIsEncodedLikeTheRangeAnswer: the answer for the whole file is made
+// by hand once (protocol.EncodeTokens), and the one for a range that holds the whole file by
+// encoding/json: their bytes are the same.
+func TestSemanticTokensFullAnswerIsEncodedLikeTheRangeAnswer(t *testing.T) {
+	c := startRefs(t, semFiles, plainInit)
+	text := c.text("sem/sem.gp")
+	lines := strings.Count(text, "\n") + 1
+
+	full := c.call("textDocument/semanticTokens/full", docParams(c.uri("sem/sem.gp")))
+	rng := c.call("textDocument/semanticTokens/range", fmt.Sprintf(
+		`{"textDocument":{"uri":%q},"range":{"start":{"line":0,"character":0},"end":{"line":%d,"character":0}}}`,
+		c.uri("sem/sem.gp"), lines))
+
+	if full.Error != nil || rng.Error != nil {
+		t.Fatalf("errors: %v, %v", full.Error, rng.Error)
+	}
+	if string(full.Result) != string(rng.Result) {
+		t.Errorf("the whole file:\n%s\nthe range of the whole file:\n%s", full.Result, rng.Result)
+	}
+}
+
 // TestSemanticTokensLegend: the legend in the capabilities is the one the
 // tokens use, and the requests of a document that changes are cancelled.
 func TestSemanticTokensLegend(t *testing.T) {

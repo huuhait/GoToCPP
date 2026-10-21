@@ -206,6 +206,24 @@ func DecodeMessage(data []byte) (Message, error) {
 	return &Response{ID: id, Result: w.Result, Error: w.Error}, nil
 }
 
+// trustedHead returns the start of the message of a response whose result the connection trusts
+// (it is valid and compact JSON): everything before the result. The message is the head, the
+// result and a closing brace. ok is false for any other response.
+func (m *Response) trustedHead() (head []byte, ok bool) {
+	if !m.trusted || m.Error != nil || len(m.Result) == 0 {
+		return nil, false
+	}
+	id := []byte("null")
+	if m.ID != nil {
+		id, _ = m.ID.MarshalJSON()
+	}
+	head = make([]byte, 0, len(id)+40)
+	head = append(head, `{"jsonrpc":"2.0","id":`...)
+	head = append(head, id...)
+	head = append(head, `,"result":`...)
+	return head, true
+}
+
 // EncodeMessage encodes a message as JSON. A Response with neither a result
 // nor an error gets the result null.
 func EncodeMessage(m Message) ([]byte, error) {
@@ -218,18 +236,12 @@ func EncodeMessage(m Message) ([]byte, error) {
 			w.ID, _ = m.ID.MarshalJSON()
 		}
 	case *Response:
-		if m.trusted && m.Error == nil && len(m.Result) > 0 {
+		if head, ok := m.trustedHead(); ok {
 			// The result of a big answer (thousands of references) is not
 			// scanned and copied again by json.Marshal: the message is
 			// put together, in the order and form that wire gives.
-			id := []byte("null")
-			if m.ID != nil {
-				id, _ = m.ID.MarshalJSON()
-			}
-			b := make([]byte, 0, len(m.Result)+len(id)+48)
-			b = append(b, `{"jsonrpc":"2.0","id":`...)
-			b = append(b, id...)
-			b = append(b, `,"result":`...)
+			b := make([]byte, 0, len(head)+len(m.Result)+1)
+			b = append(b, head...)
 			b = append(b, m.Result...)
 			return append(b, '}'), nil
 		}

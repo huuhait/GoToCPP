@@ -430,3 +430,52 @@ func TestSweepSameAnswerIsNotTooLenient(t *testing.T) {
 		}
 	}
 }
+
+// TestRenameProofSweepImportNames: the name of an import (the alias of one file, the alias of a
+// package that has test files, the imports of a package without any) renamed to fresh names, to
+// the names that the package, its test files, the file scope and the other packages declare, with
+// the proofs and without, gets the answer of the check of the result.
+func TestRenameProofSweepImportNames(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod":  "module example.com/imp\n",
+		"lib/l.gp":   "package lib\n\nfunc F() int { return 1 }\n\nvar Foo = 2\n",
+		"other/o.gp": "package other\n\nfunc G() int { return 2 }\n",
+		"a/a.gp": "package a\n\nimport (\n\t\"fmt\"\n\tp \"example.com/imp/lib\"\n" +
+			"\to \"example.com/imp/other\"\n)\n\n" +
+			"func Use() int { fmt.Println(); return p.F() + o.G() }\n\nvar pkgVar = 1\n",
+		"a/a_test.gp": "package a\n\nvar testVar = 1\n\nfunc testFunc() int { return 1 }\n\n" +
+			"type testType int\n\nconst testConst = 1\n",
+		"a/ext_test.gp": "package a_test\n\nvar extVar = 1\n",
+		"c/c.gp": "package c\n\nimport q \"example.com/imp/lib\"\n\n" +
+			"func Use() int { return q.F() }\n\nvar own = 1\n",
+	}
+	names := []string{
+		"fresh", "testVar", "testFunc", "testType", "testConst", "extVar", "pkgVar", "Use",
+		"fmt", "p", "o", "q", "lib", "other", "own", "len", "_", "init",
+	}
+	proved := 0
+	for _, tc := range []struct{ file, alias string }{
+		{"a/a.gp", "p "}, {"a/a.gp", "o "}, {"c/c.gp", "q "},
+	} {
+		src := files[tc.file]
+		offset := strings.Index(src, "\t"+tc.alias+"\"") + 1
+		var places []int
+		for range names {
+			places = append(places, offset)
+		}
+		full := sweepAnswers(t, files, tc.file, places, names, true)
+		fast := sweepAnswers(t, files, tc.file, places, names, false)
+		for i := range names {
+			if !sameAnswer(full[i], fast[i]) {
+				t.Errorf("%s: %q to %q\nfull:  %.300s\nproof: %.300s",
+					tc.file, strings.TrimSpace(tc.alias), names[i], full[i], fast[i])
+			}
+			if !strings.HasPrefix(full[i], "error:") {
+				proved++
+			}
+		}
+	}
+	if proved == 0 {
+		t.Fatal("no rename succeeded: the sweep checks nothing")
+	}
+}

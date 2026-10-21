@@ -310,7 +310,8 @@ func (s *Server) rename(ctx context.Context, e env, params json.RawMessage) (any
 	if err != nil {
 		return nil, err
 	}
-	rn := &renamer{s: s, e: e, sym: sym, res: res, newName: p.NewName, docs: newDocs(e.snapshot)}
+	docs := newDocsFor(e.snapshot, res.hits)
+	rn := &renamer{s: s, e: e, sym: sym, res: res, newName: p.NewName, docs: docs}
 	edits, err := rn.edits(ctx)
 	if err != nil {
 		return nil, renameRefused(err)
@@ -377,6 +378,9 @@ type renamer struct {
 	bindingsChecked bool
 	declFilesKnown  bool
 	declHasTests    bool
+
+	// family is familyKeys' table, made when it is first asked for.
+	family map[objKey]bool
 }
 
 // An fileEdits are the edits of one file, for the file's text in the
@@ -490,10 +494,11 @@ func applyOffsets(src string, edits []offsetEdit) string {
 }
 
 // checkTestDecls refuses a rename to a name that the _test.gp files of the
-// package that declares the name declare at the top level (the internal tests:
-// their package clause is the package's), or, for a method, as a method of the
-// same type: those files are not part of the package's own check, so the
-// scopes of the check don't know the name.
+// package that declares the name (or, for the name of an import, that has the
+// import) declare at the top level (the internal tests: their package clause
+// is the package's), or, for a method, as a method of the same type: those
+// files are not part of the package's own check, so the scopes of the check
+// don't know the name.
 func (rn *renamer) checkTestDecls(ctx context.Context) error {
 	sym := rn.sym
 	if len(sym.objs) != 1 || sym.declDir == "" {
@@ -513,7 +518,10 @@ func (rn *renamer) checkTestDecls(ctx context.Context) error {
 			return nil
 		}
 	}
-	if recv == "" && !sym.packageLevel() {
+	// The name of an import is a name of its file, and a name that a test file of the package declares
+	// clashes with it ("q already declared through import"), though no check of the package sees it.
+	_, isImport := obj.(*types.PkgName)
+	if recv == "" && !sym.packageLevel() && !isImport {
 		return nil
 	}
 	files, err := rn.e.snapshot.PackageFiles(&load.Package{Dir: sym.declDir})
@@ -530,7 +538,9 @@ func (rn *renamer) checkTestDecls(ctx context.Context) error {
 		if err != nil || pf.File == nil || pf.File.Name == nil || pf.File.Name.Name != sym.q.types.Name() {
 			continue // an external test package has its own scope
 		}
-		if declaresInFile(pf.File, rn.newName, recv) {
+		// The import of a test file is a name of that file, which does not clash with the
+		// import that is renamed in another file.
+		if declaresInFile(pf.File, rn.newName, recv, !isImport) {
 			return refuse("cannot rename %s to %s: %s is declared in the test file %s", sym.name, rn.newName, rn.newName, filepath.Base(name))
 		}
 	}
@@ -538,8 +548,10 @@ func (rn *renamer) checkTestDecls(ctx context.Context) error {
 }
 
 // declaresInFile reports whether f declares name at the top level (recv "")
-// or as a method of the type recv.
-func declaresInFile(f *ast.File, name, recv string) bool {
+// or as a method of the type recv. The name of an import of f counts only with
+// imports: it clashes with a declaration of the package, not with an import of
+// another file.
+func declaresInFile(f *ast.File, name, recv string, imports bool) bool {
 	for _, d := range f.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
@@ -563,7 +575,7 @@ func declaresInFile(f *ast.File, name, recv string) bool {
 						return true
 					}
 				case *ast.ImportSpec:
-					if spec.Name != nil && spec.Name.Name == name {
+					if imports && spec.Name != nil && spec.Name.Name == name {
 						return true
 					}
 				}
@@ -1099,7 +1111,8 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 			}
 		}
 	}
-	if rn.localProvesResult(ctx, dirs) || rn.fieldProvesResult(ctx) ||
+	if rn.localProvesResult(ctx, dirs) || rn.importNameProvesResult(ctx, dirs) ||
+		rn.fieldProvesResult(ctx) ||
 		rn.methodProvesResult(ctx, dirs, edited, viewOf) {
 		return ctx.Err()
 	}
@@ -1233,11 +1246,57 @@ func (rn *renamer) mayBreak(v *view) bool {
 		return true
 	}
 	for _, t := range v.ties() {
-		if t.names[rn.sym.name] || t.names[rn.newName] {
+		if t.names[rn.newName] || (t.names[rn.sym.name] && !rn.tieIsRenamedAlike(t)) {
 			return true
 		}
 	}
 	return false
+}
+
+// tieIsRenamedAlike reports whether a tie that has a method of the old name is the same on both
+// ends of the rename: the method of the interface and the method that the value's type has under
+// that name are both of the family (they are renamed together, so the value still has the
+// interface's method), or neither is (the tie does not see the rename at all). The search closes
+// the family over the ties it sees, so the two ends of a tie agree; this is what is asked of it
+// again before a package is left unchecked. A tie that has no value (a type assertion), or whose
+// ends the lookup cannot place, is not alike. The new name is not looked at here: mayBreak
+// refuses every tie of an interface that has it.
+func (rn *renamer) tieIsRenamedAlike(t tie) bool {
+	if t.src == nil || t.asserted {
+		return false
+	}
+	iface, ok := t.dst.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	var declared *types.Func
+	for m := range iface.Methods() {
+		if m.Name() == rn.sym.name {
+			declared = m
+			break
+		}
+	}
+	if declared == nil {
+		return false
+	}
+	obj, _, _ := types.LookupFieldOrMethod(t.src, true, declared.Pkg(), rn.sym.name)
+	held, ok := obj.(*types.Func)
+	if !ok {
+		return false
+	}
+	family := rn.familyKeys()
+	return family[keyOf(declared)] == family[keyOf(held)]
+}
+
+// familyKeys returns the keys of the objects that the rename changes (the family of the method).
+func (rn *renamer) familyKeys() map[objKey]bool {
+	if rn.family == nil {
+		rn.family = make(map[objKey]bool, len(rn.res.keys))
+		for _, key := range rn.res.keys {
+			rn.family[key] = true
+		}
+	}
+	return rn.family
 }
 
 // checkEmbedders refuses the rename of a method to a name that a type embedding the
