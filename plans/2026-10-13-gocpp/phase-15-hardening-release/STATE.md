@@ -31,7 +31,7 @@
 - [x] 15.11 Nightly ASan/UBSan/TSan/LSan (fail on any report) + leak audit
 
 ### Platforms & packaging
-- [~] 15.12 Linux arm64 CI; Windows (Phase 14) in the release pipeline — isolated workflow/static-validation job active; target execution and release acceptance remain open
+- [~] 15.12 Linux arm64 CI; Windows (Phase 14) in the release pipeline — workflows integrated after clean review, static checks only; never run on GitHub, so target execution and release acceptance remain open
 - [x] 15.13 `go install`, GoReleaser binaries (linux amd64/arm64, windows amd64), Nix flake package with wrapped compilers
 - [x] 15.14 `gocpp get` + `gocpp.sum` + minimal version selection (`x/mod` workarounds for dotless paths and `gocpp.mod` boundaries)
 
@@ -177,3 +177,21 @@
   parser fork in internal/syntax, internal/format, internal/diff, the stdlib stubs) and gopls's (the
   copied LSP protocol in internal/lsp/protocol), e.g. printed by `gocpp version -licenses` and shipped
   next to the binary.
+
+- 2026-10-20: 15.12 workflows integrated from reviewed source `dfb81126`. `.github/workflows/ci.yml`
+  (pull_request, nightly, manual, workflow_call; cross-build vet/build for linux/arm64 and
+  windows/amd64; `make ci` on ubuntu-24.04 and ubuntu-24.04-arm without Wine; native Windows
+  `TestRun` of the 168-program sample on windows-2022) and `release.yml` (version tags only; a
+  draft job is the only one with `contents: write`; a read-only snapshot job for manual runs;
+  verify jobs on linux amd64/arm64 and Windows). Everything is STATIC: actionlint with shellcheck
+  (custom `nix develop` shells are not shellchecked by actionlint; checked by hand), goreleaser
+  snapshot, the verify scripts under `bash -eo pipefail` on a local snapshot, 16 text tests in
+  `internal/packaging/workflows_test.go` (13 mutations caught by the coder; the reviewer's one
+  `needs` mutation of `verify` is not pinned). The review caught a SIGPIPE in the verify step
+  (`| head -n 1` under `pipefail`), masked `go vet` failures in custom shells and Wine on the amd64
+  leg; all fixed. Not verified: any arm64 hardware or hosted Windows run, release run, Nix aarch64
+  cache coverage, gdb/ptrace on hosted runners; actions are pinned by major tag, not SHA. Cost:
+  once the repository is on GitHub, pull requests and the nightly cron start `make ci` (hours of
+  hosted time); remove the `schedule` and `pull_request` triggers in `ci.yml` to keep manual runs
+  only. No tag, no publication, 15.16 untouched.
+

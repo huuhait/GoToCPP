@@ -31,6 +31,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.7c: isolated header-unit evaluation integrated after clean review and manager evidence/synthetic/doc checks. Warm package-header reuse improves, but construction plus one replay is slower; keep the production PCH. No module adoption or full 15.7 acceptance.
 - [x] 15.4: bounded ownership experiment integrated after clean review and manager GCC/Clang checks. Retain the isolated prototype/raw results; production ownership and ADR-004 stay unchanged. Full compatibility, application performance and platform acceptance remain open.
 - [~] Parallel isolated jobs: 15.12 arm64/Windows pipeline workflow validation; Phase 10 derive acceptance fixtures; fresh matched LSP gap measurements; focused real-Windows load-test portability. Each needs independent review and manager integration; no result is accepted yet.
+- [~] 15.12: CI/release workflows integrated after clean review; static checks only, never run on GitHub (exit criterion open).
+- [x] 10.derive: Phase 10 `#Derive` exit criterion closed with real-Go tests (clean review); other open Phase 10 lines have focused evidence but stay for the user's final review.
 - [ ] Next: remaining 12.13 editor features and real external-cache measurements when prerequisites are available.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.
