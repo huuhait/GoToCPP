@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"sort"
+	"sync"
 
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
@@ -25,6 +26,9 @@ type Snapshot struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	refs     int // under session.mu; the session's own reference counts
+
+	// memo holds what the language server derives from the whole snapshot (Memo).
+	memo sync.Map // key -> *memoEntry
 }
 
 func newSnapshot(s *Session, id uint64, overlays map[protocol.DocumentURI]*Overlay, state State) *Snapshot {
@@ -51,6 +55,31 @@ func (s *Snapshot) decref() {
 			s.state.Release()
 		}
 	}
+}
+
+// Memo returns what f computes from the snapshot, computing it once for the key: a value that
+// depends on nothing but the snapshot (the imports of every package of a module, say) is then
+// shared by the requests on it and goes away with it. f must not change what it reads. An error is
+// not kept (a request that was cancelled while f ran must not leave its error for the others): the
+// next call runs f again. A value that records its own failure keeps it as long as the snapshot, and a
+// caller that waits for another caller's f cannot be cancelled meanwhile.
+func (s *Snapshot) Memo(key any, f func() (any, error)) (any, error) {
+	e, ok := s.memo.Load(key)
+	if !ok {
+		e, _ = s.memo.LoadOrStore(key, new(memoEntry))
+	}
+	me := e.(*memoEntry)
+	me.mu.Lock()
+	defer me.mu.Unlock()
+	if !me.done {
+		val, err := f()
+		if err != nil {
+			return nil, err
+		}
+		me.val = val
+		me.done = true
+	}
+	return me.val, nil
 }
 
 // ID returns the sequence number of the snapshot: 0 for the first one of

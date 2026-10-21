@@ -304,8 +304,8 @@ func orDefault(n, def int64) int64 {
 // NewState returns the state of the first snapshot of a session
 // (NewSession): it has no open documents.
 func (p *Pipeline) NewState() State {
-	return &state{p: p, files: map[string]*fileHandle{}, dirs: map[string]*dirHandle{},
-		mods: map[string]*fileHandle{}, handles: map[pkgID]*handle{}}
+	return &state{p: p, files: &layered[string, *fileHandle]{}, dirs: &layered[string, *dirHandle]{},
+		mods: &layered[string, *fileHandle]{}, handles: &layered[pkgID, *handle]{}}
 }
 
 // Stats counts the work the pipeline has done: files parsed, metadata
@@ -410,10 +410,12 @@ type state struct {
 
 	mu       sync.Mutex
 	released bool
-	files    map[string]*fileHandle
-	dirs     map[string]*dirHandle
-	mods     map[string]*fileHandle // the gocpp.mod file of each folder, or nil
-	handles  map[pkgID]*handle
+	files    *layered[string, *fileHandle]
+	dirs     *layered[string, *dirHandle]
+	mods     *layered[string, *fileHandle] // the gocpp.mod file of each folder, or nil
+	handles  *layered[pkgID, *handle]
+	// order holds the handles in the order they were stored in (cloneHandles).
+	order []*handle
 	// tests holds the checks with test files by folder (CheckTests), made
 	// when asked for.
 	tests map[string]*memoize.Promise[*TestCheck]
@@ -475,57 +477,76 @@ func (s *state) Clone(next *Snapshot, ch Change) State {
 	// A read that failed for any reason (a file that could not be read for
 	// a moment) is made again too: a failure is no fact about the files
 	// until a notification says so, and a snapshot must never keep one.
-	n.files = make(map[string]*fileHandle, len(s.files))
-	for path, f := range s.files {
-		if !paths.has(path) && !under(path) && f.err == nil {
-			n.files[path] = f
-		}
-	}
-	n.dirs = make(map[string]*dirHandle, len(s.dirs))
-	for dir, d := range s.dirs {
-		if !dirs.has(dir) && !under(dir) && !d.failed && (len(d.names) > 0 || d.err == nil) {
-			n.dirs[dir] = d
-		}
-	}
-	n.mods = make(map[string]*fileHandle)
-	n.handles = make(map[pkgID]*handle)
+	n.files = s.files.clone(func(path string, f *fileHandle) bool {
+		return paths.has(path) || under(path) || f.err != nil
+	})
+	n.dirs = s.dirs.clone(func(dir string, d *dirHandle) bool {
+		return dirs.has(dir) || under(dir) || d.failed || len(d.names) == 0 && d.err != nil
+	})
 	if modChanged {
-		return n // a module can change the import path of every package
+		// A module can change the import path of every package.
+		n.mods = &layered[string, *fileHandle]{}
+		n.handles = &layered[pkgID, *handle]{}
+		return n
 	}
-	for dir, m := range s.mods {
-		if !dirs.has(dir) && !under(dir) && (m == nil || m.err == nil) {
-			n.mods[dir] = m
-		}
-	}
-	// The packages in the changed folders, and their importers.
-	importers := make(map[pkgID][]pkgID)
-	var stale []pkgID
-	for id, h := range s.handles {
-		for _, dep := range h.deps {
-			importers[dep.id] = append(importers[dep.id], id)
-		}
-		for _, dep := range h.cut {
-			importers[dep] = append(importers[dep], id)
-		}
-		if !id.std && (dirs.has(id.dir) || under(id.dir) || recheck.has(id.dir) || h.failedRead()) || h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under) {
-			stale = append(stale, id)
-		}
+	n.mods = s.mods.clone(func(dir string, m *fileHandle) bool {
+		return dirs.has(dir) || under(dir) || m != nil && m.err != nil
+	})
+	n.handles, n.order = s.cloneHandles(func(h *handle) bool {
+		return !h.id.std && (dirs.has(h.id.dir) || under(h.id.dir) || recheck.has(h.id.dir) || h.failedRead()) ||
+			h.meta.reads != nil && touches(h.meta.reads, paths, dirs, under)
+	})
+	return n
+}
+
+// cloneHandles returns the handles of s that stay when the handles that stale says so for change:
+// those, and every package that imports one of them, directly or not, are dropped. s.mu is held.
+//
+// The order of the handles is the order they were stored in, and a handle is stored after the
+// handles of its imports (handle makes those first), so one pass over it finds the importers of
+// a stale handle without an index of importers; the imports that make a cycle (cut) are the
+// exception, and a pass is repeated while one of them changes the result.
+func (s *state) cloneHandles(stale func(*handle) bool) (*layered[pkgID, *handle], []*handle) {
+	if s.handles == nil {
+		return &layered[pkgID, *handle]{}, nil
 	}
 	gone := make(map[pkgID]bool)
-	for len(stale) > 0 {
-		id := stale[len(stale)-1]
-		stale = stale[:len(stale)-1]
-		if !gone[id] {
-			gone[id] = true
-			stale = append(stale, importers[id]...)
+	hasCut := false
+	for changed := true; changed; changed = changed && hasCut {
+		changed = false
+		for _, h := range s.order {
+			if gone[h.id] {
+				continue
+			}
+			if stale(h) || importsGone(h, gone) {
+				gone[h.id] = true
+				changed = true
+			}
+			hasCut = hasCut || len(h.cut) > 0
 		}
 	}
-	for id, h := range s.handles {
-		if !gone[id] {
-			n.handles[id] = h
+	kept := make([]*handle, 0, len(s.order)-len(gone))
+	for _, h := range s.order {
+		if !gone[h.id] {
+			kept = append(kept, h)
 		}
 	}
-	return n
+	return s.handles.clone(func(id pkgID, _ *handle) bool { return gone[id] }), kept
+}
+
+// importsGone reports whether h imports a package of gone.
+func importsGone(h *handle, gone map[pkgID]bool) bool {
+	for _, dep := range h.deps {
+		if gone[dep.id] {
+			return true
+		}
+	}
+	for _, id := range h.cut {
+		if gone[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // touches reports whether one of the reads is of a changed file or folder.
@@ -547,6 +568,7 @@ func (s *state) Release() {
 	defer s.mu.Unlock()
 	s.released = true
 	s.handles = nil
+	s.order = nil
 }
 
 // errReleased is the error of a request on a snapshot that is destroyed,
@@ -557,7 +579,7 @@ var errReleased = errors.New("cache: the snapshot was destroyed")
 func (s *state) file(path string) (*fileHandle, error) {
 	path = fspath.Canon(path)
 	s.mu.Lock()
-	f := s.files[path]
+	f, _ := s.files.get(path)
 	s.mu.Unlock()
 	if f != nil {
 		return f, nil
@@ -644,33 +666,49 @@ func transientRead(err error) int {
 	return 0
 }
 
-// store puts v under key into the map of s that m returns, unless a value
-// is there already, and returns the value that is there then.
-func store[K comparable, V any](s *state, m func(*state) map[K]V, key K, v V) (V, error) {
+// store puts v under key into the table of s that table returns, unless a value is there already,
+// and returns the value that is there then.
+func store[K comparable, V any](s *state, table func(*state) *layered[K, V], key K, v V) (V, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m(s) == nil {
+	t := table(s)
+	if t == nil {
 		return v, nil // the handles of a released state
 	}
-	if old, ok := m(s)[key]; ok {
+	if old, ok := t.get(key); ok {
 		return old, nil
 	}
-	m(s)[key] = v
+	t.put(key, v)
 	return v, nil
 }
 
-// The maps of a state, for store.
-func filesOf(s *state) map[string]*fileHandle { return s.files }
-func dirsOf(s *state) map[string]*dirHandle   { return s.dirs }
-func modsOf(s *state) map[string]*fileHandle  { return s.mods }
-func handlesOf(s *state) map[pkgID]*handle    { return s.handles }
+// The tables of a state, for store.
+func filesOf(s *state) *layered[string, *fileHandle] { return s.files }
+func dirsOf(s *state) *layered[string, *dirHandle]   { return s.dirs }
+func modsOf(s *state) *layered[string, *fileHandle]  { return s.mods }
+
+// storeHandle puts h under id into the handles of s, unless there is one, and returns the one that
+// is there then. It keeps the order of the handles (cloneHandles).
+func (s *state) storeHandle(id pkgID, h *handle) *handle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handles == nil {
+		return h // a released state
+	}
+	if old, ok := s.handles.get(id); ok {
+		return old
+	}
+	s.handles.put(id, h)
+	s.order = append(s.order, h)
+	return h
+}
 
 // dir returns the .gp files of the folder dir in the snapshot: on disk and
 // in the overlays.
 func (s *state) dir(dir string) (*dirHandle, error) {
 	dir = fspath.Canon(dir)
 	s.mu.Lock()
-	d := s.dirs[dir]
+	d, _ := s.dirs.get(dir)
 	s.mu.Unlock()
 	if d != nil {
 		return d, nil
@@ -728,7 +766,7 @@ const modFileName = "gocpp.mod"
 func (s *state) modFile(dir string) (*fileHandle, error) {
 	dir = fspath.Canon(dir)
 	s.mu.Lock()
-	m, ok := s.mods[dir]
+	m, ok := s.mods.get(dir)
 	s.mu.Unlock()
 	if ok {
 		return m, nil

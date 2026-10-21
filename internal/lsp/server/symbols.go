@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/token"
 	"path/filepath"
@@ -380,10 +381,44 @@ type fileSyms struct {
 // for its content (the hash the snapshot knows without a parse), so a query
 // parses nothing for the files that it has seen, and the parse cache's own
 // limit on memory does not matter to it.
+//
+// A snapshot never changes, so the list is made once for it (Snapshot.Memo): the 120 queries of
+// a benchmark row on one snapshot made the same 1,500 slots again each time. A list that lacks
+// the symbols of a file that did not parse is not kept, so the next query tries that file again.
 func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot) ([]fileSyms, error) {
-	pkgs, err := s.workspacePackages(ctx, snap)
+	var partial []fileSyms
+	v, err := snap.Memo(workspaceFileSymbolsKey{}, func() (any, error) {
+		out, complete, err := s.makeWorkspaceFileSymbols(ctx, snap)
+		if err != nil {
+			return nil, err
+		}
+		if !complete {
+			partial = out
+			return nil, errIncompleteSymbols
+		}
+		return out, nil
+	})
+	if err == errIncompleteSymbols {
+		return partial, nil
+	}
 	if err != nil {
 		return nil, err
+	}
+	return v.([]fileSyms), nil
+}
+
+// workspaceFileSymbolsKey is the key of a snapshot's list of the symbols of its files.
+type workspaceFileSymbolsKey struct{}
+
+// errIncompleteSymbols is what the memo function returns for a list that is not to be kept.
+var errIncompleteSymbols = errors.New("the symbols of a file are missing")
+
+// makeWorkspaceFileSymbols makes the list of workspaceFileSymbols, and says whether every file
+// has its symbols in it.
+func (s *Server) makeWorkspaceFileSymbols(ctx context.Context, snap *cache.Snapshot) ([]fileSyms, bool, error) {
+	pkgs, err := s.workspacePackages(ctx, snap)
+	if err != nil {
+		return nil, false, err
 	}
 	type slot struct {
 		pkg  int
@@ -419,6 +454,7 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 	var wg sync.WaitGroup
 	var pc safe.Catcher
 	sem := make(chan struct{}, 8)
+	var failed atomic.Bool
 	for i := range slots {
 		if !slots[i].miss {
 			continue
@@ -434,8 +470,12 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 				}
 				sl := &slots[i]
 				pf, err := snap.ParsePath(ctx, sl.path, cache.ParseFull)
+				if err == nil && unparsableInSymbols != nil && unparsableInSymbols(sl.path) {
+					err = errors.New("the file does not parse")
+				}
 				if err != nil {
 					sl.syms = nil
+					failed.Store(true)
 					return
 				}
 				sl.syms = s.symbols.makeFlat(pf)
@@ -445,7 +485,7 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 	wg.Wait()
 	pc.Rethrow()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	out := make([]fileSyms, 0, len(slots))
 	for _, sl := range slots {
@@ -453,7 +493,7 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 			out = append(out, fileSyms{container: pkgs[sl.pkg].path, syms: sl.syms})
 		}
 	}
-	return out, nil
+	return out, !failed.Load(), nil
 }
 
 // flatOf returns the workspace symbols of the file for the content with the
@@ -572,6 +612,10 @@ func (s *Server) workspacePackages(ctx context.Context, snap *cache.Snapshot) ([
 // faultInSymbols is set by a test: it is called in the goroutine of each file
 // whose symbols are made, and panics there.
 var faultInSymbols func(path string)
+
+// unparsableInSymbols is set by a test: the files it says true for count as files that cannot be
+// parsed.
+var unparsableInSymbols func(path string) bool
 
 func (s *Server) warmSymbols() {
 	if !s.symbols.warming.CompareAndSwap(false, true) {

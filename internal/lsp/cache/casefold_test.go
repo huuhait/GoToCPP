@@ -52,7 +52,7 @@ func TestCaseFoldOnePackage(t *testing.T) {
 	}
 	st := snap.State().(*state)
 	st.mu.Lock()
-	n := len(st.handles)
+	n := st.handles.size()
 	st.mu.Unlock()
 	if n != 1 {
 		t.Errorf("%d package handles after two spellings of one folder, want 1", n)
@@ -200,7 +200,7 @@ func TestCaseFoldModuleChangedClone(t *testing.T) {
 	snap, release := w.s.Snapshot()
 	st := snap.State().(*state)
 	st.mu.Lock()
-	before := len(st.mods)
+	before := st.mods.size()
 	st.mu.Unlock()
 	release()
 	if before == 0 {
@@ -212,7 +212,7 @@ func TestCaseFoldModuleChangedClone(t *testing.T) {
 	fspath.Invalidate()
 	next := newSnapshot(w.s, 99, map[protocol.DocumentURI]*Overlay{}, nil)
 	n := st.Clone(next, Change{Files: map[protocol.DocumentURI]bool{w.spelled("gocpp.mod"): true}}).(*state)
-	if len(n.mods) != 0 || len(n.handles) != 0 {
-		t.Errorf("after the module file changed (named GOCPP.MOD): %d module handles and %d package handles are kept, want none", len(n.mods), len(n.handles))
+	if n.mods.size() != 0 || n.handles.size() != 0 {
+		t.Errorf("after the module file changed (named GOCPP.MOD): %d module handles and %d package handles are kept, want none", n.mods.size(), n.handles.size())
 	}
 }

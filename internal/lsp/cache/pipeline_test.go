@@ -483,10 +483,8 @@ func TestClone(t *testing.T) {
 		st := snap.State().(*state)
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		m := make(map[pkgID]*handle, len(st.handles))
-		for k, v := range st.handles {
-			m[k] = v
-		}
+		m := make(map[pkgID]*handle, st.handles.size())
+		st.handles.each(func(k pkgID, v *handle) { m[k] = v })
 		return m
 	}
 	before := handles()
@@ -738,27 +736,27 @@ func TestRecheck(t *testing.T) {
 	// What exists stays (what is missing is looked for again in every
 	// snapshot, see Clone).
 	before.mu.Lock()
-	for path, f := range before.files {
-		if f.err == nil && after.files[path] != f {
+	before.files.each(func(path string, f *fileHandle) {
+		if got, _ := after.files.get(path); f.err == nil && got != f {
 			t.Errorf("the file %s is read again", path)
 		}
-	}
-	for dir, d := range before.dirs {
-		if len(d.names) > 0 && after.dirs[dir] != d {
+	})
+	before.dirs.each(func(dir string, d *dirHandle) {
+		if got, _ := after.dirs.get(dir); len(d.names) > 0 && got != d {
 			t.Errorf("the folder %s is read again", dir)
 		}
-	}
+	})
 	before.mu.Unlock()
-	if len(after.mods) != len(before.mods) {
-		t.Errorf("mods %d→%d: want all kept", len(before.mods), len(after.mods))
+	if after.mods.size() != before.mods.size() {
+		t.Errorf("mods %d→%d: want all kept", before.mods.size(), after.mods.size())
 	}
-	for id := range before.handles {
-		_, kept := after.handles[id]
+	before.handles.each(func(id pkgID, _ *handle) {
+		_, kept := after.handles.get(id)
 		rechecked := id.dir == w.root || id.dir == filepath.Join(w.root, "geom") || id.dir == filepath.Join(w.root, "shapes")
 		if kept == rechecked {
 			t.Errorf("%s: kept %v", id.dir, kept)
 		}
-	}
+	})
 }
 
 // TestStdlibNames: a name of a file of the standard library, as the loader

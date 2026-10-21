@@ -310,6 +310,7 @@ func (s *Server) rename(ctx context.Context, e env, params json.RawMessage) (any
 	if err != nil {
 		return nil, err
 	}
+	defer res.recycleHits() // the edits are made from the hits and hold none of them
 	docs := newDocsFor(e.snapshot, res.hits)
 	rn := &renamer{s: s, e: e, sym: sym, res: res, newName: p.NewName, docs: docs}
 	edits, err := rn.edits(ctx)
@@ -388,7 +389,32 @@ type renamer struct {
 type fileEdits struct {
 	doc   *document
 	edits []protocol.TextEdit
-	text  string // the file after the edits
+	offs  []offsetEdit // the same edits as byte offsets, for the text after them (newText)
+}
+
+// onNewText is called by every newText, for the tests that count the texts a rename makes.
+var onNewText func()
+
+// newText returns the file after the edits. Only the check of the result by a scratch copy of the
+// workspace needs it, and the proofs that stand in for that check do not, so it is made when asked
+// for: a copy of every edited file (and the text built from it) was the largest part of what a
+// rename allocated.
+func (fe *fileEdits) newText() string {
+	if onNewText != nil {
+		onNewText()
+	}
+	var b strings.Builder
+	b.Grow(len(fe.doc.src) + len(fe.offs)*16)
+	offs := slices.Clone(fe.offs)
+	sort.Slice(offs, func(i, j int) bool { return offs[i].start < offs[j].start })
+	last := 0
+	for _, e := range offs {
+		b.Write(fe.doc.src[last:e.start])
+		b.WriteString(e.text)
+		last = e.end
+	}
+	b.Write(fe.doc.src[last:])
+	return b.String()
 }
 
 // edits checks the rename and returns the edits by file.
@@ -452,21 +478,7 @@ func (rn *renamer) edits(ctx context.Context) (map[string]*fileEdits, error) {
 			Range:   protocol.Range{Start: doc.mapper.Position(start), End: doc.mapper.Position(end)},
 			NewText: text,
 		})
-	}
-	// The text after the edits, for the check of the result.
-	for path, fe := range files {
-		offs := make([]offsetEdit, 0, len(fe.edits))
-		for _, h := range res.hits {
-			if h.path != path {
-				continue
-			}
-			if h.spec != nil {
-				offs = append(offs, offsetEdit{h.off, h.off, rn.newName + " "})
-			} else {
-				offs = append(offs, offsetEdit{h.off, h.end, rn.newName})
-			}
-		}
-		fe.text = applyOffsets(string(fe.doc.src), offs)
+		fe.offs = append(fe.offs, offsetEdit{start, end, text})
 	}
 	if err := rn.checkResult(ctx, files); err != nil {
 		return nil, err
@@ -477,20 +489,6 @@ func (rn *renamer) edits(ctx context.Context) (map[string]*fileEdits, error) {
 type offsetEdit struct {
 	start, end int
 	text       string
-}
-
-// applyOffsets applies the edits (sorted, not overlapping) to src.
-func applyOffsets(src string, edits []offsetEdit) string {
-	sort.Slice(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
-	var b strings.Builder
-	last := 0
-	for _, e := range edits {
-		b.WriteString(src[last:e.start])
-		b.WriteString(e.text)
-		last = e.end
-	}
-	b.WriteString(src[last:])
-	return b.String()
 }
 
 // checkTestDecls refuses a rename to a name that the _test.gp files of the
@@ -1073,10 +1071,8 @@ func innermostFunc(v *view, pos token.Pos) ast.Node {
 // the search looked in, with what they had before: a new error refuses the
 // rename.
 func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits) error {
-	texts := make(map[protocol.DocumentURI]string, len(files))
 	dirs := make(map[string]bool)
-	for path, fe := range files {
-		texts[protocol.URIFromPath(path)] = fe.text
+	for path := range files {
 		if !strings.HasSuffix(path, "_test.gp") {
 			dirs[filepath.Dir(path)] = true
 		}
@@ -1119,6 +1115,10 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 	unchecked := rn.qualifiedOnly() // (renamefast.go)
 	if rn.declaringScopeProvesResult(ctx, dirs, unchecked) {
 		return ctx.Err()
+	}
+	texts := make(map[protocol.DocumentURI]string, len(files))
+	for path, fe := range files {
+		texts[protocol.URIFromPath(path)] = fe.newText()
 	}
 	after, release, err := rn.e.snapshot.Edited(texts)
 	if err != nil {
@@ -1433,6 +1433,10 @@ func (rn *renamer) warnExcluded(ctx context.Context) {
 			continue
 		}
 		seen[v.dir] = true
+		// A package that has every file of its folder (but the test files) leaves none out.
+		if all, tests, err := rn.e.snapshot.SourceFileCount(v.dir); err == nil && all-tests == len(v.files) {
+			continue
+		}
 		files, err := rn.e.snapshot.PackageFiles(&load.Package{Dir: v.dir})
 		if err != nil {
 			continue

@@ -456,6 +456,20 @@ func (s *Snapshot) SourceFiles(dir string) ([]string, error) {
 	return d.all, nil
 }
 
+// SourceFileCount returns how many .gp files the folder dir has in the snapshot, and how many of
+// them are _test.gp files, without naming them (PackageFiles makes a name for each).
+func (s *Snapshot) SourceFileCount(dir string) (all, tests int, err error) {
+	st, ok := s.state.(*state)
+	if !ok {
+		return 0, 0, errNoPipeline
+	}
+	d, err := st.dir(filepath.Clean(dir))
+	if err != nil {
+		return 0, 0, err
+	}
+	return len(d.names), len(d.tests), nil
+}
+
 // FileHash returns the hash of the content of the file path in the snapshot:
 // what ParsePath's results are keyed by, without reading the parse cache. A
 // file of the standard library has its own hash.
@@ -517,7 +531,7 @@ func (s *state) handle(ctx context.Context, id pkgID, importPath string, stack [
 		s.mu.Unlock()
 		return nil, errReleased
 	}
-	h := s.handles[id]
+	h, _ := s.handles.get(id)
 	s.mu.Unlock()
 	if h != nil {
 		return h, nil
@@ -623,7 +637,7 @@ func (s *state) handle(ctx context.Context, id pkgID, importPath string, stack [
 			return p.check(ctx, h, k, nil)
 		})
 	}
-	return store(s, handlesOf, id, h)
+	return s.storeHandle(id, h), nil
 }
 
 // loadPattern returns the pattern of load.Load for the package of h, and

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
 
@@ -200,5 +201,71 @@ func TestEdited(t *testing.T) {
 	rel2()
 	if _, _, err := (&Snapshot{}).Edited(nil); err == nil {
 		t.Error("Edited without a pipeline: no error")
+	}
+}
+
+// TestSnapshotMemo: a value that depends on the snapshot alone is made once per key and
+// snapshot; an error is not kept, so the next call tries again; two snapshots have their own.
+func TestSnapshotMemo(t *testing.T) {
+	w := newWorld(t, testConfig(), workspaceFiles)
+	snap, release := w.s.Snapshot()
+	defer release()
+	calls := 0
+	make1 := func() (any, error) {
+		calls++
+		return calls, nil
+	}
+	first, err := snap.Memo("key", make1)
+	second, _ := snap.Memo("key", make1)
+	if err != nil || first != second || calls != 1 {
+		t.Errorf("the memo made %d values (%v, %v), want one", calls, first, second)
+	}
+	if other, _ := snap.Memo("other key", make1); other == first || calls != 2 {
+		t.Errorf("another key got the value of the first (%v, %d calls)", other, calls)
+	}
+
+	failed := 0
+	fail := func() (any, error) {
+		failed++
+		if failed == 1 {
+			return nil, context.Canceled
+		}
+		return "fine", nil
+	}
+	if _, err := snap.Memo("fails", fail); err == nil {
+		t.Error("the error of the first call was lost")
+	}
+	if v, err := snap.Memo("fails", fail); err != nil || v != "fine" || failed != 2 {
+		t.Errorf("after an error: %v, %v, %d calls, want a new value from a second call", v, err, failed)
+	}
+
+	w.open("app/app.gp", "package app\n")
+	next, releaseNext := w.s.Snapshot()
+	defer releaseNext()
+	if v, _ := next.Memo("key", make1); v == first {
+		t.Error("a newer snapshot has the memo of the older one")
+	}
+}
+
+// TestSourceFileCount: the number of .gp files of a folder and of its test files, without
+// naming them.
+func TestSourceFileCount(t *testing.T) {
+	files := map[string]string{
+		"gocpp.mod":    "module example.com/c\n",
+		"p/a.gp":       "package p\n",
+		"p/b.gp":       "package p\n",
+		"p/b_test.gp":  "package p\n",
+		"p/readme.txt": "not a source file\n",
+	}
+	w := newWorld(t, testConfig(), files)
+	snap, release := w.s.Snapshot()
+	defer release()
+	all, tests, err := snap.SourceFileCount(filepath.Join(w.root, "p"))
+	if err != nil || all != 3 || tests != 1 {
+		t.Errorf("SourceFileCount = %d files, %d tests, %v; want 3, 1", all, tests, err)
+	}
+	names, _ := snap.PackageFiles(&load.Package{Dir: filepath.Join(w.root, "p")})
+	if len(names) != all {
+		t.Errorf("PackageFiles names %d files, the count says %d", len(names), all)
 	}
 }

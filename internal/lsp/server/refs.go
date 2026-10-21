@@ -843,10 +843,13 @@ func (r *searcher) run(ctx context.Context, only []string) (*result, error) {
 	for _, v := range views {
 		tfiles += len(v.files)
 	}
+	// At most as many files have a hit as the names allow hits (hitCapacity), so a name that is
+	// seldom spelled (a local type, say) does not make a table for every file of the views.
+	hitCap := r.hitCapacity(views, keys)
 	if r.fileInfo == nil {
-		r.fileInfo = make(map[*token.File]fileInfo, tfiles)
+		r.fileInfo = make(map[*token.File]fileInfo, fileInfoSize(tfiles, hitCap))
 	}
-	all := takeHits(r.hitCapacity(views, keys))
+	all := takeHits(hitCap)
 	for _, v := range views {
 		all = r.scan(v, keys, declPos, all)
 	}
@@ -1026,6 +1029,10 @@ func (r *searcher) hitCapacity(views []*view, keys *keySet) int {
 	return min(n, maxHitCapacity)
 }
 
+// fileInfoSize is the size to make the table of the files of a search with: at most as many files
+// have a hit as the names allow hits (hitCapacity), and no more than the files of the views.
+func fileInfoSize(files, hits int) int { return min(files, hits) }
+
 // maxHitCapacity bounds the list that hitCapacity asks for: a name that is spelled by a hundred
 // thousand names (and is one of the symbol's few of them) does not make a list of that size.
 const maxHitCapacity = 1 << 16
@@ -1154,23 +1161,19 @@ func (r *searcher) dirs(ctx context.Context, only []string) ([]string, error) {
 		mod := q.lp.Module
 		if mod != nil && mod.Path != "" && !q.lp.Std {
 			r.mod = mod
-			pkgs, err := r.s.comp.index.moduleWait(ctx, mod) // all of it: a missing package is a missing reference
+			mi, err := r.moduleImports(ctx, mod)
 			if err != nil {
 				return nil, err
 			}
-			r.pkgs = r.withOpen(pkgs)
-			byPath := make(map[string]string, len(r.pkgs))
-			for _, p := range r.pkgs {
-				byPath[p.path] = p.dir
-			}
-			if d, ok := byPath[sym.declPath]; ok {
+			r.pkgs = mi.pkgs
+			r.imports = mi.imports
+			r.reverse = mi.reverse
+			r.pathOfDir = mi.pathOfDir
+			if d, ok := mi.dirOfPath[sym.declPath]; ok {
 				set[d] = true
 				if sym.declDir == "" {
 					sym.declDir = d
 				}
-			}
-			if err := r.loadImports(ctx); err != nil {
-				return nil, err
 			}
 			if sc != scopeFamily || !skipImporterTies {
 				for _, d := range r.importers(sym.declPath, sc == scopeModule || sc == scopeFamily) {
@@ -1211,15 +1214,61 @@ func (r *searcher) withOpen(pkgs []importable) []importable {
 	return pkgs
 }
 
-// loadImports reads the imports of the module's packages (cheap: the
-// metadata of the pipeline), concurrently.
-func (r *searcher) loadImports(ctx context.Context) error {
-	r.imports = make(map[string][]cache.ImportRef, len(r.pkgs))
+// A moduleImports is what a search needs to know of the packages of a module and what they
+// import. It is made once for a snapshot (moduleImports): a search of a name made it again, for a
+// hundred packages, every time.
+type moduleImports struct {
+	pkgs      []importable
+	imports   map[string][]cache.ImportRef // by folder
+	reverse   map[string][]string          // import path -> the folders that import it
+	pathOfDir map[string]string            // the import path of the package in a folder
+	dirOfPath map[string]string            // the folder of the package with an import path
+}
+
+// moduleImportsKey is the Snapshot.Memo key of the imports of the module in the folder dir.
+type moduleImportsKey struct{ dir string }
+
+// moduleImports returns the packages of mod, with the open documents that are in it but not on
+// disk yet, and their imports, which it reads concurrently (cheap: the metadata of the pipeline).
+func (r *searcher) moduleImports(ctx context.Context, mod *load.Module) (*moduleImports, error) {
+	r.mod = mod
+	v, err := r.snap.Memo(moduleImportsKey{mod.Dir}, func() (any, error) {
+		pkgs, err := r.s.comp.index.moduleWait(ctx, mod) // all of it: a missing package is a missing reference
+		if err != nil {
+			return nil, err
+		}
+		mi := &moduleImports{pkgs: r.withOpen(pkgs)}
+		mi.dirOfPath = make(map[string]string, len(mi.pkgs))
+		mi.pathOfDir = make(map[string]string, len(mi.pkgs))
+		for _, p := range mi.pkgs {
+			mi.dirOfPath[p.path] = p.dir
+			mi.pathOfDir[p.dir] = p.path
+		}
+		if err := r.loadImports(ctx, mi); err != nil {
+			return nil, err
+		}
+		mi.reverse = make(map[string][]string)
+		for dir, refs := range mi.imports {
+			for _, ref := range refs {
+				mi.reverse[ref.ImportPath] = append(mi.reverse[ref.ImportPath], dir)
+			}
+		}
+		return mi, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*moduleImports), nil
+}
+
+// loadImports reads the imports of the module's packages into mi, concurrently.
+func (r *searcher) loadImports(ctx context.Context, mi *moduleImports) error {
+	mi.imports = make(map[string][]cache.ImportRef, len(mi.pkgs))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var pc safe.Catcher // a panic in a goroutine is the request's (see protocol.Conn)
 	sem := make(chan struct{}, 8)
-	for _, p := range r.pkgs {
+	for _, p := range mi.pkgs {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
@@ -1231,7 +1280,7 @@ func (r *searcher) loadImports(ctx context.Context) error {
 					return // a folder that is no package
 				}
 				mu.Lock()
-				r.imports[p.dir] = refs
+				mi.imports[p.dir] = refs
 				mu.Unlock()
 			})
 		}()
@@ -1245,14 +1294,6 @@ func (r *searcher) loadImports(ctx context.Context) error {
 // package with the import path path, directly or, with transitive,
 // through other packages of the module too.
 func (r *searcher) importers(path string, transitive bool) []string {
-	if r.reverse == nil { // import path -> the folders that import it
-		r.reverse = make(map[string][]string)
-		for dir, refs := range r.imports {
-			for _, ref := range refs {
-				r.reverse[ref.ImportPath] = append(r.reverse[ref.ImportPath], dir)
-			}
-		}
-	}
 	reverse := r.reverse
 	var out []string
 	seen := make(map[string]bool)
@@ -1265,12 +1306,6 @@ func (r *searcher) importers(path string, transitive bool) []string {
 			seen[dir] = true
 			out = append(out, dir)
 			if transitive {
-				if r.pathOfDir == nil {
-					r.pathOfDir = make(map[string]string, len(r.pkgs))
-					for _, p := range r.pkgs {
-						r.pathOfDir[p.dir] = p.path
-					}
-				}
 				if path, ok := r.pathOfDir[dir]; ok {
 					visit(path)
 				}
