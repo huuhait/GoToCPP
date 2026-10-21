@@ -66,7 +66,7 @@ The syntax and the meaning of these have no gate and no row below, at every phas
 | C++ namespaces | 04 | `std.vector[int]`, `fs "::std::filesystem"`. |
 | C types and helpers | 04 | `C.int`, `C.size_t`, `C.CString`, `C.free`, `C.cstr`, `C.GoString`, `C.GoStringN`, `C.GoBytes`. |
 | `//gocpp:` directives | 04 | `//gocpp:pkg-config`, `link`, `cflags`, `ldflags`, `extern-c`, `no-extern-c`. |
-| functions without a body | 04 | Native functions: the body is in a C or C++ file of the package. |
+| functions without a body | 04 | Extern functions (`//gocpp:extern`: declared in the `.gp` file, defined in C or C++) and the native functions of the standard library (`//gocpp:native`). |
 | module headers | 04 | `import "github.com/ocornut/imgui/imgui.h"`, and `import "<own module>/native/x.h"` for a header in the project. |
 | interfaces | 05 | Interface types, conversions to them, interface embedding. |
 | any values | 05 | Exemption: the `...any` parameters of `fmt.Print`, `fmt.Println` and `fmt.Printf` take values of basic types from Phase 02, and those of `fmt.Sprint`, `fmt.Sprintf` and `fmt.Sprintln` from Phase 03. A `nil` argument needs Phase 05. |

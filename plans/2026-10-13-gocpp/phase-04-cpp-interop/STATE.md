@@ -353,3 +353,12 @@
   program or `<!-- illustration: reason -->`; `doc_*` tests must be shown in the docs; (5) TestZoo runs the header zoo (std + SDL2 + raylib +
   sqlite3 + zlib) on both compilers; (6) tests/README.md lists the host assumptions (little-endian, libstdc++ exception text); (7) `make` with a C
   enum/bool/number size goes through `as<int64_t>`; in real Go `make(map, -1)` does not panic and gocpp matches.
+
+- 2026-10-21 job 04.extern [x] merged (ADR-128, 3 review rounds): `//gocpp:extern [C|C++] [name]` on a bodyless func declares a
+  function that C or C++ defines; the declaration is written once into the package header (qualified names become namespace
+  blocks), conflicts are found at build, link errors name the `.gp` line. A bodyless func without the directive is now a checker
+  error (also for methods in user packages; `GOCPP_ALLOW_BODYLESS=1` is a switch of the Go test runner only); `int`/`uint` and
+  pointer results are refused in extern signatures; C++ keywords and `gp`/`std`/`gpkg_` names are refused. `demos/imgui-dx11` no
+  longer needs `win32forward.hpp`. Open: bindgen views are exempt from the checker through a marker comment (a user file can copy
+  it; the build then fails with a clear user error); the lowerer reports only the first bodyless declaration; `tools/fuzz/gaps.go`
+  lists the old emitter message.

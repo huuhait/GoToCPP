@@ -459,6 +459,9 @@ func (fg *funcGen) deferredFunc(c *ast.CallExpr) *types.Func {
 	if fn == nil || fn.Signature().Variadic() || fg.g.other(fn.Pkg()) == nil {
 		return nil
 	}
+	if _, ok := fg.g.externRef(c.Fun); ok {
+		return nil // it may be overloaded: a lambda that calls it picks the overload (extern.go)
+	}
 	if len(c.Args) == 1 && isTuple(fg.g.info.TypeOf(c.Args[0])) {
 		return nil
 	}

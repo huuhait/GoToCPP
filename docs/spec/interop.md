@@ -30,6 +30,7 @@ Typed interop (Phase 12, `-interop=typed`; [what it adds](#what-typed-interop-ad
 [Callbacks and panics](#callbacks-and-panics) (C function pointers, user data, C++ exceptions) ·
 [Interfaces and `fmt`](#cc-values-in-interfaces-and-fmt) ·
 [Building C and C++ sources](#building-c-and-c-sources) (directives, flags, `extern "C"`) ·
+[Functions that no header declares](#functions-that-no-header-declares) (`//gocpp:extern`) ·
 [Small helpers](#small-helpers-a-header-next-to-the-gp-file) ·
 [Errors in interop code](#errors-in-interop-code) ·
 [Windows](#windows-headers) ·
@@ -1742,8 +1743,10 @@ The rules for directives:
   like `// gocpp:link m` gets a warning, because it looks like a broken directive. To turn a
   directive off, comment it out: `// //gocpp:link m`.
 - Directives go before the `package` clause: in the package doc comment or in a comment of their
-  own. A `//gocpp:` line after the `package` clause is an error, except `//gocpp:native` in the doc
-  comment of a function of the standard library ([ADR-027](../adr/027-native-std-functions.md)).
+  own. A `//gocpp:` line after the `package` clause is an error, except `//gocpp:extern` in the doc
+  comment of a function that C or C++ defines ([Functions that no header declares](#functions-that-no-header-declares))
+  and `//gocpp:native` in the doc comment of a function of the standard library
+  ([ADR-027](../adr/027-native-std-functions.md)).
   In a doc comment, `gocpp fmt`
   (like gofmt) moves the directives to its end. It keeps only well-formed directives as they
   are: `//gocpp:Link m` would become the ordinary comment `// gocpp:Link m`. So `gocpp fmt`
@@ -2044,6 +2047,148 @@ Sources: [Phase 01 §2.4](../../plans/2026-10-13-gocpp/phase-01-frontend/README.
 [Phase 04 §2.9](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#29-building-the-cc-side),
 [Phase 06 §2.1](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod).
 
+## Functions that no header declares
+
+A `.gp` file can call only what an imported header declares. Sometimes the declaration is not there:
+Dear ImGui's `imgui_impl_win32.h` keeps `ImGui_ImplWin32_WndProcHandler` inside `#if 0` and tells you to copy
+the declaration into your own file, or a C file of the package defines a function and has no header at all.
+Declare the function in the `.gp` file, as Go declares a function that assembly defines: no body, and a
+`//gocpp:extern` line in the doc comment ([ADR-128](../adr/128-extern-functions-are-declared-in-gp-with-a-directive.md)).
+cgo's preamble does the same job with C text; here the declaration is Go, and the types are the C types of the
+header packages.
+
+<!-- test: tests/interop/doc_extern/clamp.c -->
+```c
+// clamp.c
+int clamp(int x, int lo, int hi) { return x < lo ? lo : x > hi ? hi : x; }
+```
+
+<!-- test: tests/interop/doc_extern/main.gp -->
+```go
+package main
+
+import "fmt"
+
+// clamp is defined in clamp.c; no header declares it.
+//
+//gocpp:extern C
+func clamp(x, lo, hi C.int) C.int
+
+func main() {
+	fmt.Println(clamp(15, 0, 10), clamp(-3, 0, 10))
+}
+```
+
+Output (`gocpp run .`, in the folder, so that `clamp.c` is built):
+
+<!-- output: tests/interop/doc_extern/main.gp -->
+```text
+10 0
+```
+
+**The directive.** `//gocpp:extern [C|C++] [name]` goes in the doc comment of a function without a body.
+
+| Directive | The C++ it declares |
+|---|---|
+| `//gocpp:extern` | a C++ function in the global namespace, named like the Go function |
+| `//gocpp:extern C` | `extern "C"`, named like the Go function |
+| `//gocpp:extern C c_name` | `extern "C"`, with another name (the Go name can be any name that Go allows) |
+| `//gocpp:extern ImGui::Begin` | the function `Begin` of the namespace `ImGui` (`namespace ImGui { ... }`), C++ linkage |
+| `//gocpp:extern ::sum` | the same as `sum`: a leading `::` is allowed |
+| `//gocpp:extern C++ C` | `C++` can be written out; it is the way to name a C++ function `C`, because a lone `C` means the linkage |
+
+The Go name is an ordinary Go name: exported when it starts with a capital letter (`lib.Add3` from another
+package), and it must be a name that is free in the package. The C++ name has no such rule, except two: it is
+spelled as written, so a C++ keyword (`new`, `class`, `int`) is an error, because no C or C++ function has such
+a name (a Go function named `new` gets `new_` in the C++ gocpp writes, which a C++ function does not have; name
+the C++ function in the directive: `//gocpp:extern C do_new`), and a qualified name does not start in the
+namespace `gp`, `std` or `gpkg_...`, which hold gocpp's own code.
+
+**Linkage is part of the name.** A function of a `.c` file has C linkage: write `//gocpp:extern C`. A C++
+function has the parameter types in its linker name, so the declaration must have the types of the definition,
+exactly. gocpp writes them from the signature (below), and the C++ compiler cannot check them against the
+definition (it is in another file), so a difference is a link error: `undefined reference to
+'plain_c_function(int)'`. The error is shown at the `.gp` line of the call with a hint that names the
+declaration and says what to try. Namespaces are written in the name (`shapes::inner::name`), overloads are
+several Go functions with one C++ name, and a `const` is spelled with a type trait, because Go has no `const`:
+`*std.add_const_t[C.int]` is `const int*` (import `"<type_traits>"`; `tests/interop/extern_cpp_file` runs
+all of it). `WINAPI` (`__stdcall`) is nothing on the 64-bit targets, so there is no calling convention to
+write; `__declspec(dllimport)` is not needed with MinGW's import libraries.
+
+**The signature.** The parameters and the result have a C++ spelling that does not depend on how gocpp holds
+a Go value, so only these types are allowed (anything else is a `gocpp check` error that says why):
+
+- a C or C++ type: `C.int`, `C.size_t`, `*C.char`, `**C.char`, a type of a header package (`windows.HWND`,
+  `windows.LRESULT`), a C++ class or template instance (`std.vector[C.int]`, by value or by pointer);
+- `unsafe.Pointer`, which is `void*`;
+- `bool`, the integer types with a size (`int8` ... `int64`, `uint8` ... `uint64`, `byte`, `rune`), `uintptr`,
+  `float32`, `float64`, and pointers to them (`*int32` is `int32_t*`: an out parameter that `&n` of a Go
+  variable fills). Go's `int` and `uint` are errors: they are 64 bits where a C `int` is 32, so a declaration
+  `func neg() int` over `int neg(void)` would give a wrong value without a word. Write `C.int`, `int32`, `int64`,
+  `C.long` or `C.longlong`, as the C function declares;
+- no result or one result. The result is not `unsafe.Pointer` and not a pointer to a number of Go (`*int32`): a
+  gocpp pointer is a managed object that can not point into memory of C. Write a pointer to a C type
+  (`*C.char`, `*C.int`), or let the C function fill a pointer parameter (a parameter may be either).
+
+A pointer is a raw C++ pointer in the declaration (`char*`, not `gp::cptr<char>`, which would be another C++
+type with another name). A Go `string`, slice, map, interface, func or channel, a struct or named type
+declared in Go, a variadic parameter and more than one result are errors. C's `...` is not supported
+(cgo does not call variadic functions either): write a C function with a fixed list of parameters that calls
+it, and declare that one. The function has no body, so there is no method form and no generic form.
+
+**What gocpp writes.** The declaration goes into the package's generated header, in the global namespace,
+after the package's C/C++ headers, so every file of the package and every package that includes the header
+sees it. `windows.HWND` and the other header types are written like everywhere else:
+
+```cpp
+// gpkg/command-line-arguments/pkg.hpp
+extern "C" int clamp(int, int, int);
+namespace shapes { double area(double, double); }
+::LRESULT ImGui_ImplWin32_WndProcHandler(::HWND, ::UINT, ::WPARAM, ::LPARAM);
+```
+
+A call is a call of the C++ name, like a call through a header package: untyped constants are C literals,
+a gocpp pointer is passed as the raw address, `&p` of a `*C.T` variable is an out parameter, the result of a
+call is a C value. Everything in [Values and operations](#values-and-operations) applies. The function is
+only called: `f := clamp` is an error (a Go func value over a C function has no representation), and so is
+passing it as a callback; wrap it in a Go function.
+
+**Declared twice.** The same function can be declared in several places (two packages that need it, or one
+package under two Go names: `//gocpp:extern C Twice` on `twice`). The declarations must be spelled alike, and
+`gocpp build` reports the ones that are not: two C declarations with another result or other parameters
+(`int32_t` and `int` count as different spellings, although they are one type: write the same one in both; the
+error says so when that is the only difference),
+a C and a C++ declaration with the same parameters (C++ rejects it), and two C++ declarations of the same
+parameters with other results. C++ declarations with other parameters are overloads. A function that a
+header also declares needs no directive; if you write one anyway, the C++ compiler sees both declarations in one file and compares them.
+
+**Where it works.** Packages and `//go:build` lines: the directive belongs to the function, so a file
+constraint (`ext_windows.gp`) decides whether it exists. `-interop=typed` and `-interop=opaque` give the same
+declarations. A package with only Go types and `C.int`-like built-ins in its extern functions needs no header
+import and no C++ compiler to be checked; a header type in the signature needs the header, as ever. The
+language server shows the function like any function of the package (hover, go-to-definition, also from another
+package), and `gocpp doc` prints its declaration and its comment (the directive is not part of the comment).
+`gocpp check` reports the signature errors, the uses that are not calls, and a function without a body that has no
+directive (`missing function body`); the declarations that disagree
+are found when the program is lowered, so `gocpp build` and `gocpp emit` report them.
+
+`defer` and `go` work on an extern call, also of an overloaded name: the call is made in a lambda, which lets the
+C++ compiler pick the overload.
+
+**Not supported.** Variables (`extern int counter;`), C varargs, a function used as a value, a struct passed
+by value that is declared in Go, and the standard library (it calls the runtime with `//gocpp:native`,
+[ADR-027](../adr/027-native-std-functions.md)).
+
+**Dear ImGui's Win32 backend.** The whole workaround of `demos/imgui-dx11` was a header with one declaration; now
+it is this, in the `.gp` file (`windows` is the package of `<windows.h>`):
+
+<!-- illustration: from demos/imgui-dx11/main.gp -->
+```go
+//gocpp:extern
+func ImGui_ImplWin32_WndProcHandler(hwnd windows.HWND, msg windows.UINT,
+	wparam windows.WPARAM, lparam windows.LPARAM) windows.LRESULT
+```
+
 ## Small helpers: a header next to the .gp file
 
 <!-- test: tests/interop/doc_small_helper/mathx.h -->
@@ -2070,6 +2215,9 @@ func main() { println(mathx.hypot3(1, 2, 2)) }
 - **Moving from a cgo preamble:** put the preamble's declarations in `helpers.h` and its
   definitions in `helpers.c` (or `.cpp`), import `"./helpers.h"`, and call `helpers.f(...)`
   instead of `C.f(...)`. `import "C"` and its preamble comment are an error that says so.
+- A function that a `.c` or `.cpp` file of the package defines and no header declares can be declared in
+  the `.gp` file instead, with `//gocpp:extern`
+  ([Functions that no header declares](#functions-that-no-header-declares)).
 - C macros that are statements (`do { ... } while (0)`) work as calls in statement position;
   other strange macros can be wrapped in such a helper header.
 - An inline preamble is on the backlog ([TODO](../../plans/2026-10-13-gocpp/TODO.md#ideas--backlog-not-scheduled)).

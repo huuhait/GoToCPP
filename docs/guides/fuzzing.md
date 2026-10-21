@@ -187,7 +187,7 @@ variadic bug below). What was found:
 | the generator looped forever on a source of bytes that was used up | **fixed** (`TestFromBytesEnds`) |
 | the sampled compile: clang refused the precompiled header because a second worker rewrote its header file | **fixed** in the kit |
 | a conversion between a string and a slice of a named byte type (`type MB byte; []MB(s)`, `string([]MB{1})`): "not supported yet: the conversion from string to []MB" (`[]byte` and `[]rune`, and named rune slices, work) | **open**, in `gaps.go`; the generator writes it only with `Options.Gaps` |
-| `func main()` without a body: the checker accepts it, the emitter says "not supported yet: a function without a body" | **open**, in `gaps.go` (a checker error "missing function body" would be right) |
+| `func main()` without a body: the checker accepted it, the emitter said "not supported yet: a function without a body" | **fixed** by ADR-128: the checker says "missing function body (...)"; the entry in `gaps.go` stays for the old message |
 | a call into a standard package that is not ported yet: "not supported yet: the call of strings.ToLower (gocpp lowers only ...)" while the checker accepts | **open**, the packages are listed in `gaps.go` (`unsafe` and the program's own packages are not: they stay findings) |
 | `gocpp fmt` on `//\n//go:build\npackage A`, on `func A(){ ;}` and on `macro A(){;}` is not idempotent in the first pass | **gofmt's own behavior** (the same with the real gofmt; macro uses its printer); the target compares against go/format and collapses the `{  }` of an empty body |
 | number literals (`0XFF`, `1E5`, `0123i`), a repeated import spec, a `;` statement, `func()()`, an implicit empty statement change under gofmt | harness: `fuzzkit.Dump` ignores them |

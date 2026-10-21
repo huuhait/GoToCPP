@@ -131,7 +131,12 @@ func (g *gen) isC(x ast.Expr) bool {
 // declare.
 func (g *gen) cRefOf(e ast.Expr) (cRef, bool) {
 	switch x := e.(type) {
+	case *ast.Ident:
+		return g.externRef(x) // a function declared with //gocpp:extern (extern.go)
 	case *ast.SelectorExpr:
+		if r, ok := g.externRef(x); ok {
+			return r, true // pkg.F of another package
+		}
 		if u := g.cUse(x); u != nil {
 			return g.cBase(u, x.Sel), true
 		}

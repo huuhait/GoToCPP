@@ -24,7 +24,7 @@ func threadsOf(t *testing.T, src string, library bool) (*gen, *threadInfo) {
 	if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fset, pkg := checkFile(t, gp)
+	fset, pkg := checkFileIgnoring(t, gp, "missing function body") // the natives of the cases
 	g := newGen(fset, pkg)
 	g.opts.Library = library
 	return g, g.threads()

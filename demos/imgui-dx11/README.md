@@ -14,8 +14,7 @@ and run on a real Windows PC, on the console desktop (2026-10-21).
 
 | File | What it is |
 |---|---|
-| `main.gp` | the program |
-| `win32forward.hpp` | the only C++ in the folder: one declaration, `ImGui_ImplWin32_WndProcHandler`. `imgui_impl_win32.h` leaves it inside `#if 0` (so that the header does not need `<windows.h>`), and gocpp can not declare a C++ function itself |
+| `main.gp` | the program, with the one declaration that the library's headers lack: `ImGui_ImplWin32_WndProcHandler` (see below) |
 | `gocpp.mod`, `gocpp.sum` | `require github.com/ocornut/imgui v1.91.5`, the `cxx` recipe that builds ImGui with `imgui_impl_win32.cpp` and `imgui_impl_dx11.cpp`, and the hash of the download |
 
 ## Build and run
@@ -31,6 +30,12 @@ session; a program started over ssh runs in session 0, which has no desktop (use
 task with `/it`). Closing the window ends the program, which prints `window closed, frames: N, clicks: N`.
 
 ## Notes
+
+- `imgui_impl_win32.h` keeps the declaration of `ImGui_ImplWin32_WndProcHandler` inside `#if 0` (so that the header
+  does not need `<windows.h>`) and tells users to copy it into their own file. In gocpp that is a function without a
+  body and a `//gocpp:extern` line in its doc comment (C++ linkage, the global namespace, the library's own parameter
+  types written with the `<windows.h>` header package): gocpp writes the declaration into the generated header, so the
+  folder has no C++ file ([ADR-128](../../docs/adr/128-extern-functions-are-declared-in-gp-with-a-directive.md)).
 
 - The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32` in an `if windows { ... }` block. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
   `#pragma comment(lib, ...)`, which MinGW ignores, so the recipe names it. `dxguid` holds the `IID_` constants.

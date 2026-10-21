@@ -486,6 +486,10 @@ type File struct {
 	// Directives are the //gocpp: directives of the file.
 	Directives []Directive
 
+	// Externs are the names of the valid extern functions of the file (//gocpp:extern, extern.go),
+	// in source order: the checker asks the imports of a package for them.
+	Externs []string
+
 	// Rewrite is what RewriteFile changed.
 	Rewrite *Rewrite
 
@@ -1429,8 +1433,11 @@ func (l *loader) process(p *Package) {
 			CheckReservedC(l.fset, f.AST, errs)
 		}
 		f.Directives = ParseDirectives(l.fset, f.AST, errs)
+		f.Externs = ExternNames(f.AST)
 		if !p.Std {
 			checkNativeStd(l.fset, f.AST, errs)
+		} else {
+			checkExternStd(l.fset, f.AST, errs)
 		}
 	})
 	for _, f := range p.Files {

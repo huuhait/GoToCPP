@@ -370,6 +370,9 @@ type converter struct {
 	// (gp_cgoh): fixMessage turns name.As[T](x) back into T(x).
 	names map[string]bool
 
+	// allowBodyless is Config.AllowBodyless.
+	allowBodyless bool
+
 	// name is the name for a new import of gocpp/cgoh, or "" until the
 	// first rewrite chooses it.
 	name string

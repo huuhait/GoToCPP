@@ -77,7 +77,7 @@ type methodInfo struct {
 func (g *gen) collectMethod(d *ast.FuncDecl) {
 	switch {
 	case d.Body == nil:
-		g.unsupported(d.Pos(), "a method without a body")
+		g.missingBody(d)
 		return
 	case d.Name.Name == "_":
 		return // can't be called: nothing to write

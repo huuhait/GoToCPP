@@ -250,6 +250,11 @@ func (c *checkCommand) run(patterns []string) int {
 // tests that say "// std-internal:".
 const allowInternalEnv = "GOCPP_ALLOW_INTERNAL"
 
+// allowBodylessEnv names the environment variable that turns the error "missing function body"
+// off (check.Config.AllowBodyless): the runner of Go's own test files (tools/gotest) sets it,
+// since Go compiles those tests, which declare functions for assembly, and never links them.
+const allowBodylessEnv = "GOCPP_ALLOW_BODYLESS"
+
 // allErrorsEnv names the environment variable that makes every command print all the errors of a
 // package, not the first 10.
 const allErrorsEnv = "GOCPP_TEST_ALL_ERRORS"
@@ -328,7 +333,8 @@ func (c *checkCommand) check(patterns []string) (*load.Program, *check.Result, i
 	// terminal's signal doesn't reach, so the canceled context is what
 	// kills it. Then gocpp prints nothing more and dies of the signal
 	// (stopStatus), like build and run.
-	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig, Env: c.env, NoDerivedBodies: c.noDerived}
+	cfg := check.Config{Phase: phase, GOOS: c.goos, GOARCH: c.goarch, Context: c.ctx, PkgConfig: c.pkgConfig, Env: c.env, NoDerivedBodies: c.noDerived,
+		AllowBodyless: os.Getenv(allowBodylessEnv) == "1"}
 	if c.kinds {
 		paths := lower.ProbePaths(prog)
 		cfg.Probe = func(ctx context.Context, cxx build.CXX, dir string, flags, includes, cands []string) (interop.Result, error) {

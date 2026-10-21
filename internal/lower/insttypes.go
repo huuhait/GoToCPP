@@ -128,7 +128,7 @@ func (g *gen) recordGenericMethod(d *ast.FuncDecl, fn *types.Func, named *types.
 		return
 	}
 	if d.Body == nil {
-		g.unsupported(d.Pos(), "a method without a body")
+		g.missingBody(d)
 		return
 	}
 	gt.methods = append(gt.methods, &genericFunc{fn: fn, decl: d, owner: g})

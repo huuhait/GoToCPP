@@ -257,8 +257,8 @@ func main() {
 		want: []string{"4:8: C types and helpers are not supported yet (Phase 04)"}},
 	{name: "directives", phase: 4, src: "// Command x.\n//\n//gocpp:link m\npackage main\n\nfunc main() {}\n",
 		want: []string{"3:1: //gocpp: directives are not supported yet (Phase 04)"}},
-	{name: "functions without a body", phase: 4, src: "package main\n\nfunc add(a, b int) int\n\nfunc main() {\n\tprintln(add(1, 2))\n}\n",
-		want: []string{"3:6: functions without a body are not supported yet (Phase 04)"}},
+	{name: "functions without a body", phase: 4, src: "package main\n\n//gocpp:extern C\nfunc add(a, b int32) int32\n\nfunc main() {\n\tprintln(add(1, 2))\n}\n",
+		want: []string{"4:6: functions without a body are not supported yet (Phase 04)"}},
 	{name: "unsafe.Sizeof", phase: 3, src: "package main\n\nimport \"unsafe\"\n\nfunc main() {\n\tprintln(unsafe.Sizeof(1))\n}\n",
 		want: []string{"3:8: package unsafe is not available yet (Phase 03)"}},
 	{name: "unsafe.Sizeof/dot import", phase: 3, src: "package main\n\nimport . \"unsafe\"\n\nfunc main() {\n\tprintln(Sizeof(1))\n}\n",
@@ -408,7 +408,7 @@ func main() {
 		want: []string{"3:1: //gocpp:no-win32-defaults is not supported yet (Phase 14)"}},
 
 	// Never.
-	{name: "go:linkname", phase: Never, src: "package main\n\nimport _ \"unsafe\"\n\n//go:linkname now time.now\nfunc now() int\n\nfunc main() {}\n",
+	{name: "go:linkname", phase: Never, src: "package main\n\nimport _ \"unsafe\"\n\n//go:linkname now time.now\nfunc now() int { return 0 }\n\nfunc main() {}\n",
 		want: []string{"5:1: //go:linkname is not supported in gocpp"}},
 	{name: "net/http", phase: Never, src: "package main\n\nimport \"net/http\"\n\nfunc main() {}\n",
 		want: []string{"3:8: package net/http is not supported in gocpp"}},

@@ -124,6 +124,13 @@ type Config struct {
 	// with the signatures that every caller needs.
 	NoDerivedBodies bool
 
+	// AllowBodyless accepts a function without a body and without //gocpp:extern in a package of
+	// the program. The default is the error "missing function body" (externfuncs.go), like Go's
+	// compiler for a package without assembly files. The runner of Go's own test files
+	// (tools/gotest) sets it: Go compiles those tests, which declare functions for assembly, and
+	// never links them.
+	AllowBodyless bool
+
 	// Constants, if not nil, gives the compile-time values of the C/C++ names that a package uses where
 	// Go needs a constant (an array length, a const declaration, a case, a shift count), so that
 	// [cstdio.BUFSIZ]byte and case cstdio.EOF: type-check with the stock go/types: Check puts the
@@ -484,7 +491,8 @@ func Check(prog *load.Program, cfg Config) *Result {
 				perrs = append(slices.Clone(perrs), cerrs...)
 			}
 			focused := cfg.Focus != "" && stripOtherBodies(lp, cfg.Focus)
-			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs, cfg.SkipOpaque && !c)
+			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs, cfg.SkipOpaque && !c,
+				cfg.AllowBodyless)
 			p.Focused = focused
 			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
@@ -597,16 +605,17 @@ func hasHardErrors(l *diag.List) bool {
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool) *Package {
-	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil, false)
+	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil, false, false)
 }
 
 // checkPackageConsts is checkPackage for a package whose C/C++ constants were put into the tree
 // (cs: constsubst.go): a substitution in a place that Go allows a variable in (a case, a shift
 // count) that go/types rejects is taken back, and the package is checked again.
 func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
-	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst, noOpaque bool) *Package {
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst, noOpaque bool, allowBodyless bool) *Package {
 	cv := newConverter(fset, lp, cgoh)
 	cv.consts = cs
+	cv.allowBodyless = allowBodyless
 	mp := newMustPass(fset, lp) // the ! forms of Phase 10 (must.go), or nil
 	// The ! forms and #Derive make code that go/types can type with no error
 	// while a rewrite or an error of ours leaves invalid types.
@@ -789,6 +798,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 		checkSizeCParts(fset, files, info, cppNames, c.checkExprError)
 	}
 	checkPrintSlices(fset, pkg, files, info, c.checkExprError)
+	checkExternFuncs(fset, lp, files, info, cv.allowBodyless, c.checkExprError)
 	falseErrs := newFalseErrors(pkg, info, files)
 	inPlainMacroUse := func(token.Pos) bool { return false }
 	if plain := plainMacroUses(lp, files, info); plain != nil {

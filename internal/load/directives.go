@@ -110,7 +110,7 @@ func ParseDirectives(fset *token.FileSet, f *ast.File, errs *diag.List) []Direct
 				continue
 			}
 			if c.Slash > f.Package {
-				if isNativeComment(c) {
+				if isNativeComment(c) || isExternComment(c) {
 					continue // a function directive, checked below
 				}
 				errs.Errorf(fset.Position(c.Slash), "//gocpp: directives must come before the package clause")
@@ -122,6 +122,7 @@ func ParseDirectives(fset *token.FileSet, f *ast.File, errs *diag.List) []Direct
 		}
 	}
 	checkNative(fset, f, errs)
+	checkExtern(fset, f, errs)
 	return dirs
 }
 
@@ -210,6 +211,12 @@ func (p *directiveParser) unknown(name, rest string) {
 		}
 	} else {
 		msg = fmt.Sprintf("unknown //gocpp: directive %q", name)
+	}
+	if name == "extern" || name == "native" {
+		// (the directives of a function: externOf, nativeOf)
+		p.errorf(0, "//gocpp:%s must be in the doc comment of a function, after the package clause",
+			name)
+		return
 	}
 	if names := suggestDirective(name); len(names) > 0 {
 		for i, n := range names {

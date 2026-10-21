@@ -128,6 +128,7 @@ type gen struct {
 
 	consts   []*types.Const // the exported constants, in source order
 	funcs    []*funcInfo    // the functions with bodies, in source order
+	externs  []*externInfo  // the extern functions (extern.go), in source order
 	vars     []*types.Var   // the package variables, in source order (without _)
 	varExprs []ast.Expr     // the initial values of the package variables (their closures declare local types)
 	initFns  []string       // the C++ names of the init functions, in source order
@@ -486,9 +487,13 @@ func (g *gen) collectFunc(d *ast.FuncDecl) {
 // qualified name from every package; nothing is written for it. Any other function without a
 // body is a declaration stub, which no program that gets here has (cmd/gocpp: notLowered).
 func (g *gen) collectNative(d *ast.FuncDecl) {
+	if ext, ok := load.ExternFunc(d); ok {
+		g.collectExtern(d, ext) // extern.go
+		return
+	}
 	cxx, ok := load.NativeFunc(d)
 	if !ok {
-		g.unsupported(d.Pos(), "a function without a body")
+		g.missingBody(d)
 		return
 	}
 	fn, _ := g.info.Defs[d.Name].(*types.Func)
@@ -500,6 +505,21 @@ func (g *gen) collectNative(d *ast.FuncDecl) {
 		cxx = "::" + cxx
 	}
 	g.names[fn] = cxx
+}
+
+// missingBody reports the function or method d, which has no body, no //gocpp:extern and (for a
+// function) no //gocpp:native. gocpp check reports it already (internal/check/externfuncs.go),
+// so a program gets here only when the check was told to accept it (Config.AllowBodyless) or the
+// file is a view that gocpp bindgen wrote (ADR-092); it is the user's error, not a bug.
+func (g *gen) missingBody(d *ast.FuncDecl) {
+	msg := "missing function body (to declare a function that C or C++ defines, " +
+		"put //gocpp:extern in its doc comment)"
+	for _, f := range g.pkg.Load.Files {
+		if f.AST.FileStart <= d.Pos() && d.Pos() < f.AST.FileEnd && load.IsBindgenView(f.AST) {
+			msg = "missing function body (a gocpp bindgen view is for reading; it is not built)"
+		}
+	}
+	g.userError(d.Name.Pos(), "%s", msg)
 }
 
 func (g *gen) collectGen(d *ast.GenDecl) {

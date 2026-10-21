@@ -12,6 +12,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // A Program is the set of packages that are lowered together into the split layout (Phase 06
@@ -49,6 +50,11 @@ type Program struct {
 	localOrigins  map[*types.Named]*localInfo // the types declared in generic functions (localtypes.go)
 	localTagOf    map[*types.TypeName]string  // their origins' tags
 	instTypeNames map[string]string
+
+	// The extern functions of the program (extern.go): their declarations by function, and the
+	// declarations seen so far by C++ name, to compare the later ones with.
+	externFuncs map[*types.Func]load.ExternDecl
+	externSeen  map[string][]externRecord
 }
 
 // A PackageInput is a type-checked package for NewProgram, with what the C++ compiler's probes

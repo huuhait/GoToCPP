@@ -255,6 +255,7 @@ func valueCycleB(r *Rec) { valueCycleC(r) } // borrow: r; pure; nopureV
 func valueCycleC(r *Rec) { valueCycleA(r); r.name = "changed" } // borrow: r; pure; nopureV
 
 // A native without a summary is NOT pure (even when no parameter itself escapes).
+//gocpp:extern C
 func opaque()
 func callsNative(n *Node) { opaque(); println(n.val) } // borrow: n
 

@@ -55,6 +55,9 @@ func (m cppErrorsMode) full() bool { return m == "full" }
 // uses C (the loader adds import "C" to such a file).
 func pkgUsesCpp(pkg *check.Package) bool {
 	for _, f := range pkg.Load.Files {
+		if len(f.Externs) > 0 {
+			return true // it declares C or C++ functions (//gocpp:extern)
+		}
 		if f.Info != nil && len(f.Info.Includes) > 0 {
 			return true
 		}
@@ -103,6 +106,7 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 	for _, u := range pkg.Consts {
 		set.add(filepath.Clean(u.Pos.Filename), u.Pos.Line)
 	}
+	externs := check.ExternSet(pkg.Load)
 	for _, f := range pkg.Load.Files {
 		if f.Info != nil {
 			for _, inc := range f.Info.Includes {
@@ -114,6 +118,15 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 		}
 		if f.AST == nil {
 			continue
+		}
+		for _, decl := range f.AST.Decls {
+			// The declaration of an extern function is written into the header as C++.
+			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body == nil && load.HasExternDirective(fd) {
+				from, to := fset.Position(fd.Pos()), fset.Position(fd.End())
+				for l := from.Line; l <= to.Line; l++ {
+					set.add(filepath.Clean(from.Filename), l)
+				}
+			}
 		}
 		var stack []ast.Node
 		ast.Inspect(f.AST, func(n ast.Node) bool {
@@ -131,7 +144,7 @@ func cppLines(fset *token.FileSet, pkg *check.Package) cppLineSet {
 				}
 			}
 			e, ok := n.(ast.Expr)
-			if !ok || !isCppExpr(pkg, e) {
+			if !ok || !isCppExpr(pkg, e) && !isExternCall(pkg, externs, e) {
 				return true
 			}
 			// The parts of e are on its lines: Inspect doesn't go into
@@ -174,6 +187,26 @@ func isCppExpr(pkg *check.Package, e ast.Expr) bool {
 	}
 	tv, ok := pkg.Info.Types[e]
 	return ok && tv.IsValue() && tv.Type != nil && lower.HasC(tv.Type)
+}
+
+// isExternCall reports whether e is the call of a function declared with //gocpp:extern (externs
+// is check.ExternSet), whose C++ is a call of a C or C++ function, as a header package's.
+func isExternCall(pkg *check.Package, externs map[string]bool, e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(externs) == 0 || pkg.Info == nil {
+		return false
+	}
+	var id *ast.Ident
+	switch f := ast.Unparen(call.Fun).(type) {
+	case *ast.Ident:
+		id = f
+	case *ast.SelectorExpr:
+		id = f.Sel
+	default:
+		return false
+	}
+	fn, _ := pkg.Info.Uses[id].(*types.Func)
+	return check.IsExternFunc(externs, fn)
 }
 
 // A cxxLoc is a place in a file that the compiler names, without the
@@ -932,7 +965,10 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 		it = "them"
 	}
 	var hints []string
-	if d.files && folderHasSources(pkg.Load.Dir) {
+	externHints, allExtern := d.externLinkHints(pkg, refs)
+	if allExtern {
+		hints = append(hints, externHints...)
+	} else if d.files && folderHasSources(pkg.Load.Dir) {
 		hints = append(hints, fmt.Sprintf("(the folder has C or C++ files, and gocpp %s of named .gp files leaves them out: gocpp %s . builds them too)", d.name, d.name))
 	} else {
 		hints = append(hints, fmt.Sprintf("(the headers declare %s, but the program links no definition: add the library with //gocpp:link or //gocpp:pkg-config, or the C or C++ file that defines %s to the package)", it, it))
@@ -940,6 +976,9 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 	var undefined []string
 	for _, r := range refs {
 		undefined = append(undefined, r.sym)
+	}
+	if !allExtern {
+		hints = append(hints, externHints...)
 	}
 	hints = append(hints, externCClashHints(pkg.Load.Dir, pkg.ExternC, pkg.Load.CXXFiles, undefined)...)
 	hints = append(hints, noRecipeHints(pkg, e.Output)...)
@@ -976,6 +1015,90 @@ func (d *driver) cppLinkFailed(pkg *check.Package, e *build.CompileError, env bu
 		fmt.Fprintf(d.stderr, "\t%s\n", h)
 	}
 	return true
+}
+
+// externLinkHints returns the hints for the undefined symbols that are functions declared with
+// //gocpp:extern: the .gp line of the declaration and what the symbol says about the linkage. all
+// says that every undefined symbol is one of those (then the hint of headers that declare
+// symbols does not apply).
+func (d *driver) externLinkHints(pkg *check.Package, refs []undefinedRef) (hints []string, all bool) {
+	decls := externDecls(d.check.fset, pkg.Load, make(map[*load.Package]bool), nil)
+	if len(decls) == 0 {
+		return nil, false
+	}
+	all = true
+	seen := make(map[string]bool)
+	for _, r := range refs {
+		x, ok := matchExtern(decls, r.sym)
+		if !ok {
+			all = false
+			continue
+		}
+		if seen[x.decl.Name] {
+			continue
+		}
+		seen[x.decl.Name] = true
+		at := fmt.Sprintf("%s:%d", d.shortenDir(pkg, x.pos.Filename), x.pos.Line)
+		switch {
+		case x.decl.CLinkage:
+			hints = append(hints, fmt.Sprintf("(%s is declared with //gocpp:extern C at %s, and no file of the "+
+				"program defines the C function %s: add the C or C++ file that defines it to the package, "+
+				"or its library with //gocpp:link or //gocpp:pkg-config)", x.goName, at, x.decl.Name))
+		default:
+			hints = append(hints, fmt.Sprintf("(%s is declared with //gocpp:extern at %s as the C++ function %s: "+
+				"nothing in the program defines that function with these parameter types. If a C file "+
+				"defines it, write //gocpp:extern C; if C++ does, the parameter types must be exactly the "+
+				"definition's (const and references are part of a C++ name); else add the file or the "+
+				"library that defines it)", x.goName, at, strings.TrimPrefix(r.sym, "::")))
+		}
+	}
+	return hints, all
+}
+
+// An externDeclInfo is an extern function of the program with the place of its declaration.
+type externDeclInfo struct {
+	goName string
+	decl   load.ExternDecl
+	pos    token.Position
+}
+
+// externDecls lists the extern functions of p and of the packages it imports.
+func externDecls(fset *token.FileSet, p *load.Package, seen map[*load.Package]bool,
+	out []externDeclInfo) []externDeclInfo {
+	if p == nil || seen[p] {
+		return out
+	}
+	seen[p] = true
+	for _, f := range p.Files {
+		if f.AST == nil || len(f.Externs) == 0 {
+			continue
+		}
+		for _, decl := range f.AST.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body != nil {
+				continue
+			}
+			if x, ok := load.ExternFunc(fd); ok {
+				pos := fset.Position(fd.Name.Pos())
+				out = append(out, externDeclInfo{goName: fd.Name.Name, decl: x, pos: pos})
+			}
+		}
+	}
+	for _, imp := range p.Imports {
+		out = externDecls(fset, imp, seen, out)
+	}
+	return out
+}
+
+// matchExtern finds the extern function that the undefined symbol sym (as the linker prints it:
+// add3, or ImGui::Handler(HWND__*, unsigned int)) is.
+func matchExtern(decls []externDeclInfo, sym string) (externDeclInfo, bool) {
+	for _, x := range decls {
+		if sym == x.decl.Name || strings.HasPrefix(sym, x.decl.Name+"(") {
+			return x, true
+		}
+	}
+	return externDeclInfo{}, false
 }
 
 // folderHasSources reports whether the folder dir has C or C++ files

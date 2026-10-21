@@ -283,6 +283,7 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 	}
 	sec.add(false, concepts...)
 	// 6. what the translation units need
+	sec.add(true, g.externDecls()...) // (global: the functions of //gocpp:extern, extern.go)
 	var tail []cppir.Decl
 	if parts != nil {
 		if !hasInst {
@@ -334,6 +335,11 @@ func (g *gen) headerNeedsC() bool {
 	}
 	for _, f := range g.funcs {
 		if !complete(f.obj.Type()) {
+			return true
+		}
+	}
+	for _, x := range g.externs {
+		if !complete(x.fn.Type()) {
 			return true
 		}
 	}

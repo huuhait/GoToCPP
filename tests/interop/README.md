@@ -50,6 +50,15 @@ that requires a header-only library, and `vendor/modules.txt` and `vendor/<modul
 writes them), which uses the library's header by its path in `vendor/` (job 6.1c; `docs/spec/modules.md`). The `// phase:`, `// Output:` and `// ERROR`
 lines are those of `main.gp`; the other files of the folder are not tests.
 
+The **extern function** tests (`//gocpp:extern`, ADR-128) declare C and C++ functions in the `.gp` file that no header
+declares: [extern_c_file/](extern_c_file) (a `.c` file; C types, out parameters, `unsafe.Pointer`),
+[extern_cpp_file/](extern_cpp_file) (a `.cpp` file: a namespace, overloads, `std.add_const_t`, C linkage),
+[extern_link_c/](extern_link_c) and [extern_link_cpp/](extern_link_cpp) (the link errors and their hints),
+[extern_conflict.gp](extern_conflict.gp) (two declarations that disagree),
+[extern_defer_go/](extern_defer_go) (the arguments of `defer` and `go` are evaluated at the statement), [extern_call_types.gp](extern_call_types.gp),
+and [doc_extern/](doc_extern) (the example of the interop guide). `tests/pkgs/extern_two_packages` declares the same
+function in two packages, `tests/golden/extern` is the generated header, and `tests/errors/extern_*` the signature rules.
+
 [module_header_own/](module_header_own), [module_header_required/](module_header_required) and
 [module_header_vendor/](module_header_vendor) and [module_header_plain/](module_header_plain) are the **module header** tests (Phase 06 step 6.1b): each
 folder has a `gocpp.mod`, and `main.gp` imports headers by a module path

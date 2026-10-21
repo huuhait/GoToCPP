@@ -32,7 +32,7 @@ The [feature matrix](feature-matrix.md) lists every feature with the phase that 
 | [D8](#d8-map-order-is-random-as-in-go) | random map order | random, as in Go (a Swiss table with a seed for each map) | 03, 15 |
 | [D9](#d9-64-bit-targets-only) | `int` is 32 or 64 bits | 64-bit targets only | 01, 02 |
 | [D10](#d10-data-races-can-break-reference-counts) | data races are undefined | they can also corrupt reference counts | 03, 06, 08 |
-| [D11](#d11-gocpp-directives-instead-of-cgo-lines) | `#cgo` lines | `//gocpp:` directives and `gocpp.mod` | 01, 04, 06, 14 |
+| [D11](#d11-gocpp-directives-instead-of-cgo-lines) | `#cgo` lines, the cgo preamble | `//gocpp:` directives and `gocpp.mod`; `//gocpp:extern` declares a C/C++ function | 01, 04, 06, 14 |
 | [D12](#d12-must-for-errors) | `if err != nil` | also `!` (must) | 10 |
 | [D13](#d13-macros) | no macros | `macro` declarations and `#Name(...)` | 10 |
 | [D14](#d14-cc-values-follow-c-rules) | Go rules for every value | C++ rules for C/C++ values | 04 |
@@ -342,6 +342,20 @@ package game
   `no-win32-defaults` for Windows headers (Phase 14). An unknown directive is an error with a
   "did you mean" hint. Settings for the whole module go into `gocpp.mod`, which uses `go.mod`
   syntax. What each directive does: [interop.md](interop.md#building-c-and-c-sources).
+- **A function that C or C++ defines and no header declares:** cgo declares it in the preamble
+  comment. gocpp declares it in Go, as Go declares a function that assembly defines: no body, and
+  `//gocpp:extern [C|C++] [name]` in its doc comment, with C types in the signature. This is the one
+  directive that goes after the `package` clause besides `//gocpp:native` (standard library only):
+
+  ```go
+  //gocpp:extern C
+  func clamp(x, lo, hi C.int) C.int
+  ```
+
+  The function can only be called (not used as a value), has no variadic parameters, and its types
+  are C/C++ types, `unsafe.Pointer` and the number types of Go. gocpp writes the C++ declaration into
+  the package's header. Details: [interop.md](interop.md#functions-that-no-header-declares),
+  [ADR-128](../adr/128-extern-functions-are-declared-in-gp-with-a-directive.md).
 - **Phase:** [01](../../plans/2026-10-13-gocpp/phase-01-frontend/README.md#24-gocpp-directives-parsed-now-used-in-phases-04-and-06)
   (parsed and checked), [04](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#29-building-the-cc-side)
   (used for the build), [06](../../plans/2026-10-13-gocpp/phase-06-packages-build/README.md#21-the-module-file-gocppmod)

@@ -584,6 +584,12 @@ func TestBorrowQualifiedForeignSnapshots(t *testing.T) {
 
 func borrowForeignProgram(t *testing.T, sources map[string]string) *Program {
 	t.Helper()
+	return borrowForeignProgramWith(t, sources, func(*check.Config) {})
+}
+
+// borrowForeignProgramWith is borrowForeignProgram for a check that change configures.
+func borrowForeignProgramWith(t *testing.T, sources map[string]string, change func(*check.Config)) *Program {
+	t.Helper()
 	directory := t.TempDir()
 	for name, source := range sources {
 		path := filepath.Join(directory, name)
@@ -601,7 +607,7 @@ func borrowForeignProgram(t *testing.T, sources map[string]string) *Program {
 		GOOS:   "linux",
 		GOARCH: "amd64",
 	}, ".")
-	result := check.Check(program, check.Config{
+	config := check.Config{
 		Phase: check.LastPhase,
 		CXX:   func(context.Context) (build.CXX, error) { return build.CXX{}, nil },
 		Probe: func(
@@ -616,7 +622,9 @@ func borrowForeignProgram(t *testing.T, sources map[string]string) *Program {
 			}
 			return interop.Result{Kinds: kinds}, nil
 		},
-	})
+	}
+	change(&config)
+	result := check.Check(program, config)
 	if program.Errors.HasErrors() {
 		t.Fatalf("load errors: %v", program.Errors.Diagnostics())
 	}

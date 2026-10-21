@@ -1,0 +1,2 @@
+// clamp.c
+int clamp(int x, int lo, int hi) { return x < lo ? lo : x > hi ? hi : x; }

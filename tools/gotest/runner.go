@@ -200,7 +200,10 @@ func (r *Runner) execLimit(limit int, dir string, env []string, timeout time.Dur
 // give an error naming the phase otherwise, which hides what the test is
 // about).
 func (r *Runner) gocppEnv() []string {
-	env := []string{"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail", "GOCPP_GATE_PHASE=15", "GOFLAGS=", "GOENV=off"}
+	// GOCPP_ALLOW_BODYLESS: Go compiles a test file with a function declared for assembly (func f()
+	// with no body) and never links it, where gocpp check says "missing function body".
+	env := []string{"GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_WORKLOST=fail", "GOCPP_GATE_PHASE=15",
+		"GOCPP_ALLOW_BODYLESS=1", "GOFLAGS=", "GOENV=off"}
 	if r.GocppCache != "" {
 		env = append(env, "XDG_CACHE_HOME="+r.GocppCache)
 	}

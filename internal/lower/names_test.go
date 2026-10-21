@@ -21,6 +21,15 @@ import (
 // phase), and fails the test if it has errors.
 func checkFile(t *testing.T, gp string) (*token.FileSet, *check.Package) {
 	t.Helper()
+	return checkFileIgnoring(t, gp, "")
+}
+
+// checkFileIgnoring is checkFile that lets the errors with the message ignore pass ("" ignores
+// none). The tests of the analyses use functions without a body for a native function of the
+// standard library, which a user package (this one) can only declare with //gocpp:extern and a
+// signature of C types.
+func checkFileIgnoring(t *testing.T, gp, ignore string) (*token.FileSet, *check.Package) {
+	t.Helper()
 	lcfg := load.Config{Dir: filepath.Dir(gp), Stdlib: stdlib.FS(), GoStd: stdlib.IsStd, GOOS: "linux", GOARCH: "amd64"}
 	prog := load.Load(lcfg, gp)
 	r := check.Check(prog, check.Config{Phase: check.LastPhase})
@@ -28,11 +37,13 @@ func checkFile(t *testing.T, gp string) (*token.FileSet, *check.Package) {
 		t.Fatalf("%d root packages", len(prog.Roots))
 	}
 	pkg := r.Package(prog.Roots[0])
-	if pkg.Errors.HasErrors() || prog.Errors.HasErrors() {
-		var b bytes.Buffer
-		for _, d := range append(prog.Errors.Diagnostics(), pkg.Errors.Diagnostics()...) {
+	var b bytes.Buffer
+	for _, d := range append(prog.Errors.Diagnostics(), pkg.Errors.Diagnostics()...) {
+		if ignore == "" || !strings.Contains(d.Msg, ignore) {
 			b.WriteString(d.Pos.String() + ": " + d.Msg + "\n")
 		}
+	}
+	if b.Len() > 0 {
 		t.Fatalf("the program has errors:\n%s", b.String())
 	}
 	return r.Fset, pkg

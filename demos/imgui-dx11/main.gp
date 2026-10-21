@@ -1,9 +1,10 @@
 // Dear ImGui on Windows with its Win32 and Direct3D 11 backends: a Win32
 // window (window class, window procedure and message loop written in gocpp),
 // a D3D11 device with a swap chain, and ImGui drawing into it. Nothing in
-// this program is C++ source except one forward declaration (win32forward.hpp).
-// The library is downloaded by `gocpp get` and built from the cxx recipe in
-// gocpp.mod. See README.md for how to build and run it.
+// this folder is C++ source: the one function that imgui_impl_win32.h does
+// not declare is declared in this file with //gocpp:extern. The library is
+// downloaded by `gocpp get` and built from the cxx recipe in gocpp.mod. See
+// README.md for how to build and run it.
 package main
 
 import (
@@ -17,10 +18,18 @@ import (
 	"github.com/ocornut/imgui/backends/imgui_impl_win32.h"
 	"github.com/ocornut/imgui/imgui.h"
 
-	"./win32forward.hpp"
 	"<d3d11.h>"
 	"<windows.h>"
 )
+
+// ImGui_ImplWin32_WndProcHandler is defined in imgui_impl_win32.cpp. imgui_impl_win32.h keeps its
+// declaration inside "#if 0" (so that the header does not need <windows.h>) and tells users to copy
+// it into their own file: here it is copied into the .gp file. The directive has C++ linkage (the
+// default) and the global namespace, as the library defines the function.
+//
+//gocpp:extern
+func ImGui_ImplWin32_WndProcHandler(hwnd windows.HWND, msg windows.UINT,
+	wparam windows.WPARAM, lparam windows.LPARAM) windows.LRESULT
 
 // The Direct3D objects live as long as the window.
 var (
@@ -70,7 +79,7 @@ func createDevice(hwnd windows.HWND) bool {
 // wndProc gives every message to ImGui first (mouse, keyboard, focus), then
 // handles resizing, so that the swap chain follows the window.
 func wndProc(hwnd windows.HWND, msg windows.UINT, wparam windows.WPARAM, lparam windows.LPARAM) windows.LRESULT {
-	if win32forward.ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam) != 0 {
+	if ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam) != 0 {
 		return 1
 	}
 	switch msg {

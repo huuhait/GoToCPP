@@ -272,7 +272,7 @@ var features = [numFeatures]feature{
 		Notes:  "`//gocpp:pkg-config`, `link`, `cflags`, `ldflags`, `extern-c`, `no-extern-c`."},
 	{id: featNativeFuncs, Name: "functions without a body", Plural: true, Phase: 4,
 		Detect: "a func declaration without a body",
-		Notes:  "Native functions: the body is in a C or C++ file of the package."},
+		Notes:  "Extern functions (`//gocpp:extern`: declared in the `.gp` file, defined in C or C++) and the native functions of the standard library (`//gocpp:native`)."},
 	{id: featModuleHeaders, Name: "module headers", Plural: true, Phase: 4,
 		Detect: "a local header import whose first path element has a dot (load.IsModuleHeaderPath)",
 		Notes:  "`import \"github.com/ocornut/imgui/imgui.h\"`, and `import \"<own module>/native/x.h\"` for a header in the project."},

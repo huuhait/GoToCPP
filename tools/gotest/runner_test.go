@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,7 +18,8 @@ import (
 // that prints the //OUT: lines of the source (and exits 3 on EXIT3, sleeps
 // on SLEEP, and records its pid in a file named by PIDFILE); a source with
 // BUILDFAIL does not build. check prints a diagnostic for every //DIAG:
-// line of the source and exits 1 when there is one.
+// line of the source and exits 1 when there is one; like the real checker, it also reports a
+// function without a body ("func f()") unless GOCPP_ALLOW_BODYLESS=1.
 const fakeGocpp = `#!/bin/sh
 cmd=$1; shift
 case "$cmd" in
@@ -60,6 +62,7 @@ check)
     n=$((n+1))
     case "$line" in
       *//DIAG:*) any=1; echo "./$(basename "$src"):$n:1: ${line##*//DIAG:}";;
+      'func '[a-z]'()') if [ "$GOCPP_ALLOW_BODYLESS" != 1 ]; then echo "./$(basename "$src"):$n:6: missing function body"; fi;;
     esac
   done > "${TMPDIR:-/tmp}/fake-check.$$"
   cat "${TMPDIR:-/tmp}/fake-check.$$"
@@ -361,6 +364,7 @@ func TestCompileWithBodylessFunc(t *testing.T) {
 		"nbd.go":       "// compiledir\n\npackage ignored\n",
 		"nbd.dir/a.go": "package a\n\nfunc g()\n",
 		"bad.go":       "// compile\n\npackage p\n\nfunc f()\n\n//DIAG:no good\n",
+		"ec.go":        "// errorcheck\n\npackage p\n\nfunc f()\n\nvar a = b // ERROR \"undefined: b\" //DIAG:undefined: b\n",
 	})
 	if res := runOne(t, r, "nb.go", "compile"); res.Outcome != Pass {
 		t.Errorf("compile: %+v", res)
@@ -370,6 +374,20 @@ func TestCompileWithBodylessFunc(t *testing.T) {
 	}
 	if res := runOne(t, r, "bad.go", "compile"); res.Outcome != Fail || res.Stage != "check" {
 		t.Errorf("a bodyless function does not hide errors: %+v", res)
+	}
+	if res := runOne(t, r, "ec.go", "errorcheck"); res.Outcome != Pass {
+		t.Errorf("errorcheck: %+v", res)
+	}
+}
+
+// TestRunnerAllowsBodylessFunctions: gocpp check refuses a function without a body, and Go's test
+// files declare them for assembly, so every gocpp command of the runner (also the ones for the
+// packages of a .dir test and for the output of a generator) must ask for them to be accepted.
+func TestRunnerAllowsBodylessFunctions(t *testing.T) {
+	r := newTestRunner(t, nil)
+	env := r.gocppEnv()
+	if !slices.Contains(env, "GOCPP_ALLOW_BODYLESS=1") {
+		t.Errorf("the environment of gocpp lacks GOCPP_ALLOW_BODYLESS=1: %v", env)
 	}
 }
 
