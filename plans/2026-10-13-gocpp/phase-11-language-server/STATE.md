@@ -32,6 +32,7 @@
 - [~] 11.14 Fresh-typing and completion speed pass (ADR-115)
   - [x] Guarded focused checks and quick publication: clean whole-net review, manager focused checks passed; line-mapped packages conservatively use full checks
   - [x] 11.14b Targeted current-implementation typing/completion measurements and a settle-active workload: independent review and manager recomputation passed; no code change warranted by the predeclared rule
+  - [x] 11.lspgap Guarded rename proofs (local name, type, field, method), focus memo keyed by content, unused-only opaque skip, GC headroom; ADR-119; clean three-round independent review
   - [ ] Consistent every-row gopls wins: eight measured rows meet the consistency rule, four small-project typing rows remain inconclusive; full-project/default-phase/platform acceptance remains open
 
 ## Exit criteria
@@ -274,3 +275,17 @@
   fixtures of the LSP tests are header-less and run with a missing GOCPP_CXX (a clang probe killed at server exit leaves the nix
   wrapper's cc-params file in TMPDIR; waiting for probes at shutdown is an optional TODO); (5) go-to-definition into module headers
   (job 6.1b) needs one early return in Pipeline.HeaderFile; limits for vendor/replace are in TODO.md.
+
+- 2026-10-21: 11.lspgap integrated from reviewed source `53a61766` after clean round-3 review.
+  Rename of a local name, a type, a field or a method that no interface, embedder or twin
+  struct can see is proved by scope/package facts and skips the scratch re-check; every
+  other form keeps the scratch check. The focus memo is keyed by path plus content hash
+  (last three); unused-only errors skip the opaque pass; the GC pacer keeps 96 MiB headroom
+  for small projects. Reviewer-reproduced rows (small/medium, one machine, gopls 0.21.1):
+  small keystroke-new p95 2.08 vs 2.38 ms, small rename-type 0.21 vs 0.56 ms, medium
+  rename-field 0.35 vs 9.2 ms, medium rename-type 0.30 vs 9.8 ms. The small `rename`
+  (function) row is single-sample and shows 0.5-1.4 ms outliers in about half the rounds,
+  so its p95 margin is not claimed (ADR-119). Large, C++, macro, hover, references and cold
+  rows, uncovered rename forms and the 1.5x shared-project criterion remain open.
+  Manager focused checks (gofmt, vet, internal/lsp/cache, rename/focus/idle-GC server tests)
+  passed; the flaky sweep test was fixed and ran 20 times clean in review.

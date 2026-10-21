@@ -19,7 +19,7 @@ import (
 // between two keys. So the server starts the cycle itself, when it has been
 // quiet for idleGCDelay and has allocated enough since the last cycle that
 // the pacer would soon do it anyway (idleGCGrowth of the live heap, at least
-// idleGCMinBytes). The pacer stays as it is (GOGC 100): a burst of requests
+// idleGCMinBytes). The pacer's own cycles stay (gcPercentFor sets their percent): a burst of requests
 // that never pauses, or a request that allocates more than the threshold, is
 // collected as before. The memory of an editing session is lower than with
 // the pacer alone: the heap is collected at 1.25 times the live heap, not at 2
@@ -175,21 +175,68 @@ func memoryLimitFor(live uint64) int64 {
 	return int64(max(memFloor, live/10*memFactor+memSlack))
 }
 
+// The pacer's GC percent. GOGC 100 collects when the heap has doubled, which for a small project is
+// every dozen keystrokes (a check allocates about a megabyte): the cycle's write barriers and mutator
+// assists then show as a spike in one keystroke of twelve, which is the p95 of the typing rows. The
+// server asks for a fixed amount of room above the live heap instead (gcHeadroom) wherever that is
+// more than the live heap itself, so a project whose live heap is under it collects every few dozen
+// keystrokes, and a project over it keeps GOGC 100 and the soft limit above. The headroom is memory
+// the process may use above the live data, not a leak: the next cycle gives it back.
+const (
+	// gcHeadroom is the garbage that the pacer lets accumulate above the live heap of a small project.
+	gcHeadroom = 96 << 20
+	// gcMaxPercent bounds the percent for a tiny live heap.
+	gcMaxPercent = 800
+)
+
+// gcPercentFor returns the GC percent for a live heap of live bytes: the one that leaves gcHeadroom
+// above it, at least 100 and at most gcMaxPercent.
+func gcPercentFor(live uint64) int {
+	if live == 0 {
+		return gcMaxPercent
+	}
+	return int(min(gcMaxPercent, max(100, gcHeadroom*100/live)))
+}
+
+// heapPolicy is what followLiveHeap sets: the functions are replaced by the tests.
+var heapPolicy = struct {
+	setMemoryLimit func(int64) int64
+	setGCPercent   func(int) int
+}{debug.SetMemoryLimit, debug.SetGCPercent}
+
+// applyHeapPolicy sets the soft memory limit and the GC percent for a live heap of live bytes. The
+// user's GOMEMLIMIT and GOGC are theirs: the matching setting is left alone.
+func applyHeapPolicy(live uint64) {
+	if os.Getenv("GOMEMLIMIT") == "" {
+		heapPolicy.setMemoryLimit(memoryLimitFor(live))
+	}
+	if os.Getenv("GOGC") == "" {
+		heapPolicy.setGCPercent(gcPercentFor(live))
+	}
+}
+
 // gcSentinel is the object whose finalizer tells that a collection ended.
 type gcSentinel struct{ _ [16]byte }
 
-// followLiveHeap sets the memory limit now and after each collection, unless
-// the user set GOMEMLIMIT: then the limit is theirs.
+// followsLiveHeap reports whether the server sets anything: not when the user set both
+// GOMEMLIMIT and GOGC.
+func followsLiveHeap() bool {
+	return os.Getenv("GOMEMLIMIT") == "" || os.Getenv("GOGC") == ""
+}
+
+// followLiveHeap sets the memory limit and the GC percent now and after each collection, from the
+// live heap of the cycle that ended, unless the user set GOMEMLIMIT or GOGC: then that setting is
+// theirs.
 func followLiveHeap() {
-	if os.Getenv("GOMEMLIMIT") != "" {
+	if !followsLiveHeap() {
 		return
 	}
-	debug.SetMemoryLimit(memFloor)
+	applyHeapPolicy(0)
 	var arm func()
 	arm = func() {
 		runtime.SetFinalizer(&gcSentinel{}, func(*gcSentinel) {
 			_, live := readHeap()
-			debug.SetMemoryLimit(memoryLimitFor(live))
+			applyHeapPolicy(live)
 			arm()
 		})
 	}

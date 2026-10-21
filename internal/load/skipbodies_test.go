@@ -65,3 +65,30 @@ func TestSkipBodiesOffByDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestSkipBodiesMarksTheFiles(t *testing.T) {
+	root := skipBodiesTree(t)
+	skip := func(path string) bool { return filepath.Base(path) == "b.gp" }
+
+	prog := loadIn(t, Config{SkipBodies: skip}, root, ".")
+
+	got := make(map[string]bool)
+	for _, file := range prog.Roots[0].Files {
+		got[filepath.Base(file.Path)] = file.BodiesSkipped
+	}
+	if got["a.gp"] || !got["b.gp"] {
+		t.Errorf("BodiesSkipped by file: %v, want only b.gp", got)
+	}
+}
+
+func TestSkipBodiesOffMarksNoFile(t *testing.T) {
+	root := skipBodiesTree(t)
+
+	prog := loadIn(t, Config{}, root, ".")
+
+	for _, file := range prog.Roots[0].Files {
+		if file.BodiesSkipped {
+			t.Errorf("%s is marked as skipped without SkipBodies", filepath.Base(file.Path))
+		}
+	}
+}

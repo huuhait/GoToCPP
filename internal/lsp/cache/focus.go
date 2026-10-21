@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/load"
@@ -53,6 +54,43 @@ var errFocusDeclined = errors.New("cache: no focused check")
 type focusBase struct {
 	env   Hash // the key of the check without the content of the files (focusEnv)
 	files []focusFile
+
+	// memo holds the focused checks made against this base, by the content of the file they are for:
+	// the base, the environment and the content of the one file that differs say everything that the
+	// check depends on, so typing a character and deleting it, or an undo and a redo, ask for the
+	// same check again. At most keptFocused, the oldest goes first.
+	memoMu sync.Mutex
+	memo   []focusMemo
+}
+
+// keptFocused is the number of focused checks that a base keeps (focusBase.memo).
+const keptFocused = 3
+
+// A focusMemo is the promise of the focused check of the file path with the content hash.
+type focusMemo struct {
+	path string
+	hash Hash
+	prom *memoize.Promise[*Package]
+}
+
+// promise returns the promise of the focused check for the file path with the content hash, made
+// by newProm when the base has none.
+func (b *focusBase) promise(
+	path string, hash Hash, newProm func() *memoize.Promise[*Package],
+) *memoize.Promise[*Package] {
+	b.memoMu.Lock()
+	defer b.memoMu.Unlock()
+	for _, m := range b.memo {
+		if m.path == path && m.hash == hash {
+			return m.prom
+		}
+	}
+	prom := newProm()
+	if len(b.memo) == keptFocused {
+		b.memo = append(b.memo[:0], b.memo[1:]...)
+	}
+	b.memo = append(b.memo, focusMemo{path, hash, prom})
+	return prom
 }
 
 // A focusFile is a file of the package of a check: its name and the hash of its content.
@@ -127,8 +165,9 @@ func (b *focusBase) changed(env Hash, files []*fileHandle) (path string, ok bool
 
 // Focused returns the focused check of the package of dir in the snapshot, when the edit since
 // base, the last full check of the package, can be proven to have changed one function body only
-// (see above). The result is for the diagnostics of that file (Package.Focus says which); it is not
-// cached, and the bodies of the other files are missing from it. It returns a nil package and no
+// (see above). The result is for the diagnostics of that file (Package.Focus says which); the base
+// keeps the last few by the content of the file (focusBase.memo), and the bodies of the other files
+// are missing from it. It returns a nil package and no
 // error when the shortcut does not apply: the caller asks for the package (Snapshot.Package).
 func (s *Snapshot) Focused(ctx context.Context, dir string, base *Package) (*Package, error) {
 	st, ok := s.state.(*state)
@@ -148,9 +187,11 @@ func (s *Snapshot) Focused(ctx context.Context, dir string, base *Package) (*Pac
 		return nil, nil
 	}
 	var newSrc []byte
+	var newHash Hash
 	for _, f := range h.files {
 		if f.path == path {
 			newSrc = f.src
+			newHash = f.hash
 		}
 	}
 	edit, ok := findBodyEdit(base, path, newSrc)
@@ -163,17 +204,13 @@ func (s *Snapshot) Focused(ctx context.Context, dir string, base *Package) (*Pac
 	if !bodyParses(edit.newBody(newSrc)) {
 		return nil, nil
 	}
-	// One check for the requests of the snapshot that ask at the same time (the diagnostics and a
-	// completion after the same keystroke).
-	h.focusMu.Lock()
-	if h.focusProm == nil || h.focusFor != base {
-		h.focusFor = base
-		h.focusProm = memoize.NewPromise(func(ctx context.Context) (*Package, error) {
+	// One check for the requests that ask for the same text of the file (the diagnostics and a
+	// completion after the same keystroke, the text of an undo).
+	prom := base.focus.promise(path, newHash, func() *memoize.Promise[*Package] {
+		return memoize.NewPromise(func(ctx context.Context) (*Package, error) {
 			return st.p.check(ctx, h, k, &focusRequest{base: base, file: path, edit: edit})
 		})
-	}
-	prom := h.focusProm
-	h.focusMu.Unlock()
+	})
 	pkg, err := prom.Get(ctx)
 	if errors.Is(err, errFocusDeclined) {
 		return nil, nil

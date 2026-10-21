@@ -141,10 +141,12 @@ type Config struct {
 	// expressions that go/types skips (checkSkipped) for a package that has no C
 	// or C++ in it or in the packages it imports, directly or not (Dep.HasC is
 	// false for all of them, and no file has import "C"), and that go/types
-	// found no error in: then every type is complete and nothing comes from C,
-	// so nothing can be opaque, both passes find nothing, and Package.Opaque is
-	// empty, as the pass would make it. (With an error, a type can be invalid,
-	// and the pass calls what has one opaque, also without C.) The only thing
+	// found no error in, or only errors about an unused import or variable
+	// (they leave every type valid, typesMayBeIncomplete): then every type is
+	// complete and nothing comes from C, so nothing can be opaque, both passes
+	// find nothing, and Package.Opaque is empty, as the pass would make it.
+	// (With another error, a type can be invalid, and the pass calls what has
+	// one opaque, also without C.) The only thing
 	// lost is the pass's internal error for an expression without a type that a
 	// gocpp bug leaves behind. The language server sets it, which does not
 	// generate code.
@@ -212,8 +214,8 @@ func (r *Result) Dep(p *load.Package) (dep Dep, ok bool) {
 // A Package is a loaded package after type checking.
 type Package struct {
 	// typesClean says that the opaque pass found nothing to do and was left out
-	// (Config.SkipOpaque): the last check recorded no error, and nothing in
-	// the package or its imports is C.
+	// (Config.SkipOpaque): the last check recorded no error but unused imports
+	// and variables, and nothing in the package or its imports is C.
 	typesClean bool
 
 	// Focused says that the function bodies of the files other than Config.Focus were left out.
@@ -495,7 +497,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 				}
 				p.resolveCppMembers(prog.Fset, ctx, cfg.CppMembers)
 			}
-			if p.typesClean && !hasErrors(p.Errors) {
+			if p.typesClean && !typesMayBeIncomplete(p.Errors) {
 				p.Opaque = &Opaque{exprs: map[ast.Expr]bool{}, typeExprs: map[types.Object]ast.Expr{}}
 			} else {
 				p.Opaque = findOpaque(prog.Fset, p)
@@ -769,7 +771,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	used := checkOpaqueArgs(fset, pkg, files, info, c.checkExprError)
 	// go/types recorded no error: no type is invalid, so with no C in the package
 	// and its imports (cv.noOpaque), nothing can be opaque (Config.SkipOpaque).
-	clean := cv.noOpaque && len(c.found) == 0 && len(c.argErrors) == 0
+	clean := cv.noOpaque && c.onlyUnused() && len(c.argErrors) == 0
 	if !clean {
 		checkSkipped(fset, pkg, files, info, c.checkExprError, used)
 	}
@@ -823,11 +825,25 @@ func newInfo() *types.Info {
 // newInfoFor returns an empty types.Info with room for what go/types records for the files of lp:
 // the maps would otherwise grow, and be copied, several times.
 func newInfoFor(lp *load.Package) *types.Info {
+	return newInfoSized(checkedBytes(lp))
+}
+
+// checkedBytes is the size of the source that go/types looks at for the files of lp: the size of the
+// files, but for a file whose function bodies the parser left out (load.File.BodiesSkipped; the focused
+// check of the language server, which sizes its maps for one file of bodies, not for every file of the
+// package) the size of its declarations.
+func checkedBytes(lp *load.Package) int {
 	bytes := 0
 	for _, f := range lp.Files {
-		bytes += len(f.Src)
+		if !f.BodiesSkipped || f.AST == nil {
+			bytes += len(f.Src)
+			continue
+		}
+		for _, decl := range f.AST.Decls {
+			bytes += int(decl.End() - decl.Pos())
+		}
 	}
-	return newInfoSized(bytes)
+	return bytes
 }
 
 // newInfoSized is newInfo for files of about bytes bytes of source. (Measured on generated
@@ -1111,6 +1127,19 @@ func (c *collector) flush(used, falseError func(err types.Error) bool) {
 		c.list.Collect(err)
 	}
 	c.found, c.argErrors = nil, nil
+}
+
+// onlyUnused reports whether the errors that go/types found are all about an unused import or
+// variable: such an error leaves every type valid and complete (typesMayBeIncomplete), so with no
+// C in the package nothing in it can be opaque. A focused check always has them, for the imports
+// that only the bodies it left out use; a file that is being typed in has them too.
+func (c *collector) onlyUnused() bool {
+	for _, f := range c.found {
+		if code := diag.ErrorCode(f.err); code != diag.UnusedImport && code != diag.UnusedVar {
+			return false
+		}
+	}
+	return true
 }
 
 // unblock removes one place pos from blocking.

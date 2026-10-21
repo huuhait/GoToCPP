@@ -89,11 +89,6 @@ type handle struct {
 	// variant is set for the handle of a package with another text for one of
 	// its files (PackageWithFile): its check is not a version of the package.
 	variant bool
-
-	// The focused check of the handle against the base focusFor (focus.go), made once.
-	focusMu   sync.Mutex
-	focusFor  *Package
-	focusProm *memoize.Promise[*Package]
 }
 
 // failedRead reports whether a file or folder that the handle was made from

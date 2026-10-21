@@ -26,6 +26,7 @@ type RunProtocol struct {
 	Scale               float64
 	Timeout, ColdMax    time.Duration
 	Only                []string
+	Think, Settle       time.Duration // zero: the default pauses of the method
 	Environment         []string
 	GoCommand           string
 	Affinity            string
@@ -128,8 +129,15 @@ func NewReport(cfg Config) *Report {
 	if _, err := rand.Read(id[:]); err != nil {
 		panic(err)
 	}
+	method := "fresh-edits-v2-go1.25"
+	if cfg.Think > 0 || cfg.Settle > 0 {
+		// Different pauses are a different workload: never merged with the default one.
+		method += fmt.Sprintf("-think%s-settle%s", cfg.Think, cfg.Settle)
+	}
 	p := &RunProtocol{
-		Method:              "fresh-edits-v2-go1.25",
+		Method:              method,
+		Think:               cfg.Think,
+		Settle:              cfg.Settle,
 		ConfigurationFormat: configFingerprintFormat,
 		Runs:                cfg.Runs,
 		Scale:               cfg.Scale,

@@ -178,7 +178,8 @@ func fakeConfig(t *testing.T) Config {
 }
 
 var allScenarios = []string{ScInit, ScOpenCold, ScOpenWarm, ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
-	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename, ScWorkspaceSymbol, ScDocumentSymbol,
+	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename,
+	ScRenameType, ScRenameMethod, ScRenameField, ScRenameLocal, ScWorkspaceSymbol, ScDocumentSymbol,
 	ScSemanticTokens, ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix}
 
 // The scenarios run to the end against a server that answers at once: every
@@ -213,12 +214,14 @@ func TestRunProjectFake(t *testing.T) {
 	if n := f.count("textDocument/hover"); n != 2*(6+2) {
 		t.Errorf("%d hover requests, want %d", n, 2*(6+2))
 	}
-	// A rename is two requests; 5 x 0.1 rounds up to the minimum of 2, plus 1 warm-up.
-	if n := f.count("textDocument/rename"); n != 2*(2+1) {
-		t.Errorf("%d rename requests, want %d", n, 2*(2+1))
+	// A rename is two requests; 5 x 0.1 rounds up to the minimum of 2, plus 1 warm-up. The rename of a
+	// function and of the four other forms (type, method, field, local variable) are five scenarios.
+	const renames = 5
+	if n := f.count("textDocument/rename"); n != renames*2*(2+1) {
+		t.Errorf("%d rename requests, want %d", n, renames*2*(2+1))
 	}
-	if n := f.count("textDocument/prepareRename"); n != 2*(2+1) {
-		t.Errorf("%d prepareRename requests, want %d", n, 2*(2+1))
+	if n := f.count("textDocument/prepareRename"); n != renames*2*(2+1) {
+		t.Errorf("%d prepareRename requests, want %d", n, renames*2*(2+1))
 	}
 	if f.count("textDocument/didSave") == 0 || f.count("textDocument/didClose") == 0 {
 		t.Errorf("no save or close: %v", f.calls)

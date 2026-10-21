@@ -1099,6 +1099,10 @@ func (rn *renamer) checkResult(ctx context.Context, files map[string]*fileEdits)
 			}
 		}
 	}
+	if rn.localProvesResult(ctx, dirs) || rn.fieldProvesResult(ctx) ||
+		rn.methodProvesResult(ctx, dirs, edited, viewOf) {
+		return ctx.Err()
+	}
 	unchecked := rn.qualifiedOnly() // (renamefast.go)
 	if rn.declaringScopeProvesResult(ctx, dirs, unchecked) {
 		return ctx.Err()

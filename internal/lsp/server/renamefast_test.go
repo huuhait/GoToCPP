@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -235,8 +237,59 @@ func TestRenameDeclaringBindingProof(t *testing.T) {
 			}},
 		{name: "variable target", mark: "var |V", outcome: "fallback"},
 		{name: "constant target", mark: "const |K", outcome: "fallback"},
-		{name: "type target", mark: "type |T", outcome: "fallback"},
-		{name: "method target", mark: "func (T) |M", outcome: "fallback"},
+		{name: "type target", mark: "type |T", outcome: "proved"},
+		{name: "type target used by an importer", mark: "type |T", outcome: "proved",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Held alias.T\n\nfunc Make() alias.T { return alias.T{} }\n"
+			}},
+		{name: "type target used by a dot importer", mark: "type |T", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["b/dot.gp"] = "package b\nimport . \"example.com/binding/a\"\n" +
+					"var Dotted T\nvar Renamed = 1\n"
+			}},
+		{name: "type target named like a field that does not embed it", mark: "type |T",
+			outcome: "proved", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Holder struct{ T int }\n"
+			}},
+		{name: "type target embedded in its package", mark: "type |T", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Outer struct{ T }\n"
+			}},
+		{name: "type target embedded by pointer in an importer", mark: "type |T",
+			outcome: "fallback", setup: func(files map[string]string) {
+				files["b/b.gp"] += "\ntype Outer struct{ *alias.T }\n"
+			}},
+		{name: "type target with a clashing field of an embedder", mark: "type |T",
+			outcome: "refuse", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Outer struct {\n\tT\n\tRenamed int\n}\n"
+			}},
+		{name: "type target hidden by a parameter", mark: "type |T", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Keep(Renamed int) T { return T{} }\n"
+			}},
+		{name: "type target with a declared new name", mark: "type |T", outcome: "refuse",
+			setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\ntype Renamed struct{}\n"
+			}},
+		{name: "type target that shadows a universe name it is renamed to", mark: "type |T",
+			newName: "String", outcome: "proved"},
+		{name: "type target renamed over a use of a universe name", mark: "type |T",
+			newName: "Error", outcome: "proved", setup: func(files map[string]string) {
+				files["a/other.gp"] = "package a\nfunc Fail() error { return nil }\n"
+			}},
+		{name: "generic type target", mark: "type |G", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/a.gp"] += "\ntype G[P any] struct{ Item P }\n"
+			}},
+		{name: "alias type target", mark: "type |Alias", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["a/a.gp"] += "\ntype Alias = T\n"
+			}},
+		{name: "type target used by a broken importer", mark: "type |T", outcome: "fallback",
+			setup: func(files map[string]string) {
+				files["b/b.gp"] += "\nvar Broken = undefinedName\n"
+			}},
+		{name: "method target", mark: "func (T) |M", outcome: "proved"},
 		{name: "untouched test file", outcome: "fallback", setup: func(files map[string]string) {
 			files["a/unrelated_test.gp"] = "package a\nfunc TestHelper() int { return 3 }\n"
 		}},
@@ -311,7 +364,15 @@ func TestRenameBindingProofRequiresConflictGuards(t *testing.T) {
 
 func bindingProofRenamer(t *testing.T) *renamer {
 	t.Helper()
-	files := bindingProofFiles()
+	return renamerFor(t, bindingProofFiles(), "a/a.gp", "func |F(", "Renamed")
+}
+
+// renamerFor returns the renamer of the name at the mark of the file, before
+// any check of it (the test sets what the guards would).
+func renamerFor(
+	t *testing.T, files map[string]string, file, mark, newName string,
+) *renamer {
+	t.Helper()
 	root := writeTree(t, files)
 	srv := newServer(nil, testConfig(), debounce.RealClock{})
 	client := &refClient{
@@ -321,13 +382,12 @@ func bindingProofRenamer(t *testing.T) *renamer {
 	client.call("initialize", plainInit)
 	client.notify("initialized", "{}")
 	client.skipShown = true
-	client.open("a/a.gp", files["a/a.gp"])
-	client.next("a/a.gp")
+	client.open(file, files[file])
+	client.next(file)
 	snapshot, release := srv.session.Snapshot()
 	t.Cleanup(release)
 	var params protocol.TextDocumentPositionParams
-	if err := json.Unmarshal([]byte(client.posParams(
-		"a/a.gp", files["a/a.gp"], "func |F(")), &params); err != nil {
+	if err := json.Unmarshal([]byte(client.posParams(file, files[file], mark)), &params); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -345,7 +405,7 @@ func bindingProofRenamer(t *testing.T) *renamer {
 	}
 	return &renamer{
 		s: srv, e: env{snapshot: snapshot}, sym: symbol, res: result,
-		newName: "Renamed", docs: newDocs(snapshot),
+		newName: newName, docs: newDocs(snapshot),
 	}
 }
 
@@ -478,7 +538,7 @@ func testQualifiedOnly(t *testing.T) {
 		{"func |F()", "g", false},         // not exported: the importers can't use it
 		{"func |F()", "V", false},         // the name is taken in a (an error there)
 		{"func |F()", "G", true},          // (again, in a fresh server)
-		{"type |T struct", "U", false},    // a type: not shortcut
+		{"type |T struct", "U", true},     // a type nothing embeds: b uses it qualified
 		{"func (t T) |M()", "N", false},   // a method: not shortcut
 		{"func inA|() int", "inB", false}, // unexported: no importer
 		{"var |V = 2", "F", false},        // clashes with F in a
@@ -511,8 +571,43 @@ func testQualifiedOnly(t *testing.T) {
 			if tc.fewer && nFast >= nFull {
 				t.Errorf("%d package checks with the shortcut, %d without: want fewer", nFast, nFull)
 			}
-			if !tc.fewer && (nFast > nFull || strings.Contains(tc.mark, "type |") && nFast != nFull) {
+			if !tc.fewer && nFast > nFull {
 				t.Errorf("%d package checks with the shortcut, %d without", nFast, nFull)
+			}
+		})
+	}
+}
+
+func TestRenameTypeProofHelpers(t *testing.T) {
+	files := bindingProofFiles()
+	files["a/a.gp"] += "\ntype G[P any] struct{ Item P }\n\ntype Alias = T\n"
+	files["b/b.gp"] += "\ntype Outer struct{ *alias.T }\n"
+	for _, tc := range []struct {
+		mark                string
+		ordinary, embedding bool
+	}{
+		{"type |T struct", true, true},
+		{"type |G[", false, false},
+		{"type |Alias =", false, false},
+	} {
+		t.Run(tc.mark, func(t *testing.T) {
+			rn := renamerFor(t, files, "a/a.gp", tc.mark, "Renamed")
+			tn, ok := rn.sym.objs[0].(*types.TypeName)
+			if !ok {
+				t.Fatalf("not a type: %v", rn.sym.objs[0])
+			}
+			var declaration hit
+			for _, h := range rn.res.hits {
+				if h.def && filepath.Dir(h.path) == rn.sym.declDir {
+					declaration = h
+				}
+			}
+			file := declaration.v.files[declaration.path]
+			if got := ordinaryType(tn, file, declaration.id); got != tc.ordinary {
+				t.Errorf("ordinaryType = %v, want %v", got, tc.ordinary)
+			}
+			if got := rn.embedsType(tn); got != tc.embedding {
+				t.Errorf("embedsType = %v, want %v", got, tc.embedding)
 			}
 		})
 	}

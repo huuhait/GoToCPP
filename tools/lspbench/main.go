@@ -52,8 +52,14 @@ func run() int {
 		merge     = flag.String("merge", "", "join comparable reports in these `files` (made by -json, comma-separated; preserve raw provenance, do not infer alternation); measure nothing")
 		fromJSON  = flag.String("from-json", "", "write the -md tables from the report in `file` (made by -json) and measure nothing")
 		only      = flag.String("only", "", "run only the session scenarios in this comma-separated list (for profiling one of them)")
-		timeout   = flag.Duration("timeout", time.Minute, "the longest wait for one answer or one publish of diagnostics")
-		verbose   = flag.Bool("v", false, "log the progress")
+		think     = flag.Duration("think", 0,
+			"the pause after each keystroke of the typing scenarios (0: the default 25 ms); over the "+
+				"server's settle delay the background full check runs between edits; a different method "+
+				"in the report")
+		settle = flag.Duration("settle", 0,
+			"the quiet time after an edit that is put back (0: the default 80 ms)")
+		timeout = flag.Duration("timeout", time.Minute, "the longest wait for one answer or one publish of diagnostics")
+		verbose = flag.Bool("v", false, "log the progress")
 	)
 	flag.Parse()
 
@@ -125,7 +131,9 @@ func run() int {
 		}
 		defer os.RemoveAll(dir)
 	}
-	cfg := bench.Config{Runs: *runs, Scale: *scale, WorkDir: dir, Timeout: *timeout}
+	cfg := bench.Config{
+		Runs: *runs, Scale: *scale, WorkDir: dir, Timeout: *timeout, Think: *think, Settle: *settle,
+	}
 	if *only != "" {
 		cfg.Only = strings.Split(*only, ",")
 	}

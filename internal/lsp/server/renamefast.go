@@ -15,6 +15,22 @@ import (
 // finds without qualifiedOnly or the declaring-scope binding proof.
 var recheckAllImporters bool
 
+// seenByImporters reports whether the symbol is an exported package-level name
+// that the packages importing its package see by a qualified name: a function,
+// variable or constant (the scope of imports), or a type (the scope of the
+// module: its embedded fields are seen wherever a value of their struct comes,
+// and the proofs leave out a type that a field embeds).
+func (sym *symbol) seenByImporters() bool {
+	if sym.scope == scopeImports {
+		return true
+	}
+	if sym.scope != scopeModule || len(sym.objs) != 1 {
+		return false
+	}
+	_, isType := sym.objs[0].(*types.TypeName)
+	return isType
+}
+
 // qualifiedOnly returns the folders of the packages that need no check of the
 // result, because they have no use of the name to edit, or because their edits are only
 // qualified uses (pkg.Name) of the renamed name, in a package other than the one
@@ -36,9 +52,10 @@ var recheckAllImporters bool
 //     the types of its expressions are what they were, so it has no error that
 //     it did not have.
 //
-// A type is left out (an embedded field takes the name of its type, which can
-// clash with another field), and so is a method or a field (the method sets
-// of the types change, which interfaces and promotion can see).
+// A type has the same rules when none of its hits is an embedded field of it
+// (a field takes the name of its type, which can clash with another field, and
+// is selected by it: those stay checked). A method or a field is left out (the
+// method sets of the types change, which interfaces and promotion can see).
 //
 // Checking the importers one after the other was the cost of a rename: a
 // package waits for the check of the package it imports (whose export data
@@ -46,7 +63,8 @@ var recheckAllImporters bool
 // checked as many times as the chain is long.
 func (rn *renamer) qualifiedOnly() map[string]bool {
 	sym := rn.sym
-	if recheckAllImporters || sym.scope != scopeImports || sym.declDir == "" || sym.declPath == "" || !sym.packageLevel() {
+	if recheckAllImporters || !sym.seenByImporters() || sym.declDir == "" || sym.declPath == "" ||
+		!sym.packageLevel() {
 		return nil
 	}
 	if !token.IsExported(sym.name) || !token.IsExported(rn.newName) {
@@ -57,6 +75,15 @@ func (rn *renamer) qualifiedOnly() map[string]bool {
 	case *types.Var:
 		if obj.IsField() {
 			return nil
+		}
+	case *types.TypeName:
+		// Every hit is the type's own name: an embedded field of the type takes the
+		// name of its type, so its name changes with the type's (a clash with another
+		// field, a selector that is not qualified), and is a hit of another object.
+		for _, h := range rn.res.hits {
+			if _, ok := h.obj.(*types.TypeName); !ok {
+				return nil
+			}
 		}
 	default:
 		return nil
@@ -115,7 +142,7 @@ func (rn *renamer) qualifiedUse(h hit) bool {
 		return false
 	}
 	switch h.obj.(type) {
-	case *types.Func, *types.Const, *types.Var:
+	case *types.Func, *types.Const, *types.Var, *types.TypeName:
 	default:
 		return false
 	}
@@ -133,19 +160,21 @@ func (rn *renamer) qualifiedUse(h hit) bool {
 
 // declaringScopeProvesResult applies only after the existing declaration,
 // capture, use and test-name conflict guards succeeded. For an exported,
-// nongeneric ordinary Go function, changing the package-scope name changes no
-// type or method set. Those guards establish unchanged binding at edited uses,
-// no imported/file/package name collision and no capture of existing uses of
-// the new name. Completeness below proves every own-package occurrence is an
-// edit. Other packages must already satisfy qualifiedOnly's existing proof.
-// Everything outside this boundary keeps the scratch-check validator.
+// nongeneric ordinary Go function, or a nongeneric defined type that no field
+// embeds, changing the package-scope name changes no type or method set (the
+// types are the same objects under another name). Those guards establish
+// unchanged binding at edited uses, no imported/file/package name collision and
+// no capture of existing uses of the new name. Completeness below proves every
+// own-package occurrence is an edit. Other packages must already satisfy
+// qualifiedOnly's existing proof. Everything outside this boundary keeps the
+// scratch-check validator.
 func (rn *renamer) declaringScopeProvesResult(
 	ctx context.Context, dirs, qualified map[string]bool,
 ) bool {
 	sym := rn.sym
 	if ctx.Err() != nil || recheckAllImporters || skipConflictChecks || !rn.bindingsChecked ||
 		!rn.declFilesKnown || rn.declHasTests || len(rn.res.tests) != 0 ||
-		sym.scope != scopeImports || !sym.packageLevel() || !dirs[sym.declDir] ||
+		!sym.seenByImporters() || !sym.packageLevel() || !dirs[sym.declDir] ||
 		!token.IsExported(sym.name) || !token.IsExported(rn.newName) || rn.newName == "C" {
 		return false
 	}
@@ -179,26 +208,27 @@ func (rn *renamer) declaringScopeProvesResult(
 		}
 	}
 	v := declaration.v
-	fn, ok := declaration.obj.(*types.Func)
-	if !found || !ok || declaration.id == nil || !v.normalBindingFacts() {
+	if !found || declaration.id == nil || !v.normalBindingFacts() {
 		return false
 	}
-	sig, ok := fn.Type().(*types.Signature)
-	if !ok || sig.Recv() != nil || sig.TypeParams().Len() != 0 ||
-		fn.Parent() != v.types.Scope() || v.types.Scope().Lookup(sym.name) != fn {
+	target := declaration.obj
+	if target == nil || target.Parent() != v.types.Scope() || v.types.Scope().Lookup(sym.name) != target {
 		return false
 	}
 	file := v.files[declaration.path]
 	if file == nil {
 		return false
 	}
-	ordinary := false
-	for _, node := range file.Decls {
-		if decl, ok := node.(*ast.FuncDecl); ok && decl.Name == declaration.id {
-			ordinary = decl.Recv == nil && decl.Body != nil
+	switch obj := target.(type) {
+	case *types.Func:
+		if !ordinaryFunction(obj, file, declaration.id) {
+			return false
 		}
-	}
-	if !ordinary {
+	case *types.TypeName:
+		if !ordinaryType(obj, file, declaration.id) || rn.embedsType(obj) {
+			return false
+		}
+	default:
 		return false
 	}
 
@@ -209,8 +239,8 @@ func (rn *renamer) declaringScopeProvesResult(
 		if filepath.Dir(h.path) != sym.declDir {
 			continue
 		}
-		if h.v != v || h.obj != fn || h.id == nil || h.spec != nil ||
-			h.id.Name != sym.name || v.info.ObjectOf(h.id) != fn ||
+		if h.v != v || h.obj != target || h.id == nil || h.spec != nil ||
+			h.id.Name != sym.name || v.info.ObjectOf(h.id) != target ||
 			v.types.Scope().Innermost(h.id.Pos()) == nil {
 			return false
 		}
@@ -222,12 +252,215 @@ func (rn *renamer) declaringScopeProvesResult(
 	}
 	for _, entries := range [][]identObj{list.defs, list.uses} {
 		for _, entry := range entries {
-			if entry.obj == fn && !seen[entry.id] {
+			if entry.obj == target && !seen[entry.id] {
 				return false
 			}
 		}
 	}
 	return ctx.Err() == nil
+}
+
+// ordinaryFunction reports whether fn is a nongeneric function with a body,
+// declared by the declaration with the name id of the file, and not a method.
+func ordinaryFunction(fn *types.Func, file *ast.File, id *ast.Ident) bool {
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() != nil || sig.TypeParams().Len() != 0 {
+		return false
+	}
+	for _, node := range file.Decls {
+		if decl, ok := node.(*ast.FuncDecl); ok && decl.Name == id {
+			return decl.Recv == nil && decl.Body != nil
+		}
+	}
+	return false
+}
+
+// ordinaryType reports whether tn is a nongeneric defined type (not an alias),
+// declared by the type declaration with the name id of the file.
+func ordinaryType(tn *types.TypeName, file *ast.File, id *ast.Ident) bool {
+	if tn.IsAlias() {
+		return false
+	}
+	named, ok := tn.Type().(*types.Named)
+	if !ok || named.TypeParams().Len() != 0 || named.Obj() != tn {
+		return false
+	}
+	for _, node := range file.Decls {
+		decl, ok := node.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range decl.Specs {
+			if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name == id {
+				return ts.Assign == token.NoPos && ts.TypeParams == nil
+			}
+		}
+	}
+	return false
+}
+
+// embedsType reports whether a field of the packages that the search looked at
+// is embedded by the name of the type tn (T, *T, pkg.T or a generic form of
+// them): the field takes the type's name, so the rename changes the field's.
+func (rn *renamer) embedsType(tn *types.TypeName) bool {
+	for _, v := range rn.res.views {
+		list := v.identIndex().byName[tn.Name()]
+		if list == nil {
+			continue
+		}
+		for _, entries := range [][]identObj{list.defs, list.uses} {
+			for _, entry := range entries {
+				if field, ok := entry.obj.(*types.Var); ok && field.IsField() && field.Embedded() {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// localProvesResult applies after the conflict guards succeeded. A local
+// variable, parameter or result is seen only in the block that declares it,
+// from its declaration to the end of that block, so the new name can
+// make an error only inside that range, where
+//
+//   - the block declares nothing of the new name, and no name written there
+//     is the new name (a declaration, a use of a variable, constant, type or
+//     import: a name the renamed one could hide or be hidden by);
+//   - every occurrence of the old name that is the variable is an edit (the
+//     index of the checked package lists them all), and every edit is an
+//     occurrence of the variable;
+//   - no return without operands in the range is in a function that has a
+//     result of the new name (it finds its results by lookup, and writes no
+//     name that the first condition could see: bareReturnShadows);
+//
+// then each edited name finds the variable first (nothing between it and the
+// declaration has the new name), and no other name changes its binding: names
+// before the declaration do not see the variable, and the names outside the
+// block do not see its scope. Types, method sets and the declarations of the
+// package do not change, so no error is made and none is lost. A field or
+// method of the new name is not a name of the block's scope: it is found by
+// selection or key, never by lookup, and is left out of the second condition.
+// Anything else keeps the scratch-check validator.
+func (rn *renamer) localProvesResult(ctx context.Context, dirs map[string]bool) bool {
+	sym := rn.sym
+	if ctx.Err() != nil || recheckAllImporters || skipConflictChecks || !rn.bindingsChecked ||
+		sym.scope != scopeLocal || len(sym.objs) != 1 || len(sym.extra) != 0 || len(dirs) != 1 {
+		return false
+	}
+	obj, ok := sym.objs[0].(*types.Var)
+	if !ok || obj.IsField() || obj.Pkg() == nil || obj.Parent() == nil ||
+		obj.Parent() == obj.Pkg().Scope() || obj.Parent() == types.Universe {
+		return false
+	}
+	var v *view
+	seen := make(map[*ast.Ident]bool, len(rn.res.hits))
+	for _, h := range rn.res.hits {
+		if v == nil {
+			v = h.v
+		}
+		if h.v != v || h.spec != nil || h.id == nil || h.obj != obj || h.id.Name != sym.name ||
+			!dirs[filepath.Dir(h.path)] || v.info.ObjectOf(h.id) != obj {
+			return false
+		}
+		seen[h.id] = true
+	}
+	if v == nil || !v.normalBindingFacts() || obj.Pkg() != v.types {
+		return false
+	}
+	if obj.Parent().Lookup(rn.newName) != nil {
+		return false
+	}
+	index := v.identIndex().byName
+	if list := index[sym.name]; list != nil {
+		for _, entries := range [][]identObj{list.defs, list.uses} {
+			for _, entry := range entries {
+				if entry.obj == obj && !seen[entry.id] {
+					return false
+				}
+			}
+		}
+	}
+	// The variable is seen from the end of its declaration; its name is a
+	// little before (the right side of a declaration is out of its scope, and
+	// is looked at too: that is only more careful).
+	first, last := obj.Pos(), obj.Parent().End()
+	if !first.IsValid() || !last.IsValid() {
+		return false
+	}
+	if list := index[rn.newName]; list != nil {
+		for _, entries := range [][]identObj{list.defs, list.uses} {
+			for _, entry := range entries {
+				if entry.id.Pos() >= first && entry.id.Pos() < last && !selectedName(entry.obj) {
+					return false
+				}
+			}
+		}
+	}
+	// A bare return writes no name, and finds the results of its function by lookup: a result
+	// of the new name that the variable now hides is an error ("result parameter not in scope
+	// at return"), however far the return is from the variable (a nested block, a loop).
+	if file := v.files[v.fset.Position(obj.Pos()).Filename]; file == nil ||
+		bareReturnShadows(file, first, last, rn.newName) {
+		return false
+	}
+	return ctx.Err() == nil
+}
+
+// bareReturnShadows reports whether a return with no operands between first and last is in a
+// function (declaration or literal) that has a result called name.
+func bareReturnShadows(file *ast.File, first, last token.Pos, name string) bool {
+	found := false
+	check := func(signature *ast.FuncType, body *ast.BlockStmt) {
+		if body == nil || signature.Results == nil {
+			return
+		}
+		named := false
+		for _, field := range signature.Results.List {
+			for _, id := range field.Names {
+				named = named || id.Name == name
+			}
+		}
+		if !named {
+			return
+		}
+		ast.Inspect(body, func(node ast.Node) bool {
+			switch node := node.(type) {
+			case *ast.FuncLit:
+				return false // its returns are its own
+			case *ast.ReturnStmt:
+				if len(node.Results) == 0 && node.Pos() >= first && node.Pos() < last {
+					found = true
+				}
+			}
+			return !found
+		})
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.FuncDecl:
+			check(node.Type, node.Body)
+		case *ast.FuncLit:
+			check(node.Type, node.Body)
+		}
+		return !found
+	})
+	return found
+}
+
+// selectedName reports whether obj is found by selection or by key, and never
+// by the lookup of a name in a scope: a field, a method or a label.
+func selectedName(obj types.Object) bool {
+	switch obj := obj.(type) {
+	case *types.Var:
+		return obj.IsField()
+	case *types.Func:
+		sig, ok := obj.Type().(*types.Signature)
+		return ok && sig.Recv() != nil
+	case *types.Label:
+		return true
+	}
+	return false
 }
 
 type renameBindingFactsKey struct{}

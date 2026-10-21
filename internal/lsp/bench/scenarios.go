@@ -55,6 +55,10 @@ const (
 	ScRefsLocal       = "references-local"
 	ScRefsFamily      = "references-family"
 	ScRename          = "rename"
+	ScRenameType      = "rename-type"
+	ScRenameMethod    = "rename-method"
+	ScRenameField     = "rename-field"
+	ScRenameLocal     = "rename-local"
 	ScWorkspaceSymbol = "workspace-symbol"
 	ScDocumentSymbol  = "document-symbol"
 	ScSemanticTokens  = "semantic-tokens"
@@ -90,7 +94,9 @@ const (
 // order is the order of the rows in a report.
 var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWarm, ScTypoFirstCold, ScTypoErrorCold, ScTypoFirstWarm, ScTypoErrorWarm,
 	ScKeystroke, ScKeystrokeDep, ScKeystrokeNew, ScKeystrokeDepNew, ScCompletionDot, ScCompletionEdit,
-	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename, ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
+	ScHover, ScDefinition, ScSignature, ScRefsPopular, ScRefsLocal, ScRefsFamily, ScRename,
+	ScRenameType, ScRenameMethod, ScRenameField, ScRenameLocal,
+	ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
 	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix,
 	ScHoverMacro, ScHoverBang, ScInlayBang, ScTokensMacro, ScCompletionMacro, ScCodeAction,
 	ScTypingClean, ScTypingBare, ScTypingReqs, ScTypingReqsHover}
@@ -110,6 +116,22 @@ const afterOpen = time.Second
 // diagnostics of the last one arrive, and a server may use the gap (a
 // garbage collection, say) as long as it is quick to answer when the next key comes.
 const think = 25 * time.Millisecond
+
+// thinkTime is the pause after a keystroke of the typing scenarios: the configured one, or think.
+func (s *Session) thinkTime() time.Duration {
+	if s.Think > 0 {
+		return s.Think
+	}
+	return think
+}
+
+// settleTime is the quiet time after an edit that is put back: the configured one, or settle.
+func (s *Session) settleTime() time.Duration {
+	if s.Settle > 0 {
+		return s.Settle
+	}
+	return settle
+}
 
 func sleep(ctx context.Context, d time.Duration) {
 	select {
@@ -141,6 +163,10 @@ func scenarios(p *Project) []scenario {
 		position(ScRefsLocal, "textDocument/references", hot, []mark{{"\ntype ", 6}}, 20),
 		position(ScRefsFamily, "textDocument/references", hot, []mark{{") Add(tag string)", 2}}, 8),
 		renameLabel(p),
+		renameForm(ScRenameType, p.Hot, "\ntype ", 6, "%sT%d"),
+		renameForm(ScRenameMethod, p.Hot, ") Collect(f func", 2, "Gather%d"),
+		renameForm(ScRenameField, p.Hot, "\tTitle ", 1, "Heading%d"),
+		renameForm(ScRenameLocal, p.Hot, "\tsum := 0\n", 1, "total%d"),
 		workspaceSymbol(p.Queries, 30),
 		whole(ScDocumentSymbol, "textDocument/documentSymbol", hot, 40),
 		whole(ScSemanticTokens, "textDocument/semanticTokens/full", hot, 20),
@@ -227,7 +253,7 @@ func keystroke(name, rel string, iters, warm int) scenario {
 				return "", 0, err
 			}
 			d, _, err := s.Wait(ctx, rel, seq, t0, ok)
-			sleep(ctx, think)
+			sleep(ctx, s.thinkTime())
 			return "", d, err
 		},
 		done: func(ctx context.Context, s *Session) error {
@@ -277,7 +303,7 @@ func keystrokeNew(name, rel string, iters, warm int) scenario {
 			ver := s.Doc(rel).Version
 			ok := func(p *Publish) bool { return freshDiagnostics(p, ver, undefined, wantError) }
 			d, _, err := s.Wait(ctx, rel, seq, t0, ok)
-			sleep(ctx, think)
+			sleep(ctx, s.thinkTime())
 			return "", d, err
 		},
 		done: func(ctx context.Context, s *Session) error {
@@ -358,7 +384,7 @@ func completionAt(name, rel, anchor, typedLine string, delta, iters int) scenari
 			if _, e := s.Edit(rel, off, off+len(typed), ""); err == nil {
 				err = e
 			}
-			sleep(ctx, settle)
+			sleep(ctx, s.settleTime())
 			return "", d, err
 		},
 	}
@@ -477,6 +503,52 @@ func renameLabel(p *Project) scenario {
 	}
 }
 
+// renameForm asks for the rename of the name at the anchor of the file rel, in a form that the
+// shortcuts of the rename of a function do not cover (a type, a method, a field,
+// a local variable). A new name each time, like renameLabel; format has %d for the repetition
+// (and %s for the old name of the type, which keeps the name exported).
+func renameForm(name, rel, anchor string, delta int, format string) scenario {
+	var off int
+	var old string
+	return scenario{
+		name: name, iters: 5, warm: 1,
+		prep: func(ctx context.Context, s *Session) (err error) {
+			if _, err := s.Open(rel); err != nil {
+				return err
+			}
+			off, err = s.Find(rel, anchor, delta)
+			if err != nil {
+				return err
+			}
+			text := s.Doc(rel).Text[off:]
+			end := 0
+			for end < len(text) && (text[end] == '_' || text[end] >= '0' && text[end] <= '9' ||
+				text[end] >= 'a' && text[end] <= 'z' || text[end] >= 'A' && text[end] <= 'Z') {
+				end++
+			}
+			old = text[:end]
+			return nil
+		},
+		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
+			d1, _, err := s.call(ctx, "textDocument/prepareRename", s.at(rel, off))
+			if err != nil {
+				return "", 0, err
+			}
+			par := s.at(rel, off)
+			if strings.Contains(format, "%s") {
+				par.NewName = fmt.Sprintf(format, old, i)
+			} else {
+				par.NewName = fmt.Sprintf(format, i)
+			}
+			d2, raw, err := s.call(ctx, "textDocument/rename", par)
+			if err == nil && !nonEmpty(raw) {
+				err = fmt.Errorf("rename %s: empty edit", name)
+			}
+			return "", d1 + d2, err
+		},
+	}
+}
+
 // workspaceSymbol queries the symbols of the workspace.
 func workspaceSymbol(queries []string, iters int) scenario {
 	return scenario{
@@ -538,7 +610,7 @@ func switchFile(p *Project) scenario {
 					return err
 				}
 			}
-			sleep(ctx, 5*settle)
+			sleep(ctx, 5*s.settleTime())
 			return nil
 		},
 		run: func(ctx context.Context, s *Session, i int) (string, time.Duration, error) {
@@ -552,7 +624,7 @@ func switchFile(p *Project) scenario {
 			if e := s.Close(f); err == nil {
 				err = e
 			}
-			sleep(ctx, settle)
+			sleep(ctx, s.settleTime())
 			return "", d, err
 		},
 		done: func(ctx context.Context, s *Session) error {

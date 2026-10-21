@@ -22,6 +22,10 @@ type Config struct {
 	// Only, if not empty, runs only the session scenarios called so (the
 	// opens always run).
 	Only []string
+	// Think and Settle, when not zero, replace the 25 ms pause after a keystroke and the 80 ms quiet
+	// time after a reverted edit. A pause over the 100 ms settle delay of a server lets its
+	// background full check run between measured edits; the report's method says so.
+	Think, Settle time.Duration
 }
 
 func (c *Config) defaults() {
@@ -256,7 +260,8 @@ func startSession(ctx context.Context, cfg Config, proj *Project, t Target, tree
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{P: p, C: p.Client, Proj: proj, Root: tree, Timeout: cfg.Timeout, docs: map[string]*Doc{}, Facts: map[string]string{}}
+	s := &Session{P: p, C: p.Client, Proj: proj, Root: tree, Timeout: cfg.Timeout,
+		Think: cfg.Think, Settle: cfg.Settle, docs: map[string]*Doc{}, Facts: map[string]string{}}
 	ictx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 	d, err := s.Initialize(ictx)

@@ -21,6 +21,9 @@ type Session struct {
 	Proj    *Project
 	Root    string // the folder of the project
 	Timeout time.Duration
+	// Think and Settle replace the pauses of the typing scenarios when not zero (Config.Think,
+	// Config.Settle).
+	Think, Settle time.Duration
 
 	extra []sample // more samples of the repetition that ran (a scenario with two latencies)
 

@@ -499,6 +499,10 @@ type File struct {
 	// name at a place skip them: hover, go to definition, references,
 	// rename and the hints take the user's own names only.
 	Synthetic map[*ast.Ident]bool
+	// BodiesSkipped says that the parser left the function bodies of the file out of the tree
+	// (Config.SkipBodies): the type checker sees the declarations only.
+	BodiesSkipped bool
+
 	// Src is the text of the file, for the macro #text(x) (the text of
 	// an argument, step 10.8). It is set only for a file of a user package
 	// (not the standard library): it is nil otherwise. The caller must not
@@ -1254,6 +1258,7 @@ func (l *loader) read(p *Package, named []string, tests bool) (internalTests boo
 			addParseErrors(&errs, err)
 		}
 		file := &File{Path: s.path, AST: f, Test: isTestFile(s.name), Src: l.keepSrc(p, s.src)}
+		file.BodiesSkipped = l.cfg.SkipBodies != nil && l.cfg.SkipBodies(s.path)
 		name := f.Name.Name
 		if file.Test && strings.HasSuffix(name, "_test") && name != p.Name {
 			// An external test package: package geom_test, next to

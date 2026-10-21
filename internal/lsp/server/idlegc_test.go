@@ -171,3 +171,108 @@ func TestMemoryLimitFor(t *testing.T) {
 		}
 	}
 }
+
+func TestGCPercentFor(t *testing.T) {
+	for _, tc := range []struct {
+		live uint64 // MiB
+		want int
+	}{
+		{0, 800},    // not known yet: the most room
+		{4, 800},    // 96 MiB of room would be 2,400%: the bound
+		{12, 800},   // exactly the bound
+		{24, 400},   // a small project: 96 MiB above its live heap
+		{48, 200},   // 96 MiB above 48
+		{96, 100},   // the headroom is the live heap itself
+		{155, 100},  // a project of 90,000 lines: GOGC 100
+		{1000, 100}, // a huge one
+	} {
+		if got := gcPercentFor(tc.live * mib); got != tc.want {
+			t.Errorf("live %d MiB: GC percent %d, want %d", tc.live, got, tc.want)
+		}
+	}
+}
+
+func TestGCPercentLeavesTheHeadroomAbove(t *testing.T) {
+	for _, live := range []uint64{16, 24, 40, 64, 90} {
+		percent := gcPercentFor(live * mib)
+
+		room := live * mib * uint64(percent) / 100
+
+		if room < gcHeadroom-mib || room > gcHeadroom+mib {
+			t.Errorf("live %d MiB: %d%% leaves %d MiB, want about %d",
+				live, percent, room/mib, gcHeadroom/mib)
+		}
+	}
+}
+
+// recordHeapPolicy replaces the runtime's settings by recorders and returns them.
+func recordHeapPolicy(t *testing.T) (limit *int64, percent *int) {
+	t.Helper()
+	limit, percent = new(int64), new(int)
+	*limit, *percent = -1, -1
+	saved := heapPolicy
+	t.Cleanup(func() { heapPolicy = saved })
+	heapPolicy.setMemoryLimit = func(n int64) int64 { *limit = n; return 0 }
+	heapPolicy.setGCPercent = func(n int) int { *percent = n; return 0 }
+	return limit, percent
+}
+
+func TestApplyHeapPolicySetsBoth(t *testing.T) {
+	t.Setenv("GOMEMLIMIT", "")
+	t.Setenv("GOGC", "")
+	limit, percent := recordHeapPolicy(t)
+
+	applyHeapPolicy(24 * mib)
+
+	if *limit != memoryLimitFor(24*mib) || *percent != 400 {
+		t.Errorf("limit %d, percent %d, want %d and 400", *limit, *percent, memoryLimitFor(24*mib))
+	}
+}
+
+func TestApplyHeapPolicyKeepsTheUsersGOGC(t *testing.T) {
+	t.Setenv("GOMEMLIMIT", "")
+	t.Setenv("GOGC", "50")
+	limit, percent := recordHeapPolicy(t)
+
+	applyHeapPolicy(24 * mib)
+
+	if *percent != -1 {
+		t.Errorf("the GC percent was set to %d with GOGC in the environment", *percent)
+	}
+	if *limit == -1 {
+		t.Error("the memory limit was left alone with only GOGC set")
+	}
+}
+
+func TestApplyHeapPolicyKeepsTheUsersMemoryLimit(t *testing.T) {
+	t.Setenv("GOMEMLIMIT", "1GiB")
+	t.Setenv("GOGC", "")
+	limit, percent := recordHeapPolicy(t)
+
+	applyHeapPolicy(24 * mib)
+
+	if *limit != -1 {
+		t.Errorf("the memory limit was set to %d with GOMEMLIMIT in the environment", *limit)
+	}
+	if *percent != 400 {
+		t.Errorf("GC percent %d, want 400", *percent)
+	}
+}
+
+func TestFollowsLiveHeapUnlessBothAreTheUsers(t *testing.T) {
+	for _, tc := range []struct {
+		limit, percent string
+		want           bool
+	}{
+		{"", "", true},
+		{"1GiB", "", true},
+		{"", "50", true},
+		{"1GiB", "50", false},
+	} {
+		t.Setenv("GOMEMLIMIT", tc.limit)
+		t.Setenv("GOGC", tc.percent)
+		if got := followsLiveHeap(); got != tc.want {
+			t.Errorf("GOMEMLIMIT=%q GOGC=%q: %v, want %v", tc.limit, tc.percent, got, tc.want)
+		}
+	}
+}
