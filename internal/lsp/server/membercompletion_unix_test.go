@@ -111,6 +111,11 @@ exec "$MEMBER_TEST_CLANG" "$@"
 		t.Fatalf("ordinary hover = %+v", response)
 	}
 	blocked()
+	text, _ := c.hover("foreign/main.gp", foreign, "_ = x|.field")
+	if strings.Contains(text, "C/C++ native type") {
+		t.Fatalf("pending native type was exposed: %q", text)
+	}
+	blocked()
 	if diagnostics := c.next("plain/main.gp"); diagnostics.Version != 1 || len(diagnostics.Diagnostics) == 0 {
 		t.Fatalf("ordinary diagnostics = %+v", diagnostics)
 	}

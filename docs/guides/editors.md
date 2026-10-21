@@ -162,6 +162,16 @@ complete result has `incomplete: false`. This is separate from ordinary LSP `isI
 remains true for the server's usual prefix-filtering behavior. It is not a guarantee about every
 C++ expression or the viability of a particular argument list.
 
+Hover on a declaration or use of those same supported variable bindings can show its
+compiler-proven native type once the background facts are ready. It is labeled C/C++ (and
+fenced as C++ for Markdown clients), rather than presenting native syntax as a Go declaration.
+The type is the compiler's canonical type, with pointer, qualifier and template arguments but
+with typedef names resolved: `std::string` shows as `std::basic_string<char>` and `FILE *` as
+`_IO_FILE *`. The doc comment of the variable is kept, and a partial-member note remains
+visible where applicable. Missing, unsupported, repaired or stale facts keep the
+existing hover fallback without waiting for clang. API/function/member signatures, native
+header definition locations, VFS overlays and full latency/platform acceptance remain separate work.
+
 **Symbols.** The outline of a file (functions, methods, types with their fields, constants,
 variables) comes from its syntax tree alone, so it works while the file has errors. Workspace
 symbols search every `.gp` file of the modules of the workspace folders and of the open files

@@ -34,7 +34,7 @@
   - [x] 12.13a Opt-in header-package (`raylib.`) and namespace (`std.`) completion from completed immutable facts
   - [x] 12.13b1 Bounded receiver-member probe primitive: compiler-validated accessible names, explicit partial results, clean independent review and focused manager checks; not yet editor member completion
   - [x] 12.13b2 Background member completion for proven original variable bindings; clean review and focused manager checks, explicit partial status and compiler-free requests
-  - [~] 12.13c1 Proven foreign-variable type hover from completed background facts; no new synchronous probing
+  - [x] 12.13c1 Proven foreign-variable type hover from completed background facts; no new synchronous probing (clean second-round review, focused manager checks)
   - [ ] Richer named API/member hover and go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
@@ -141,3 +141,13 @@
   `var h Handle = "s"`, `h + "x"`, `var h Handle = goStruct`, `f(h)` with `f(string)` (C++ errors
   today), and the silent numeric ones `var h Handle = 1.5` (truncates) and `h = n` (int64 → int narrowing,
   a `gocpp vet` warning per §2.3).
+
+- 2026-10-21: 12.13c1 integrated from reviewed source `6f290f29` (two commits squashed) after a
+  clean second-round review. Hover on a variable bound to a foreign C/C++ variable shows its
+  proven native type from completed background facts only: no new probing, no waiting on a
+  worker; missing, partial, stale, repaired or shadowed views fall back to the ordinary hover,
+  and the variable's doc comment is kept. The text is the compiler's canonical type (`FILE *`
+  shows as `_IO_FILE *`, `std::string` as `std::basic_string<char>`), because `Result.Written`
+  is unqualified and only valid inside its declaration context. Manager focused checks (gofmt,
+  vet, hover/member server and cache tests) passed. Richer named API/member hover and
+  go-to-definition into headers (12.13c2) remain open.

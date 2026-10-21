@@ -34,10 +34,11 @@ import (
 
 // A hoverResult is a hover before it is formatted (gopls's hoverResult).
 type hoverResult struct {
-	signature string // Go code: the declaration
-	doc       string // the doc comment, as text (go/doc/comment syntax)
-	methods   string // Go code: the methods of a type, or ""
-	footer    string // plain text lines, or ""
+	signature         string // declaration, or a proven native type when signatureLanguage is cpp
+	signatureLanguage string // empty means Go; applies only to the signature
+	doc               string // the doc comment, as text (go/doc/comment syntax)
+	methods           string // Go code: the methods of a type, or ""
+	footer            string // plain text lines, or ""
 	// text is plain text after the signature, for the hovers that have
 	// no doc comment of their own (C/C++ names, header imports).
 	text string
@@ -305,6 +306,11 @@ func (q *query) objectHover(ctx context.Context, obj types.Object, id *ast.Ident
 		h.signature = kind + v.Name() + " // C/C++"
 		h.text = "Its type comes from C/C++ and is opaque to gocpp: the C++ compiler checks it."
 	}
+	if v, ok := obj.(*types.Var); ok {
+		// The ordinary hover stays the base (its doc comment is kept); a completed background
+		// fact only replaces the signature and the note about the type.
+		q.addNativeType(h, v)
+	}
 
 	// A promoted field: through which embedded fields (gopls).
 	if v, ok := obj.(*types.Var); ok && v.IsField() && len(path) > 0 {
@@ -369,6 +375,26 @@ func (q *query) macroOf(obj types.Object) *load.MacroSig {
 		return dep.Macros[fn.Name()]
 	}
 	return nil
+}
+
+// addNativeType replaces the signature and text of the hover h of the variable with its
+// compiler-proven native type, when the exact original binding has a completed background fact.
+// Only the retained fact is read: nothing is probed and nothing waits on the compiler. A repaired
+// or stale view never matches a fact: its package is a variant, which the lookup rejects, and its
+// variable objects are not the original bindings.
+func (q *query) addNativeType(h *hoverResult, variable *types.Var) {
+	native, incomplete, ready := q.snap.ForeignVariableType(q.pkg, variable)
+	if !ready {
+		return
+	}
+	text := fmt.Sprintf("C/C++ native type of variable `%s`.", variable.Name())
+	if incomplete {
+		text += " Member completion is partial;" +
+			" this type does not imply exhaustive member information."
+	}
+	h.signature = native
+	h.signatureLanguage = "cpp"
+	h.text = text
 }
 
 // cppValue reports whether the variable v of the document's package has
@@ -625,11 +651,15 @@ func (q *query) cppUseAt() (*load.CppUse, []string, *ast.Ident) {
 // in Markdown), then the doc and the methods, then the footer; in
 // Markdown, a line (---) between these sections.
 func (h *hoverResult) format(markdown bool) string {
-	fenced := func(s string) string {
+	fenced := func(s, language string) string {
 		if s != "" && markdown {
-			s = "```go\n" + strings.Trim(s, "\n") + "\n```"
+			s = "```" + language + "\n" + strings.Trim(s, "\n") + "\n```"
 		}
 		return s
+	}
+	language := h.signatureLanguage
+	if language == "" {
+		language = "go"
 	}
 	doc := h.doc
 	if markdown {
@@ -638,9 +668,9 @@ func (h *hoverResult) format(markdown bool) string {
 	doc = strings.TrimSuffix(doc, "\n")
 	text := h.text // with `code`, which reads as well in plain text
 	sections := [][]string{
-		{fenced(h.signature)},
-		{text, doc, fenced(h.methods)},
-		{fenced(h.expansion)},
+		{fenced(h.signature, language)},
+		{text, doc, fenced(h.methods, "go")},
+		{fenced(h.expansion, "go")},
 		{h.footer},
 	}
 	var b strings.Builder

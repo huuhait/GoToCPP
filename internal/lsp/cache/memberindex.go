@@ -23,6 +23,7 @@ const maxMemberBindings = 256
 
 type memberAnswer struct {
 	names      []string
+	nativeType string
 	incomplete bool
 }
 
@@ -272,22 +273,40 @@ func (ix *memberIndexer) runWork(ctx context.Context, pkg *Package) (*memberFact
 // No compiler, dependency validation or scheduling is performed by a lookup. Variants and
 // unsupported bindings have no ready facts and must not be presented as complete-empty.
 func (s *Snapshot) MemberSymbols(pkg *Package, object *types.Var) ([]string, bool, bool) {
+	answer, ready := s.memberFact(pkg, object)
+	if !ready {
+		return nil, true, false
+	}
+	return slices.Clone(answer.names), answer.incomplete, true
+}
+
+// ForeignVariableType returns the retained native type of the bound variable and whether its
+// member list is partial. Like MemberSymbols, it performs no compiler, dependency IO or
+// scheduling work. The type is the compiler's canonical spelling (typedef names resolved), not
+// the spelling of the declaration. When the fact is not ready the result is the zero triple
+// ("", false, false); only the final ready value says whether the first two are meaningful.
+func (s *Snapshot) ForeignVariableType(pkg *Package, object *types.Var) (string, bool, bool) {
+	answer, ready := s.memberFact(pkg, object)
+	if !ready || answer.nativeType == "" {
+		return "", false, false
+	}
+	return answer.nativeType, answer.incomplete, true
+}
+
+func (s *Snapshot) memberFact(pkg *Package, object *types.Var) (memberAnswer, bool) {
 	st, ok := s.state.(*state)
 	if !ok || st.p.members == nil || pkg == nil || pkg.Check == nil || pkg.IsVariant() || object == nil {
-		return nil, true, false
+		return memberAnswer{}, false
 	}
 	ix := st.p.members
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	entry := ix.entries[memberEntryKey(s, pkg)]
 	if entry == nil || entry.ctx.Err() != nil || entry.facts == nil {
-		return nil, true, false
+		return memberAnswer{}, false
 	}
 	answer, ready := entry.facts.bindings[object]
-	if !ready {
-		return nil, true, false
-	}
-	return slices.Clone(answer.names), answer.incomplete, true
+	return answer, ready
 }
 
 func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts, error) {
@@ -370,13 +389,21 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 			}
 			answer = memberAnswer{names: members.Names(), incomplete: members.Incomplete()}
 			queried[query] = answer
-			facts.bytes += 128 + int64(len(query.Type))
+			facts.bytes += 128
 			for _, name := range answer.names {
 				facts.bytes += 32 + int64(len(name))
 			}
 		}
+		// Keep the compiler's canonical type of the declaration, not the member query's
+		// reference-free base. Today both are equal for every published binding: variables are
+		// probed as type forms, and a reference-typed declaration (an alias such as
+		// `using Ref = Widget &`) has no member facts, so it is never published. Type stays the
+		// source so that hover would show the declaration's real type if references were added.
+		// Result.Written is not used: it is the spelling of the declaration's context
+		// (`::Widget`, or a class-relative member typedef) and is not a type outside that context.
+		answer.nativeType = strings.Clone(result.Type)
 		facts.bindings[object] = answer
-		facts.bytes += 64
+		facts.bytes += 128 + int64(len(answer.nativeType))
 	}
 	if !inputs.Unchanged(ctx) {
 		return nil, fmt.Errorf("receiver analysis inputs changed")

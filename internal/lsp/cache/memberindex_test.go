@@ -184,9 +184,14 @@ func TestMemberAnalysisPreservesPublishedPackage(t *testing.T) {
 	pkg := world.pkg(".")
 	headerSignal(t, started)
 	before := memberPackageFingerprint(t, pkg)
-	close(proceed)
 	snap, release := world.s.Snapshot()
 	defer release()
+	for _, object := range pkg.Check.Info.Uses {
+		if variable, ok := object.(*types.Var); ok {
+			requireTypeNotReady(t, snap, pkg, variable, "pending native type was exposed")
+		}
+	}
+	close(proceed)
 	facts := waitMemberEntry(t, world.p.members, memberEntryKey(snap, pkg))
 	if len(facts.bindings) != 1 {
 		t.Fatalf("bindings = %d, want 1", len(facts.bindings))
@@ -195,6 +200,13 @@ func TestMemberAnalysisPreservesPublishedPackage(t *testing.T) {
 		t.Fatal("background analysis changed the published package")
 	}
 	for object := range facts.bindings {
+		native, partial, known := snap.ForeignVariableType(pkg, object)
+		if !known || partial || native != "Widget" {
+			t.Fatalf("native type = %q, partial=%v, ready=%v", native, partial, known)
+		}
+		if facts.bytes < int64(len(native)) {
+			t.Fatalf("accounting = %d bytes for a %d-byte native type", facts.bytes, len(native))
+		}
 		names, incomplete, ready := snap.MemberSymbols(pkg, object)
 		if !ready || incomplete || len(names) != 2 {
 			t.Fatalf("member symbols = %v, %v, %v", names, incomplete, ready)
@@ -208,10 +220,26 @@ func TestMemberAnalysisPreservesPublishedPackage(t *testing.T) {
 		if _, _, ready := snap.MemberSymbols(variant, object); ready {
 			t.Fatal("original facts leaked into a repaired variant")
 		}
+		requireTypeNotReady(t, snap, variant, object, "native type leaked into a repaired variant")
 		other := types.NewVar(object.Pos(), object.Pkg(), object.Name(), object.Type())
 		if _, _, ready := snap.MemberSymbols(pkg, other); ready {
 			t.Fatal("same spelling/position was mistaken for the same binding")
 		}
+		requireTypeNotReady(t, snap, pkg, other,
+			"native type matched another object with the same spelling/position")
+	}
+}
+
+// requireTypeNotReady checks that no native type is published for the binding and that the
+// not-ready result is the documented zero triple, which cannot be mistaken for a partial type.
+func requireTypeNotReady(
+	t *testing.T, snap *Snapshot, pkg *Package, object *types.Var, why string,
+) {
+	t.Helper()
+	native, partial, ready := snap.ForeignVariableType(pkg, object)
+	if ready || native != "" || partial {
+		t.Fatalf("%s: got (%q, partial=%v, ready=%v), want (\"\", false, false)",
+			why, native, partial, ready)
 	}
 }
 
@@ -243,6 +271,41 @@ func TestMemberIndexHeaderRefresh(t *testing.T) {
 		if !slices.Equal(answer.names, []string{"second"}) {
 			t.Fatalf("refreshed names = %v", answer.names)
 		}
+	}
+}
+
+func TestForeignVariableTypeHeaderRefresh(t *testing.T) {
+	t.Setenv("GOCPP_INTEROP", "typed")
+	t.Setenv("GOCPP_NOPROBECACHE", "1")
+	defer probe.SetRacyWindow(0)()
+	const declarations = "struct First { int field; }; struct Second { int field; };\n"
+	world := newWorld(t, testConfig(), map[string]string{
+		"gocpp.mod": "module example.com/native\n",
+		"main.gp": "package main\nimport \"./api.hpp\"\n" +
+			"func f() { x := api.make(); _ = x.field }\n",
+		"api.hpp": declarations + "First make();\n",
+	})
+	t.Cleanup(world.p.Close)
+	pkg := world.pkg(".")
+	snap, release := world.s.Snapshot()
+	defer release()
+	key := memberEntryKey(snap, pkg)
+	before := waitMemberEntry(t, world.p.members, key)
+	var variable *types.Var
+	for object := range before.bindings {
+		variable = object
+	}
+	if native, _, ready := snap.ForeignVariableType(pkg, variable); !ready || native != "First" {
+		t.Fatalf("initial native type = %q, ready=%v", native, ready)
+	}
+	if err := os.WriteFile(filepath.Join(world.root, "api.hpp"),
+		[]byte(declarations+"Second make();\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	world.p.HeadersChanged()
+	waitMemberEntry(t, world.p.members, key)
+	if native, _, ready := snap.ForeignVariableType(pkg, variable); !ready || native != "Second" {
+		t.Fatalf("refreshed native type = %q, ready=%v", native, ready)
 	}
 }
 
