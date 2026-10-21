@@ -19,14 +19,14 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
   focused GCC/Clang ASan/Go checks and combined compiler checks.
 - [x] 9.12: checked stdlib inventory, Go differences and exercised porting guide; clean round-2 review and manager focused checks.
 - [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
-- [~] 12.13a: qualified namespace-alias targets and cache-version invalidation are fixed; independent whole-net round-4 review is running. Earlier race/resource/namespace reproductions passed. Member/hover work remains separate.
+- [~] 12.13a: round-4 review confirmed direct alias targets fixed; targets exposed through namespace using-directives still need a unified visibility-resolution fix. Round-5 correction is running; whole-net re-review follows. Earlier race/resource reproductions passed. Member/hover work remains separate.
 - [x] 11.14b: current-implementation rapid-edit and settle-active measurements independently reviewed and recomputed by the manager; eight consistent wins, four inconclusive small typing rows, no qualifying slowdown. No source change; every-row/all-project acceptance remains open.
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
 - [x] 15.6a: proven-concrete interface calls integrated after clean review and focused source/integration checks; ownership, ordering, nil/recover behavior and dynamic fallback preserved. Kernel speedups are not whole-project performance acceptance.
 - [x] 15.7b: generic-type method body placement integrated after clean review and focused source/integrated checks. Measured header size is about 14% smaller; whole-build speed benefit remains inconclusive. Modules remain separate.
 - [x] 15.6b: existing range-bound snapshots and failure-branch hints documented and regression-tested, with clean review and integrated manager checks. No compiler/runtime optimization or new speedup claim.
 - [x] 15.7c: isolated header-unit evaluation integrated after clean review and manager evidence/synthetic/doc checks. Warm package-header reuse improves, but construction plus one replay is slower; keep the production PCH. No module adoption or full 15.7 acceptance.
-- [~] 15.4: isolated intrusive-reference-counting prototype passed independent review; manager checks/integration next, with production replacement deferred.
+- [x] 15.4: bounded ownership experiment integrated after clean review and manager GCC/Clang checks. Retain the isolated prototype/raw results; production ownership and ADR-004 stay unchanged. Full compatibility, application performance and platform acceptance remain open.
 - [ ] Next: remaining 12.13 editor features and real external-cache measurements when prerequisites are available.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6, 15.7b and the bounded 15.7c evaluation merged; 15.4 experiment awaiting manager integration; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6, 15.7b and the bounded 15.4/15.7c evaluations merged; production ownership and module adoption deferred; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -13,7 +13,7 @@
   - [x] non-escaping pointer receivers/parameters use `gp::bptr<T>` rather than `this` (ADR-086); callers retain owners unless stability/purity proves lending safe
   - [x] `const&` ABI with owning snapshots for mutable/captured sources and implicit foreign work; defer/go collect owning values
   - [x] targeted pointer/value generators and owner-drop regressions under ASan; corrected real-runner smoke passed, not a full campaign
-- [~] 15.4 Isolated intrusive-refcount prototype and matched ownership measurements; keep only if justified, no production runtime adoption in this job
+- [x] 15.4 Bounded intrusive-refcount evaluation: isolated prototype and matched primitive measurements retained after clean review and manager checks; production adoption deferred, broader compatibility/performance acceptance remains open
 - [x] 15.5 Swiss-table maps
 - [x] 15.6 Devirtualization + bounded bounds-check help; broader performance acceptance remains open
   - [x] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved, clean independent review and focused manager source/integration checks
@@ -49,6 +49,23 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: Bounded 15.4 evaluation integrated from reviewed source `1f39adb6`.
+  Keep the isolated prototype in `tools/rcexperiment`; defer production replacement.
+  Independent whole-net review is clean, including normal, ASan/UBSan/LSan and TSan
+  execution with GCC/Clang. Manager checks passed on the integrated files: all eight
+  match the reviewed source, 48 raw samples/order/sinks and retained instrumentation
+  statuses were verified, and both compilers passed the bounded correctness executable.
+  The initial manager evidence script used a wrong reviewer-binary path; corrected before
+  the passing run, with no subject change. No timing or sanitizer campaign was repeated.
+  Threaded primitive copy/drop kernels improve about 21–23%; GCC lifetime/weak improves
+  about 14%, while Clang's sub-1% difference is inconclusive. Owner-only handles shrink
+  16 to 8 bytes, but aliases/weak handles and coallocated heap storage do not shrink.
+  Final acquire/release weak-lock binaries match the measured binaries on these toolchains.
+  These are uncontended microbenchmarks, not application/RSS or platform acceptance.
+  Production registry, foreign/static ownership, arrays, bounded release, ABI/debugger
+  integration and Windows/arm64 validation remain outside the prototype. ADR-004 and
+  production ownership are unchanged; full performance and compatibility criteria stay open.
 
 - 2026-10-20: 15.7c integrated from reviewed source `730e993d`, with two table-rounding
   nits corrected. The isolated header-unit replay retains the actual runtime PCH baseline,

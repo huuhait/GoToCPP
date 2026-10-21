@@ -19,8 +19,11 @@ The 15.7c header-unit evaluation is integrated from `730e993d` after clean revie
 manager checks: 12 feasibility/24 timed outcomes verified, synthetic failure retention and
 224 docsite pages passed. Warm package-header reuse improves, but construction plus one
 replay is slower; keep the existing production PCH. This is not end-to-end cold-build or
-platform acceptance. Active work is 12.13a whole-net round-4 review and manager integration
-of the independently reviewed, isolated 15.4 intrusive-reference-counting experiment.
+platform acceptance. The bounded 15.4 ownership experiment is integrated from `1f39adb6`
+after clean review, manager GCC/Clang correctness checks, and recomputation of all 48 raw
+samples. Retain the prototype but defer production adoption; ADR-004 stays unchanged.
+Active work is 12.13a correction of namespace targets exposed through using-directives,
+then another whole-net review.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -39,12 +42,13 @@ User-owned `c4/` has not been changed by the manager.
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. The
-12.13a reviewer is checking the qualified-alias fix and the whole 17-file change in
-`../GoToCPP-12.13` on `job/12.13a`, based on `ca4819df`. Preserve the main-branch rename
-from `aux.go` to `auxiliary.go` during integration. Full member/hover/VFS/Windows and speed
-acceptance remain open. The refcount experiment in `../GoToCPP-15.4` on `job/15.4`, based
-on `919f1a82`, has a clean independent review and awaits manager integration; production
-ownership stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
+12.13a coder is fixing qualified targets that obtain namespace components through using
+visibility, after round-4 review confirmed the direct-alias fix. The whole 17-file change in
+`../GoToCPP-12.13` on `job/12.13a`, based on `ca4819df`, needs another independent review.
+Preserve the main-branch rename from `aux.go` to `auxiliary.go` during integration. Full
+member/hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
+`../GoToCPP-15.4` on `job/15.4` is integrated as an isolated experiment; production ownership
+stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
 an experiment, not permission for production adoption. Do not fill slots with blocked work.
 Continue the remaining 12.13 editor features and 15.7 prerequisites in dependency order.
 An unmet exit criterion is not waived by merging an independently reviewed partial improvement.
