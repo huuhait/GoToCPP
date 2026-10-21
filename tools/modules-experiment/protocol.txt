@@ -1,0 +1,76 @@
+15.7c frozen protocol (2026-10-20, before any timed compiler samples)
+=================================================================
+Scope: isolated C++20 header-unit feasibility, not a production module build system.
+Snapshot: a431607690d2e65d5a56207f8fd4c9abbf351a24, including 15.7b body placement.
+Inputs: unchanged tools/genericsgen/ctime_gen.py t 20 10; minimal generated
+`package main; func main() { println("hello") }`. Expected stdout: 600\n and hello\n.
+Only installed Nix-shell g++ 15.3.0 and clang++ 21.1.8, Linux x86-64. No downloads.
+
+Preparation (untimed)
+--------------------
+Build this snapshot's gocpp. Generate both inputs in private scratch. Capture real
+`gocpp build -work -x -p 4` compiler argv and working directories through a transparent
+launcher. Use GOCPP_MODCACHE=off GOCPP_OFFLINE=1 GOCPP_TEST_TIMEOUT=6m,
+GOCPP_NOOBJCACHE=1 GOCPP_NOUPTODATE=1 GOCPP_GATE_PHASE=15. Private XDG/GOCACHE,
+TMPDIR and module caches; GOPROXY=off GOSUMDB=off. Keep runtime libraries and generated
+source for replay. A hello build warms the actual runtime/PCH for each compiler;
+T20x10 capture then uses it. Keep every source/descriptor/init TU and runtime link input.
+No untimed setup/capability attempt is reported as a timed sample.
+
+Configurations
+--------------
+A. Actual runtime PCH: replay all captured program compiles and link, retaining
+   -include rt.hpp (GCC) / -include-pch rt.hpp.pch (Clang), flags, includes, macros.
+B. Runtime header unit: build the real gocpp/rt.hpp with the same semantic flags,
+   remove only PCH injection, change runtime #include to import in private copies
+   of generated files; load the explicit BMI. No runtime source/header edits.
+C. Package header unit: build the real representative generated pkg.hpp, import it
+   in private generated TU copies, without discarding macro guards or moving bodies.
+   Keep rt.hpp textual unless the runtime header-unit result provides a compatible
+   import chain. Failure due to per-includer macros is a result, not permission to
+   simplify the header or silently remove source/descriptor/init compilation.
+
+Header-unit commands use GCC -fmodules-ts -x c++-header (private gcm.cache) or Clang
+-fmodule-header=system / -fmodule-header=user --precompile and explicit -fmodule-file.
+Record exact expanded argv/cwd per step. No dependency scanner, system-header changes,
+new PCH scheme, compiler cache, flag relaxation or header pruning. Stop a configuration
+on the first blocker, retain its diagnostics and exit status; do not time broken builds.
+A named-module facade is not a mandatory additional configuration: wrapping a global
+header in a named module changes declaration attachment and is not semantic equivalence.
+
+Timed samples after viability
+-----------------------------
+Shared perf.lock acquired with flock timeout <=120s, never unbounded polling.
+All heavy runs use the prescribed testslot.sh + nix develop --offline, bounded outer
+and per-process timeouts. One experiment at a time. Filesystem caches are not flushed;
+no CPU pinning. Save load average and compiler identities.
+Two matched rounds per viable configuration/workload/compiler. Round 1: A then B then
+C; round 2: C then B then A (omit failed candidates, retaining their failure record).
+Each round reconstructs the PCH or BMI from scratch in that configuration's own location;
+construction is timed separately from warm reuse. Then compile every generated TU and
+link, reusing the same ordinary runtime archive. Program replay uses up to four compile
+jobs, as captured; no TU is omitted. Record wall and aggregate child user+system CPU,
+per-unit time and diagnostics, link time, binary/input SHA256, stdout and exit status.
+Separately use an empty importer/-fsyntax-only if viable to isolate header parsing from
+code generation. These frontend-only rows are not whole-build speedup evidence.
+
+Success and reporting
+---------------------
+A candidate needs both compilation/link success and byte-identical stdout to A, including
+600 for T20x10, with the same flags and all units. A speedup requires both balanced pairs
+to improve beyond observed baseline variation. Two samples are descriptive, not a noise
+model. Report construction and reuse separately; shared ordinary runtime construction is
+excluded from replay for EVERY configuration. Replay omits gocpp frontend work for EVERY
+configuration and is explicitly not end-to-end `gocpp build` timing. No cross-platform,
+other-version, all-program runtime neutrality, adoption or product acceptance claim.
+
+Preparation clarification, before the first timing (same date)
+------------------------------------------------------------
+The minimal probe uses builtin println, which writes hello\n to stderr, not stdout.
+Its successful comparison requires empty stdout AND that exact stderr. T20x10 requires
+600\n on stdout and empty stderr. Compare both streams and exit codes. _POST in this
+single-package workload is an ordinary header guard, not a request to strip definitions.
+All of it is retained. The PCH reconstruction uses a private copy of the exact one-line
+#include <gocpp/rt.hpp> wrapper, retaining all captured flags; the original PCH/cache is
+never overwritten. Cold PCH/BMI construction is repeated per workload to keep each
+pair's independent artifact identities explicit (not charged twice to one build).

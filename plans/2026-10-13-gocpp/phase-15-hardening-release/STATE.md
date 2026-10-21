@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6 and 15.7b merged; 15.4 and 15.7c experiments in progress; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6, 15.7b and the bounded 15.7c evaluation merged; 15.4 experiment awaiting manager integration; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -22,7 +22,7 @@
   - [x] 15.7a Existing external-cache launcher workflow documented and tested; clean review and manager focused checks, no redundant configuration knob
   - [ ] Real ccache/sccache statistics remain unmeasured: neither tool was available in the checked environment
   - [x] 15.7b Generic-type body placement: larger methods emitted once, small methods kept inline; clean independent review and focused source/integrated checks. Measured header size is smaller; whole-build speed benefit remains inconclusive
-  - [~] 15.7c Bounded C++20 module/header-unit prototype against the existing PCH; evaluation only, no production adoption
+  - [x] 15.7c Bounded C++20 header-unit evaluation against the actual runtime PCH; clean independent review and focused manager checks. Keep production adoption deferred; warm reuse improves, construction plus one replay is slower
 
 ### Robustness
 - [x] 15.8 Fuzzing (parse → check → lower → emit; sampled C++ compiles)
@@ -49,6 +49,20 @@
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live
 
 ## Decisions / notes
+
+- 2026-10-20: 15.7c integrated from reviewed source `730e993d`, with two table-rounding
+  nits corrected. The isolated header-unit replay retains the actual runtime PCH baseline,
+  all generated source/descriptor/init units, semantic flags and ordinary runtime archive.
+  Independent whole-net review is clean. Manager checks passed: all six integrated files
+  match the corrected reviewed commit; 12 feasibility and 24 timed outcomes, output streams,
+  binary hashes and CPU totals were verified; synthetic construction/compile/link/output
+  failures and timeout evidence were retained; shell syntax, doc markers and 224 docsite
+  pages passed. No performance timing was replayed. Package-HU warm T20x10 CPU falls about
+  26%/40% on GCC/Clang, but construction plus one replay is slower (15.764 vs 13.665 s GCC,
+  8.227 vs 7.061 s Clang). Keep the existing production PCH. This is not end-to-end cold
+  build timing, a package-PCH comparison, multi-package/cache correctness, Windows support
+  or general runtime neutrality. Real external-cache statistics and full 15.7 acceptance
+  remain open; no production compiler/runtime/build changes were made.
 
 - 2026-10-20: 15.6b integrated from reviewed source `8d1c5c63`. Existing slice ranges
   retain their original header/owner and check the hidden index before reading the range

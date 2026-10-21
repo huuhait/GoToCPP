@@ -217,6 +217,163 @@ The historical 7.12 estimate also proposed suppressing repeated `#line` directiv
 implement that separate change, package PCH, shared-instance naming, modules or an external cache.
 Full 15.7 remains open; these measurements are not a project-wide performance acceptance.
 
+## Bounded header-unit experiment (15.7c)
+
+This is a **prototype, not a production build option**. The input is the unchanged T20x10
+program from `ctime_gen.py`, emitted by snapshot `a4316076` with 15.7b's body placement,
+and a generated minimal `println("hello")` program. The baseline uses the **actual runtime
+PCH flags and wrapper**, not textually reparsed `rt.hpp`. The experiment scripts and the
+protocol frozen before timing are in [`tools/modules-experiment`](../../tools/modules-experiment/).
+
+The three isolated configurations retain the same C++20 debug flags (`-O0 -g`, wrapping
+arithmetic, aliasing, floating-point, section and compiler-specific warning flags), include
+paths, generated declarations and bodies, and ordinary runtime archive:
+
+- **PCH:** copy the driver's one-line `#include <gocpp/rt.hpp>` wrapper, build its PCH and
+  inject it with GCC's `-include` or Clang's `-include-pch`.
+- **Runtime HU:** build the real `gocpp/rt.hpp` as a header unit; replace only that include
+  with `import <gocpp/rt.hpp>;` in private generated files and remove PCH injection.
+- **Package HU:** build the whole real generated `pkg.hpp` as a header unit, including its
+  textual runtime include; replace the generated TUs' package include with an import.
+  No `_POST`/descriptor guards, methods or source units are stripped. This single-package
+  test does not exercise cross-package guard interactions.
+
+GCC uses `-fmodules-ts -x c++-header` and a separate `gcm.cache` per configuration/run.
+Clang uses `-fmodule-header=system` (runtime) or `=user` (package), `--precompile`, and an
+explicit `-fmodule-file`. No named-module facade is substituted: attaching the runtime's
+global declarations to a named module would be a different semantic experiment.
+
+### Measured result: keep adoption deferred
+
+Measured on 2026-10-20 with **g++ 15.3.0 and clang++ 21.1.8**, both Nix wrappers targeting
+`x86_64-unknown-linux-gnu`, on Linux 6.19.6 / Ryzen Threadripper PRO 9995WX (96 cores,
+192 hardware threads). The emitted T header is 874,738 bytes for GCC and 875,138 for
+Clang; absolute `#line` paths affect these sizes. The gocpp binary's SHA-256 begins
+`494495b762c5`; the T input's is `c601c27e62da`. Exact hashes, commands and output hashes
+are recorded with the raw experiment evidence, not borrowed from 15.7b's measurements.
+
+**All 12 untimed configurations and all 24 timed builds passed.** T20x10 printed exactly
+`600\n` to stdout; hello printed exactly `hello\n` to stderr, as builtin `println` should.
+The other stream was empty in each case. Every frontend-only check also passed. No
+failed or unsupported installed-compiler configuration was dropped. Clang retained its
+`-Wexperimental-header-units` warnings; GCC emitted none. Windows, named modules,
+Clang 17–20, other flags, multi-package sharing and cache invalidation are **untested**, not
+claimed supported. A separate GCC `-H -Werror=invalid-pch` check showed the `! ...rt.hpp.gch`
+marker; Clang's explicit `-include-pch` succeeded. The baseline did not silently reparse
+an invalid PCH.
+
+Warm C++ backend replay, **both rounds in order**, seconds. CPU is the sum of user and
+system time for every generated TU and the link; wall includes their parallel execution.
+
+| Compiler / program | Configuration | Wall, round 1 / 2 | CPU, round 1 / 2 |
+|---|---|---|---|
+| GCC hello | runtime PCH | 0.387 / 0.376 | 0.54 / 0.52 |
+| GCC hello | runtime HU | 0.319 / 0.396 | 0.30 / 0.28 |
+| GCC hello | package HU | 0.328 / 0.315 | 0.31 / 0.31 |
+| GCC T20x10 | runtime PCH | 11.900 / 12.091 | 22.08 / 22.45 |
+| GCC T20x10 | runtime HU | 12.018 / 11.936 | 22.76 / 22.41 |
+| GCC T20x10 | package HU | 10.034 / 9.484 | 16.96 / 16.04 |
+| Clang hello | runtime PCH | 0.349 / 0.331 | 0.50 / 0.46 |
+| Clang hello | runtime HU | 0.200 / 0.193 | 0.20 / 0.20 |
+| Clang hello | package HU | 0.203 / 0.208 | 0.19 / 0.20 |
+| Clang T20x10 | runtime PCH | 6.188 / 6.364 | 13.05 / 13.62 |
+| Clang T20x10 | runtime HU | 6.182 / 6.293 | 13.01 / 13.41 |
+| Clang T20x10 | package HU | 4.684 / 4.611 | 8.19 / 7.92 |
+
+Artifact construction, measured separately from reuse. Each cell is **wall (CPU)** seconds;
+hello and T use independent artifacts, not two construction costs charged to one build.
+
+| Compiler / program | Artifact | Round 1 | Round 2 |
+|---|---|---|---|
+| GCC hello | runtime PCH | 1.73 (1.71) | 1.67 (1.65) |
+| GCC hello | runtime HU | 1.31 (1.29) | 1.29 (1.27) |
+| GCC hello | package HU | 1.30 (1.28) | 1.31 (1.30) |
+| GCC T20x10 | runtime PCH | 1.69 (1.67) | 1.65 (1.64) |
+| GCC T20x10 | runtime HU | 1.30 (1.28) | 1.28 (1.27) |
+| GCC T20x10 | package HU | 5.86 (5.81) | 6.15 (6.09) |
+| Clang hello | runtime PCH | 0.80 (0.79) | 0.80 (0.79) |
+| Clang hello | runtime HU | 0.87 (0.86) | 0.88 (0.86) |
+| Clang hello | package HU | 0.88 (0.86) | 0.88 (0.87) |
+| Clang T20x10 | runtime PCH | 0.80 (0.78) | 0.77 (0.76) |
+| Clang T20x10 | runtime HU | 0.64 (0.63) | 0.86 (0.85) |
+| Clang T20x10 | package HU | 3.65 (3.61) | 3.51 (3.47) |
+
+Frontend-only importer CPU seconds, round 1 / 2. GNU time's 0.01-second resolution can
+round a very small result to zero; these are not zero-cost imports.
+
+| Compiler / program | Runtime PCH | Runtime HU | Package HU |
+|---|---|---|---|
+| GCC hello | 0.13 / 0.13 | 0.00 / 0.01 | 0.01 / 0.01 |
+| GCC T20x10 | 2.28 / 2.21 | 2.02 / 2.26 | 0.45 / 0.46 |
+| Clang hello | 0.15 / 0.15 | 0.02 / 0.01 | 0.01 / 0.02 |
+| Clang T20x10 | 2.23 / 2.44 | 2.16 / 1.98 | 0.01 / 0.02 |
+
+The package HU reduces mean warm T20x10 CPU by **26% with GCC and 40% with Clang**,
+and wall time by **19% and 26%**. Both matched rounds improve by substantially more
+than the baseline's roughly 2–4% CPU variation. All three TUs still compile; this is a
+real bounded reuse benefit after 15.7b, not a header-only number substituted for a build.
+It is **not a cold-backend wall-time win**: construction plus one backend replay averages 15.764 vs
+13.665 seconds wall with GCC, and 8.227 vs 7.061 with Clang. The extra package-specific
+artifact costs more wall time to build than one replay saves. Normal object-cache hits
+also avoid compilation entirely, unlike these deliberately uncached replays.
+
+Runtime-only HUs do not materially improve T20x10 (mean CPU +1.4% GCC / -0.9% Clang,
+within this small sample's variation), although the minimal hello shows lower reuse CPU
+and Clang saves about 0.14 seconds wall. GCC hello's second runtime-HU wall sample is
+slower than PCH despite lower CPU: retain that noisy result, not a universal floor claim.
+Observed one-minute load was 1.12–1.76, unpinned; two rounds do not establish a global
+speedup, regression distribution or runtime/ABI equivalence beyond these output checks.
+
+**Recommendation:** defer production modules/header units. Package-header reuse warrants
+future investigation, but this experiment does not choose between it and a package PCH
+(option 2 of ADR-105), and it does not implement scanning, cache correctness, invalidation,
+macro-sensitive multi-package imports or Windows support. Runtime-HU replacement alone
+is not justified for generic-heavy builds by these results. Keep the existing PCH and
+15.7b body placement; do not change default flags or adopt a module pipeline from this test.
+
+### Reproduce the bounded experiment
+
+From this checkout, with the toolchains and Go dependency already installed:
+
+```bash
+ROOT=$PWD
+WORK_PARENT=$(mktemp -d)
+WORK="$WORK_PARENT/modules"
+TESTSLOT=/path/to/inspected/testslot.sh
+PERF_LOCK=/path/to/shared/perf.lock
+heavy() {
+    timeout 1200s bash "$TESTSLOT" nix develop --offline "$ROOT" -c \
+        env GOCPP_MODCACHE=off GOCPP_OFFLINE=1 GOCPP_TEST_TIMEOUT=6m \
+        XDG_CACHE_HOME="$WORK_PARENT/cache" "$@"
+}
+heavy bash "$ROOT/tools/modules-experiment/prepare.sh" "$WORK"
+heavy python3 -I "$ROOT/tools/modules-experiment/evaluate.py" "$WORK" probe
+heavy flock -w 120 "$PERF_LOCK" \
+    python3 -I "$ROOT/tools/modules-experiment/evaluate.py" "$WORK" measure
+```
+
+Preparation copies the already installed `golang.org/x/tools@v0.44.0` and its download
+metadata into a private offline cache; it does not fetch them. A different installed module
+cache can be passed as `prepare.sh`'s second argument. It retains the real driver's argv,
+work folders, ordinary runtime/PCH builds and generated source. The probe builds every
+configuration before timing; a failed configuration remains in `probe-summary.json` and
+is not counted as a speedup. Inspect summary statuses, not just the script's exit code.
+
+Each viable configuration has two matched rounds, in PCH/runtime-HU/package-HU order and
+then reverse order. Each round builds a fresh PCH/BMI and separately measures reuse: **all
+three T20x10 TUs** (source, descriptor and init), or both hello TUs, compiled with at most
+four jobs, followed by the unchanged link. `manifest.json`, per-command JSON/time files,
+stdout/stderr, output checks and binary SHA-256s are retained beneath
+`$WORK/replay/<compiler>/<workload>/<configuration>/<round>/`.
+
+This is C++ backend replay, **not end-to-end `gocpp build` timing**: frontend emission and
+ordinary runtime-library construction are excluded equally from every configuration.
+PCH/BMI construction is reported separately, not hidden in a warm-only headline. Actual
+first-time driver builds may overlap runtime/PCH construction, unlike this isolated replay.
+The separate `-fsyntax-only` importer measures frontend work without code generation, not
+pure parsing alone. The OS page cache is not flushed; the shared performance lock does
+not pin CPUs or eliminate other machine load. No object cache or up-to-date hits are used.
+
 ## What to expect for a big program
 
 These historical 7.12 numbers illustrate scale, not current build-time budgets after 15.7b.

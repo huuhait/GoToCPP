@@ -15,8 +15,12 @@ is integrated after clean review and focused source/integration checks. Step 15.
 body placement is also integrated: measured headers are smaller, but whole-build speed
 benefit remains inconclusive. Step 15.6b existing range-bound help is documented and
 regression-tested after clean review and integrated checks, without a compiler/runtime change.
-Active jobs are 12.13a background header indexing/completion review fixes, a 15.7c C++20
-modules evaluation, and an isolated 15.4 intrusive-reference-counting experiment.
+The 15.7c header-unit evaluation is integrated from `730e993d` after clean review and
+manager checks: 12 feasibility/24 timed outcomes verified, synthetic failure retention and
+224 docsite pages passed. Warm package-header reuse improves, but construction plus one
+replay is slower; keep the existing production PCH. This is not end-to-end cold-build or
+platform acceptance. Active work is 12.13a whole-net round-4 review and manager integration
+of the independently reviewed, isolated 15.4 intrusive-reference-counting experiment.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -34,18 +38,16 @@ User-owned `c4/` has not been changed by the manager.
 | 9.13a release preparation | `../GoToCPP-9.13` / `job/9.13` | Integrated from `235ca9ba` after clean round-2 review and focused source/integrated manager checks. Notices, installation instructions and byte-identical reserved-filename repair included; real offline local-proxy installation passes. No release archives, Nix installation, new platform run or publication. Full 9.13/M6 remain open. |
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
-no delegation by workers, and final reports only except genuinely blocked decisions. Three
-workers are active: the 12.13a coder correcting the second-review findings, the 15.7c
-prototype worker, and the 15.4 prototype worker. The refcount experiment is in
-`../GoToCPP-15.4` on `job/15.4`, based on `919f1a82`; production ownership stays unchanged. The module evaluation is in `../GoToCPP-15.7c` on `job/15.7c`, based on
-`a4316076`; it does not authorize production module adoption. The bounds-check worktree is
-`../GoToCPP-15.6b` on `job/15.6b`, based on `a07dda2a`; existing safe range and branch-hint
-behavior is checked before considering any new optimization. The new 15.7b worktree is
-`../GoToCPP-15.7b` on `job/15.7b`, based on `1c7081e9`; larger generic-type bodies are its
-bounded scope, not C++20 modules. Start the next review when its coder finishes; never fill
-slots with blocked work. Continue those subjobs, then the remaining
-12.13 editor features, 15.6, 15.7 and 15.4 in dependency order. An unmet exit criterion is
-not waived by merging an independently reviewed partial improvement.
+no delegation by workers, and final reports only except genuinely blocked decisions. The
+12.13a reviewer is checking the qualified-alias fix and the whole 17-file change in
+`../GoToCPP-12.13` on `job/12.13a`, based on `ca4819df`. Preserve the main-branch rename
+from `aux.go` to `auxiliary.go` during integration. Full member/hover/VFS/Windows and speed
+acceptance remain open. The refcount experiment in `../GoToCPP-15.4` on `job/15.4`, based
+on `919f1a82`, has a clean independent review and awaits manager integration; production
+ownership stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
+an experiment, not permission for production adoption. Do not fill slots with blocked work.
+Continue the remaining 12.13 editor features and 15.7 prerequisites in dependency order.
+An unmet exit criterion is not waived by merging an independently reviewed partial improvement.
 
 Only necessary focused checks may run. Nobody runs `make ci`, `verify.sh`, full test,
 interop, phase or sanitizer sweeps; final broad verification belongs to the user. Heavy work
