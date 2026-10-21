@@ -1,0 +1,173 @@
+# The continuous integration of gocpp (step 15.12, docs/guides/packaging.md "CI and the release pipeline").
+#
+# Three platforms, as the exit criteria of Phase 15 ask: Linux x86-64, Linux arm64 and Windows x86-64.
+# Written offline: this file was checked statically (YAML, actionlint, the make targets and test
+# lists it names, cross-builds of cmd/gocpp), and has NOT been run by GitHub, so no result of a
+# hosted arm64 or Windows runner exists yet. The first run is the first evidence.
+# actionlint does not run shellcheck on a custom shell (`shell: nix develop -c bash ...`), so the
+# scripts of those steps were not shellchecked; they use -eo pipefail by hand (a custom shell adds
+# neither), and TestWorkflowCustomShellsStopOnErrors keeps it that way.
+#
+#   cross-build  go vet and go build for linux/arm64 and windows/amd64 from the Linux runner (fast).
+#   linux        `make ci` (the project's CI target: lint, tests with g++ and clang++, build,
+#                portstd-check, bench-smoke) in the Nix dev shell, on an x86-64 and an arm64 runner.
+#   windows      gocpp.exe built and run ON Windows: the Windows test programs of
+#                tests/windows_sample.txt with TestRun and a MinGW-w64 g++, and the pinned
+#                llvm-mingw download.
+#
+# NO LEG USES WINE (ADR-111: Windows is tested on the real PC; Wine 11 cannot deliver stack
+# overflows on AVX-512 CPUs, which hosted runners may have). The Linux legs take Wine off the PATH
+# and empty GOCPP_REQUIRE_WINE, so the runtime's Wine tests skip. Not covered at all: the whole
+# Windows suite (real PC over ssh, docs/guides/windows-testing.md) and the manual Windows checklist.
+#
+# Limits: a hosted job stops after 360 minutes, which is the timeout of the linux legs (a slower
+# make ci cannot finish there: see the sharding of sanitizers-nightly.yml). The arm64 runner label
+# ubuntu-24.04-arm is, as far as is known offline, free only for public repositories.
+#
+# The release workflow (release.yml) calls this one before it builds archives.
+# The actions are pinned by major version, not by commit SHA (as in sanitizers-nightly.yml): the SHAs
+# have to be looked up when the repository is on GitHub.
+name: ci
+
+# No push trigger: a full make ci takes hours on a hosted runner, and dev is pushed after every
+# commit. It runs on pull requests, every night, by hand, and before a release (workflow_call).
+on:
+  pull_request:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Does the program build and vet for the platforms that get release binaries? Needs no C++ compiler.
+  cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: vet and build for linux/arm64
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: |
+          go vet ./...
+          go build -o /dev/null ./cmd/gocpp
+        shell: nix develop -c bash -eo pipefail {0}
+      - name: vet and build for windows/amd64
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go vet ./...
+          go build -o /dev/null ./cmd/gocpp
+        shell: nix develop -c bash -eo pipefail {0}
+
+  # make ci on both Linux architectures. The test programs run with g++ and clang++ (GOCPP_REQUIRE_CXX
+  # is set by the Makefile). No Wine: it is taken off the PATH and GOCPP_REQUIRE_WINE is empty, so the
+  # Windows tests of the runtime that need it skip (MinGW-w64 is still there on amd64 and its
+  # syntax-only check runs; the arm64 dev shell has neither). The differential tests that depend on
+  # amd64's out-of-range float conversions carry //go:build amd64 and skip themselves on arm64
+  # (tests/diff/README.md).
+  linux:
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: show the machine
+        run: |
+          uname -m
+          nproc
+          go version
+          g++ --version | sed -n 1p
+          clang++ --version | sed -n 1p
+        shell: nix develop -c bash -eo pipefail {0}
+      - name: make ci, without Wine
+        env:
+          GOCPP_REQUIRE_WINE: ""
+        run: |
+          PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v -e '-wine' | paste -sd: -)
+          export PATH
+          if command -v wine > /dev/null || command -v wineserver > /dev/null; then
+            echo "wine is still on the PATH"
+            exit 1
+          fi
+          make ci
+        shell: nix develop -c bash -eo pipefail {0}
+
+  # gocpp.exe on a hosted Windows runner. The C++ compiler is MSYS2's MinGW-w64 GCC (UCRT), which
+  # the build driver also finds by itself; the pinned llvm-mingw download is tried separately.
+  windows:
+    name: windows-amd64
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: put MinGW-w64 on the PATH
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: printf '%s\\ucrt64\\bin\n' "$MSYS2_LOCATION" >> "$GITHUB_PATH"
+      - name: build gocpp.exe
+        run: |
+          go build -o bin/gocpp.exe ./cmd/gocpp
+          ./bin/gocpp.exe version
+          g++ --version | sed -n 1p
+          g++ -dumpmachine
+      - name: the test programs of tests/windows_sample.txt (TestRun, native)
+        env:
+          GOCPP_CXX: g++
+          GOCPP_REQUIRE_CXX: g++
+          # The highest "// phase:" of the sample is 09 (the harness skips later phases); make ci
+          # runs up to CI_TEST_PHASE=10 in the Makefile.
+          GOCPP_TEST_PHASE: "09"
+          GOCPP_TEST_TIMEOUT: 6m
+        run: |
+          names=$(sed -e '/^#/d' -e '/^[[:space:]]*$/d' tests/windows_sample.txt | paste -sd'|' -)
+          go test -count=1 -timeout 90m -parallel 2 -run "^TestRun\$/^(${names})\$" ./tests
+      - name: cache the pinned llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/gocpp/toolchain
+          key: gocpp-llvm-mingw-${{ hashFiles('internal/toolchain/*.go') }}
+      - name: a program with the pinned llvm-mingw (downloaded on first use)
+        env:
+          GOCPP_TOOLCHAIN: pinned
+        run: |
+          mkdir hello
+          printf 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hello from windows")\n}\n' > hello/hello.gp
+          ./bin/gocpp.exe env GOCPPCXX GOCPPCXXSOURCE || true
+          out=$(./bin/gocpp.exe run hello/hello.gp)
+          echo "$out"
+          test "$out" = "hello from windows"

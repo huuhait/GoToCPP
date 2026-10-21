@@ -14,8 +14,10 @@ does **not** carry is a C++ compiler: g++ 13 or newer, or clang++ 17 or newer, m
 ## Platforms and requirements
 
 - **Linux, x86-64**: the platform that the tests run on every day.
-- **Linux, arm64**: GoReleaser configures an archive for it and the Nix package evaluates for it;
-  there is no native arm64 test run yet (plan step 15.12). A configured target is not a validated release.
+- **Linux, arm64**: GoReleaser configures an archive for it, the Nix package and the dev shell evaluate
+  for it, and [`ci.yml`](#ci-and-the-release-pipeline) runs `make ci` on a hosted arm64 runner. No such run
+  has happened yet (step 15.12 wrote the workflow offline), so there is no native arm64 test result. A
+  configured target is not a validated release.
 - **Windows 10 or later, x86-64**: `gocpp.exe` builds and runs Windows programs on a Windows host (it is tested on a
   real Windows 11 PC), and Linux can cross-build them. The C++ compiler is a MinGW-w64 one, which gocpp downloads if there is none.
   Start with [gocpp on Windows](windows.md); [Windows from Linux](windows-cross.md) is the cross build.
@@ -128,9 +130,10 @@ nix shell nixpkgs#goreleaser -c goreleaser release --snapshot --clean --skip=pub
 ```
 
 These are maintainer-only local snapshot commands, not required installation steps. A snapshot
-is not a released or validated RC. The real-release pipeline (steps 15.12 and 15.16) remains
-open; tagging, remote draft creation, upload and publication each require explicit release
-approval. Do not run a real release command merely because local checks passed.
+is not a released or validated RC. The workflow that makes the real archives is written
+([below](#ci-and-the-release-pipeline), step 15.12) but has never run, and the release itself
+(step 15.16) remains open; tagging, remote draft creation, upload and publication each require
+explicit release approval. Do not run a real release command merely because local checks passed.
 
 When an approved archive is available, verify its checksum against the matching trusted
 release metadata, extract it into a new directory, and run the contained `gocpp version`
@@ -151,6 +154,65 @@ or in a known folder (MSYS2, Scoop and so on), else the pinned llvm-mingw, which
 download is pinned for Linux (amd64 and arm64) and Windows (amd64) hosts (`internal/toolchain.Archives`); the
 rules are in [the build spec](../spec/build.md#gocppexe-on-a-windows-host).
 
+## CI and the release pipeline
+
+Two workflow files in `.github/workflows/` (step 15.12) are the pipeline. **They were written offline and
+checked statically only** (actionlint with shellcheck, text tests in `internal/packaging`, and the same
+commands run by hand where a Linux x86-64 machine could): GitHub has not run either, so no hosted arm64 or
+hosted Windows result exists, and nothing was tagged or published. `make workflow-check` repeats the
+static checks (`nix shell nixpkgs#actionlint nixpkgs#shellcheck -c make workflow-check`). Two limits of
+that check: actionlint does **not** shellcheck the scripts of steps with a custom shell
+(`shell: nix develop -c bash -eo pipefail {0}`; GitHub adds neither `-e` nor `pipefail` to a custom
+shell, so the workflows spell them out, and a test requires it), so those scripts were shellchecked by
+hand once, and a test forbids `| head`, which makes a program die with SIGPIPE under `pipefail`.
+
+`ci.yml` runs on pull requests, every night, by hand and when the release workflow calls it (not on every push:
+`make ci` takes hours on a hosted runner and `dev` is pushed after every commit):
+
+| Job | Runner | What it runs |
+|---|---|---|
+| `cross-build` | `ubuntu-24.04` | `go vet ./...` and `go build ./cmd/gocpp` for `linux/arm64` and `windows/amd64` |
+| `linux` (amd64) | `ubuntu-24.04` | `make ci` in the Nix dev shell (g++ 15 and clang++ 21), without Wine |
+| `linux` (arm64) | `ubuntu-24.04-arm` | the same `make ci` (`flake.nix` added `aarch64-linux` to the dev shell systems, without MinGW-w64 and Wine; its evaluation was checked, nothing was built for arm64) |
+| `windows` | `windows-2022` | `gocpp.exe` built on Windows; `TestRun` (phase limit 09, the highest phase of the sample) of every program of [`tests/windows_sample.txt`](../../tests/windows_sample.txt) with MSYS2's MinGW-w64 GCC (UCRT); one program with gocpp's own pinned llvm-mingw (downloaded, `GOCPP_TOOLCHAIN=pinned`) |
+
+**No CI leg uses Wine** (ADR-111; Wine 11 cannot deliver stack overflows on AVX-512 CPUs, which hosted runners may
+have). The two Linux legs take Wine off the `PATH` and empty `GOCPP_REQUIRE_WINE`, so the runtime's Wine tests skip
+instead of failing (checked locally: with `wine` off the `PATH`, `TestWindowsRuntime` skips). Hosted-runner limits:
+a job stops after 360 minutes, which is the `timeout-minutes` of the `linux` legs, so a `make ci` that grows past it
+needs sharding like `sanitizers-nightly.yml`; the `ubuntu-24.04-arm` label is, as far as is known offline, free only
+for public repositories.
+
+What the hosted Windows job is not: the [Windows suite](windows-testing.md) (`make test-windows`, which needs the
+real PC over ssh, never reachable from a hosted runner), the interop and console tests, Wine (the owner's rule,
+ADR-111), or the manual Windows release checklist. The plan's exit criterion "CI green on Linux x86-64, Linux arm64
+and Windows x86-64" therefore stays open until the first runs are green and the checklist is done by hand. On
+arm64 the differential tests that depend on amd64's out-of-range float conversions skip themselves
+(`//go:build amd64`, [tests/diff](../../tests/diff/README.md)); the maps' NEON group and `raw_syscall` on arm64
+remain untested items from earlier steps.
+
+`release.yml` starts only when a tag `vX.Y.Z` (or `vX.Y.Z-suffix`) is pushed, which is the release owner's
+decision and needs the user's explicit approval ([release-candidate.md](release-candidate.md)). It then:
+
+1. calls `ci.yml` (all three platforms) and checks the tag's spelling, that its commit is on the default branch,
+   and the GoReleaser and packaging tests (`preflight`);
+2. runs `goreleaser release --clean`, which builds the three archives and `checksums.txt` of
+   [`.goreleaser.yaml`](../../.goreleaser.yaml) and creates a **draft** GitHub release with them (`draft`, the only
+   job with `contents: write`; no cache, no stored git credentials);
+3. downloads the archives on an x86-64 Linux, an arm64 Linux and a Windows runner, checks each archive against
+   `checksums.txt`, its files (`LICENSE`, `THIRD_PARTY_NOTICES.txt`, `README.md`, the program) and that `gocpp version`
+   prints the tag's version and the runner's `os/arch` (`verify`).
+
+Run by hand (`workflow_dispatch`), the read-only `snapshot` job builds the archives with `--skip=publish` and
+`verify` runs on them: nothing is created on GitHub. A draft is not public. If `verify` fails, delete the draft and the tag; if it passes, the
+manual Windows checklist and the decision to publish are still the owner's. The workflows never publish, sign
+or upload to a package manager, and use only the repository's `GITHUB_TOKEN` (with `contents: write` in the
+`draft` job alone).
+
+Not done: the actions are pinned by major version, not by commit SHA (as in `sanitizers-nightly.yml`); the draft's
+notes still use `.goreleaser.yaml`'s header (llvm-mingw 20261006) and a git changelog; `go install ...@tag`,
+the Nix package build on aarch64 and a signed `checksums.txt` are not part of the pipeline.
+
 ## Nix
 
 ```sh
@@ -165,7 +227,8 @@ installed by default. The wrapped compilers bring their own libstdc++ and libc p
 still choose another compiler. The build's install check compiles and runs a program with both compilers.
 
 The package is built for x86_64-linux (tested) and aarch64-linux (evaluated only). The dev shell
-(`nix develop`) is separate and unchanged.
+(`nix develop`) is separate; it exists for both systems since step 15.12, without MinGW-w64 and Wine on
+aarch64.
 
 Remote `github:huuhait/gocpp` commands use a moving source revision, not this preparation
 snapshot. From a checkout, `nix build .#gocpp` selects that source instead. Nix builds identify

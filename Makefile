@@ -343,6 +343,18 @@ package-check:
 	goreleaser release --snapshot --clean --skip=publish
 	nix build .#gocpp --no-link -L
 
+# The workflow files (step 15.12, docs/guides/packaging.md "CI and the release pipeline"), not part of ci
+# (the tests are part of make test, as go test ./internal/packaging): the tests that tie .github/workflows
+# to the Makefile, the test lists and GoReleaser's names, then actionlint (with shellcheck for the scripts
+# in the steps), which is not in the dev shell: nix shell nixpkgs#actionlint nixpkgs#shellcheck -c make
+# workflow-check. actionlint does NOT shellcheck the scripts of steps with a custom shell (`shell: nix
+# develop -c bash ...`): shellcheck those by hand (the tests only require -eo pipefail and no `| head`).
+# Nothing here runs a workflow: only GitHub does.
+.PHONY: workflow-check
+workflow-check:
+	$(GO) test -count=1 -run 'TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64' ./internal/packaging
+	actionlint .github/workflows/*.yml
+
 # The documentation site (step 15.15, docs/guides/docs-site.md): docs/ and the standard library
 # reference as a static site in site/ (git-ignored), after every link and anchor was checked. No
 # network and no dependency (tools/docsite). docs-check only checks. The code of the tour and the

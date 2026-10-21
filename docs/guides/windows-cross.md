@@ -77,8 +77,9 @@ export WINEDLLOVERRIDES='winemenubuilder.exe=d;mscoree,mshtml=;winewayland.drv=d
 
 `gocpp build -arch arm64` uses `aarch64-linux-gnu-g++` from `PATH` (Debian: `g++-aarch64-linux-gnu`),
 or the compiler in `GOCPP_CXX`; with a plain clang it passes `--target=aarch64-linux-gnu`. Run it with
-`GOCPP_EXEC=qemu-aarch64`. The driver is tested with fake compilers; no CI job builds for arm64 until
-Phase 15.
+`GOCPP_EXEC=qemu-aarch64`. The driver is tested with fake compilers. `.github/workflows/ci.yml` (step 15.12)
+runs `make ci` natively on a hosted arm64 runner instead of cross-building; it has not run yet
+([CI and the release pipeline](packaging.md#ci-and-the-release-pipeline)).
 
 ## What works
 

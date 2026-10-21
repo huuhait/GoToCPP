@@ -152,6 +152,19 @@ against a local `file://` proxy, builds with the GoReleaser ldflags, and guards 
 prints a second line `runtime <hash>`. Not done here: the Windows host's pinned toolchain download (the zip needs MinGW-w64 on the
 `PATH`), MinGW in the Nix package, the release pipeline (15.12 and 15.16); nothing was published.
 
+*Built in step 15.12* (`.github/workflows/ci.yml` and `release.yml`, `docs/guides/packaging.md` "CI and the release pipeline",
+`make workflow-check`): `ci.yml` runs `make ci` in the Nix dev shell on `ubuntu-24.04` and `ubuntu-24.04-arm` (the flake's dev
+shell now exists for `aarch64-linux`, without MinGW-w64 and Wine; no leg uses Wine: the Linux legs take it off the `PATH` and empty `GOCPP_REQUIRE_WINE`, ADR-111), a `cross-build` job
+(`go vet` and `go build` for linux/arm64 and windows/amd64) and a `windows-2022` job (`gocpp.exe` built on Windows, `TestRun` of
+`tests/windows_sample.txt` with MSYS2's MinGW-w64 GCC, one program with the pinned llvm-mingw); it runs on pull requests, nightly,
+by hand and as the first stage of `release.yml`, not on every push. `release.yml` starts on a `vX.Y.Z` tag: preflight, `ci.yml`,
+GoReleaser's draft release, then each archive checked on a Linux x86-64, a Linux arm64 and a Windows runner (checksum, files,
+`gocpp version`); a manual run builds a snapshot and publishes nothing. **Statically checked only**: no GitHub run, hosted arm64
+run or hosted Windows run has happened (actionlint, text tests in `internal/packaging`, a local GoReleaser snapshot, the Windows
+job's test selection listed with `go test`, the arm64 and Windows archives' `gocpp version` under `qemu-aarch64` and on the real
+PC). The whole Windows suite and the manual checklist stay local; the exit criterion "CI green on Linux x86-64, Linux arm64 and
+Windows x86-64" is open until the first runs are green. No tag was made.
+
 ### 2.5 Module downloads: `gocpp get`
 
 Go-modules style: `require` versions come from git tags (`vX.Y.Z`), downloads go to

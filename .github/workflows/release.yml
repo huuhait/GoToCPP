@@ -1,0 +1,195 @@
+# The release pipeline (step 15.12; the release itself is step 15.16, docs/guides/packaging.md
+# "CI and the release pipeline"). Written offline: checked statically (YAML, actionlint, the
+# GoReleaser names it expects), never run by GitHub. It publishes nothing by itself.
+#
+#   A tag vX.Y.Z (or vX.Y.Z-rc.1) pushed to the repository starts it. Pushing a tag is the release
+#   owner's decision: docs/guides/release-candidate.md says it needs the user's explicit approval.
+#   Run by hand (workflow_dispatch), it only builds a snapshot into the workflow's artifacts:
+#   nothing is created on GitHub, no tag is needed.
+#
+#   ci        the whole ci.yml (Linux x86-64, Linux arm64, Windows x86-64), tag runs only.
+#   preflight the tag's spelling, that its commit is on the default branch, the packaging tests.
+#   draft     (tag run) GoReleaser: linux amd64 and arm64 tar.gz, windows amd64 zip, checksums.txt (.goreleaser.yaml).
+#             It creates a DRAFT release (draft: true in .goreleaser.yaml) and attaches them; the only
+#             job with contents: write.
+#   snapshot  (manual run) the same archives with --skip=publish, read-only.
+#   verify    on a runner of each platform (x86-64 Linux, arm64 Linux, Windows): the checksum of the
+#             archive, its files, and `gocpp version` of the program inside it, stamped with the tag.
+#
+# A draft is not public. If verify fails, delete the draft and the tag; if it passes, the release owner
+# still has to do the manual Windows checklist (docs/guides/windows-testing.md) and publish by hand.
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+", "v[0-9]+.[0-9]+.[0-9]+-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: the tag is a semantic version and its commit is on the default branch
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"
+      - uses: cachix/install-nix-action@v31
+      - name: the GoReleaser configuration and the notices
+        run: go test -count=1 -run 'TestGoReleaserConfig|TestThirdPartyNotices|TestRepoFilesDoNotCollide|TestGoModIsInstallable|TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64' ./internal/packaging
+        shell: nix develop -c bash -eo pipefail {0}
+
+  # The tag run: the only job that may write to the repository (the draft release).
+  draft:
+    needs: [ci, preflight]
+    # ci is skipped by a manual run, and so is this job; a failed or cancelled ci stops a tag run.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.preflight.result == 'success' && needs.ci.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: GoReleaser, a draft release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gocpp-dist
+          path: |
+            dist/gocpp_*.tar.gz
+            dist/gocpp_*.zip
+            dist/checksums.txt
+          if-no-files-found: error
+
+  # The manual run: a snapshot that publishes nothing, with a read-only token.
+  snapshot:
+    needs: [preflight]
+    if: ${{ !cancelled() && github.event_name != 'push' && needs.preflight.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: GoReleaser, a snapshot that publishes nothing
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gocpp-dist
+          path: |
+            dist/gocpp_*.tar.gz
+            dist/gocpp_*.zip
+            dist/checksums.txt
+          if-no-files-found: error
+
+  # The archive of each platform, on a machine of that platform.
+  verify:
+    name: verify-${{ matrix.os }}-${{ matrix.arch }}
+    needs: [draft, snapshot]
+    if: ${{ !cancelled() && (needs.draft.result == 'success' || needs.snapshot.result == 'success') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, arch: amd64, runner: ubuntu-24.04, suffix: tar.gz}
+          - {os: linux, arch: arm64, runner: ubuntu-24.04-arm, suffix: tar.gz}
+          - {os: windows, arch: amd64, runner: windows-2022, suffix: zip}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gocpp-dist
+          path: dist
+      - name: checksum of the archive
+        working-directory: dist
+        run: |
+          ls -l
+          archive=$(ls gocpp_*_${{ matrix.os }}_${{ matrix.arch }}.${{ matrix.suffix }})
+          echo "archive: $archive"
+          grep -F " $archive" checksums.txt | sha256sum --check -
+      - name: unpack
+        working-directory: dist
+        run: |
+          archive=$(ls gocpp_*_${{ matrix.os }}_${{ matrix.arch }}.${{ matrix.suffix }})
+          mkdir unpacked
+          if [ "${{ matrix.suffix }}" = zip ]; then
+            7z x -ounpacked "$archive"
+          else
+            tar -xzf "$archive" -C unpacked
+          fi
+          ls -l unpacked
+      - name: the files of the distribution
+        working-directory: dist/unpacked
+        run: |
+          for f in LICENSE THIRD_PARTY_NOTICES.txt README.md; do
+            test -s "$f"
+          done
+          if [ "${{ matrix.os }}" = windows ]; then test -s gocpp.exe; else test -x gocpp; fi
+      - name: gocpp version, stamped with the version of the archive
+        working-directory: dist
+        run: |
+          archive=$(ls gocpp_*_${{ matrix.os }}_${{ matrix.arch }}.${{ matrix.suffix }})
+          version=${archive#gocpp_}
+          version=${version%_${{ matrix.os }}_${{ matrix.arch }}.${{ matrix.suffix }}}
+          program=./unpacked/gocpp
+          if [ "${{ matrix.os }}" = windows ]; then program=./unpacked/gocpp.exe; fi
+          # Not "| head -n 1": head closes the pipe, the program dies with SIGPIPE, and the step fails
+          # under bash -eo pipefail.
+          output=$("$program" version)
+          first=$(printf '%s\n' "$output" | sed -n 1p)
+          echo "$first"
+          case "$first" in
+            "gocpp v$version "*"${{ matrix.os }}/${{ matrix.arch }}") ;;
+            *) echo "unexpected: want gocpp v$version ... ${{ matrix.os }}/${{ matrix.arch }}"; exit 1 ;;
+          esac
+          printf '%s\n' "$output" | sed -n 2p | grep -E '^runtime [0-9a-f]{16}$'
+      - name: summary
+        run: |
+          {
+            echo "### ${{ matrix.os }}/${{ matrix.arch }}: the archive passed its checks"
+            echo "Checksum, files and \`gocpp version\` were checked on a ${{ matrix.runner }} runner. A tag run left a DRAFT release: it is not public, and the manual Windows checklist is still to do."
+          } >> "$GITHUB_STEP_SUMMARY"

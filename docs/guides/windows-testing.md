@@ -5,7 +5,8 @@
 > programs and the OS layer are in [tests/README.md](../../tests/README.md#the-windows-suite); building for Windows
 > is in [windows-cross.md](windows-cross.md).
 
-`make ci` does not run any of this. It is the manual final review of the Windows port, and the job to run after a
+`make ci` does not run any of this, and neither does the hosted Windows job of `.github/workflows/ci.yml`
+([what that job covers](packaging.md#ci-and-the-release-pipeline)): a hosted runner cannot reach the real PC. It is the manual final review of the Windows port, and the job to run after a
 change to the runtime's Windows layer, package `os`, the build driver or interop on Windows.
 
 ## What it does

@@ -9,8 +9,13 @@
   outputs =
     { self, nixpkgs, ... }:
     let
-      # Add a system here to get the shell there too, e.g. "aarch64-linux".
-      systems = [ "x86_64-linux" ];
+      # The development shell exists where the project is tested: x86_64-linux (the developer
+      # machines) and aarch64-linux (the arm64 CI job, step 15.12). The Windows tools (MinGW-w64
+      # and Wine) are x86-64 only and are left out of the arm64 shell (windowsTools below).
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
       # The package (nix build, nix run, nix profile install) is built for the systems that have

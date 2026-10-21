@@ -39,7 +39,7 @@ jobs:
         env:
           EXTRA: ${{ inputs.flags }}
         run: make sanitize-nightly SANITIZEFLAGS="-stages canary,leaks -out sanitize-results $EXTRA"
-        shell: nix develop -c bash {0}
+        shell: nix develop -c bash -eo pipefail {0}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,7 +66,7 @@ jobs:
         env:
           EXTRA: ${{ inputs.flags }}
         run: make sanitize-nightly SANITIZEFLAGS="-stages asan,ubsan -shard ${{ matrix.shard }}/4 -j 4 -gocpp-cache $HOME/.cache/gocpp-sanitize -out sanitize-results $EXTRA"
-        shell: nix develop -c bash {0}
+        shell: nix develop -c bash -eo pipefail {0}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -92,7 +92,7 @@ jobs:
         env:
           EXTRA: ${{ inputs.flags }}
         run: make sanitize-nightly SANITIZEFLAGS="-stages tsan -shard ${{ matrix.shard }}/2 -j 2 -gocpp-cache $HOME/.cache/gocpp-sanitize -out sanitize-results $EXTRA"
-        shell: nix develop -c bash {0}
+        shell: nix develop -c bash -eo pipefail {0}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -113,7 +113,7 @@ jobs:
         env:
           EXTRA: ${{ inputs.flags }}
         run: make sanitize-nightly SANITIZEFLAGS="-stages deep-sanitize -out sanitize-results $EXTRA"
-        shell: nix develop -c bash {0}
+        shell: nix develop -c bash -eo pipefail {0}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -130,7 +130,7 @@ jobs:
         env:
           EXTRA: ${{ inputs.flags }}
         run: make sanitize-nightly SANITIZEFLAGS="-stages deep-race -out sanitize-results $EXTRA"
-        shell: nix develop -c bash {0}
+        shell: nix develop -c bash -eo pipefail {0}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
