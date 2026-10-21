@@ -40,7 +40,14 @@ func pidGone(pid int) bool {
 // TestWedgedProgram is not a test: TestExecTestBackupAlarm runs this test binary again with
 // GOCPP_TEST_WEDGED set, as a stand-in for a test binary that does not stop. "child" is the process
 // that the wedged program started: it only waits. Otherwise the program starts a child, writes its
-// pid to the file in GOCPP_TEST_PIDFILE, and waits; with "ignore" it ignores SIGQUIT first.
+// pid to the file in GOCPP_TEST_PIDFILE, and waits; with "ignore" it ignores SIGQUIT first. The
+// program also writes its own pid to GOCPP_TEST_PIDFILE.program. "launcher" starts the program as a
+// "wedged" one and waits: TestWedgedProgramDiesWithItsParent kills it.
+//
+// None of these processes outlives its parent: each polls its parent's pid and exits when it
+// changes (the parent died, so nothing else would end them), and each exits by itself after
+// wedgedLifetime. A test process that is killed in the middle of a test (a harness SIGKILL, a go
+// test timeout) therefore leaves nothing behind.
 func TestWedgedProgram(t *testing.T) {
 	mode := os.Getenv("GOCPP_TEST_WEDGED")
 	if mode == "" {
@@ -50,6 +57,7 @@ func TestWedgedProgram(t *testing.T) {
 		os.Stdout.WriteString("ASAN_OPTIONS=" + os.Getenv("ASAN_OPTIONS") + "\n")
 		return
 	}
+	exitWithParent()
 	if mode == "ignore" || mode == "child" {
 		signal.Ignore(syscall.SIGQUIT) // a program that does not stop; Go's runtime dumps its goroutines and exits otherwise
 	}
@@ -57,7 +65,18 @@ func TestWedgedProgram(t *testing.T) {
 		signal.Ignore(syscall.SIGINT) // like a background job of a shell
 		os.WriteFile(os.Getenv("GOCPP_TEST_PIDFILE")+".ready", nil, 0o644)
 	}
+	if mode == "launcher" {
+		// Starts the program, which writes the pid files of itself and of its child.
+		cmd := exec.Command(os.Args[0], "-test.run=^TestWedgedProgram$")
+		cmd.Env = append(os.Environ(), "GOCPP_TEST_WEDGED=wedged")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(wedgedLifetime)
+		os.Exit(3)
+	}
 	if mode != "child" {
+		os.WriteFile(os.Getenv("GOCPP_TEST_PIDFILE")+".program", []byte(strconv.Itoa(os.Getpid())), 0o644)
 		cmd := exec.Command(os.Args[0], "-test.run=^TestWedgedProgram$")
 		cmd.Env = append(os.Environ(), "GOCPP_TEST_WEDGED=child")
 		if err := cmd.Start(); err != nil {
@@ -72,7 +91,46 @@ func TestWedgedProgram(t *testing.T) {
 		}
 		os.WriteFile(os.Getenv("GOCPP_TEST_PIDFILE"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	}
-	select {}
+	time.Sleep(wedgedLifetime)
+	os.Exit(3)
+}
+
+// wedgedLifetime is the most that a stand-in for a wedged program lives: a check that the parent is
+// gone that does not work must not leave a process running for days.
+const wedgedLifetime = 2 * time.Minute
+
+// exitWithParent makes the process exit, with status 3, when its parent process is gone (the pid of
+// the parent changes: init or a subreaper adopts the process).
+func exitWithParent() {
+	parent := os.Getppid()
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+			if os.Getppid() != parent {
+				os.Exit(3)
+			}
+		}
+	}()
+}
+
+// killStandIns kills the processes whose pids are in the files (stand-ins that a test started): the
+// cleanup of a test that must not leave one behind.
+func killStandIns(files ...string) {
+	for _, file := range files {
+		if pid := readPid(file); pid > 0 {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
+// readPid returns the pid in the file, or 0.
+func readPid(file string) int {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	return pid
 }
 
 // TestExecTestBackupAlarm checks the alarm of execTest on a stand-in for a wedged test binary: SIGQUIT
@@ -88,6 +146,7 @@ func TestExecTestBackupAlarm(t *testing.T) {
 		t.Setenv("GOCPP_TEST_WEDGED", mode)
 		t.Setenv("GOCPP_TEST_PIDFILE", pidFile)
 		testHardKillDelay = hard
+		t.Cleanup(func() { killStandIns(pidFile, pidFile+".program") })
 		d := alarmDriver(t)
 		var out bytes.Buffer
 		t0 := time.Now()
@@ -130,6 +189,45 @@ func TestExecTestBackupAlarm(t *testing.T) {
 	})
 }
 
+// TestWedgedProgramDiesWithItsParent kills the process that started the stand-in (as a harness does
+// to a test binary that is stuck) and checks that the stand-in and its child end by themselves.
+func TestWedgedProgramDiesWithItsParent(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	t.Setenv("GOCPP_CHECK_PROCESS", "1")
+	t.Setenv("GOCPP_TEST_WEDGED", "launcher")
+	t.Setenv("GOCPP_TEST_PIDFILE", pidFile)
+	t.Cleanup(func() { killStandIns(pidFile, pidFile+".program") })
+	launcher := exec.Command(os.Args[0], "-test.run=^TestWedgedProgram$")
+	launcher.Dir = dir
+	setTestGroup(launcher)
+	if err := launcher.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		syscall.Kill(-launcher.Process.Pid, syscall.SIGKILL)
+		launcher.Wait()
+	})
+	// The pid file of the child is written when the program has started it.
+	var program, child int
+	for i := 0; i < 1000 && (program == 0 || child == 0); i++ {
+		time.Sleep(10 * time.Millisecond)
+		program = readPid(pidFile + ".program")
+		child = readPid(pidFile)
+	}
+	if program == 0 || child == 0 {
+		t.Fatalf("the launcher did not start the program and its child: %d, %d", program, child)
+	}
+	launcher.Process.Kill()
+	launcher.Wait()
+	if !pidGone(program) {
+		t.Errorf("the program (%d) is still running after its parent was killed", program)
+	}
+	if !pidGone(child) {
+		t.Errorf("the process that the program started (%d) is still running", child)
+	}
+}
+
 // TestInterruptKillsGroup checks that a SIGINT that gocpp test gets (the terminal sends it to gocpp only,
 // the test binary is in a group of its own) is passed on to the test binary and its group, and that a
 // process of the tests that ignores it (a background job of a shell does) does not outlive the run.
@@ -139,6 +237,7 @@ func TestInterruptKillsGroup(t *testing.T) {
 	t.Setenv("GOCPP_CHECK_PROCESS", "1")
 	t.Setenv("GOCPP_TEST_WEDGED", "wedged")
 	t.Setenv("GOCPP_TEST_PIDFILE", pidFile)
+	t.Cleanup(func() { killStandIns(pidFile, pidFile+".program") })
 	d := alarmDriver(t)
 	go d.watchSignals()
 	t.Cleanup(func() { close(d.done) })

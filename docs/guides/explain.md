@@ -32,12 +32,12 @@ type Counter struct{ n int }
 func (c *Counter) Inc() { c.n++ }
 
 func newCounter() *Counter {
-	c := Counter{n: 1} // its address is taken: boxed
+	c := Counter{n: 1} // its address is returned: boxed
 	return &c
 }
 
 func main() {
-	var local Counter // a pointer method is called on it: boxed
+	var local Counter // a pointer method is called on it: not boxed
 	local.Inc()
 	x := 41 // nothing sees x after the function: it stays on the stack
 	x++
@@ -56,7 +56,7 @@ lines), and in each file, before each run of C++ lines, a header and the reasons
 // ---- ./boxing.gp:9: func newCounter() *Counter {
 gp::ptr<Counter> newCounter() {
 
-// ---- ./boxing.gp:10: c := Counter{n: 1} // its address is taken: boxed
+// ---- ./boxing.gp:10: c := Counter{n: 1} // its address is returned: boxed
 // gp[boxing] col 2: c is boxed: its address (or the address of a part of it) is taken, so it lives
 //     in a gp::ptr heap box that every pointer shares and that never dangles
     gp::ptr<Counter> c = gp::new_<Counter>(Counter{.n = 1});
@@ -72,17 +72,18 @@ gp::ptr<Counter> newCounter() {
 // ---- ./boxing.gp:14: func main() {
 void main() {
 
-// ---- ./boxing.gp:15: var local Counter // a pointer method is called on it: boxed
-// gp[boxing] col 6: local is boxed: a pointer-receiver method is called on it, which is
-//     (&local).M() and needs its address
-    gp::ptr<Counter> local = gp::new_<Counter>();
+// ---- ./boxing.gp:15: var local Counter // a pointer method is called on it: not boxed
+// gp[boxing] col 6: local stays on the C++ stack: its address is taken, but the escape analysis
+//     found that the address does not escape, so a pointer to it is gp::borrow(&local) or a
+//     gp::stack_ptr value (no heap box, no counts)
+    Counter local{};
 
 // ---- ./boxing.gp:16: local.Inc()
-// gp[refcount] col 2: lent to Inc without a reference count: the box of a variable, which this
-//     function holds (gp::lend)
+// gp[refcount] col 2: lent to Inc as the raw address of a part of an object that stays alive during
+//     the call: no aliasing pointer, no reference count (gp::borrow)
 // gp[methods] col 2: pointer method Inc: a static call T::Inc(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Counter::Inc(gp::lend(local));
+    Counter::Inc(gp::borrow(&local));
 
 // ---- ./boxing.gp:17: x := 41 // nothing sees x after the function: it stays on the stack
     int64_t x = 41;
@@ -124,17 +125,20 @@ Flags:
 
 The kinds, and the decision each one records:
 
-- `boxing`: why a variable is a `gp::ptr` box (its address is taken, a pointer method is called on it,
-  a closure shares it) and not a plain C++ variable.
-- `closures`: a func literal is a lambda; each captured name is copied or shared, and the note says
-  which and why.
+- `boxing`: why a variable is a `gp::ptr` box (its address escapes, a closure that can outlive the call
+  shares it, it is too big) and not a plain C++ variable, and why a variable whose address is taken
+  still stays on the C++ stack (the escape analysis of
+  [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)).
+- `closures`: a func literal is a lambda; each captured name is copied, shared or (for a literal that is only
+  called where it is made) used by reference, and the note says which and why.
 - `defer`, `recover`: the defer frame and the single exit of a function with `defer`; the ticket that a
   function that calls `recover` takes.
 - `checks`, `panics`: the operations that check at run time (index, nil, division, type assertion...),
   and what `-nochecks` removes.
 - `refcount`: where a pointer shares an owner, so that the variable lives as long as the last pointer.
 - `interfaces`, `allocation`: a conversion to an interface, and the operations that allocate
-  (`make`, `new`, `append`, a conversion that boxes).
+  (`make`, `new`, `append`, a conversion that boxes). A `new(T)` or `&T{...}` that the escape analysis
+  keeps on the stack says so.
 - `generics`: which type arguments an instance `gp_inst_...` is for.
 - `select`, `goroutines`, `channels`, `range`: the lowering of those statements.
 - `order`: a `gp_t0` temporary that keeps Go's order of evaluation.
@@ -143,8 +147,33 @@ The kinds, and the decision each one records:
   `docs/spec/cpp-mapping.md`.
 
 A note is made where the lowering decides, so it tells what *this* gocpp did. The reasons are
-about readability, not a promise: Phase 15's escape analysis will box fewer variables than today's
-rules, and the note will change with it.
+about readability, not a promise: the escape analysis keeps more variables on the stack as it learns
+more, and the notes change with it. It does not analyse generic functions (their instances box as
+before), which is why the example of `gocpp explain generics` below still boxes a captured variable.
+
+## Why is it on the stack, or boxed? `-gp:m`
+
+The escape analysis (ADR-114) decides for each variable whose address is taken, each `&T{...}` and `new(T)`, and
+each func literal whether it can stay on the C++ stack. `gocpp build -gp:m` (also `run` and `emit`) prints the
+decisions in the form of `go build -gcflags=-m`, on standard error, and `-gp:m=2` adds the reason of each
+escape. For `boxing.gp`:
+
+<!-- gocpp: boxing stderr emit -gp:m=2 boxing.gp -->
+```
+# command-line-arguments
+./boxing.gp:7:7: c does not escape
+./boxing.gp:10:2: moved to heap: c: it is returned
+./boxing.gp:11:9: &c escapes to heap: it is returned
+./boxing.gp:16:2: &local does not escape
+```
+
+`c` does not escape in `Inc` (the receiver is borrowed), and `local` stays on the stack, but `c` in `newCounter` is
+returned, so it is moved to the heap. A variable that nothing but local closures capture (a literal called where it
+is made) is not boxed either (a parameter or a result still is); a closure that is stored, returned, passed or that
+calls `recover` is a `gp::func` that owns its captures, and a literal that `go` or `defer` runs directly is a lambda
+with its captures copied into it. A variable is kept on the stack only when it is small: 2 KiB for
+one object and 16 KiB for all of them in a function. `-gp:noescape` turns the analysis off, so that every variable whose
+address is taken is boxed (`gp::lend(local)` in this example), which tells whether a bug is the analysis's.
 
 ## `gocpp explain TOPIC`
 
@@ -182,8 +211,9 @@ geom/geom.gp:30` works inside a module; `gocpp explain geom/geom.gp` without a l
 // gp[defer] col 2: defer: the function and its arguments are evaluated now and stored in the frame;
 //     the call runs when the function exits: a func literal: its lambda goes into the frame
 //     (gp_push_call), so the stack trace names it func1, func2...
-// gp[closures] col 8: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 8: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
         gp_df.gp_push_call([fail, err]<int = 1>() mutable -> void {
 
 // ---- ./defer.gp:10: if fail {

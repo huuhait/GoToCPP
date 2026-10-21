@@ -154,15 +154,21 @@ void main() {
 //     (gocpp build -nochecks removes it)
 // gp[order] col 14: gp_t1 holds the result of a call (or a value that a later call could change):
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
-// gp[interfaces] col 24: interface method call Area: the call is the wrapper member of the
-//     interface's struct, which runs gp::icall(x, slot): the method is found in the method table of
-//     the interface value (no C++ virtual functions); a call on a nil interface panics like Go
-//     (gocpp build -nochecks removes it)
+// gp[interfaces] col 24: interface method call Area: the interface value can only hold one concrete
+//     type here (ADR-118), so the call is the method-table thunk written in place as a lambda that
+//     calls the method directly: no icall lookup in the method table
 // gp[order] col 24: gp_t2 holds the result of a call (or a value that a later call could change):
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
 // gp[refcount] col 43: lent to describe without a reference count: a temporary, or a variable that
 //     no call can change, keeps the object alive (gp::lend)
-    { auto gp_t1 = a.Area(); auto gp_t2 = b.Area(); gp::fmt::Println(gp_t1, gp_t2, gpkg_main::describe(a), r.w, ok); }
+    { auto gp_t1 = a.Area(); auto gp_t2 = ([]<int = 0>(const gp::iface& gp_self) -> double {
+
+        gp::detail::icall_ticket(*gp_self.gp_tab(), 0);
+        return Circle::Area(gp::unbox_borrow<Circle>(gp_self));
+    }
+
+// ---- ./interfaces.gp:29: fmt.Println(a.Area(), b.Area(), describe(a), r.w, ok)  (continued)
+    )(b); gp::fmt::Println(gp_t1, gp_t2, gpkg_main::describe(a), r.w, ok); }
 
 // ---- ./interfaces.gp:30: }
 }

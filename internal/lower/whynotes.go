@@ -67,8 +67,8 @@ func (g *gen) noteBoxed(boxed map[*types.Var]boxReason) {
 		}
 		if boxed[v] == boxStack {
 			g.why(v.Pos(), WhyBoxing, name+" stays on the C++ stack: its address is taken, but the escape "+
-				"analysis found that the address does not escape, so pointers to it are gp::stack_ptr "+
-				"values (no heap box, no counts)")
+				"analysis found that the address does not escape, so a pointer to it is gp::borrow(&"+name+
+				") or a gp::stack_ptr value (no heap box, no counts)")
 			continue
 		}
 		if boxed[v] == boxRefCaptured {
@@ -110,7 +110,12 @@ func (fg *funcGen) noteClosure(fl *ast.FuncLit, n int) {
 	if !g.noting() {
 		return
 	}
-	g.why(fl.Pos(), WhyClosures, fmt.Sprintf("func literal #%d is a C++ lambda wrapped in gp::func (the stack trace names it func%d); copies of the func value share the captured state", n, n))
+	_, local := g.localLits[fl]
+	if local {
+		g.why(fl.Pos(), WhyClosures, fmt.Sprintf("func literal #%d is a local closure: it is only called where it is made, so it is a plain C++ lambda (no gp::func, no allocation) that captures by reference", n))
+	} else {
+		g.why(fl.Pos(), WhyClosures, fmt.Sprintf("func literal #%d is a C++ lambda (the stack trace names it func%d); what it captures is copied into the lambda (a box is shared), and a lambda that is used as a func value is wrapped in gp::func, whose copies share the captured state", n, n))
+	}
 	seen := make(map[*types.Var]bool)
 	ast.Inspect(fl.Body, func(node ast.Node) bool {
 		id, ok := node.(*ast.Ident)
@@ -122,8 +127,10 @@ func (fg *funcGen) noteClosure(fl *ast.FuncLit, n int) {
 			return true
 		}
 		seen[v] = true
-		if fg.isBoxed(v) {
+		if fg.inBox(v) {
 			g.why(id.Pos(), WhyClosures, "captures "+v.Name()+" by sharing its box ("+fg.boxedWhy(v)+")")
+		} else if local {
+			g.why(id.Pos(), WhyClosures, "captures "+v.Name()+" by reference: it stays on the C++ stack and the closure runs within the function")
 		} else {
 			g.why(id.Pos(), WhyClosures, "captures "+v.Name()+" by copy into the lambda: it never changes after the closure exists and is at most 128 bytes")
 		}
@@ -445,9 +452,22 @@ func (g *gen) noteSliceExpr(e *ast.SliceExpr, t types.Type) {
 	g.why(e.Lbrack, WhySlices, "s[a:b] of a slice: gp::sub checks the bounds against the capacity and shares the array (no copy); the result keeps the array alive")
 }
 
-// noteNew records new(T).
-func (g *gen) noteNew(pos token.Pos, t types.Type) {
+// noteDevirtCall records the call of the method name of an interface value that is known to hold
+// one concrete type (devirt.go, ADR-118).
+func (g *gen) noteDevirtCall(name string, pos token.Pos) {
 	if !g.noting() {
+		return
+	}
+	g.why(pos, WhyInterfaces, "interface method call "+name+": the interface value can only hold one concrete type here (ADR-118), so the call is the method-table thunk written in place as a lambda that calls the method directly: no icall lookup in the method table")
+}
+
+// noteNew records new(T).
+func (g *gen) noteNew(pos token.Pos, t types.Type, held bool) {
+	if !g.noting() {
+		return
+	}
+	if held {
+		g.why(pos, WhyAlloc, "new("+g.typeText(t)+") stays on the C++ stack: the pointer variable that holds it does not let it escape, so the object is a member of that variable (gp::local_new, a gp::local_ptr): no heap block, no counts")
 		return
 	}
 	g.why(pos, WhyAlloc, "new("+g.typeText(t)+") allocates a zeroed value in a reference-counted box (gp::new_); the pointer frees it with the last copy")
@@ -517,7 +537,14 @@ func (fg *funcGen) noteAddr(e *ast.UnaryExpr) {
 		}
 		g.why(e.Pos(), WhyRefcount, "&"+x.Name+" is the box of "+x.Name+" itself: the pointer shares its reference count, so the variable lives as long as any pointer to it")
 	case *ast.CompositeLit:
-		g.why(e.Pos(), WhyRefcount, "&T{...} allocates a new reference-counted box that holds the literal (gp::new_)")
+		switch {
+		case fg.escInfo().held[e] != nil:
+			g.why(e.Pos(), WhyRefcount, "&T{...} stays on the C++ stack: the pointer variable that holds it does not let it escape, so the object is a member of that variable (gp::local_new, a gp::local_ptr): no heap block, no counts")
+		case fg.escInfo().temps[e]:
+			g.why(e.Pos(), WhyRefcount, "&T{...} is a temporary of the call: the callee borrows the pointer and does not keep it, so no heap block is made (gp::borrow_tmp)")
+		default:
+			g.why(e.Pos(), WhyRefcount, "&T{...} allocates a new reference-counted box that holds the literal (gp::new_)")
+		}
 	case *ast.StarExpr:
 		g.why(e.Pos(), WhyChecks, "&*p is p, but it still checks p for nil, as *p does"+g.checkTail())
 	default:
@@ -611,9 +638,14 @@ func (g *gen) noteName(id *ast.Ident) {
 }
 
 // noteCallValue records the call of a func value: stable says that nothing can change or free
-// the func value while the call runs.
-func (g *gen) noteCallValue(pos token.Pos, stable bool) {
+// the func value while the call runs, direct that the callee is a lambda (a local closure or a
+// method expression) and there is no gp::func to check.
+func (g *gen) noteCallValue(pos token.Pos, stable, direct bool) {
 	if !g.noting() {
+		return
+	}
+	if direct {
+		g.why(pos, WhyChecks, "call of a local closure or method expression: a direct call of the lambda; there is no func value, so no nil check")
 		return
 	}
 	if stable {

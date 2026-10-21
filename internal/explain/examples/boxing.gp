@@ -7,12 +7,12 @@ type Counter struct{ n int }
 func (c *Counter) Inc() { c.n++ }
 
 func newCounter() *Counter {
-	c := Counter{n: 1} // its address is taken: boxed
+	c := Counter{n: 1} // its address is returned: boxed
 	return &c
 }
 
 func main() {
-	var local Counter // a pointer method is called on it: boxed
+	var local Counter // a pointer method is called on it: not boxed
 	local.Inc()
 	x := 41 // nothing sees x after the function: it stays on the stack
 	x++

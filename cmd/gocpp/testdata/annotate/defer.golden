@@ -49,8 +49,9 @@ gp::error work(bool fail) {
 // gp[defer] col 2: defer: the function and its arguments are evaluated now and stored in the frame;
 //     the call runs when the function exits: a func literal: its lambda goes into the frame
 //     (gp_push_call), so the stack trace names it func1, func2...
-// gp[closures] col 8: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 8: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
         gp_df.gp_push_call([fail, err]<int = 1>() mutable -> void {
 
 // ---- ./defer.gp:10: if fail {

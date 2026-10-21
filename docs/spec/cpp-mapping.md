@@ -508,7 +508,7 @@ void Vec2::Scale(gp::bptr<Vec2> v, double k) {
 | `func (v T) M(a int) int` (value receiver) | a `const` member function that starts with `T v = *this;`. Go gives a value receiver **its own copy**. A `const T&` would see writes made through other pointers while the method runs, and could dangle. A reference is used only when the body provably can't write memory or call unknown code |
 | `func (p *T) M()` (pointer receiver) | `static void M(gp::bptr<T> p);` when the body cannot keep `p` past the call (it only reads and writes through it, compares it, or lends it to borrowing callees): a raw pointer, no reference count. Otherwise `static void M(gp::ptr<T> p);`, an owning pointer that can escape: stored, returned, captured, converted to an interface, passed to an owning parameter ([Borrowed pointers](#borrowed-pointers-adr-086)) |
 | `p.M()`, value method, `p` a pointer | `p->M()`: auto-deref with a nil check. If `p` is not a local of the caller (a global, a field or an element), the caller first copies it into a local, so the object can't be freed while the method runs |
-| `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)): `gp::lend(x)` for a boxed `x` (or `gp::borrow(&x)` for a package variable) when `PM` borrows its receiver, else the box or `gp::static_ptr(x)` |
+| `x.PM()`, pointer method, `x` addressable | `T::PM(<address of x>)` (see [pointers](#pointers-and-boxing)): `gp::borrow(&x)` for a local that the escape analysis keeps on the stack ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)) or for a package variable, `gp::lend(x)` for a boxed `x`, when `PM` borrows its receiver; else the box, `gp::stack_ptr(x)` or `gp::static_ptr(x)` |
 | `f := x.M` (method value) | `gp::func<Sig>([gp_r = x](auto&&... gp_a) { return gp_r.M(gp_a...); })`: the receiver is copied **now** (Go evaluates it when the method value is made); `p.M` copies `*p` now, and panics now for a nil `p`; `x.PM` captures the pointer (`&x`, x boxed) |
 | `T.M`, `(*T).PM`, `(*T).M` (method expressions) | `gp::func<Sig>([](auto&& gp_r, auto&&... gp_a) { return gp_r.M(gp_a...); })`, the receiver the first parameter; `(*T).M` of a value method first panics for a nil pointer with Go's `value method main.T.M called using nil *T pointer`; a call `T.M(x, a)` calls the lambda at once, without a `gp::func` |
 | `o.M()`, `M` promoted from an embedded `Inner` / `*Inner` | `o.Inner.M()`, `o.Inner->M()`, `Inner::PM(gp::borrow(&o->Inner))` (`Inner::PM(gp::field_ptr(<&o>, &Outer::Inner))` when `PM` takes an owning pointer): the path that `go/types` gives, written out (embedding is allowed from Phase 05; the [forwarding members](#embedding) below are for C++ callers and the method tables, not for these calls) |
@@ -553,7 +553,9 @@ What the C++ looks like (step 3.10, internal/lower/methods.go):
 Sources: [Phase 03 §2.5](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#25-methods),
 and the example of the [root README §2](../../plans/2026-10-13-gocpp/README.md#2-what-it-looks-like)
 (here with `math.Sqrt` instead of the C++ `std.sqrt`). Phase 15 step 15.3 borrows the pointers that don't
-escape ([ADR-086](../adr/086-borrowed-pointer-parameters-and-receivers.md)).
+escape ([ADR-086](../adr/086-borrowed-pointer-parameters-and-receivers.md)), and step 15.2 keeps the
+objects whose address does not escape on the C++ stack ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md),
+[Pointers and boxing](#pointers-and-boxing)).
 
 ### Borrowed pointers (ADR-086)
 
@@ -577,8 +579,8 @@ func main() {
 void base::add(gp::bptr<base> b, int64_t k) { b->n = b->n + k; }
 void mid::add(gp::bptr<mid> m, int64_t k) { base::add(gp::borrow(&m->base), k * 2); }  // no aliasing pointer
 void main() {
-    gp::ptr<top> t = gp::new_<top>(top{.mid = gp::new_<mid>(mid{})});
-    mid::add(gp::lend((*t).mid), 1);
+    top t{gp::new_<mid>(mid{})};         // nothing takes the address of t: a plain local
+    mid::add(gp::lend(t.mid), 1);
 }
 ```
 
@@ -908,10 +910,10 @@ struct Line {
 | `Point{1, 2}` | `Point{1, 2}` | in order; C++ evaluates a braced list in order |
 | `Point{Y: f(), X: 1}` | `Point{.X = 1, .Y = f()}` | designated initializers need the fields' order; the values that C++ would then evaluate too late go into temporaries first, so they run in source order, as in Go |
 | `[]Point{{1, 2}}`, `[]*Point{{1, 2}}` | `gp::slice_of<Point>({Point{1, 2}})`, `gp::slice_of<gp::ptr<Point>>({gp::new_<Point>(Point{1, 2})})` | an elided type is written out |
-| `&Point{1, 2}`, `new(Point)` | `gp::new_<Point>(Point{1, 2})`, `gp::new_<Point>()` | a new block |
+| `&Point{1, 2}`, `new(Point)` | `gp::new_<Point>(Point{1, 2})`, `gp::new_<Point>()` | a new block, unless the escape analysis keeps it on the stack: `gp::local_new<Point>(Point{1, 2})` in a local pointer variable, `gp::borrow_tmp(Point{1, 2})` as an argument of a borrowing callee ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)) |
 | `p.X`, `pp.X` (`pp` is `*Point`) | `p.X`, `pp->X` | `->` panics with Go's message for a nil `pp` |
 | `o.A` (promoted from an embedded `Inner`), through an embedded `*Mid` | `o.Inner.A`, `o.Mid->M` | the path that `go/types` gives; an embedded field is a data member named after its type, never a base class |
-| `&p.X` (`p` boxed), `&pp.X`, `&s[i].X`, `&global.X` | `gp::ptr<int64_t>(p, &(*p).X)`, `gp::ptr<int64_t>(pp, &pp->X)`, `gp::ptr<int64_t>(s.gp_owner(), &s[i].X)`, `gp::static_ptr(global.X)` | shares the owner of the struct ([pointers](#pointers-and-boxing)); a local whose field's address is taken is boxed |
+| `&p.X` (`p` boxed), `&pp.X`, `&s[i].X`, `&global.X` | `gp::ptr<int64_t>(p, &(*p).X)`, `gp::ptr<int64_t>(pp, &pp->X)`, `gp::ptr<int64_t>(s.gp_owner(), &s[i].X)`, `gp::static_ptr(global.X)` | shares the owner of the struct ([pointers](#pointers-and-boxing)); a local whose field's address is taken is boxed, unless that address does not escape (`&v.X` passed to a borrowing callee is `gp::borrow(&v.X)` and `v` stays a plain `P v{};`) |
 | `&f().X` (`f` returns `*Point`) | `gp::field_ptr(f(), &Point::X)` | the pointer is evaluated once |
 | `a == b`, `a != b` | `a == b`, `a != b` | when comparable: field by field in order, floats as numbers (NaN != NaN, -0 == +0); blank fields are skipped |
 | `n = n.kids[0]`, `*p = *p.next` | `n = Node(n.kids[0]);` | a struct (or an array) that holds owners, reached through a pointer or a slice that the target may own, is copied before the store, which could free it while the generated `operator=` reads it |
@@ -1117,7 +1119,7 @@ Source: [Phase 03 §2.4](../../plans/2026-10-13-gocpp/phase-03-core-language/REA
 
 ```go
 func NewCounter() *Counter {
-	c := Counter{step: 1} // address taken below → c is boxed
+	c := Counter{step: 1} // its address is returned below → c is boxed
 	return &c
 }
 ```
@@ -1130,16 +1132,20 @@ gp::ptr<Counter> NewCounter() {
 ```
 
 - `*T` is `gp::ptr<T>`, a `std::shared_ptr` with nil checks. `new(T)` becomes `gp::new_<T>()`
-  (the zero value), and `&T{...}` becomes `gp::new_<T>(T{...})`.
-- **Boxing.** A local variable (also a parameter, a receiver copy or a named result) lives on the
+  (the zero value), and `&T{...}` becomes `gp::new_<T>(T{...})`, unless the escape analysis keeps
+  the object on the stack (below).
+- **Boxing.** Before the escape analysis (below) takes the variables that do not escape back to the
+  stack, a local variable (also a parameter, a receiver copy or a named result) lives on the
   heap, in a "box", when the function takes its address or the address of anything inside it,
   calls a pointer method on it, slices an array in it, or captures it in a closure **and** changes
   it anywhere, or captures it and it is larger than 128 bytes (Go shares those with closures
   too). A local variable larger than 128 KB (Go's limit for stack variables) is boxed
   too, so it can't overflow the C++ stack. Uses of a boxed `x` become `(*x)`, and `&x` is the
-  box. The boxing is the conservative first step; the escape analysis (Phase 15 step 15.2,
-  [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md), below) takes the
-  variables back to the stack whose address cannot outlive them.
+  box. These are the rules of the boxing analysis (`internal/lower/box.go`); the escape analysis
+  (Phase 15 step 15.2, [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md),
+  below) then takes the variables back to the stack whose address cannot outlive them, so a variable
+  is in a box now only when its address, or a closure that can outlive the call, makes it escape
+  (`gocpp build -gp:m` says why: `moved to heap: x: it is returned`).
   - A boxed parameter keeps its name: the C++ parameter is copied into its box at the
     function's entry, and the box is a variable of the same name in a block around the body,
     the shape of a shadowing declaration:
@@ -1179,6 +1185,16 @@ gp::ptr<Counter> NewCounter() {
   an owning parameter or to unknown code (C/C++, `unsafe.Pointer`, an interface method or a func
   value), or used by `go` or `defer`. `gocpp build -gp:m` prints the decisions like
   `go build -gcflags=-m`.
+
+  Limits: only a variable declared by a statement of a block, or an allocation held by a local
+  pointer variable or passed straight to a call, is an object (a parameter, a result or the
+  variable of a loop header keeps its box when its address is taken); an object is kept on the
+  stack only when it is at most 2 KiB, and all of them together at most 16 KiB for one function
+  (the C++ stack is fixed, and a function can call itself); the functions and methods of generic
+  types are not analysed, so an instance of a generic function boxes as before; a variable whose
+  address goes to a method that keeps its receiver (`sync.Mutex`'s `Lock`) escapes. A parameter or a
+  result that a local closure captures and changes is still boxed (`moved to heap: p: a closure
+  captures it and it changes`).
 
   | Go | C++ |
   |---|---|
@@ -1243,7 +1259,8 @@ gp::func<int64_t()> counter(int64_t step) {
   closure without captures needs no allocation either, and a nil func is `nullptr`
   (`f == nullptr` is `f == nil`). Calling nil panics with Go's nil dereference message and signal
   line. A parameter larger than 128 KiB is a `const A&`, as in a function declaration.
-- A closure is a C++ lambda with an explicit capture list. A captured variable of at most 128
+- A closure that can outlive the call (every closure except the local closures below) is a C++ lambda
+  with an explicit capture list. A captured variable of at most 128
   bytes (gocpp's size) that never changes after its initialization (and whose address is never
   taken) is **captured by value**: it is copied once, when the closure is made, which gives the
   same values, as it never changes. Any other captured variable is **boxed** (also a larger one
@@ -1255,7 +1272,7 @@ gp::func<int64_t()> counter(int64_t step) {
   with every use of `f` a call that runs at once (not `go`, `defer`, another literal or the body
   of a range over a func), and no `recover`. It is a raw lambda that captures by reference
   (`auto f = [&n]<int = 1>(int64_t d) mutable { n += d; };`, no `gp::func`, no allocation), and a
-  variable that only local closures capture need not be boxed. Formerly boxed captures are subject
+  variable that only local closures capture need not be boxed (a parameter or a result is still boxed). Formerly boxed captures are subject
   to the same 2 KiB object limit and shared 16 KiB storage budget as address-taken locals; larger
   captures, parameters and results keep their boxes. A variable that anything else captures is
   boxed as above, and the local lambda captures its box. `-gp:m` prints

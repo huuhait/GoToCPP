@@ -85,9 +85,11 @@ var topics = []Topic{
 		Summary: "why a local variable lives in a gp::ptr box on the heap",
 		Text: `A local variable lives on the C++ stack unless something can see it after it goes out of scope, or from another function while it is in scope. Then it is boxed: the C++ variable is a gp::ptr<T> to a heap block (gp::new_<T>(...)), each use of x is (*x), and &x is the box itself. A pointer to a variable never dangles: it shares the box, which lives as long as the last pointer.
 
-A variable is boxed when the function takes its address (&x, &x.f, &x.arr[i]); calls a pointer method on it (x.Inc() is (&x).Inc()); slices an array in it; captures it in a closure and changes it anywhere; captures it and it is larger than 128 bytes; or when it is larger than 128 KiB, which could overflow the C++ stack. The first rule that applies is the reason in the annotation.
+Taking the address is not enough to box a variable. The escape analysis (ADR-114) looks at every use of the address: if the pointer is only read and written through, compared, or handed to a function that borrows it, then x stays an ordinary C++ variable, a pointer to it is gp::borrow(&x) or gp::stack_ptr(x) with no heap block and no count, and the note says that it stays on the C++ stack. This holds for a pointer method called on x (x.Inc()), for p := &x, for &T{...} and new(T) in a local pointer, and for a variable that only closures called where they are made capture (not a parameter or a result: those keep their box).
 
-This is a simple, safe version of Go's escape analysis: it boxes some variables that Go keeps on the stack. The real analysis comes in Phase 15. To keep a variable on the stack, avoid taking its address and avoid changing it after a closure captures it (copy it into a new variable first).`,
+A variable is boxed when its address (&x, &x.f, &x.arr[i]) is stored, returned, sent, captured, converted to an interface, passed to a function that keeps it, or used by go or defer; when it slices an array in it; when a closure that can outlive the call captures it and changes it anywhere; when a closure captures it and it is larger than 128 bytes; when it is larger than 128 KiB; or when keeping it on the stack would pass the budget (2 KiB for one object, 16 KiB for one function). Function parameters, results and loop variables are boxed whenever their address is taken, and the generic functions are not analysed: they box as before. The first rule that applies is the reason in the annotation.
+
+gocpp build -gp:m prints the decisions like go build -gcflags=-m (-gp:m=2 adds the reasons), and -gp:noescape turns the analysis off, so that every variable whose address is taken is boxed.`,
 		Spec:    "cpp-mapping.md#pointers-and-boxing",
 		Example: "boxing.gp",
 		See:     []string{"closures", "refcount", "allocation"},
@@ -97,7 +99,11 @@ This is a simple, safe version of Go's escape analysis: it boxes some variables 
 		Aliases: []string{"closure", "capture", "lambda", "funclit"},
 		Title:   "Func literals and captures",
 		Summary: "how a func literal becomes a lambda, and how it captures variables",
-		Text: `A func literal is a C++ lambda wrapped in gp::func<R(A...)>. The lambda has a hidden template parameter, <int = N>, which numbers the literal for the stack trace (main.f.func1, as Go names it). Copies of a gp::func share the closure's state.
+		Text: `A func literal that is only called where it is made (func() {...}() or f := func() {...} with every use of f a call, not go, not defer, not stored, passed or returned, and no recover inside) cannot outlive the call: it is a plain C++ lambda that captures by reference, with no gp::func and no allocation, and a local variable that only such closures capture is not boxed (ADR-114; a parameter or a result that one captures and changes still is).
+
+A literal that go or defer runs directly is also the lambda itself, handed to gp::go_call or gp_push_call, with its captures copied into it.
+
+Any other func literal, used as a value, is a C++ lambda wrapped in gp::func<R(A...)>. The lambda has a hidden template parameter, <int = N>, which numbers the literal for the stack trace (main.f.func1, as Go names it). Copies of a gp::func share the closure's state.
 
 A captured variable is copied into the lambda when that is safe: the closure never sees a change, because the variable never changes after it is declared, and it is at most 128 bytes. Otherwise the variable is boxed (see gocpp explain boxing) and the lambda captures the box, so the function and the closure share one variable, as in Go. The annotation says which of the two happened for each captured name.
 
@@ -153,7 +159,7 @@ A division by a constant that is neither 0 nor -1 is the plain C++ operator: not
 		Aliases: []string{"arc", "owner", "owners", "references", "pointers"},
 		Title:   "Reference counts and owners",
 		Summary: "where reference counts are touched and which pointers share an owner",
-		Text: `Memory is reference counted (ADR-004). A *T is a gp::ptr<T>, which holds a reference count and an address. new(T), &T{...} and a boxed variable make a block with a count of one; copying a pointer increments the count, and the last copy to go out of scope frees the block. Counts are atomic, so goroutines can share pointers.
+		Text: `Memory is reference counted (ADR-004). A *T is a gp::ptr<T>, which holds a reference count and an address. new(T), &T{...} and a boxed variable make a block with a count of one (unless the escape analysis keeps the object on the stack, see gocpp explain boxing); copying a pointer increments the count, and the last copy to go out of scope frees the block. Counts are atomic, so goroutines can share pointers.
 
 A pointer into an object shares the owner of the whole object: &p.f has p's owner, &s[i] has the owner of the slice's array, &x.f of a boxed x has x's box. So the object stays alive while any pointer into it exists, and the pointer is never dangling. The annotation says where a new owner is made and where one is shared.
 
@@ -241,7 +247,7 @@ for v := range ch receives until the channel is closed (gp::range_chan). The run
 		Aliases: []string{"alloc", "heap", "allocations"},
 		Title:   "Where gocpp allocates",
 		Summary: "the operations that allocate: new, make, append, interface conversions, strings",
-		Text: `These operations allocate: new(T) and &T{...} (a reference-counted box); make of a slice, map or channel; append when the capacity is not enough; converting a non-pointer value to an interface (a box that holds a copy); string concatenation; converting between a string and a []byte or []rune; a closure that captures a variable that gets boxed; a boxed variable itself.
+		Text: `These operations allocate: new(T) and &T{...} (a reference-counted box, unless the escape analysis keeps the object on the stack); make of a slice, map or channel; append when the capacity is not enough; converting a non-pointer value to an interface (a box that holds a copy); string concatenation; converting between a string and a []byte or []rune; a closure that captures a variable that gets boxed; a boxed variable itself.
 
 Slicing does not allocate: s[a:b] shares the array. Neither does copy, clear, delete, indexing, ranging, or calling a method. gp::concat joins a chain of + operands with one allocation, as Go's compiler does. Reading the annotations of a hot function shows which lines allocate.`,
 		Spec:    "cpp-mapping.md#pointers-and-boxing",

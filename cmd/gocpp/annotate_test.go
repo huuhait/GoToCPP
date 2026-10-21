@@ -454,13 +454,20 @@ var truthRules = []truthRule{
 	{msg: "each iteration has its own", need: []string{"gp::new_<"}},
 	{msg: "shift by a count", need: []string{"gp::shl(", "gp::shr("}},
 	{msg: "method value ", need: []string{"[gp_r = "}, forbid: []string{"a plain member call", "a static call"}},
-	{msg: "method expression ", need: []string{"[](auto&& gp_r"}},
+	{msg: "method expression ", need: []string{"[](auto&& gp_r", "> gp_r)"}},
 	{msg: "~is boxed in this case clause", need: []string{"gp::new_<"}},
 	{msg: "m[k] %= y", need: []string{"gp::rem("}},
 	{msg: "m[k] <<= n", need: []string{"gp::shl(", "gp::shr("}},
 	{msg: "return jumps to", need: []string{"goto "}, forbid: []string{"returns the results"}},
 	{msg: "range over a func:", need: []string{"rangefunc_state"}},
 	{msg: "func init is the C++ function", need: []string{"gp_init_"}},
+	{msg: "~stays on the C++ stack: the pointer variable that holds it", need: []string{"gp::local_new<"}},
+	{msg: "&T{...} allocates a new", need: []string{"gp::new_<"}, forbid: []string{"gp::local_new<"}},
+	{msg: "&T{...} is a temporary of the call", need: []string{"gp::borrow_tmp("}},
+	{msg: "~is a local closure", need: []string{"<int = "}, forbid: []string{"gp::func<"}},
+	{msg: "~call of a local closure", need: []string{"("}, forbid: []string{"gp::func<", "gp_call"}},
+	{msg: "~by reference: it stays on the C++ stack", need: []string{"[&"}},
+	{msg: "~calls the method directly", need: []string{"<int = 0>("}},
 }
 
 // TestAnnotateTruth: a reason is about the C++ of its own chunk: the reasons whose text promises a
@@ -500,10 +507,11 @@ func TestAnnotateTruth(t *testing.T) {
 				Files []struct {
 					Path   string
 					Chunks []struct {
-						GP      *struct{ Line int }
-						Inst    string `json:"instance"`
-						Reasons []struct{ Kind, Msg string }
-						Cpp     []string
+						GP        *struct{ Line int }
+						Continued bool
+						Inst      string `json:"instance"`
+						Reasons   []struct{ Kind, Msg string }
+						Cpp       []string
 					}
 				}
 			}
@@ -513,11 +521,28 @@ func TestAnnotateTruth(t *testing.T) {
 			for _, f := range v.Files {
 				boxed := map[string]bool{}  // instance + "\x00" + name
 				copied := map[string]bool{} // the same, for the names captured by copy
-				for _, c := range f.Chunks {
+				for i, c := range f.Chunks {
 					cpp := strings.Join(c.Cpp, "\n")
 					line := 0
 					if c.GP != nil {
 						line = c.GP.Line
+					}
+					// A statement whose C++ spans several lines (a lambda in the middle of it) is
+					// shown as chunks of the same .gp line, "(continued)", and the reasons head the
+					// first: they are about the C++ of all of them.
+					last := i
+					for j := i + 1; j < len(f.Chunks) && c.GP != nil; j++ {
+						next := f.Chunks[j]
+						if next.GP == nil {
+							continue // the body of the lambda has no .gp line of its own
+						}
+						if !next.Continued || next.GP.Line != line || next.Inst != c.Inst {
+							break
+						}
+						last = j
+					}
+					for _, next := range f.Chunks[i+1 : last+1] {
+						cpp += "\n" + strings.Join(next.Cpp, "\n")
 					}
 					for _, rs := range c.Reasons {
 						for _, rule := range truthRules {

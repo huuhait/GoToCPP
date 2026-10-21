@@ -66,10 +66,27 @@ a=5 a=1 a=5
 
 - `fmt` finds the `String` method of `Counter` and uses it for `Println(a, b, *p)`.
 - `p := &a` makes a `*Counter` that shares `a`. In C++ it is a `gp::ptr<Counter>`, a reference
-  counting pointer, and `a`, whose address is taken, lives in a box on the heap that the pointer
-  shares. You write the same code as in Go; the [spec](../spec/language.md#d1-reference-counting-instead-of-a-garbage-collector)
+  counting pointer. Here `p` never leaves `main`, so the escape analysis keeps `a` as an ordinary
+  variable on the C++ stack, and `p` points to it without owning it (`gp::stack_ptr(a)`):
+  nothing is allocated and nothing is counted. If `p` were returned or stored, `a` would live in a
+  box on the heap that the pointer shares.
+- You write the same code as in Go; the [spec](../spec/language.md#d1-reference-counting-instead-of-a-garbage-collector)
   lists what reference counting changes (for example, a cycle of pointers is never freed).
 - Map order is random, as in Go: do not print a map by ranging over it if the order matters
   (`fmt.Println(m)` sorts the keys, like Go).
+
+This is the C++ that `gocpp emit` writes for the lines with `a`, `b` and `p`:
+
+<!-- emitted: data -->
+```cpp
+Counter a{.Name = "a"_gs};
+Counter b = a;
+gp::ptr<Counter> p = gp::stack_ptr(a);
+Counter::Add(gp::lend(p), 5);
+Counter::Add(gp::borrow(&b), 1);
+```
+
+`gocpp build -gp:m` prints which addresses stay on the stack (`&a does not escape`);
+[gocpp explain boxing](../guides/explain.md) says more.
 
 Next: [Closures and defer](04-closures-and-defer.md).

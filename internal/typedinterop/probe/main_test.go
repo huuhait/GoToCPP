@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/racetest"
 	"github.com/huuhait/gocpp/internal/typedinterop/tsupport"
 )
 
@@ -24,22 +25,8 @@ func TestMain(m *testing.M) {
 	os.Setenv(EnvPCH, "off")
 	lockMargin = time.Second
 	lockWaitCap = 8 * time.Second
-	exitRaceDetectorQuickly()
+	racetest.ExitChildrenQuickly()
 	tsupport.Main(m)
-}
-
-// exitRaceDetectorQuickly stops the fake compilers from sleeping one second at exit. A test binary
-// built with -race waits atexit_sleep_ms (default 1000) before it exits, to let the reports of
-// other goroutines print; each fake compiler is such a binary (a link to the test binary), so
-// every compiler run cost a second and timeouts of a few hundred milliseconds could not be met.
-// The setting is read when a process starts, so only the children (the fake compilers) get it.
-func exitRaceDetectorQuickly() {
-	const setting = "atexit_sleep_ms=0"
-	if existing := os.Getenv("GORACE"); existing != "" {
-		os.Setenv("GORACE", existing+" "+setting)
-		return
-	}
-	os.Setenv("GORACE", setting)
 }
 
 func TestFakeCompilersSkipRaceExitSleep(t *testing.T) {

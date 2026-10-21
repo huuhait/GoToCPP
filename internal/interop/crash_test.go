@@ -3,6 +3,8 @@ package interop
 import (
 	"os"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/racetest"
 )
 
 // A fake compiler that must crash with a signal (a probe's compiler that is killed by SEGV) runs
@@ -13,5 +15,6 @@ import (
 // load. PR_SET_DUMPABLE 0 does stop it, but a shell can't set it.
 func TestMain(m *testing.M) {
 	crashIfAsked()
+	racetest.ExitChildrenQuickly() // the processes of TestDiskCacheProcesses re-run this binary
 	os.Exit(m.Run())
 }

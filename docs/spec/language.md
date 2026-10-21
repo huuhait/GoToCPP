@@ -74,8 +74,12 @@ func link(a, b *Node) {
 
 - **Go:** a garbage collector frees memory that nothing can reach any more, cycles included.
 - **gocpp:** there is no garbage collector. Every heap object is reference counted: what `&T{}`
-  and `new` make, slice arrays, string bytes, maps, and variables that closures share. An object
-  is freed when the last pointer to it goes away, so cleanup is deterministic. A reference cycle
+  and `new` make, slice arrays, string bytes, maps, and variables that closures share or whose
+  address escapes. (An object whose address cannot outlive the function, such as a local that
+  only a pointer method or a local pointer sees, stays on the C++ stack with no count, as in Go:
+  [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md),
+  `gocpp build -gp:m`.) An object is freed when the last pointer to it goes away, so cleanup is
+  deterministic. A reference cycle
   (A points to B, and B points to A) is never freed. Break it with Go 1.24's `weak` package:
   `weak.Make(p)` and `wp.Value()`. `gocpp vet` warns about obvious cycles, such as a closure that
   refers to itself (Phase 13).
@@ -679,8 +683,9 @@ n, x[x[i]+y[i]] = 1, 2 // Go checks x[i] first; gocpp may check y[i] first
     (`s[a[i]+b[j]], x = 1, 2`);
   - an assignment or a declaration with several targets (`var x, y = s[i], a[j]`) whose values
     gc evaluates early or late by whether a variable's address is taken, where gocpp asks
-    whether the variable is boxed: the two differ only for a variable that a closure changes, as
-    in [D25](#d25-fmt-arguments-that-a-closure-changes);
+    whether the variable is memory that a call can change (a boxed variable, or one that stays on
+    the stack with its address taken or captured by reference by local closures): the two differ
+    only for a variable that a closure changes, as in [D25](#d25-fmt-arguments-that-a-closure-changes);
   - the arguments of a call of a function that gc doesn't inline, `h(s[i], m[a[j]])`: gc then
     evaluates the panics in a map key (or a string comparison) of a later argument before the
     earlier arguments, while for a function that it inlines it goes from left to right, as gocpp
@@ -802,7 +807,10 @@ fmt.Println(ok, set()) // Go and gocpp: false true
   set(); fmt.Println(ok, r)`) or passes the value it means.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#210-builtins-printing-and-package-initialization).
   The rule is in `internal/lower/inplace.go`; `tests/diff/fmt_closure_locals.gp` has the cases
-  where both agree. Phase 15's escape analysis may get closer to gc's.
+  where both agree. The escape analysis ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md))
+  keeps this order: a variable that only local closures capture stays on the C++ stack, and
+  `inplace.go` still copies it for the fmt arguments as above. The analysis is not gc's
+  (it does not inline, and it does not copy gc's cost rules), so the differences listed here remain.
 
 ## D26. C++ exceptions
 

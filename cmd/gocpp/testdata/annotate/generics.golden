@@ -42,8 +42,9 @@ void gp_inst_a0e6aa0a_Show(int64_t x) {
     int64_t y = x;
 
 // ---- ./generics.gp:19: f := func() T { return y }  [in gp_inst_a0e6aa0a_Show]
-// gp[closures] col 7: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 7: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
 // gp[closures] col 25: captures y by copy into the lambda: it never changes after the closure
 //     exists and is at most 128 bytes
     gp::func<int64_t()> f = gp::func<int64_t()>([y]<int = 1>() mutable -> int64_t { return y; });
@@ -74,8 +75,9 @@ void gp_inst_20c6e54f_Show(Big x) {
     gp::ptr<Big> y = gp::new_<Big>(x);
 
 // ---- ./generics.gp:19: f := func() T { return y }  [in gp_inst_20c6e54f_Show]
-// gp[closures] col 7: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 7: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
 // gp[closures] col 25: captures y by sharing its box (it is larger than 128 bytes)
     gp::func<Big()> f = gp::func<Big()>([y]<int = 1>() mutable -> Big { return (*y); });
 
@@ -103,8 +105,9 @@ void gp_inst_0d7f4fe9_Show(gp::string x) {
     gp::string y = x;
 
 // ---- ./generics.gp:19: f := func() T { return y }  [in gp_inst_0d7f4fe9_Show]
-// gp[closures] col 7: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 7: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
 // gp[closures] col 25: captures y by copy into the lambda: it never changes after the closure
 //     exists and is at most 128 bytes
     gp::func<gp::string()> f = gp::func<gp::string()>([y]<int = 1>() mutable -> gp::string { return y; });
@@ -220,8 +223,9 @@ void main() {
 // gp[generics] col 14: Map is the C++ function gp_inst_a6f7f6b5_Map for the type arguments
 //     int,string: one C++ function for each list of type arguments (not a C++ template: int and
 //     int64 are one C++ type, but not one Go type)
-// gp[closures] col 34: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names
-//     it func1); copies of the func value share the captured state
+// gp[closures] col 34: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
 // gp[interfaces] col 62: fmt.Sprint: the runtime's gp::fmt functions take each operand with the
 //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
 //     non-pointer type with an Error method is, see the allocation note)
@@ -231,8 +235,9 @@ void main() {
 // gp[generics] col 14: Map is the C++ function gp_inst_cad6a8a6_Map for the type arguments
 //     string,int: one C++ function for each list of type arguments (not a C++ template: int and
 //     int64 are one C++ type, but not one Go type)
-// gp[closures] col 33: func literal #2 is a C++ lambda wrapped in gp::func (the stack trace names
-//     it func2); copies of the func value share the captured state
+// gp[closures] col 33: func literal #2 is a C++ lambda (the stack trace names it func2); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
     gp::fmt::Println(gp::fmt::as(gp_tdc_1, gpkg_main::gp_inst_cad6a8a6_Map(gp::slice_of<gp::string>({"a"_gs}), gp::func<int64_t(gp::string)>([]<int = 2>(gp::string s) mutable -> int64_t { return gp::len(s); }))));
 
 // ---- ./generics.gp:29: }

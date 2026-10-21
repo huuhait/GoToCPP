@@ -325,8 +325,15 @@ func TestPCHCutOffIsMadeAgainWithTheSameAnswers(t *testing.T) {
 	if c.PCHRejects != 0 {
 		t.Errorf("%d runs were refused by the compiler: the size should have said no first", c.PCHRejects)
 	}
-	if fi, err := os.Stat(files[0]); err != nil || fi.Size() != info.Size() {
-		t.Errorf("the header was not made whole again: %v %v", fi, err)
+	// The remade header is not the same size as the first one: clang writes the working directory of
+	// its run into the file, and the run is made in a temporary folder with a random name, so the
+	// sizes differ by a few bytes when the names differ in length. What makes it whole is that it
+	// has the size that its description says, and is not the cut-off file.
+	if fi, err := os.Stat(files[0]); err != nil || fi.Size() <= info.Size()/2 {
+		t.Errorf("the header was not made again: %v %v", fi, err)
+	}
+	if _, _, _, whole := lookPCH(strings.TrimSuffix(files[0], ".pch")); !whole {
+		t.Error("the header made again is not the one its description says (size, files)")
 	}
 }
 

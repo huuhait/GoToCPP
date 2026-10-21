@@ -42,7 +42,7 @@ void Counter::Inc(gp::bptr<Counter> c) {
 // ---- ./boxing.gp:9: func newCounter() *Counter {
 gp::ptr<Counter> newCounter() {
 
-// ---- ./boxing.gp:10: c := Counter{n: 1} // its address is taken: boxed
+// ---- ./boxing.gp:10: c := Counter{n: 1} // its address is returned: boxed
 // gp[boxing] col 2: c is boxed: its address (or the address of a part of it) is taken, so it lives
 //     in a gp::ptr heap box that every pointer shares and that never dangles
     gp::ptr<Counter> c = gp::new_<Counter>(Counter{.n = 1});
@@ -58,17 +58,18 @@ gp::ptr<Counter> newCounter() {
 // ---- ./boxing.gp:14: func main() {
 void main() {
 
-// ---- ./boxing.gp:15: var local Counter // a pointer method is called on it: boxed
-// gp[boxing] col 6: local is boxed: a pointer-receiver method is called on it, which is
-//     (&local).M() and needs its address
-    gp::ptr<Counter> local = gp::new_<Counter>();
+// ---- ./boxing.gp:15: var local Counter // a pointer method is called on it: not boxed
+// gp[boxing] col 6: local stays on the C++ stack: its address is taken, but the escape analysis
+//     found that the address does not escape, so a pointer to it is gp::borrow(&local) or a
+//     gp::stack_ptr value (no heap box, no counts)
+    Counter local{};
 
 // ---- ./boxing.gp:16: local.Inc()
-// gp[refcount] col 2: lent to Inc without a reference count: the box of a variable, which this
-//     function holds (gp::lend)
+// gp[refcount] col 2: lent to Inc as the raw address of a part of an object that stays alive during
+//     the call: no aliasing pointer, no reference count (gp::borrow)
 // gp[methods] col 2: pointer method Inc: a static call T::Inc(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Counter::Inc(gp::lend(local));
+    Counter::Inc(gp::borrow(&local));
 
 // ---- ./boxing.gp:17: x := 41 // nothing sees x after the function: it stays on the stack
     int64_t x = 41;
@@ -92,7 +93,7 @@ void main() {
 //     non-pointer type with an Error method is, see the allocation note)
 // gp[checks] col 28: p.f through a pointer: -> on a gp::ptr checks for nil and panics like Go
 //     (gocpp build -nochecks removes it)
-    gp::fmt::Println((*local).n, x, p->n);
+    gp::fmt::Println(local.n, x, p->n);
 
 // ---- ./boxing.gp:22: }
 }

@@ -379,9 +379,12 @@ func indexOutput(ctx context.Context, cfg Config, mode []string, text string) (s
 	if err != nil {
 		return "", nil, err
 	}
-	if out.exitErr != nil || out.timedOut || buf.truncated {
-		return "", nil, fmt.Errorf("incomplete header index (%v, timeout=%v, limit=%v)",
-			out.exitErr, out.timedOut, buf.truncated)
+	if out.timedOut {
+		return "", nil, timeoutError("header index")
+	}
+	if out.exitErr != nil || buf.truncated {
+		return "", nil, fmt.Errorf("incomplete header index (%v, limit=%v)",
+			out.exitErr, buf.truncated)
 	}
 	return buf.buf.String(), out, nil
 }
@@ -469,7 +472,10 @@ func validateIndexNames(ctx context.Context, cfg Config, text string, index *Hea
 		return err
 	}
 	var exit *exec.ExitError
-	if out.timedOut || out.truncated || !errors.As(out.exitErr, &exit) || exit.ExitCode() != 1 {
+	if out.timedOut {
+		return timeoutError("header name validation")
+	}
+	if out.truncated || !errors.As(out.exitErr, &exit) || exit.ExitCode() != 1 {
 		return errors.New("incomplete or abnormal header name validation")
 	}
 	invalid := make(map[candidate]bool)

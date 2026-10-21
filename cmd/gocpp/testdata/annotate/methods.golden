@@ -49,9 +49,10 @@ void Acc::Add(gp::bptr<Acc> a, int64_t n) {
 void main() {
 
 // ---- ./methods.gp:11: a := &Acc{}
-// gp[refcount] col 7: &T{...} allocates a new reference-counted box that holds the literal
-//     (gp::new_)
-    gp::ptr<Acc> a = gp::new_<Acc>(Acc{});
+// gp[refcount] col 7: &T{...} stays on the C++ stack: the pointer variable that holds it does not
+//     let it escape, so the object is a member of that variable (gp::local_new, a gp::local_ptr):
+//     no heap block, no counts
+    gp::local_ptr<Acc> a = gp::local_new<Acc>(Acc{});
 
 // ---- ./methods.gp:12: a.Add(2)
 // gp[refcount] col 2: lent to Add without a reference count: a temporary, or a variable that no
@@ -61,16 +62,17 @@ void main() {
     Acc::Add(gp::lend(a), 2);
 
 // ---- ./methods.gp:13: var b Acc
-// gp[boxing] col 6: b is boxed: a pointer-receiver method is called on it, which is (&b).M() and
-//     needs its address
-    gp::ptr<Acc> b = gp::new_<Acc>();
+// gp[boxing] col 6: b stays on the C++ stack: its address is taken, but the escape analysis found
+//     that the address does not escape, so a pointer to it is gp::borrow(&b) or a gp::stack_ptr
+//     value (no heap box, no counts)
+    Acc b{};
 
 // ---- ./methods.gp:14: b.Add(3)
-// gp[refcount] col 2: lent to Add without a reference count: the box of a variable, which this
-//     function holds (gp::lend)
+// gp[refcount] col 2: lent to Add as the raw address of a part of an object that stays alive during
+//     the call: no aliasing pointer, no reference count (gp::borrow)
 // gp[methods] col 2: pointer method Add: a static call T::Add(p, ...), the receiver pointer is the
 //     first argument; no dynamic dispatch
-    Acc::Add(gp::lend(b), 3);
+    Acc::Add(gp::borrow(&b), 3);
 
 // ---- ./methods.gp:15: fmt.Println(a.Get(), b.Get())
 // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the
@@ -82,7 +84,7 @@ void main() {
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
 // gp[methods] col 23: value method Get: a plain member call; the body works on a copy of the
 //     receiver, or on a const reference when it cannot change it
-    { auto gp_t0 = a->Get(); gp::fmt::Println(gp_t0, (*b).Get()); }
+    { auto gp_t0 = a->Get(); gp::fmt::Println(gp_t0, b.Get()); }
 
 // ---- ./methods.gp:16: }
 }

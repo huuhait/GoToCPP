@@ -1,8 +1,18 @@
 closures: Func literals and captures
 
-A func literal is a C++ lambda wrapped in gp::func<R(A...)>. The lambda has a hidden
-template parameter, <int = N>, which numbers the literal for the stack trace (main.f.func1,
-as Go names it). Copies of a gp::func share the closure's state.
+A func literal that is only called where it is made (func() {...}() or f := func() {...}
+with every use of f a call, not go, not defer, not stored, passed or returned, and no
+recover inside) cannot outlive the call: it is a plain C++ lambda that captures by
+reference, with no gp::func and no allocation, and a local variable that only such closures
+capture is not boxed (ADR-114; a parameter or a result that one captures and changes still
+is).
+
+A literal that go or defer runs directly is also the lambda itself, handed to gp::go_call or
+gp_push_call, with its captures copied into it.
+
+Any other func literal, used as a value, is a C++ lambda wrapped in gp::func<R(A...)>. The
+lambda has a hidden template parameter, <int = N>, which numbers the literal for the stack
+trace (main.f.func1, as Go names it). Copies of a gp::func share the closure's state.
 
 A captured variable is copied into the lambda when that is safe: the closure never sees a
 change, because the variable never changes after it is declared, and it is at most 128
@@ -33,7 +43,7 @@ Example (closures.gp):
     }
 
     func main() {
-    	step := 10 // captured, never changed: copied into the lambda
+    	step := 10 // captured by a closure that is called in place: stays on the stack
     	add := func(x int) int { return x + step }
     	next := counter()
     	fmt.Println(add(1), next(), next())
@@ -72,8 +82,9 @@ The C++ that gocpp emit -annotate writes for it:
         gp::ptr<int64_t> n = gp::new_<int64_t>(0);
 
     // ---- ./closures.gp:7: return func() int {
-    // gp[closures] col 9: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-    //     func1); copies of the func value share the captured state
+    // gp[closures] col 9: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+    //     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+    //     value is wrapped in gp::func, whose copies share the captured state
         return gp::func<int64_t()>([n]<int = 1>() mutable -> int64_t {
 
     // ---- ./closures.gp:8: n++
@@ -95,15 +106,15 @@ The C++ that gocpp emit -annotate writes for it:
     // ---- ./closures.gp:13: func main() {
     void main() {
 
-    // ---- ./closures.gp:14: step := 10 // captured, never changed: copied into the lambda
+    // ---- ./closures.gp:14: step := 10 // captured by a closure that is called in place: stays on the stack
         int64_t step = 10;
 
     // ---- ./closures.gp:15: add := func(x int) int { return x + step }
-    // gp[closures] col 9: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-    //     func1); copies of the func value share the captured state
-    // gp[closures] col 38: captures step by copy into the lambda: it never changes after the closure
-    //     exists and is at most 128 bytes
-        gp::func<int64_t(int64_t)> add = gp::func<int64_t(int64_t)>([step]<int = 1>(int64_t x) mutable -> int64_t { return x + step; });
+    // gp[closures] col 9: func literal #1 is a local closure: it is only called where it is made, so it
+    //     is a plain C++ lambda (no gp::func, no allocation) that captures by reference
+    // gp[closures] col 38: captures step by reference: it stays on the C++ stack and the closure runs
+    //     within the function
+        auto add = [&step]<int = 1>(int64_t x) mutable -> int64_t { return x + step; };
 
     // ---- ./closures.gp:16: next := counter()
         gp::func<int64_t()> next = counter();
@@ -112,8 +123,8 @@ The C++ that gocpp emit -annotate writes for it:
     // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the
     //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
     //     non-pointer type with an Error method is, see the allocation note)
-    // gp[checks] col 14: call of a func value: gp::func's call operator checks for nil and panics like
-    //     Go (gocpp build -nochecks removes it)
+    // gp[checks] col 14: call of a local closure or method expression: a direct call of the lambda;
+    //     there is no func value, so no nil check
     // gp[order] col 14: gp_t0 holds the result of a call (or a value that a later call could change):
     //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
     // gp[checks] col 22: call of a func value: gp::func's call operator checks for nil and panics like
@@ -140,8 +151,9 @@ The C++ that gocpp emit -annotate writes for it:
     // gp[allocation] col 8: append: writes in place when the capacity is enough, else allocates a
     //     bigger array (the capacity is Go's: its growth formula, element sizes and malloc size
     //     classes); the result may share the array with the argument
-    // gp[closures] col 19: func literal #2 is a C++ lambda wrapped in gp::func (the stack trace names
-    //     it func2); copies of the func value share the captured state
+    // gp[closures] col 19: func literal #2 is a C++ lambda (the stack trace names it func2); what it
+    //     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+    //     value is wrapped in gp::func, whose copies share the captured state
     // gp[closures] col 39: captures i by sharing its box (it changes after capture)
                 fs = gp::append(static_cast<gp::slice<gp::func<int64_t()>>&&>(fs), gp::func<int64_t()>([i]<int = 2>() mutable -> int64_t { return (*i); }));
 

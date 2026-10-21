@@ -489,7 +489,7 @@ func (fg *funcGen) builtin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	if name == "new" {
 		t := fg.g.info.TypeOf(arg)
-		fg.g.noteNew(c.Pos(), t) // why.go
+		fg.g.noteNew(c.Pos(), t, fg.escInfo().held[c] != nil) // why.go
 		if fg.escInfo().held[c] != nil {
 			return localNew(fg.g.cxxType(t, arg.Pos()), nil) // in the pointer variable (escape.go)
 		}

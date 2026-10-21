@@ -124,6 +124,7 @@ func (fg *funcGen) devirtCall(c *ast.CallExpr, x *ast.SelectorExpr, r recvPath,
 	if !ok {
 		return nil
 	}
+	fg.g.noteDevirtCall(method.fn.Name(), c.Pos()) // why.go
 	ptr := isPointer(fg.concreteIfaceType(x.X))
 	thunk := fg.g.thunkFunc(nd, method, ptr)
 

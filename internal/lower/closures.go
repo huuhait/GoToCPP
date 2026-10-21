@@ -393,6 +393,22 @@ func (fg *funcGen) stableCallee(e ast.Expr) bool {
 	return v != nil && !fg.isBoxed(v)
 }
 
+// callsLambdaDirectly reports whether the call of fun is a call of a lambda itself, not of a
+// gp::func: a func literal called at once, a variable that holds a local closure, or a method
+// expression (T.M(x), which is called as its lambda).
+func (fg *funcGen) callsLambdaDirectly(fun ast.Expr) bool {
+	switch x := fun.(type) {
+	case *ast.FuncLit:
+		_, local := fg.g.localLits[x]
+		return local
+	case *ast.Ident:
+		v, ok := fg.g.info.Uses[x].(*types.Var)
+		return ok && fg.holdsLocalClosure(v)
+	}
+	expr, _ := fg.methodExpr(fun)
+	return expr != nil
+}
+
 // callValue returns the C++ of the call c of a func value (funcValueCall).
 func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 	sig, _ := under(fg.g.info.TypeOf(c.Fun)).(*types.Signature)
@@ -401,7 +417,7 @@ func (fg *funcGen) callValue(c *ast.CallExpr) cppir.Expr {
 		return placeholder
 	}
 	fun := ast.Unparen(c.Fun)
-	fg.g.noteCallValue(c.Pos(), fg.stableCallee(fun)) // why.go
+	fg.g.noteCallValue(c.Pos(), fg.stableCallee(fun), fg.callsLambdaDirectly(fun)) // why.go
 	var callee cppir.Expr
 	if fl, ok := fun.(*ast.FuncLit); ok {
 		// Called at once: no func value. A lambda over several lines is called as

@@ -742,7 +742,12 @@ func (g *gen) noteEscape(f *funcInfo) {
 		if f.esc != nil && f.esc.decided[v] {
 			continue // (the escape analysis said why)
 		}
-		add(v.Pos(), "moved to heap: "+v.Name(), boxReasonText(f.boxed[v]))
+		reason := boxReasonText(f.boxed[v])
+		exposed := f.boxed[v] == boxAddr || f.boxed[v] == boxMethod
+		if exposed && check.Sizes().Sizeof(v.Type()) > maxStackObjectSize {
+			reason = "it is larger than 2 KiB, the most that the analysis keeps on the stack"
+		}
+		add(v.Pos(), "moved to heap: "+v.Name(), reason)
 	}
 	// The pointer parameters and the receiver.
 	s := g.borrowOf(f.obj)

@@ -35,9 +35,10 @@ namespace gpkg_main {
 void main() {
 
 // ---- ./allocation.gp:8: p := new(big)
-// gp[allocation] col 7: new(big) allocates a zeroed value in a reference-counted box (gp::new_);
-//     the pointer frees it with the last copy
-    gp::ptr<big> p = gp::new_<big>();
+// gp[allocation] col 7: new(big) stays on the C++ stack: the pointer variable that holds it does
+//     not let it escape, so the object is a member of that variable (gp::local_new, a
+//     gp::local_ptr): no heap block, no counts
+    gp::local_ptr<big> p = gp::local_new<big>();
 
 // ---- ./allocation.gp:9: s := make([]int, 0, 4)
 // gp[allocation] col 7: make([]T, n): allocates the zeroed backing array; the slice holds its

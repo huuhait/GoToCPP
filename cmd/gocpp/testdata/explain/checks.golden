@@ -76,9 +76,10 @@ The C++ that gocpp emit -annotate writes for it:
         int64_t i = gp::len(xs) - 1;
 
     // ---- ./checks.gp:10: n := &node{}
-    // gp[refcount] col 7: &T{...} allocates a new reference-counted box that holds the literal
-    //     (gp::new_)
-        gp::ptr<node> n = gp::new_<node>(node{});
+    // gp[refcount] col 7: &T{...} stays on the C++ stack: the pointer variable that holds it does not
+    //     let it escape, so the object is a member of that variable (gp::local_new, a gp::local_ptr):
+    //     no heap block, no counts
+        gp::local_ptr<node> n = gp::local_new<node>(node{});
 
     // ---- ./checks.gp:11: m := n.next
     // gp[checks] col 9: p.f through a pointer: -> on a gp::ptr checks for nil and panics like Go (gocpp

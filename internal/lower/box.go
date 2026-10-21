@@ -43,8 +43,9 @@ import (
 // (x.f, also through embedded fields that are not pointers) and the elements of an array
 // (x.arr[i]), not what a pointer, a slice or a map points to (boxer.root).
 //
-// This is a simpler, more conservative version of Go's escape analysis: Phase 15 adds the real
-// analysis, which keeps the variables that don't escape on the stack.
+// These are the reasons before the escape analysis (escape.go, ADR-114): it unboxes a variable
+// whose only reasons are boxAddr and boxMethod when no pointer to it outlives it, and
+// localclosure.go unboxes the captures of the closures that are only called where they are made.
 //
 // What uses it: the declarations of the variables (stmt.go: declare, bind; decl.go: the
 // parameters, copied into their boxes at the function's entry, and the named results; control.go:

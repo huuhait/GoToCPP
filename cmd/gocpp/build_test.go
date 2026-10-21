@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/racetest"
 )
 
 // The tests of gocpp build, run and emit compile real programs with g++
@@ -85,6 +86,8 @@ func TestMain(m *testing.M) {
 	// nothing is typedinterop.DefaultMode, and these tests must not move when it changes (ADR-101).
 	os.Setenv("GOCPP_INTEROP", "opaque")
 	os.Setenv("GOCPP_WORKLOST", "fail") // a lost work folder is an error in the tests (worklost_test.go sets what it tests)
+	// The children that re-run this binary do not sleep a second at exit under -race.
+	racetest.ExitChildrenQuickly()
 	code := m.Run()
 	entries, _ := os.ReadDir(tmp)
 	for _, e := range entries {

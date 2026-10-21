@@ -40,9 +40,11 @@ import (
 //	&T{...}                  a new block              gp::new_<T>(T{...})
 //
 // The aliasing form reads the owner twice, so it is for an owner that is a variable (or in a
-// temporary); another one goes through gp::elem_ptr or gp::field_ptr, which evaluate it once. The boxing analysis (box.go) boxes every local variable whose address,
-// or the address of a part of it, is taken, so &x never needs the address of a C++ stack
-// variable.
+// temporary); another one goes through gp::elem_ptr or gp::field_ptr, which evaluate it once.
+// The boxing analysis (box.go) boxes every local variable whose address, or the address of a part
+// of it, is taken, except those that the escape analysis (escape.go, ADR-114) keeps on the C++
+// stack: &x of such a variable is gp::stack_ptr(x), and the pointer variable that holds an
+// &T{...} or new(T) that does not escape holds the object itself (gp::local_new).
 
 // addr returns the C++ of &x.
 func (fg *funcGen) addr(e *ast.UnaryExpr) cppir.Expr {

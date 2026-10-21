@@ -20,8 +20,9 @@ namespace gpkg_main {
 gp::func<void(gp::func<bool(int64_t)>)> count(int64_t n) {
 
 // ---- ./range.gp:6: return func(yield func(int) bool) {
-// gp[closures] col 9: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 9: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
     return gp::func<void(gp::func<bool(int64_t)>)>([n]<int = 1>(gp::func<bool(int64_t)> yield) mutable -> void {
 
 // ---- ./range.gp:7: for i := 0; i < n; i++ {

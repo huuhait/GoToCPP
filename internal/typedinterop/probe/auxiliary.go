@@ -103,6 +103,13 @@ func runAuxMode(ctx context.Context, cfg Config, mode func(string) []string, tex
 	return out, nil
 }
 
+// timeoutError is the error of a stage whose compiler run was stopped at the time limit. Every
+// stage (completion, index, validation) reports it the same way, so that callers can tell a
+// timeout from a failed header with errors.Is(err, context.DeadlineExceeded).
+func timeoutError(stage string) error {
+	return fmt.Errorf("%s timed out: %w", stage, context.DeadlineExceeded)
+}
+
 // preprocessDeps returns the headers that the preprocessor reads for the text (sorted), or nil
 // when it could not tell (the compiler failed, or a header is missing).
 func preprocessDeps(ctx context.Context, cfg Config, text string) []string {

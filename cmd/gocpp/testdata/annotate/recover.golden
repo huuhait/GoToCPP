@@ -32,8 +32,9 @@ std::tuple<int64_t, gp::error> safeDiv(int64_t a, int64_t b) {
 // gp[defer] col 2: defer: the function and its arguments are evaluated now and stored in the frame;
 //     the call runs when the function exits: a func literal: its lambda goes into the frame
 //     (gp_push_call), so the stack trace names it func1, func2...
-// gp[closures] col 8: func literal #1 is a C++ lambda wrapped in gp::func (the stack trace names it
-//     func1); copies of the func value share the captured state
+// gp[closures] col 8: func literal #1 is a C++ lambda (the stack trace names it func1); what it
+//     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
+//     value is wrapped in gp::func, whose copies share the captured state
 // gp[recover] col 8: this function calls recover(): it takes a ticket (gp::defer_ctx gp_dc) at
 //     entry; recover returns the panic value only when a deferred call of a panicking function
 //     calls it directly, as in Go

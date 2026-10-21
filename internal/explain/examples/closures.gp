@@ -11,7 +11,7 @@ func counter() func() int {
 }
 
 func main() {
-	step := 10 // captured, never changed: copied into the lambda
+	step := 10 // captured by a closure that is called in place: stays on the stack
 	add := func(x int) int { return x + step }
 	next := counter()
 	fmt.Println(add(1), next(), next())

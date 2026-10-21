@@ -160,11 +160,17 @@ without Python gdb still debugs the program, with C++ names and without printers
   and `len(x)` (`*p` and `len(x)` are always read as Go: gdb would call the runtime's `operator*`
   in your program), and a variable that is a heap box shows as its Go variable, as in `gp locals`: `gp print acc.n`, `gp print len(grid)`, `gp print grid[1][2]`. (Map indexing and
   calls are not supported: `gp print m` shows the map.)
-- A variable that a closure captures, or whose address is taken, lives in a heap box in the C++
-  (`gp::ptr<int64_t>`); `gp locals` shows the Go variable (`x (int) = 21`), judging by the `.gp`
-  line that declares it (`x := 20`, `var err error`, not `p := &T{}`; when the line does not say,
-  the C++ value is shown as it is; the same unwrapping applies to a variable named in `gp print`). `info locals` and `print` show the C++ variable
-  (`x = &21`), and its temporaries (`gp_df`, `gp_t0`). In a closure, `gp locals` lists the
+- A variable whose address escapes, or that a closure captures and changes while the closure can
+  outlive the call, lives in a heap box in the C++ (`gp::ptr<int64_t>`); `gp locals` shows the Go
+  variable (`x (int) = 21`), judging by the `.gp` line that declares it (`x := 20`, `var err error`,
+  not `p := &T{}`; when the line does not say, the C++ value is shown as it is; the same unwrapping
+  applies to a variable named in `gp print`). `info locals` and `print` show the C++ variable
+  (`x = &21`), and its temporaries (`gp_df`, `gp_t0`). A variable whose address is only used inside
+  the function (the escape analysis, [ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md))
+  is not boxed: it is a plain C++ variable on the stack, and a pointer to it (`p := &x`) is a
+  `gp::ptr` that owns nothing; so is the object of a `p := &T{}` that does not escape (a
+  `gp::local_ptr<T>`, which holds the object itself). `gocpp build -gp:m` says which variables are
+  which. In a closure, `gp locals` lists the
   captured variables too (under their Go names; the C++ calls them `__count` in g++).
 - Bad memory does not stop a command. A frame stopped before its locals are declared holds
   whatever the stack held, a string may have a negative length, a type descriptor may be

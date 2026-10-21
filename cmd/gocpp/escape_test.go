@@ -195,3 +195,25 @@ func TestEscapeNewToBorrowed(t *testing.T) {
 		})
 	}
 }
+
+// An object whose address does not escape but that is over the size cap is moved to the heap, and
+// -gp:m=2 gives the size as the reason, not an escape that does not happen.
+func TestEscapeTooLargeObjectSaysSize(t *testing.T) {
+	inDir(t, map[string]string{"main.gp": `package main
+
+type Blob struct{ data [600]int }
+
+func (b *Blob) Touch() { b.data[0]++ }
+
+func main() {
+	var blob Blob
+	blob.Touch()
+	println(blob.data[0])
+}
+`})
+	r := gocppRun("", false, "emit", "-gp:m=2", "main.gp")
+	want := "./main.gp:8:6: moved to heap: blob: it is larger than 2 KiB"
+	if !strings.Contains(r.stderr, want) {
+		t.Errorf("gocpp emit -gp:m=2 stderr has no %q:\n%s", want, r.stderr)
+	}
+}

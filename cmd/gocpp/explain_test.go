@@ -292,7 +292,8 @@ func TestExplainLine(t *testing.T) {
 
 // TestGuideExamples: the output blocks of docs/guides/explain.md are what gocpp prints now. A block is
 // `<!-- gocpp: EXAMPLE ARGS -->` followed by a fenced block: the command's output, run in a folder
-// that has the example EXAMPLE.gp.
+// that has the example EXAMPLE.gp. When ARGS start with the word stderr, the block is what the
+// command writes to standard error (the diagnostics of -gp:m) and the rest of ARGS is the command.
 func TestGuideExamples(t *testing.T) {
 	path := filepath.Join(pkgDir(t), "..", "..", "docs", "guides", "explain.md")
 	data, err := os.ReadFile(path)
@@ -309,12 +310,20 @@ func TestGuideExamples(t *testing.T) {
 	last := 0
 	for _, b := range blocks {
 		example, args := text[b[2]:b[3]], strings.Fields(text[b[4]:b[5]])
+		fromStderr := len(args) > 0 && args[0] == "stderr"
+		if fromStderr {
+			args = args[1:]
+		}
 		withExample(t, example)
 		r := gocppRun("", false, args...)
 		if r.code != 0 {
 			t.Errorf("gocpp %s: %+v", strings.Join(args, " "), r)
 		}
-		got := strings.TrimRight(r.stdout, "\n") + "\n"
+		shown := r.stdout
+		if fromStderr {
+			shown = r.stderr
+		}
+		got := strings.TrimRight(shown, "\n") + "\n"
 		if !*updateAnnotate && got != text[b[6]:b[7]] {
 			t.Errorf("docs/guides/explain.md: the output of `gocpp %s` is not what it prints now (-update-annotate rewrites the guide):\n%s", strings.Join(args, " "), firstDiff(text[b[6]:b[7]], got))
 		}
@@ -419,7 +428,7 @@ func TestExplainLineOfAMultiFileMain(t *testing.T) {
 		"main.gp": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := helper(2)\n\tp := &x\n\tfmt.Println(*p)\n}\n",
 		"util.gp": "package main\n\nfunc helper(n int) int {\n\tm := map[int]int{}\n\tm[n]++\n\treturn m[n]\n}\n",
 	})
-	if r := gocppRun("", false, "explain", "main.gp:6"); r.code != 0 || !strings.Contains(r.stdout, "x := helper(2)") || !strings.Contains(r.stdout, "x is boxed") {
+	if r := gocppRun("", false, "explain", "main.gp:6"); r.code != 0 || !strings.Contains(r.stdout, "x := helper(2)") || !strings.Contains(r.stdout, "x stays on the C++ stack") {
 		t.Errorf("explain main.gp:6 = %+v", r)
 	}
 	if r := gocppRun("", false, "explain", "util.gp:5"); r.code != 0 || !strings.Contains(r.stdout, "gp::ref(m, n)++;") {

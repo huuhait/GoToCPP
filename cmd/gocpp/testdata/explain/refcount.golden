@@ -1,7 +1,8 @@
 refcount: Reference counts and owners
 
 Memory is reference counted (ADR-004). A *T is a gp::ptr<T>, which holds a reference count
-and an address. new(T), &T{...} and a boxed variable make a block with a count of one;
+and an address. new(T), &T{...} and a boxed variable make a block with a count of one
+(unless the escape analysis keeps the object on the stack, see gocpp explain boxing);
 copying a pointer increments the count, and the last copy to go out of scope frees the
 block. Counts are atomic, so goroutines can share pointers.
 

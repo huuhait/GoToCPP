@@ -284,7 +284,7 @@ func (rn *Runner) makeMembers(ctx context.Context, cfg Config, includes []string
 		return nil, err
 	}
 	if completed.timedOut {
-		return nil, fmt.Errorf("member completion timed out: %w", context.DeadlineExceeded)
+		return nil, timeoutError("member completion")
 	}
 	if completed.exitErr != nil {
 		return nil, fmt.Errorf("member completion failed: %w", completed.exitErr)
@@ -498,7 +498,10 @@ func validateMemberNames(ctx context.Context, cfg Config, text, output string, i
 			return nil, false, nil, err
 		}
 		var status *exec.ExitError
-		if out.timedOut || out.truncated || !errors.As(out.exitErr, &status) || status.ExitCode() != 1 {
+		if out.timedOut {
+			return nil, false, nil, timeoutError("member validation")
+		}
+		if out.truncated || !errors.As(out.exitErr, &status) || status.ExitCode() != 1 {
 			return nil, false, nil, errors.New("incomplete member validation")
 		}
 		invalid := make(map[int]bool)

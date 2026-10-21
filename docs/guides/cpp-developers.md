@@ -182,8 +182,10 @@ A gocpp value is freed when the last reference goes. A pointer to a gocpp type i
 `gp::ptr<T>`, a `std::shared_ptr` with nil checks; a pointer to a field or to an element shares the
 owner of the whole object. A local variable lives in a box on the heap when its address escapes
 (it is stored, returned, sent, captured, converted to an interface or passed to code that may keep
-it) or when a closure captures it and changes it. A local whose address is only used as a borrowed
-receiver or parameter, as `p` above, stays an ordinary C++ local on the stack.
+it) or when a closure that can outlive the call captures it and changes it. A local whose address is
+only used as a borrowed receiver or parameter, as `p` above, stays an ordinary C++ local on the
+stack, and so does a local variable that only closures called where they are made capture (a parameter
+or a result still gets its box).
 
 - A cycle of pointers is never freed. Break it with `weak.Pointer[T]` (a `gp::weak_ptr<T>`).
 - A data race can corrupt a reference count; Go's data races are bad, gocpp's are worse
@@ -192,7 +194,10 @@ receiver or parameter, as `p` above, stays an ordinary C++ local on the stack.
   ([D16](../spec/language.md#d16-unsafepointer-and-pointers-from-c)).
 - The escape analysis is conservative ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)):
   `gocpp build -gp:m` prints where it kept a variable on the stack or boxed it, and `-gp:noescape`
-  turns it off.
+  turns it off. It keeps an object on the stack only when it is small (at most 2 KiB for one object
+  and 16 KiB for all of them in one function: the C++ stack is fixed and a function can call itself),
+  it does not analyse generic functions (their instances box as before), and a parameter, a result
+  or a loop variable keeps its box when its address is taken.
 
 ## Interfaces, closures, defer and panics
 
@@ -269,8 +274,11 @@ struct Shape : gp::iface {
 }
 ```
 
-A closure is a lambda inside a `gp::func`. The variable `n` that it changes lives in a box that the
-lambda holds, so it outlives the call of `counter`:
+A closure that can outlive the call is a lambda inside a `gp::func`. The variable `n` that it changes
+lives in a box that the lambda holds, so it outlives the call of `counter`. (A closure that is only
+called where it is made, `func() { ... }()` or `f := func() { ... }` with every use of `f` a call, is
+a plain lambda that captures by reference, such as `[&n]`, with no `gp::func`, no allocation and no
+box; `gocpp build -gp:m` says `func literal does not escape`.)
 
 <!-- emitted: shapes2 -->
 ```cpp

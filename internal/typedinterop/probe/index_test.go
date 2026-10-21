@@ -199,6 +199,26 @@ func TestHeaderIndexRejectsFailedCompiler(t *testing.T) {
 	}
 }
 
+// A compiler run of the index that is stopped at the time limit reports the deadline, as the member
+// completion does (TestMemberQueryTimeoutJoinsCompiler), so a caller can tell a timeout from a
+// header that does not index.
+func TestHeaderIndexTimeoutWrapsDeadlineExceeded(t *testing.T) {
+	defer SetRacyWindow(0)()
+	fake := newFake(t)
+	if err := os.WriteFile(filepath.Join(fake.inc, "api.hpp"), []byte("Thing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_SLEEP", "60")
+	cfg := fake.cfg()
+	// The limit applies to every compiler run of the query, so it is well above what a normal
+	// fake run needs and is reached only by the sleeping name run.
+	cfg.Timeout = 2 * time.Second
+	index, err := new(Runner).Index(context.Background(), cfg, []string{`"api.hpp"`})
+	if index != nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("index = %v, error = %v, want the deadline", index, err)
+	}
+}
+
 func TestHeaderIndexCanceledRunIsNotCached(t *testing.T) {
 	defer SetRacyWindow(0)()
 	fake := newFake(t)
