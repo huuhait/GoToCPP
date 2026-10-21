@@ -30,6 +30,7 @@ tests/run/generics_types_cache.gp | doubly-linked | g++=176/2 clang++=176/2 | a 
 tests/run/generics_types_mutual.gp | mutual-pointers | g++=792/9 clang++=792/9 | mutually recursive generic types: each instance refers to the other
 tests/run/iface_mv_func_values.gp | closure-self | g++=200/5 clang++=200/5 | a func value that calls itself through the variable g (var g func(int) int), next to method values stored in interfaces
 tests/run/json_marshal_errors.gp | cyclic-data | g++=1704/10 clang++=1704/10 | the cycle tests of Marshal build values that hold themselves (a node that points back to the list, a slice and a map that contain themselves) to see "encountered a cycle via ..."
+tests/run/json_type_shapes.gp | cyclic-data | g++=2744/12 clang++=2744/12 | Marshal of a pointer cycle, a slice and a map that contain themselves, and a struct whose any field holds itself (the "encountered a cycle" errors), plus a Tree whose children point back to the parent
 tests/run/rangefunc_literals_recursion.gp | closure-self | g++=72/2 clang++=72/2 | a func literal that calls itself through the variable rec (var rec func(n int) int; rec = func ...)
 tests/run/reflect_deepequal_cycles.gp | cyclic-data | g++=3608/25 clang++=3608/25 | reflect.DeepEqual on values with cycles: a node that points to itself, a tree whose children point to the parent
 tests/run/sync_cond_broadcast_generations.gp | cond-locker | g++=128/2 clang++=128/2 | the barrier's Cond has a Locker that is a pointer into the barrier struct that holds the Cond (b.cond = sync.NewCond(&b.mu))

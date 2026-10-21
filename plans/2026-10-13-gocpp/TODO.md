@@ -34,6 +34,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [~] 15.12: CI/release workflows integrated after clean review; static checks only, never run on GitHub (exit criterion open).
 - [x] 10.derive: Phase 10 `#Derive` exit criterion closed with real-Go tests (clean review); other open Phase 10 lines have focused evidence but stay for the user's final review.
 - [x] 13.vetexit: Phase 13 vet exit criterion and two stale Phase 10 sub-items evidenced by end-to-end tests (clean review); no analyzer change.
+- [x] 9.jsonround: Phase 9 `encoding/json` round-trip criterion closed with 17 real-Go-compared programs (clean review); no port change.
 - [ ] Next: remaining 12.13 editor features and real external-cache measurements when prerequisites are available.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

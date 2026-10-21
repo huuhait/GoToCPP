@@ -38,7 +38,7 @@
 - [x] `wc` + `grep-lite` match their Go versions (flag ported 2026-10-19: identical output on 14 and 12 argument vectors)
 - [x] `gocpp test` output format matches `go test`
 - [x] `fmt` differential tests (≥ 100 cases) byte-identical to Go (210 `fmt_*` run tests vs real Go)
-- [ ] `encoding/json` round-trips like Go
+- [x] `encoding/json` round-trips like Go
 
 ## Decisions / notes
 
@@ -112,3 +112,6 @@
   cross-check against ports.txt (deleting both manifests + a package passes without the cache), `cleanStale` removes any `extract-*`/`download-*` older than 1 h from a custom
   `-cache` (match exact temp names), redirects can downgrade to http (add CheckRedirect + client timeout), unwanted tar entries/file counts uncapped; (8) ported utf8/bits run
   8-12x slower than Go at -O0 (gocpp builds -O0 -g only: a release mode closes it; optional math/bits natives later).
+
+- 2026-10-20: `encoding/json` round-trip criterion closed (job 9.jsonround, clean independent review after two rounds). 17 new differential programs `tests/run/json_*.gp` (`json_syntax_offsets` to `json_panics_recursion`; 3,859 lines of expected output taken from real Go, pointers masked with `0x[0-9a-f]{8,}`) found no divergence from real Go and no port change. Go's own `encoding/json` tests under `gocpp test`: 101 of 103 pass, 2 dropped (`TestSynctestMarshal`, `TestHTTPDecoding`: no `testing/synctest`, no `net/http`); `bench_test.go` needs `internal/zstd`. Mutation checks: the coder's 20 mutants and the reviewer's extra ones are each killed by at least one program (the reviewer's first round found three uncovered behaviors, now covered: same-depth tagged-field dominance, raw U+2028/U+2029 in marshaler output with and without `SetEscapeHTML(false)`, float32/float64 format thresholds). The programs also pass under ASan and `-release` (coder run). Documented differences only (`stdlib/encoding/json/PORT.md`): fixed 8 MiB stack depth limit, deliberate cycles never freed, speed about 3 to 7 times Go. Not covered: Windows runs of these programs, `-race`/TSan builds.
+
