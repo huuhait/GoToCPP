@@ -39,3 +39,12 @@
 
 - 2026-10-20: Small-package Go tests run on the real Windows PC (job 14.winload, clean independent review after two rounds; reviewer re-ran the fixed packages on the PC and a no-commit 8-process x150 `LockProject` stress: 0 exclusion violations). Two real Windows bugs fixed: `modfetch.LockProject` ran `LockFileEx` on a folder handle, so every `gocpp get` on Windows failed with "The parameter is incorrect" (now a lock file `%TEMP%\gocpp-project-<hash>.lock` from the lowercased absolute path); `gocpp.sum` readers hit sharing violations while another process replaced the file (new `fsretry.Open`). Toolchain tar symlink targets use OS separators. Test expectations now cope with backslashes, drive prefixes and Unix-only behavior; tests that need the pinned Go skip through the new `internal/testgo` when the host Go differs from the `go.mod` line (the PC has go1.27.1). 28 packages pass on the PC; open items are listed in TODO.md. The Phase 14 exit criteria are unchanged.
 
+- 2026-10-21: (user watching) `examples/win32` and `examples/raylib` ran on the real Windows PC's console
+  desktop. A program started over `ssh` runs in session 0 and shows nothing, so each was started
+  through a temporary scheduled task (`schtasks /create ... /it /ru Administrator`, run once, task and
+  folder deleted afterwards; PC lock held). win32 printed exactly `examples/win32/output.txt` (message
+  box answered, window opened and closed). raylib (MinGW-w64 build from nixpkgs, `libraylib.dll` and
+  `glfw3.dll` beside the program) opened its 800 x 450 window, ran 828 frames of the bouncing ball
+  until the user closed it, and printed `window closed`; the user confirmed it worked. SDL2 has not been
+  run on Windows, so the exit line stays open.
+

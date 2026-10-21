@@ -184,8 +184,10 @@ for windows.GetMessageW(&msg, nil, 0, 0) > 0 {
 
 Build and run it on a Windows desktop (`gocpp run examples\win32\main.gp`, with `GOCPP_GATE_PHASE=15`); `GOCPP_SMOKE=1` makes a timer close the
 message box and the window at once, which is how the test suite runs it under Wine with a null graphics driver. It builds natively with WinLibs' GCC and from Linux. A
-window needs an interactive desktop: started over `ssh` (session 0, no desktop) the smoke mode did not finish on the test PC, so
-the example was not seen running on a real desktop for this page. A program with a window opens a console too, unless you link the GUI subsystem:
+window needs an interactive desktop: started over `ssh` (session 0, no desktop) the smoke mode did not finish on the test PC.
+On 2026-10-21 the example was started in the console session of the PC (a scheduled task made with `schtasks /create ... /it /ru
+Administrator`, run once and deleted): the message box showed, was answered with OK, the window opened and closed, and the output was
+byte for byte `output.txt`. A program with a window opens a console too, unless you link the GUI subsystem:
 `gocpp build -ldflags=-mwindows` gave an executable with the GUI subsystem on the PC (the PE header says so; the flag is a trusted one and
 goes to the linker as it is).
 
@@ -324,4 +326,5 @@ code page, gocpp gives the compiler the short name of the path ([Windows page](w
   the Windows data model: `DWORD` is `unsigned long`, 4 bytes. This was checked from Linux (the probes of `<windows.h>`, the typed `emit`, `check` and a typed build that ran on the PC), with
   fake compilers for the command lines, and on the PC itself with the pinned llvm-mingw's clang (not with MSYS2's or WinLibs' clang, which the PC does not have). `gocpp doc` of a header uses the same flags. Without a clang, `auto` stays `opaque`, and `typed` exits with status 3.
 - Libraries built with Visual Studio (C++ ABI); MinGW-w64 builds of sqlite3, zlib, SDL2 and raylib were built and linked (sqlite3 and zlib also ran
-  on the PC; SDL2 and raylib need their DLLs and a display and were only linked).
+  on the PC; raylib ran on the PC's console desktop with `libraylib.dll` and `glfw3.dll` next to the program; SDL2 needs its DLL and was
+  only linked).
