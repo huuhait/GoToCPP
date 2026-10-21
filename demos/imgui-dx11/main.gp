@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/ocornut/imgui/backends/imgui_impl_dx11.h"
@@ -129,6 +130,8 @@ func main() {
 	var wave [120]C.float
 	phase := 0.0
 	frames := 0
+	occluded := false
+	started := time.Now()
 
 	var msg windows.MSG
 	running := true
@@ -143,6 +146,16 @@ func main() {
 		if !running {
 			break
 		}
+
+		// A window that is covered or minimized has nothing to show: Present then returns at once
+		// (DXGI_STATUS_OCCLUDED) instead of waiting for the screen, and the loop would use a whole
+		// core. Sleep until a test Present says the window is visible again.
+		if occluded && swapChain.Present(0, d3d11.DXGI_PRESENT_TEST) == d3d11.DXGI_STATUS_OCCLUDED {
+			windows.Sleep(10)
+			continue
+		}
+		occluded = false
+		frameStart := time.Now()
 
 		imgui_impl_dx11.ImGui_ImplDX11_NewFrame()
 		imgui_impl_win32.ImGui_ImplWin32_NewFrame()
@@ -173,8 +186,15 @@ func main() {
 		context.OMSetRenderTargets(1, &target, nil)
 		context.ClearRenderTargetView(target, &clear[0])
 		imgui_impl_dx11.ImGui_ImplDX11_RenderDrawData(imgui.ImGui.GetDrawData())
-		swapChain.Present(1, 0)
+		occluded = swapChain.Present(1, 0) == d3d11.DXGI_STATUS_OCCLUDED
 		frames++
+
+		// Present(1, 0) waits for the screen's refresh. A display driver that does not (a remote
+		// session, some virtual displays) would let the loop run at thousands of frames a second,
+		// so a frame is also kept to about 60 a second.
+		if left := 16*time.Millisecond - time.Since(frameStart); left > 0 {
+			time.Sleep(left)
+		}
 	}
 
 	imgui_impl_dx11.ImGui_ImplDX11_Shutdown()
@@ -186,5 +206,7 @@ func main() {
 	device.Release()
 	windows.DestroyWindow(hwnd)
 	windows.UnregisterClassW(className, instance)
-	fmt.Println("window closed, frames:", frames, "clicks:", clicks)
+	seconds := time.Since(started).Seconds()
+	fmt.Printf("window closed, frames: %d in %.1f s (%.1f per second), clicks: %d\n", frames, seconds,
+		float64(frames)/seconds, clicks)
 }

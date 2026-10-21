@@ -35,4 +35,8 @@ task with `/it`). Closing the window ends the program, which prints `window clos
 - The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32`. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
   `#pragma comment(lib, ...)`, which MinGW ignores, so the recipe names it. `dxguid` holds the `IID_` constants.
 - `GetBuffer` wants a `void**`: `var raw unsafe.Pointer` and `&raw`, then a conversion to the interface pointer.
+- A covered or minimized window: `Present` returns at once with `DXGI_STATUS_OCCLUDED` instead of waiting for the
+  screen, so the loop sleeps (10 ms) until a test `Present` says the window is visible again. Measured on the PC
+  with the window minimized: 18.3 CPU seconds in 10 s before, 0.02 after. With the window visible both use about 1 s
+  in 10 s. The loop also keeps a frame to about 60 per second, for a display driver that does not wait for the refresh.
 - The first run of the library takes a while (about 40,000 lines of C++ are compiled once); later builds use the object cache.
