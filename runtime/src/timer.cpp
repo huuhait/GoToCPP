@@ -3,6 +3,7 @@
 // only.
 #include <gocpp/nofortify.h>
 #include "chan_core.hpp"
+#include "timed_wait.hpp"
 #include <gocpp/rt.hpp>
 
 #include <atomic>
@@ -236,7 +237,10 @@ void thread_main() {
         auto it = h.timers.begin();
         int64_t due = it->first.first;
         if (due > now) {
-            h.cv.wait_for(lk, wait_for(due, now));
+            // Fine timer ticks for the last part of the wait only (timed_wait.hpp).
+            auto plan = plan_timed_wait(wait_for(due, now).count());
+            fine_timer_scope fine(plan.fine);
+            h.cv.wait_for(lk, plan.wait);
             continue;
         }
         entry e = std::move(it->second);

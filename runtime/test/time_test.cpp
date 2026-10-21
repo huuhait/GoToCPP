@@ -12,6 +12,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 #include "../src/chan_core.hpp"
+#include "../src/timed_wait.hpp"
 #include "threads_ended.hpp"
 
 #include <algorithm>
@@ -186,6 +187,92 @@ void test_sleep() {
     CHECK_EQ(gp::num_blocked(), int64_t(0));
     gp::recv(done);
     CHECK(slept.load() >= 20'000'000);
+}
+
+// --- the accuracy of timed waits (src/timed_wait.hpp, ADR-132) ---
+
+void test_plan_timed_wait() {
+    using gp::detail::plan_timed_wait;
+    constexpr int64_t margin = 32'000'000;
+    // No margin (Linux): the whole wait, never fine.
+    for (int64_t left : {int64_t(1), int64_t(1'000'000), int64_t(3'600'000'000'000LL)}) {
+        auto plan = plan_timed_wait(left, 0);
+        CHECK_EQ(plan.wait.count(), left);
+        CHECK(!plan.fine);
+    }
+    // Up to two margins: fine to the end.
+    for (int64_t left : {int64_t(1), margin, 2 * margin}) {
+        auto plan = plan_timed_wait(left, margin);
+        CHECK_EQ(plan.wait.count(), left);
+        CHECK(plan.fine);
+    }
+    // More than two margins: coarse, for all but one margin.
+    auto plan = plan_timed_wait(2 * margin + 1, margin);
+    CHECK_EQ(plan.wait.count(), margin + 1);
+    CHECK(!plan.fine);
+    plan = plan_timed_wait(3'600'000'000'000LL, margin);
+    CHECK_EQ(plan.wait.count(), 3'600'000'000'000LL - margin);
+    CHECK(!plan.fine);
+    // A wait that ends late by up to a margin (the system's rounding) after each coarse step
+    // is still on time at the end, and asks for fine ticks for at most two margins of it.
+    for (int64_t total : {int64_t(1'000), int64_t(5'000'000), int64_t(70'000'000),
+                          int64_t(1'000'000'000), int64_t(86'400'000'000'000LL)}) {
+        for (int64_t slack : {int64_t(0), margin / 2, margin}) {
+            int64_t left = total;
+            int64_t fine_ns = 0;
+            int64_t steps = 0;
+            while (left > 0 && steps++ < 10) {
+                auto step = plan_timed_wait(left, margin);
+                CHECK(step.wait.count() > 0 && step.wait.count() <= left);
+                if (step.fine) {
+                    fine_ns += step.wait.count();
+                    left -= step.wait.count();
+                } else {
+                    left -= step.wait.count() + slack;
+                }
+            }
+            CHECK_EQ(left, int64_t(0));
+            CHECK(fine_ns <= 2 * margin);
+            CHECK(steps <= 3);
+        }
+    }
+    // The wait of this system: Linux asks for nothing, Windows for two ticks.
+    CHECK(gp::os::timer_margin_ns() == 0 || gp::os::timer_margin_ns() == 32'000'000);
+}
+
+void test_fine_timer_scope() {
+    using gp::detail::fine_timer_holders;
+    using gp::detail::fine_timer_scope;
+    CHECK_EQ(fine_timer_holders(), std::size_t(0));
+    {
+        fine_timer_scope off(false); // asks for nothing
+        CHECK_EQ(fine_timer_holders(), std::size_t(0));
+        fine_timer_scope a(true);
+        CHECK_EQ(fine_timer_holders(), std::size_t(1));
+        {
+            fine_timer_scope b(true);
+            fine_timer_scope c(true);
+            CHECK_EQ(fine_timer_holders(), std::size_t(3));
+        }
+        CHECK_EQ(fine_timer_holders(), std::size_t(1));
+    }
+    CHECK_EQ(fine_timer_holders(), std::size_t(0));
+    // Threads take and give it back at the same time: the count ends at 0, never below.
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; i++) {
+        threads.emplace_back([] {
+            for (int n = 0; n < 2000; n++) {
+                fine_timer_scope s(true);
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    CHECK_EQ(fine_timer_holders(), std::size_t(0));
+    // A timed wait that used the scope has given it back (sleep and a timer are the callers).
+    gp::time::sleep(2'000'000);
+    CHECK_EQ(fine_timer_holders(), std::size_t(0));
 }
 
 // --- channel timers ---
@@ -767,6 +854,8 @@ void run_unit_tests() {
     } while (0)
     RUN(test_clocks);
     RUN(test_sleep);
+    RUN(test_plan_timed_wait);
+    RUN(test_fine_timer_scope);
     RUN(test_timer_fires);
     RUN(test_stop_reset_results);
     RUN(test_no_stale_value);

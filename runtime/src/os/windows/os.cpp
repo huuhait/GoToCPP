@@ -321,6 +321,45 @@ void trim_memory() noexcept {
     // Nothing to give back that Go's FreeOSMemory would reach: the heap returns pages itself.
 }
 
+namespace {
+
+// timeBeginPeriod and timeEndPeriod of winmm.dll, found when first needed. The DLL is loaded by
+// name from the system folder and not linked: a program built with any link line (the driver's,
+// a CMake project that uses the runtime, the runtime's own tests) has the functions.
+using period_fn = UINT(WINAPI*)(UINT);
+
+period_fn find_period_fn(HMODULE winmm, const char* name) {
+    if (winmm == nullptr) {
+        return nullptr;
+    }
+    return reinterpret_cast<period_fn>(reinterpret_cast<void*>(GetProcAddress(winmm, name)));
+}
+
+} // namespace
+
+// The system timer ticks every 15.6 ms unless a process asks for less; a wait with a timeout ends
+// at the first tick after its time. Two ticks of margin cover that rounding with room to spare.
+std::int64_t timer_margin_ns() noexcept {
+    return 32'000'000;
+}
+
+void fine_timer(bool on) noexcept {
+    // The caller serializes the calls (src/timed_wait.hpp), so the statics need no lock.
+    static bool loaded = false;
+    static period_fn begin_period = nullptr;
+    static period_fn end_period = nullptr;
+    if (!loaded) {
+        loaded = true;
+        HMODULE winmm = LoadLibraryExW(L"winmm.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        begin_period = find_period_fn(winmm, "timeBeginPeriod");
+        end_period = find_period_fn(winmm, "timeEndPeriod");
+    }
+    period_fn fn = on ? begin_period : end_period;
+    if (fn != nullptr) {
+        fn(1);
+    }
+}
+
 bool process_barrier_init() noexcept {
     return true;
 }

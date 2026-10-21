@@ -3030,7 +3030,7 @@ from Go's algorithms. The parts that need the runtime are `//gocpp:native` funct
 | Go (inside package time) | C++ |
 |---|---|
 | `now() (sec int64, nsec int32, mono int64)`, `runtimeNano() int64` | `gp::time::now()` (a `std::tuple`), `gp::time::nano()`: `system_clock` and `steady_clock` (CLOCK_REALTIME and CLOCK_MONOTONIC through the vDSO) |
-| `time.Sleep(d)` | `gp::time::sleep(int64_t ns)`: the goroutine waits on its own `gp::waiter` with a deadline; it is not counted as blocked |
+| `time.Sleep(d)` | `gp::time::sleep(int64_t ns)`: the goroutine waits on its own `gp::waiter` with a deadline; it is not counted as blocked. On Windows the last 32 to 64 ms of a timed wait hold 1 ms system ticks (`timeBeginPeriod`), so a wait ends about 1 ms late and not at the next 15.6 ms tick ([ADR-132](../adr/132-timed-waits-ask-windows-for-1-ms-ticks-for-the-last-part-of-the-wait.md)) |
 | `startChan(c, when, period, f)` | `gp::time::start_chan<Time>(c, when, period, f)`: arms a timer on the channel object `c` (a template over the element type, because the runtime does not know `time.Time`) |
 | `startFunc(c, when, f)`, `stopTimer(c)`, `resetTimer(c, when, period)`, `trySend(c, v)` | `gp::time::start_func`, `stop`, `reset`, `try_send` |
 | `callOnce(id, f)`, `getenv`, the file functions of the zone loader | `std::call_once`, `std::getenv`, C stdio |

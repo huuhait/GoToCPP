@@ -246,6 +246,13 @@ void trim_memory() noexcept {
 #endif
 }
 
+// Linux rounds no wait up to a tick: nothing to ask for.
+std::int64_t timer_margin_ns() noexcept {
+    return 0;
+}
+
+void fine_timer(bool) noexcept {}
+
 std::vector<std::string> arguments(int argc, char** argv) {
     std::vector<std::string> args;
     for (int i = 0; i < argc && argv != nullptr && argv[i] != nullptr; i++) {

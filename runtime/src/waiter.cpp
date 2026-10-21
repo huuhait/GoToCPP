@@ -1,6 +1,7 @@
 // gp::waiter (gocpp/waiter.hpp): a mutex, a condition variable and a permit.
 #include <gocpp/nofortify.h>
 #include <gocpp/waiter.hpp>
+#include "timed_wait.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -51,6 +52,16 @@ using clk = std::chrono::steady_clock;
 // overflowing.
 constexpr auto step = std::chrono::hours(24);
 
+// wait_step waits on cv for the time that is left, or one step of it (see timed_wait.hpp: the
+// last part of a long wait asks the system for accurate timers, the rest does not).
+void wait_step(std::unique_lock<std::mutex>& lk, std::condition_variable& cv, clk::duration left) {
+    auto next = left < step ? left : step;
+    auto plan =
+        detail::plan_timed_wait(std::chrono::duration_cast<std::chrono::nanoseconds>(next).count());
+    detail::fine_timer_scope fine(plan.fine);
+    cv.wait_for(lk, plan.wait);
+}
+
 } // namespace
 
 waiter::waiter() : gp_s(new gp_state) {}
@@ -90,7 +101,7 @@ bool waiter::gp_park_ns(int64_t ns) {
         if (left <= clk::duration::zero()) {
             return false;
         }
-        gp_s->cv.wait_for(lk, left < step ? left : step);
+        wait_step(lk, gp_s->cv, left);
     }
     gp_s->permit = false;
     return true;
@@ -131,7 +142,7 @@ bool waiter::gp_wait_(bool (*pred)(void*), void* ctx, bool timed, int64_t ns) {
             if (left <= clk::duration::zero()) {
                 return false;
             }
-            gp_s->cv.wait_for(lk, left < step ? left : step);
+            wait_step(lk, gp_s->cv, left);
         }
     }
     gp_s->permit = false;

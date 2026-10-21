@@ -268,6 +268,22 @@ mem_stats mem_info() noexcept;
 // malloc_trim), for runtime/debug.FreeOSMemory.
 void trim_memory() noexcept;
 
+// The accuracy of timed waits (ADR-132). On Windows a wait with a timeout (the condition
+// variable's, sleep_for) ends at a tick of the system timer, 15.6 ms apart by default, so a
+// wait of 1 ms takes 15 ms; the process can ask for finer ticks while it needs them. Linux
+// rounds nothing: both functions do nothing there.
+//
+// timer_margin_ns is how long before its end a wait should ask for the fine ticks: the time the
+// coarse ticks may add to a wait (two of them), or 0 when there is nothing to ask for. The
+// waits of the runtime (src/timed_wait.hpp) wait coarsely until that long before their end, and
+// finely for the rest, so a wait of an hour keeps the system at its idle tick.
+std::int64_t timer_margin_ns() noexcept;
+
+// fine_timer(true) asks the system for ticks of 1 ms (Windows: timeBeginPeriod(1)), and
+// fine_timer(false) gives that back (timeEndPeriod(1)). The calls must come in pairs and one at
+// a time: src/timed_wait.hpp counts the waits that want fine ticks and is the only caller.
+void fine_timer(bool on) noexcept;
+
 // exit_now ends the process at once with the exit code, and does nothing else: no flush of C
 // stdio, no leak check, no atexit functions. It is async-signal-safe: for the stack overflow
 // hook. Everywhere else use exit.

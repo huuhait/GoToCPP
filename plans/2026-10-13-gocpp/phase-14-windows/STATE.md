@@ -53,3 +53,5 @@
   program with a visible 480 x 270 window and a bouncing box was then run the same way and the user saw the
   box move on the desktop (stopped with taskkill afterwards; task and folder deleted). The exit line is ticked.
 
+- 2026-10-21 job 14.sleep [x] merged (ADR-132, one review round, no blockers): timed waits on Windows (`Sleep`, timers, tickers, `AfterFunc`, select timeouts, context deadlines) were rounded to the 15.6 ms system tick (the DX11 demo ran at 33 fps instead of 60). They now hold 1 ms ticks (`timeBeginPeriod`, found in winmm.dll at run time, counted under a mutex) for the last 32 to 64 ms of a wait: median about 1 ms late, p99 2 to 3 ms (was 10 to 16 ms late). Measured and tested on the real PC (`TestWindowsSleepAccuracy`, fails on the old runtime); the demo now runs at 58-59 fps with no change. Limits: a ticker of 1 ms drops about a third of its ticks; Windows 11 may ignore the request of a minimized window; before Windows 10 2004 it is machine-wide; Wine and Windows 7/8 not measured. Job 14.hires (high-resolution timers) builds on it.
+

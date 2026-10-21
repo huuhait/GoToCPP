@@ -7,6 +7,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/testing.hpp>
 #include <gocpp/trace.hpp>
+#include "timed_wait.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -63,8 +64,17 @@ int64_t now() noexcept {
 }
 
 void sleep_ns(int64_t ns) {
-    if (ns > 0) {
-        std::this_thread::sleep_for(std::chrono::nanoseconds(ns));
+    if (ns <= 0) {
+        return;
+    }
+    using clock = std::chrono::steady_clock;
+    auto end = clock::now() + std::chrono::nanoseconds(ns);
+    for (auto now = clock::now(); now < end; now = clock::now()) {
+        // Fine timer ticks for the last part of the wait only (timed_wait.hpp).
+        auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - now).count();
+        auto plan = detail::plan_timed_wait(left);
+        detail::fine_timer_scope fine(plan.fine);
+        std::this_thread::sleep_for(plan.wait);
     }
 }
 
