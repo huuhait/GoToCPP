@@ -1,6 +1,6 @@
 # Phase 10: Beyond Go: `!` (must) & Macros · STATE
 
-**Status:** `[~]` in progress (10.1-10.6, 10.8-10.10 merged; open: 10.7 (optional), 10.11, 10.12, 10.13; `#Derive(JSON)` waits for `encoding/json` (9.11))
+**Status:** `[~]` in progress (10.1-10.6 and 10.8-10.13 merged and all exit lines ticked; only 10.7 (optional, error return traces) is open; `#Derive(JSON)` and the `encoding/json` round trip are merged)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
