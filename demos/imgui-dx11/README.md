@@ -1,0 +1,38 @@
+# Dear ImGui with Direct3D 11 (Windows)
+
+The same library as [demos/imgui](../imgui/README.md), Dear ImGui 1.91.5, but with ImGui's own Windows backends
+instead of GLFW and OpenGL: the window, its class, its window procedure and the message loop are written in gocpp
+with the `<windows.h>` header package, the Direct3D 11 device and swap chain with the `<d3d11.h>` header package
+(COM interfaces called as methods: `swapChain.GetBuffer(...)`, `context.ClearRenderTargetView(...)`), and the widgets
+(text, a slider, a plot of a moving sine wave, a color editor, a button, ImGui's demo window) as `ImGui.Begin`, ...
+
+It is a demo and not one of the [target programs](../../examples/README.md): the library is downloaded (a network is
+needed), the window needs a Direct3D 11 GPU and a desktop, so no test runs it. It was built on Linux with MinGW-w64
+and run on a real Windows PC, on the console desktop (2026-10-21).
+
+## What is in this folder
+
+| File | What it is |
+|---|---|
+| `main.gp` | the program |
+| `win32forward.hpp` | the only C++ in the folder: one declaration, `ImGui_ImplWin32_WndProcHandler`. `imgui_impl_win32.h` leaves it inside `#if 0` (so that the header does not need `<windows.h>`), and gocpp can not declare a C++ function itself |
+| `gocpp.mod`, `gocpp.sum` | `require github.com/ocornut/imgui v1.91.5`, the `cxx` recipe that builds ImGui with `imgui_impl_win32.cpp` and `imgui_impl_dx11.cpp`, and the hash of the download |
+
+## Build and run
+
+No other library is needed: MinGW-w64 has the Direct3D 11, DXGI and `d3dcompiler` import libraries.
+
+```text
+gocpp build -os windows -o imguidx11.exe .
+```
+
+(on a Windows host with MinGW-w64: `gocpp build .`). Copy `imguidx11.exe` to the PC and start it from a desktop
+session; a program started over ssh runs in session 0, which has no desktop (use the console, or a scheduled
+task with `/it`). Closing the window ends the program, which prints `window closed, frames: N, clicks: N`.
+
+## Notes
+
+- The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32`. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
+  `#pragma comment(lib, ...)`, which MinGW ignores, so the recipe names it. `dxguid` holds the `IID_` constants.
+- `GetBuffer` wants a `void**`: `var raw unsafe.Pointer` and `&raw`, then a conversion to the interface pointer.
+- The first run of the library takes a while (about 40,000 lines of C++ are compiled once); later builds use the object cache.
