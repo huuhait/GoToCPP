@@ -1,6 +1,6 @@
 # Phase 06: Packages, Modules & Build System · STATE
 
-**Status:** `[~]` in progress (6.1-6.3, 6.5-6.13 merged; 6.4 `gp::lazy<T>` and 6.14 (LLVM plugin test, `opt` check) open; clangd check automated)
+**Status:** `[~]` in progress (6.1-6.14 merged and ticked; the clangd check is automated; `gp::lazy<T>` and lazy c-archive/c-shared init stay deferred, see the 6.4 note; Phase 6 exit lines: see below)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
