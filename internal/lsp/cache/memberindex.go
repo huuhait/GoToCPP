@@ -2,9 +2,11 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/types"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -20,16 +22,31 @@ const maxMemberIndexes = 16
 const maxMemberIndexBytes = 32 << 20
 const maxMemberQueries = 16
 const maxMemberBindings = 256
+const maxMemberDeclNames = 64
 
 type memberAnswer struct {
 	names      []string
 	nativeType string
 	incomplete bool
+
+	// receiver is the type that the member query used, and decls the completed declarations of
+	// the members that the program writes on bindings of that type (by memberDeclKey). A
+	// member without an entry has no proven declaration.
+	receiver string
+	decls    map[string][]probe.Declaration
 }
+
+func memberDeclKey(receiver, name string) string { return receiver + "\x00" + name }
 
 type memberFacts struct {
 	bindings map[*types.Var]memberAnswer
 	bytes    int64
+
+	// pending is the second step of the analysis (step 12.13c2): where the headers declare the
+	// members that the program writes. It runs after the facts above are published, so a slow
+	// or failing run delays and loses nothing of them, and the entry gets a copy of the facts
+	// with decls when it succeeds. It is nil for facts that have nothing to look up.
+	pending func(context.Context) (map[string][]probe.Declaration, int64, error)
 }
 
 type memberEntry struct {
@@ -58,6 +75,9 @@ type memberIndexer struct {
 	clock   uint64
 	bytes   int64
 	run     func(context.Context, *Package) (*memberFacts, error)
+
+	// stepDone is a hook of the tests, called when a declaration step has ended.
+	stepDone func()
 }
 
 func newMemberIndexer(cfg Config) *memberIndexer {
@@ -231,6 +251,8 @@ func (ix *memberIndexer) worker(ctx context.Context) {
 			cancel()
 			ix.mu.Lock()
 			entry.running = false
+			var step func(context.Context) (map[string][]probe.Declaration, int64, error)
+			var stepCtx context.Context
 			if ix.entries[entry.key] != entry {
 				ix.bytes -= entry.bytes
 				entry.pkg = nil
@@ -247,8 +269,15 @@ func (ix *memberIndexer) worker(ctx context.Context) {
 				entry.facts = facts
 				entry.bytes += facts.bytes
 				ix.bytes += facts.bytes
+				if step = facts.pending; step != nil {
+					stepCtx = entry.ctx
+					ix.wg.Add(1)
+				}
 			}
 			ix.mu.Unlock()
+			if step != nil {
+				go ix.locateStep(stepCtx, entry, facts, step)
+			}
 		}
 	}
 }
@@ -387,7 +416,8 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 				failed[query] = true
 				continue
 			}
-			answer = memberAnswer{names: members.Names(), incomplete: members.Incomplete()}
+			answer = memberAnswer{names: members.Names(), incomplete: members.Incomplete(),
+				receiver: strings.Clone(query.Type)}
 			queried[query] = answer
 			facts.bytes += 128
 			for _, name := range answer.names {
@@ -405,6 +435,7 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 		facts.bindings[object] = answer
 		facts.bytes += 128 + int64(len(answer.nativeType))
 	}
+	facts.pending = memberDeclLookup(runner, probeConfig, report.Includes, pkg, facts, inputs)
 	if !inputs.Unchanged(ctx) {
 		return nil, fmt.Errorf("receiver analysis inputs changed")
 	}
@@ -436,4 +467,130 @@ func declaredMemberRef(pkg *Package, report *typedinterop.Report, object types.O
 		expr = pkg.Check.Opaque.TypeExpr(name)
 	}
 	return nil
+}
+
+// memberDeclLookup returns the second step of the member analysis: it asks the compiler where
+// the headers declare the members that the program writes on the bound variables (win.size,
+// p.x), for each receiver type once, or nil when there are none. The answers are those of an
+// unqualified lookup in a class derived from the receiver, so overloads and inherited members
+// are the set that the compiler finds. The step is valid only while the inputs of the analysis
+// are the same; a failed run gives no declarations, and the names and types of the facts stay.
+func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string, pkg *Package,
+	facts *memberFacts, inputs *probe.InputGuard,
+) func(context.Context) (map[string][]probe.Declaration, int64, error) {
+	used := make(map[string][]string) // receiver -> member names written on its bindings
+	total := 0
+	for _, file := range pkg.Check.Load.Files {
+		if file.AST == nil {
+			continue
+		}
+		ast.Inspect(file.AST, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := ast.Unparen(sel.X).(*ast.Ident)
+			if !ok {
+				return true
+			}
+			variable, ok := pkg.Check.Info.Uses[id].(*types.Var)
+			if !ok {
+				return true
+			}
+			answer, bound := facts.bindings[variable]
+			if !bound || answer.receiver == "" || !slices.Contains(answer.names, sel.Sel.Name) ||
+				slices.Contains(used[answer.receiver], sel.Sel.Name) || total >= maxMemberDeclNames {
+				return true
+			}
+			used[answer.receiver] = append(used[answer.receiver], sel.Sel.Name)
+			total++
+			return true
+		})
+	}
+	if total == 0 {
+		return nil
+	}
+	var request probe.LocateRequest
+	for _, receiver := range slices.Sorted(maps.Keys(used)) {
+		request.Members = append(request.Members, probe.LocateMembers{Receiver: receiver, Names: used[receiver]})
+	}
+	return func(ctx context.Context) (map[string][]probe.Declaration, int64, error) {
+		locations, err := runner.Locate(ctx, cfg, includes, request)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !inputs.Unchanged(ctx) {
+			return nil, 0, errors.New("member declaration inputs changed")
+		}
+		decls := make(map[string][]probe.Declaration)
+		for _, group := range request.Members {
+			for _, name := range group.Names {
+				if found := locations.Member(group.Receiver, name); len(found) > 0 {
+					decls[memberDeclKey(strings.Clone(group.Receiver), strings.Clone(name))] = found
+				}
+			}
+		}
+		return decls, locations.Bytes(), nil
+	}
+}
+
+// locateStep runs the second step of facts that are published, and adds its declarations to
+// them while they are still the current ones of their entry.
+func (ix *memberIndexer) locateStep(ctx context.Context, entry *memberEntry, facts *memberFacts,
+	pending func(context.Context) (map[string][]probe.Declaration, int64, error),
+) {
+	defer ix.wg.Done()
+	if ix.stepDone != nil {
+		defer ix.stepDone()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	decls, cost, err := pending(ctx)
+	if err != nil && ctx.Err() == nil {
+		// One retry covers headers just saved inside the runner's conservative race window.
+		timer := time.NewTimer(revalidateAfter)
+		select {
+		case <-timer.C:
+			decls, cost, err = pending(ctx)
+		case <-ctx.Done():
+		}
+		timer.Stop()
+	}
+	if err != nil || len(decls) == 0 || ctx.Err() != nil {
+		return
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if ix.entries[entry.key] != entry || entry.facts != facts || ctx.Err() != nil ||
+		ix.bytes+cost > maxMemberIndexBytes {
+		return
+	}
+	// The published facts are shared with readers: the entry gets a copy that has the
+	// declarations.
+	next := &memberFacts{bindings: make(map[*types.Var]memberAnswer, len(facts.bindings)),
+		bytes: facts.bytes + cost}
+	for variable, answer := range facts.bindings {
+		answer.decls = decls
+		next.bindings[variable] = answer
+	}
+	entry.facts = next
+	entry.bytes += cost
+	ix.bytes += cost
+}
+
+// ForeignMemberDeclarations returns the completed declarations of the member that the program
+// writes on the bound variable (win.size), or false. Like MemberSymbols it reads only retained
+// facts for the exact original binding: no compiler, dependency IO or scheduling. A member
+// that is not proven, an overload set that is not complete, a repaired or stale binding and a
+// partial run give nothing.
+func (s *Snapshot) ForeignMemberDeclarations(pkg *Package, object *types.Var, name string) ([]probe.Declaration, bool) {
+	answer, ready := s.memberFact(pkg, object)
+	if !ready || answer.receiver == "" || !slices.Contains(answer.names, name) {
+		return nil, false
+	}
+	found := answer.decls[memberDeclKey(answer.receiver, name)]
+	if len(found) == 0 {
+		return nil, false
+	}
+	return slices.Clone(found), true
 }

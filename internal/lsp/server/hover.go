@@ -24,8 +24,9 @@ import (
 // under the cursor as Go code, its doc comment, and for a type its
 // methods; for a package its doc and import path. A C/C++ name (raylib.X,
 // std.vector) and a header import show what the checker knows: where the
-// name comes from, and that its type is opaque. Full C/C++ hover, from a
-// header index, is Phase 12. C itself (C.int) shows a line on C's
+// name comes from, and that its type is opaque; once the background header
+// facts hold the declaration (step 12.13c2), the header's own signature and
+// comment. C itself (C.int) shows a line on C's
 // built-in types: it is no package the user imports (load.Rewrite.ImportC).
 //
 // The name of a type switch (x in switch x := v.(type)) has no object in
@@ -186,6 +187,10 @@ func (q *query) hover(ctx context.Context) (*hoverResult, protocol.Range, error)
 				h := &hoverResult{
 					signature: q.spelling(sel) + " // C/C++",
 					text:      "A member of a C/C++ value. Its type is opaque to gocpp: the C++ compiler checks it.",
+				}
+				// The header's own declaration, from a completed background fact.
+				if decls := q.foreignMemberDecls(sel); len(decls) > 0 {
+					applyDeclarations(h, q.spelling(sel), decls)
 				}
 				return h, rng, nil
 			}
@@ -599,6 +604,12 @@ func (q *query) cppHover() (*hoverResult, ast.Node) {
 		}
 		h.signature = user + " // C/C++"
 		h.text = fmt.Sprintf("A C/C++ name%s. Its type is opaque to gocpp: the C++ compiler checks it.", from)
+	}
+	if len(names) > 0 {
+		// The header's own declaration, once a background fact has it (never probed here).
+		if decls := q.foreignNameDecls(u, names); len(decls) > 0 {
+			applyDeclarations(h, user, decls)
+		}
 	}
 	return h, n
 }

@@ -137,8 +137,8 @@ index supplies completion names after a header package (`api.` for `import "./ap
 namespace (`std.`, including renamed and nested namespaces). The default opaque mode is unchanged.
 The first request can have no C/C++ candidates; ask again after indexing finishes. Missing or failed
 clang leaves the existing Go answers intact and does not delay diagnostics. Names and macros are
-indexed, not signatures or locations; detailed foreign hover and declaration definitions remain
-separate work. Conservatively, any open document whose path does not end in `.gp` disables
+indexed here, not signatures or locations (hover and definition of a name have their own facts, below).
+Conservatively, any open document whose path does not end in `.gp` disables
 these names until it is closed, even if that document is not a C/C++ header. The index reads saved
 headers, not unsaved header overlays. Results are isolated by snapshot, flags, compiler,
 target and header contents, with a 32 MiB / 128-entry in-memory header-completion cache and the
@@ -169,8 +169,53 @@ The type is the compiler's canonical type, with pointer, qualifier and template 
 with typedef names resolved: `std::string` shows as `std::basic_string<char>` and `FILE *` as
 `_IO_FILE *`. The doc comment of the variable is kept, and a partial-member note remains
 visible where applicable. Missing, unsupported, repaired or stale facts keep the
-existing hover fallback without waiting for clang. API/function/member signatures, native
-header definition locations, VFS overlays and full latency/platform acceptance remain separate work.
+existing hover fallback without waiting for clang. VFS overlays and full latency/platform
+acceptance remain separate work.
+
+**Hover and go to definition of header names.** For a name that the Go source writes after a header
+package or a namespace (`raylib.InitWindow`, `sqlite3.Open`, `std.string`, `std.chrono.seconds`) and for a
+member of a variable of the supported bindings above (`win.size()`, `win.width`), hover shows the
+declaration as the compiler reads it, in a C++ fence for Markdown clients, with a note of where the
+header declares it and the header's comment; go to definition jumps into the header, to the name
+on its line (a name from a system header or an `-I` folder too). The text is the compiler's
+spelling, not the file's: macros such as `RLAPI`, attributes and bodies are gone, typedef names stay
+(`FILE *`), the name is qualified as the Go source writes it (`std::string`, `Widget::size`),
+default values that are not literals print as `= ...`, and a class shows its public members only
+(24 at most, enumerators 16). An overloaded name shows every overload and goes to every
+declaration; the set is complete (at most 64 overloads) or there is no answer. Macros show their `#define` line. The comment
+is the documentation comment (`///`, `//!`, `/** */`, `///<`) of the declaration, else a plain comment
+on its last line, else the plain comment above it (raylib's group headings above a function never beat
+the comment that follows it). Positions are UTF-16 columns as the protocol counts them, the file is an
+absolute normalized path (a `..` is resolved through the file system first), and the URI is the
+same one every other answer uses.
+
+These answers come from facts that the same background worker as the header names makes after its
+index is ready (one `clang -fsyntax-only` run for the names the file writes, and one for the
+members, which starts after the member names and types are published and cannot delay or take
+them away: at most 96 and 64 names, about 70 to 500 ms for the headers of raylib, sqlite3, SDL2 or
+`<string>`, cached on disk with the other probe runs, kind `l`). No request starts or waits for a
+compiler: a name without a completed fact, a repaired or older view of the text, a name that is not
+proven in the headers, a macro-generated name that no file spells, a class that the compiler
+cannot derive from (a `final` one) and an overload set with one declaration that cannot be placed are
+answered as before (the opaque hover, no definition). The facts belong to the snapshot and are
+dropped when a header changes; they are read again in the background and answer after that.
+The compiler's lookup answers with the latest declaration of a name. A class, class template or
+enum that a later forward declaration follows (`struct S { ... }; struct S;`, or `std::vector` when
+`<format>` is included after `<vector>`) has no answer rather than a forward declaration shown as the
+class; a class that is only declared shows `struct S;`. A function that is declared twice goes to the
+second declaration, with the comment that stands on that one (the comment on the first is not read). A
+comment of more than 40 lines shows its first 40 and `...`. A byte order mark at the start of a header
+is not a column. On Windows a file that the compiler spells in another case or with slashes is still
+the same file. Comments of system headers (the standard library, the C library, and every header found through a
+nix-wrapped `-I`) are read too. The standard library has few documentation comments, so a hover over
+a `std.` name often shows no comment, or a plain comment that is only near the declaration (libstdc++
+lists names in comments); the declaration itself is exact. The `**` of sqlite-style comments is not
+part of the text.
+
+Known limits: a C struct behind a typedef (raylib's `Vector2`) shows `typedef struct Vector2
+Vector2;` without its fields; members of a template receiver show the instantiated declaration of the
+header; there is no separate `textDocument/declaration` request (the server has none: definition
+goes to the declaration in the header).
 
 **Symbols.** The outline of a file (functions, methods, types with their fields, constants,
 variables) comes from its syntax tree alone, so it works while the file has errors. Workspace

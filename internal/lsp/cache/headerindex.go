@@ -31,6 +31,14 @@ type headerIndexer struct {
 	sem     chan struct{}
 	find    func(context.Context) (build.CXX, error)
 	run     func(context.Context, probe.Config, []string) (*probe.HeaderIndex, error)
+
+	// locate finds the declarations of the names that a program uses once its index is ready
+	// (step 12.13c2). It has its own cache entries in the runner.
+	locate func(context.Context, probe.Config, []string, probe.LocateRequest) (*probe.Locations, error)
+
+	// beforePublish is a hook of the tests, called when the facts are complete and before they
+	// are published.
+	beforePublish func()
 }
 
 type headerEntry struct {
@@ -40,6 +48,10 @@ type headerEntry struct {
 	used   uint64
 	bytes  int64
 	work   headerWork
+
+	// decls are the completed declarations of the names that the program wrote after a header
+	// package or a namespace, by foreignKey. A name that is missing has no proven declaration.
+	decls map[string][]probe.Declaration
 }
 
 type headerWork struct {
@@ -48,6 +60,7 @@ type headerWork struct {
 	dir      string
 	flags    []string
 	includes []string
+	names    []foreignName
 }
 
 const maxHeaderIndexes = 128
@@ -65,7 +78,8 @@ func newHeaderIndexer(cfg Config) *headerIndexer {
 		find: func(ctx context.Context) (build.CXX, error) {
 			return probe.FindClangFor(ctx, cfg.GOOS, cfg.GOARCH)
 		},
-		run: runner.Index,
+		run:    runner.Index,
+		locate: runner.Locate,
 	}
 }
 
@@ -110,7 +124,7 @@ func (ix *headerIndexer) invalidate() []headerWork {
 // Forget ready names immediately and validate the current snapshot's inputs in the background.
 func (ix *headerIndexer) refresh() {
 	for _, work := range ix.invalidate() {
-		ix.schedule(work.parent, work.key, work.dir, work.flags, work.includes)
+		ix.schedule(work.parent, work.key, work.dir, work.flags, work.includes, work.names...)
 	}
 }
 
@@ -156,17 +170,40 @@ func (s *Snapshot) scheduleHeaders(pkg *Package) {
 			return
 		}
 	}
+	// Files with the same includes share one slot and one run: they also share the names.
+	type group struct {
+		includes []string
+		names    []foreignName
+	}
+	groups := make(map[string]*group)
+	var order []string
 	for _, file := range pkg.Check.Load.Files {
 		includes := headerIncludes(pkg, file)
 		if len(includes) == 0 {
 			continue
 		}
-		st.p.headers.schedule(s.ctx, headerEntryKey(s, pkg, includes),
-			pkg.Check.Load.Dir, pkg.Check.ProbeFlags, includes)
+		key := headerEntryKey(s, pkg, includes)
+		g := groups[key]
+		if g == nil {
+			g = &group{includes: includes}
+			groups[key] = g
+			order = append(order, key)
+		}
+		for _, name := range foreignNames(file) {
+			if !slices.Contains(g.names, name) && len(g.names) < maxForeignNames {
+				g.names = append(g.names, name)
+			}
+		}
+	}
+	for _, key := range order {
+		g := groups[key]
+		st.p.headers.schedule(s.ctx, key, pkg.Check.Load.Dir, pkg.Check.ProbeFlags, g.includes, g.names...)
 	}
 }
 
-func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, includes []string) {
+func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, includes []string,
+	names ...foreignName,
+) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	if ix.closed || ctx.Err() != nil {
@@ -196,18 +233,29 @@ func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, i
 		delete(ix.entries, oldest)
 	}
 	work := headerWork{parent: ctx, key: key, dir: dir,
-		flags: slices.Clone(flags), includes: slices.Clone(includes)}
+		flags: slices.Clone(flags), includes: slices.Clone(includes), names: slices.Clone(names)}
 	ctx, cancel := context.WithCancel(ctx)
 	entry := &headerEntry{ctx: ctx, cancel: cancel, used: ix.clock, work: work}
 	ix.entries[key] = entry
 	flags = work.flags
 	includes = work.includes
+	names = work.names
 	ix.wg.Add(1)
 	go func() {
 		defer ix.wg.Done()
+		// The probe slot is for the index only: the declaration facts below may wait for a retry,
+		// and must not hold up the indexes of other snapshots.
+		held := false
+		release := func() {
+			if held {
+				held = false
+				<-ix.sem
+			}
+		}
 		select {
 		case ix.sem <- struct{}{}:
-			defer func() { <-ix.sem }()
+			held = true
+			defer release()
 		case <-ctx.Done():
 			return
 		}
@@ -243,6 +291,8 @@ func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, i
 					ix.bytes += cost
 				}
 				ix.mu.Unlock()
+				release()
+				ix.locateNames(ctx, entry, key, probe.Config{CXX: cxx, Dir: dir, Flags: flags}, includes, index, names)
 				return
 			}
 			if attempt == 0 {

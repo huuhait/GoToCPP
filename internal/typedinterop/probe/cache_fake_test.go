@@ -238,6 +238,9 @@ func fakeCompiler(args []string) int {
 	if mode == "E" {
 		return 0
 	}
+	if strings.Contains(string(text), "__debug dump") {
+		return fakeLocateDump(string(text), deps)
+	}
 	if strings.Contains(string(text), "gocpp_member_validation_complete") {
 		return fakeMemberValidation(string(text), src)
 	}

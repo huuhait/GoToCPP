@@ -15,8 +15,10 @@ import (
 // package of the workspace that it imports (whose objects come from export
 // data, with the file and line of their declaration: declOf finds the
 // name there). An import path goes to the package's files, a header
-// import to the header file (cache.Pipeline.HeaderFile). A C/C++ name has
-// no definition yet (Phase 12), and neither has a name of the standard
+// import to the header file (cache.Pipeline.HeaderFile). A C/C++ name after
+// a header or namespace (raylib.InitWindow) and a member of a proven receiver go to the
+// declaration in the header (step 12.13c2), from completed background facts only; a name
+// without one has no definition, and neither has a name of the standard
 // library, which is embedded in gocpp and has no file on disk, nor a
 // predeclared name.
 
@@ -76,15 +78,19 @@ func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
 			}
 		}
 	}
-	if u, _, _ := q.cppUseAt(); u != nil {
-		return nil, nil // Phase 12
+	if u, names, _ := q.cppUseAt(); u != nil {
+		// Into the header, from a background fact only; a name without one has no definition.
+		return q.declarationLocations(q.foreignNameDecls(u, names)), nil
 	}
-	id, _ := identAt(q.file, q.pos)
+	id, path := identAt(q.file, q.pos)
 	if id == nil {
 		return nil, nil
 	}
 	obj := q.objectAt(id)
 	if obj == nil {
+		if sel := q.memberSelectorAt(id, path); sel != nil {
+			return q.declarationLocations(q.foreignMemberDecls(sel)), nil
+		}
 		return nil, nil
 	}
 	return q.objectLocation(ctx, obj)

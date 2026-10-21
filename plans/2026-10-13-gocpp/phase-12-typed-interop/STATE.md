@@ -35,7 +35,7 @@
   - [x] 12.13b1 Bounded receiver-member probe primitive: compiler-validated accessible names, explicit partial results, clean independent review and focused manager checks; not yet editor member completion
   - [x] 12.13b2 Background member completion for proven original variable bindings; clean review and focused manager checks, explicit partial status and compiler-free requests
   - [x] 12.13c1 Proven foreign-variable type hover from completed background facts; no new synchronous probing (clean second-round review, focused manager checks)
-  - [ ] Richer named API/member hover and go-to-definition into headers
+  - [x] 12.13c2 Richer named API/member hover and go-to-definition into headers (declaration, header doc comment and location from completed background facts; ADR-122)
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
   - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
@@ -183,3 +183,21 @@
   mapped goldens gained one `no answer: type X` line (outer-scope candidate; not a diagnostic).
   Manager focused checks below. `TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate` hangs under
   `-race` on clean dev too (passes in 2.8 s without `-race`): separate TODO.
+
+- 2026-10-21: 12.13c2 integrated from reviewed source `6638f964` after four review rounds (ADR-122).
+  Hover on named foreign API symbols (`raylib.InitWindow`, `sqlite3.Open`, `std.string`,
+  members of proven receivers) shows the compiler's declaration (C++ fenced, canonical text),
+  the header doc comment and a "declared at file:line" note; go-to-definition jumps into the
+  header (UTF-16 columns, absolute normalized path). Both read only facts that completed
+  background workers published; the reviewer counted zero clang spawns over 360 requests.
+  Locations come from `clang -fsyntax-only` with `#pragma clang __debug dump NAME` runs
+  (`probe/locate*.go`, cache key `locate-v3`), each place checked against the run's dependency
+  files and the source text at the column. Overload groups are complete (at most 64) or absent;
+  a forward declaration after the definition is refused; member facts are published before the
+  locate step. Gaps: no `textDocument/declaration`; typedef-hidden C structs (raylib `Vector2`,
+  `Color`) show `typedef struct Vector2 Vector2;` with no fields; template-receiver members show
+  the instantiated declaration at the pattern's location; system-header docs can be a neighbouring
+  declaration's comment (`std::min`); clang 21 output format only; Windows paths through real clang
+  unverified (the PC has no `clang++`; parser/path unit tests pass there). Manager focused
+  checks (gofmt, vet, probe/cache/server locate, foreign, member, hover and definition tests)
+  passed. The C/C++ editor budget row (< 2 s) and slow-clang test (12.13d) remain open.
