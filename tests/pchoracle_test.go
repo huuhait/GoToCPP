@@ -19,17 +19,18 @@ import (
 // the foreign view of each result of the program as JSON; the test runs it twice with empty caches, once with
 // GOCPP_PROBE_PCH=off (the old behavior: the oracle) and once with GOCPP_PROBE_PCH=wait (every compiler run
 // loads the header), and compares the two documents. It also counts: the second run loaded the header in some
-// of its compiler runs (the probe runs and the function runs; not the type runs), the first in none.
+// of its compiler runs (the probe runs, the function runs and the type runs of the program's own types), the
+// first in none.
 //
-// Nothing is allowed to differ: the type runs, whose dumps clang cuts short when they come from a precompiled
-// header, are made without it.
+// Nothing is allowed to differ: a type run whose answer describes a declaration of the header, which clang
+// dumps with only the members it has read, is made again without it (ADR-121).
 //
 // Which programs. The corpus has the programs of the phases up to GOCPP_TEST_PHASE (default: the current
 // phase of the build). At the default phase the test compares 174 programs; with GOCPP_TEST_PHASE=12 it compares
 // 286, which is the run that the step's measurements are made with (and the one that TestTypedCheckCorpus,
 // whose floor is 200 programs, needs as well). The floor of 150 below only catches a broken loader.
 
-var recheckTotal atomic.Int64
+var recheckTotal, typeRecheckTotal atomic.Int64
 
 var statsLine = regexp.MustCompile(`stats (\{.*\})`)
 
@@ -37,7 +38,7 @@ type probeOutcome struct {
 	docs   []map[string]any
 	exit   int
 	stderr string
-	pch    struct{ builds, uses, rejects, rechecks, runs int }
+	pch    struct{ builds, uses, rejects, rechecks, typeRechecks, runs int }
 }
 
 // typedProbe runs `gocpp __typed-probe -decls -stable -stats .` in the program's folder with a cache of its own
@@ -70,13 +71,14 @@ func (c *config) typedProbe(t *testing.T, p *program, pch string) probeOutcome {
 	for _, m := range statsLine.FindAllStringSubmatch(out.stderr, -1) {
 		var st struct {
 			Process struct {
-				PCHBuilds, PCHUses, PCHRejects, PCHRechecks, Runs int
+				PCHBuilds, PCHUses, PCHRejects, PCHRechecks, TypeRechecks, Runs int
 			}
 		}
 		if json.Unmarshal([]byte(m[1]), &st) == nil {
 			out.pch.builds, out.pch.uses = st.Process.PCHBuilds, st.Process.PCHUses
 			out.pch.rejects, out.pch.runs = st.Process.PCHRejects, st.Process.Runs
 			out.pch.rechecks = st.Process.PCHRechecks
+			out.pch.typeRechecks = st.Process.TypeRechecks
 		}
 	}
 	return out
@@ -97,7 +99,8 @@ func TestPCHOracle(t *testing.T) {
 	}
 	t.Logf("%d of %d corpus programs are compared", checked, len(progs))
 	t.Cleanup(func() {
-		t.Logf("runs made again without the header: %d", recheckTotal.Load())
+		t.Logf("runs made again without the header: %d, type runs refused for a declaration of the header: %d",
+			recheckTotal.Load(), typeRecheckTotal.Load())
 	})
 	// (TestTypedCheckCorpus wants 200: the programs that a machine without a display or a toolchain
 	// part skips are fewer here, the bound only catches a broken loader.)
@@ -125,8 +128,7 @@ func TestPCHOracle(t *testing.T) {
 			if now.pch.rejects != 0 {
 				t.Errorf("%d runs were refused for the header", now.pch.rejects)
 			}
-			// The type runs do not load the header (the JSON dump hides the members that clang has not read);
-			// the probe runs and the function runs do, so a program with a probe loads it at least once.
+			// A program with a probe loads the header at least once (the probe runs do).
 			if now.pch.runs > 0 && (now.pch.uses == 0 || now.pch.uses > now.pch.runs) {
 				t.Errorf("%d compiler runs, %d of them loaded the header", now.pch.runs, now.pch.uses)
 			}
@@ -135,6 +137,7 @@ func TestPCHOracle(t *testing.T) {
 				t.Errorf("%d compiler runs without the header, %d with it", old.pch.runs, now.pch.runs)
 			}
 			recheckTotal.Add(int64(now.pch.rechecks))
+			typeRecheckTotal.Add(int64(now.pch.typeRechecks))
 			for i := range old.docs {
 				a, _ := json.Marshal(old.docs[i])
 				b, _ := json.Marshal(now.docs[i])

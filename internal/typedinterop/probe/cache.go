@@ -148,6 +148,7 @@ var cacheCount struct {
 	pchBuilds, pchUses        atomic.Int64 // precompiled headers made, and probe runs that loaded one
 	pchRejects                atomic.Int64 // runs whose compiler refused the header
 	pchRechecks               atomic.Int64 // runs that failed with the header and were made again without it
+	typeRechecks              atomic.Int64 // type runs refused for a declaration of the header, made again without it
 }
 
 // A Counters is a snapshot of the cache's counters of this process.
@@ -162,6 +163,7 @@ type Counters struct {
 	PCHBuilds, PCHUses        int64
 	PCHRejects                int64
 	PCHRechecks               int64
+	TypeRechecks              int64
 }
 
 // CacheCounters returns the counters of this process.
@@ -169,7 +171,7 @@ func CacheCounters() Counters {
 	c := &cacheCount
 	return Counters{c.memHits.Load(), c.diskHits.Load(), c.misses.Load(), c.stores.Load(), c.storeErrors.Load(),
 		c.corrupt.Load(), c.lockWaits.Load(), c.lockLeaks.Load(), c.runs.Load(), c.pruned.Load(),
-		c.pchBuilds.Load(), c.pchUses.Load(), c.pchRejects.Load(), c.pchRechecks.Load()}
+		c.pchBuilds.Load(), c.pchUses.Load(), c.pchRejects.Load(), c.pchRechecks.Load(), c.typeRechecks.Load()}
 }
 
 // ResetCacheCounters sets the counters to zero.
@@ -177,7 +179,7 @@ func ResetCacheCounters() {
 	c := &cacheCount
 	all := []*atomic.Int64{
 		&c.memHits, &c.diskHits, &c.misses, &c.stores, &c.storeErrors, &c.corrupt, &c.lockWaits, &c.lockLeaks,
-		&c.runs, &c.pruned, &c.pchBuilds, &c.pchUses, &c.pchRejects, &c.pchRechecks,
+		&c.runs, &c.pruned, &c.pchBuilds, &c.pchUses, &c.pchRejects, &c.pchRechecks, &c.typeRechecks,
 	}
 	for _, a := range all {
 		a.Store(0)

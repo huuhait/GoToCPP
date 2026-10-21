@@ -40,14 +40,15 @@
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
   - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
   - [x] Type dumps retain the full preamble; the unsound smaller-preamble optimization and stale approval cache were removed
-  - [ ] Cold < 0.5 s per example: latest raylib overhead is 0.849–0.852 s fully cold, or 0.648–0.649 s with a retained PCH (not fully cold)
+  - [x] Signature types asked beside the probe run; type runs of the program's own types load the PCH and are redone with the full preamble when the answer is not whole (ADR-121); clean second-round review
+  - [ ] Cold < 0.5 s per example: NOT met. Typed minus opaque, fully cold: raylib 0.66 s, sqlite 0.65 s, multi-pkg 0.47 s, mixed-sources 1.17 s, cpp-std 1.56 s (retained PCH: 0.46, 0.44, 0.25, 1.15, 1.52 s). Floors: compile of the library block 0.3 s, PCH build 0.4 s. Criterion wording is the user's decision (ADR-121 proposal)
 
 ## Exit criteria
 
 - [ ] Phase 04 suite + header zoo green in typed and opaque modes
 - [x] E1 and E2 work with stock go/types (12.12)
 - [x] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode (77 diagnostics; 287-program sweep, 0 typed errors)
-- [~] Warm overhead < 50 ms (met: 0-30 ms); cold probing < 0.5 s per example package (NOT met: 0.5-2.0 s typed minus opaque; clang runs ~14 times for cpp-std; see decisions)
+- [~] Warm overhead < 50 ms (met: 0-30 ms); cold probing < 0.5 s per example package (NOT met: 0.47-1.56 s typed minus opaque after 12.14b; floors measured in ADR-121)
 - [x] `bindgen` output reviewed for raylib, sqlite3, SDL (docs/guides/bindgen-review.md, ADR-120, TestBindgenRaylib/SQLite3/SDL2)
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
@@ -164,3 +165,21 @@
   pointer macros, Linux x86-64 host only, deprecation on a later redeclaration, deprecated fields
   and member functions) are in the guide. Manager focused checks (gofmt, vet, bindgen package,
   TestBindgen, docsite site tests) passed. No Windows run.
+
+- 2026-10-21: 12.14b integrated from reviewed source `97a86312` after clean second-round review
+  (ADR-121). The signature types of called functions are asked beside the probe run, and type
+  runs for the program's own types load the PCH; the answer is used only when every file of the
+  declaration's location exists and is none of the PCH's own files (`os.SameFile`), otherwise the
+  run is redone with the full preamble (`Counters.TypeRechecks` counts refused answers). The
+  withdrawn smaller preamble is not back. A cancel after a refused run crashed the process in the
+  first version; fixed with a regression test. Cold typed minus opaque (interleaved medians,
+  shared machine, reviewer re-measured within 25 ms): raylib 0.84 → 0.66 s, sqlite 1.18 → 0.65 s,
+  multi-pkg 0.48 → 0.47 s, mixed-sources 1.54 → 1.17 s, cpp-std 1.59 → 1.56 s. Not reachable
+  soundly below the floors (library block compile 0.3 s, PCH build 0.4 s; std-heavy examples bound
+  by compiling the C++ library headers, about 1.2 s). The 0.5 s criterion stays open; the coder's
+  proposed wording (warm < 50 ms; < 0.5 s with a retained header for C-style packages; < 0.7 s
+  first check; std-heavy bounded by header compile) is waiting for the user's decision. Optional
+  later: build the PCH in the background from any gocpp command that sees a header import. Three
+  mapped goldens gained one `no answer: type X` line (outer-scope candidate; not a diagnostic).
+  Manager focused checks below. `TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate` hangs under
+  `-race` on clean dev too (passes in 2.8 s without `-race`): separate TODO.

@@ -44,14 +44,16 @@ import (
 // again without it.
 //
 // Which runs. The probe runs (units.go) and the function runs (decls.go) load the header. The type runs
-// do not: clang reads the members of a class, struct or enum that comes from a precompiled header only
-// when something uses them, and its JSON dump prints only the members read so far (the dump of std::mutex
-// has no methods, that of struct _IO_FILE has a tenth of its fields, and no flag makes it read them: the
-// dump-all option does not reach the JSON dumper). Which types are in the header (std::mutex, the C types
-// of <cstdio> and <ctime>, std::basic_string_view<char>) depends on the block, so there is no safe rule
-// for choosing the type runs that could load it, and they all parse the library headers as before. The
-// other two kinds of run print what the header does not hide: the type of an expression, and the
-// parameters and the result of a function.
+// (decls.go) load it for the program's own types and only trust the answer when it is whole: clang reads the
+// members of a class, struct or enum that comes from a precompiled header only when something uses them, and
+// its JSON dump prints only the members read so far (the dump of std::mutex has no methods, that of struct
+// _IO_FILE has a tenth of its fields, and no flag makes it read them: the dump-all option does not reach the
+// JSON dumper). A declaration that the compiler parsed from the text of one of the program's files has all its
+// members, so a type run's answer is used when the location of every declaration it describes is a file that
+// exists and that the header was not made of (pchRef.madeOf); otherwise the run is made again without the
+// header, with the full library block. Names of the library (std, an underscore) and names with template
+// arguments are not tried with the header at all, since their answer would be refused. This is only a speed
+// choice: the full preamble stays the oracle (ADR-117, ADR-121), and tests/pchoracle_test.go compares both.
 //
 // There is no header without a cache folder, for a compiler that is not clang, or when the flags
 // say the cache is machine-specific (-march=native): the probes then run as before.
@@ -99,6 +101,45 @@ type pchFile struct {
 type pchRef struct {
 	path, src string
 	read      []string
+
+	// readInfo are the files of read that exist, for comparing a file by identity, not by spelling.
+	readOnce sync.Once
+	readInfo []os.FileInfo
+}
+
+// madeOf reports whether file, as a declaration's location names it (relative to dir, the folder
+// the compiler ran in), is one of the files that the header was made of, or cannot be told from
+// them: the same spelling, the same file on disk, or a file that cannot be looked at. A
+// declaration in such a file may have been loaded from the header, where the dump prints only the
+// members that were read. Only a file that exists and is none of them is the program's own.
+func (p *pchRef) madeOf(dir, file string) bool {
+	names := append([]string{p.src}, p.read...)
+	p.readOnce.Do(func() {
+		for _, name := range names {
+			if fi, err := os.Stat(name); err == nil {
+				p.readInfo = append(p.readInfo, fi)
+			}
+		}
+	})
+	clean := filepath.Clean(file)
+	for _, name := range names {
+		if filepath.Clean(name) == clean {
+			return true
+		}
+	}
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(dir, file)
+	}
+	fi, err := os.Stat(file)
+	if err != nil {
+		return true
+	}
+	for _, other := range p.readInfo {
+		if os.SameFile(fi, other) {
+			return true
+		}
+	}
+	return false
 }
 
 // A pchState is the precompiled header of one key in a Runner: being made, or made (path) or

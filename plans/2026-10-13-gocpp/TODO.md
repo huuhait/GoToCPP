@@ -11,7 +11,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 ## Now: resumed jobs (2026-10-20)
 
 - [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
-- [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks.
+- [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks. 12.14b (ADR-121) merged 2026-10-21: cold typed overhead 0.47-1.56 s; < 0.5 s criterion wording awaits the user.
+- [ ] `TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate` hangs (60 s timeout) under `go test -race` on dev (passes without `-race`): find the cause (found 2026-10-21 by the 12.14b coder and reviewer).
   Smaller preambles were withdrawn; continue the remaining cold-probing performance work.
   Keep cold first-run performance separate from a run that retains a precompiled header;
   the < 0.5 s exit criterion is not yet met for every example.

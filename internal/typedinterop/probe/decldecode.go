@@ -16,6 +16,7 @@ type dnode struct {
 	Kind               string `json:"kind"`
 	Name               string `json:"name"`
 	IsImplicit         bool   `json:"isImplicit"`
+	Loc                *dloc  `json:"loc"`
 	TagUsed            string `json:"tagUsed"`
 	CompleteDefinition bool   `json:"completeDefinition"`
 	Type               *struct {
@@ -59,6 +60,27 @@ type dnode struct {
 		} `json:"type"`
 	} `json:"target"`
 	Inner []dnode `json:"inner"`
+}
+
+// dloc is the location of a node in clang's JSON dump: the file is named in it, or in the places
+// that a macro expansion spells and expands it.
+type dloc struct {
+	File         string `json:"file"`
+	SpellingLoc  *dloc  `json:"spellingLoc"`
+	ExpansionLoc *dloc  `json:"expansionLoc"`
+}
+
+// files returns the names of the files that the location mentions.
+func (l *dloc) files() []string {
+	if l == nil {
+		return nil
+	}
+	var out []string
+	if l.File != "" {
+		out = append(out, l.File)
+	}
+	out = append(out, l.SpellingLoc.files()...)
+	return append(out, l.ExpansionLoc.files()...)
 }
 
 func (n *dnode) qual() string {

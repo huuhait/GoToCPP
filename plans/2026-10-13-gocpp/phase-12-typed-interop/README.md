@@ -356,5 +356,10 @@ The contract is [docs/spec/typed-interop.md](../../../docs/spec/typed-interop.md
   `TestTypedWarmRunsNoCompiler`, `BenchmarkTypedCheck`, the early-error inventory (77 diagnostics in 22 programs), the reader's tolerance
   tests and `tools/clang-matrix.sh`. Measured: warm overhead 0 to 30 ms (met); cold probing 0.5 to 2.0 s per example (not met); clang 21 only
   (17 to 20 not available here). Not done: named types over C types (a Phase 04 gate), typed errors for statements the probes do not mirror.
+- **12.14b (cold probing, ADR-121)**: the types named by the called functions' signatures are asked beside the probe run, and the type runs of the
+  program's own types load the PCH (answer used only when no declaration comes from a file the header was made of, else the full
+  block). Typed minus opaque, retained PCH: `raylib` 0.46 s, `sqlite` 0.44 s, `multi-pkg` 0.25 s (met with a retained header, not fully cold); fully cold: 0.66, 0.65,
+  0.47 (floor about 0.52 s for the stages that cannot overlap); `mixed-sources` 1.17 s and `cpp-std` 1.56 s (bounded by the kind probe and the
+  std type dumps). The criterion's wording needs a decision (ADR-121 proposes one).
 - Developer tool: `gocpp __typed-probe [-refs] [-decls] [patterns]` prints the references and results as
   JSON.

@@ -363,4 +363,5 @@ un(-|arg&(decay(bin(+|arg&(decay(call(::Vec2|lit(1),lit(2))))|arg&(decay(call(::
     => value oop.Vec2
 
 declarations: enum oop::Color, enum oop::Level, func oop::color_name, func oop::divmod, func oop::pick, func oop::scale, func oop::sum_all, func oop::twice, func oop::volume, record oop::Ring, record oop::Stack<long>, record oop::Stack<std::basic_string<char>>, record oop::Vec2, record std::vector<int>
+no answer: type Color: unknown type name 'Color'
 no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction

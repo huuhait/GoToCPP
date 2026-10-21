@@ -161,18 +161,19 @@ func Analyze(ctx context.Context, p *check.Package, fset *token.FileSet, opts Op
 	rep.KindTime = time.Since(t0)
 	// The overload sets of the functions the program calls do not depend on the probe's answers
 	// (only on the references and the kinds), so their run goes beside the probe's.
-	var funcs func() (*probe.DeclTable, error)
+	var funcs *funcChain
 	fctx, stopFuncs := context.WithCancel(ctx)
-	defer stopFuncs()
 	if opts.Decls {
 		funcs = startFuncDecls(fctx, rep, cfg, rn, opts)
 	}
+	// However this call ends, the work beside the probe run is stopped (its compilers are killed)
+	// and joined: no compiler of this call outlives it.
+	defer func() {
+		stopFuncs()
+		funcs.wait()
+	}()
 	t, err := rn.Probe(ctx, cfg, set, probe.GenConfig{Includes: rep.Includes, Kinds: rep.Kinds, StringToCStr: opts.StringToCStr})
 	if err != nil {
-		if funcs != nil {
-			stopFuncs() // the overload run is of no use now: stop its compilers
-			funcs()     // and wait for the goroutine
-		}
 		return rep, err
 	}
 	rep.Table = t
@@ -222,55 +223,122 @@ func declConfig(rep *Report, opts Options) probe.DeclConfig {
 	return dc
 }
 
+// A funcChain is the declaration work that goes beside the probe run (startFuncDecls): the overload
+// sets of the called functions, then the types that their signatures name. The channels close when
+// the tables are ready; the fields are read after that.
+type funcChain struct {
+	funcsDone chan struct{}
+	funcs     *probe.DeclTable
+	funcsErr  error
+
+	// sigQueries are the types of the signatures that are being asked for (valid once funcsDone is
+	// closed); sigDone closes when their table is ready (it is closed at once when there are none).
+	sigQueries []probe.DeclQuery
+	sigDone    chan struct{}
+	sig        *probe.DeclTable
+	sigErr     error
+}
+
+// wait returns when everything the chain does is done; it is for the callers that have no use for
+// the tables any more (their context is canceled). It accepts a nil chain.
+func (c *funcChain) wait() {
+	if c == nil {
+		return
+	}
+	<-c.funcsDone
+	<-c.sigDone
+}
+
 // startFuncDecls starts the extraction of the overload sets of the called functions and returns
-// the function that waits for its table.
-func startFuncDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options) func() (*probe.DeclTable, error) {
+// the chain (nil when there is no function to ask for). The types that the signatures name depend
+// on the overload sets only, so their run goes on as soon as the sets are known, beside the end of
+// the probe run and the first round of extractDecls, instead of in a round of its own after them.
+func startFuncDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options) *funcChain {
 	var queries []probe.DeclQuery
 	for _, name := range probe.FuncNames(rep.Set, rep.Kinds) {
 		queries = append(queries, probe.DeclQuery{Kind: probe.DeclFunc, Name: name})
 	}
 	if len(queries) == 0 {
-		return func() (*probe.DeclTable, error) { return nil, nil }
+		return nil
 	}
 	dc := declConfig(rep, opts)
-	done := make(chan struct{})
-	var tab *probe.DeclTable
-	var err error
+	c := &funcChain{funcsDone: make(chan struct{}), sigDone: make(chan struct{})}
 	go func() {
-		defer close(done)
-		tab, err = rn.Decls(ctx, cfg, dc, queries)
+		defer close(c.sigDone)
+		c.funcs, c.funcsErr = rn.Decls(ctx, cfg, dc, queries)
+		if c.funcsErr == nil && declRounds(opts) > 1 {
+			m := ftype.New(nil, opts.Target)
+			m.Add(c.funcs)
+			c.sigQueries = m.NeedsMore()
+		}
+		close(c.funcsDone)
+		if c.funcsErr != nil || len(c.sigQueries) == 0 {
+			return
+		}
+		c.sig, c.sigErr = rn.Decls(ctx, cfg, dc, c.sigQueries)
 	}()
-	return func() (*probe.DeclTable, error) {
-		<-done
-		return tab, err
+	return c
+}
+
+// declRounds returns how many levels of types opts follows.
+func declRounds(opts Options) int {
+	if opts.DeclRounds <= 0 {
+		return 3
 	}
+	return opts.DeclRounds
 }
 
 // extractDecls runs steps 12.3 and 12.4 on the probe results of rep: it asks
 // for the declarations that the results need, then for those that the records
 // found need (public fields, bases, function signatures), a few rounds deep,
 // and maps every result.
-func extractDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options, funcs func() (*probe.DeclTable, error)) error {
+func extractDecls(ctx context.Context, rep *Report, cfg probe.Config, rn *probe.Runner, opts Options, chain *funcChain) error {
 	dc := declConfig(rep, opts)
-	rounds := opts.DeclRounds
-	if rounds <= 0 {
-		rounds = 3
-	}
+	rounds := declRounds(opts)
 	m := ftype.New(nil, opts.Target)
 	all := &probe.DeclTable{Records: map[string]*probe.Record{}, Enums: map[string]*probe.Enum{}, Funcs: map[string]*probe.FuncSet{}, Canon: map[string]string{}, Errors: map[string]string{}}
-	if funcs != nil {
-		tab, err := funcs()
-		if err != nil {
-			return fmt.Errorf("cannot extract the declarations: %w", err)
+	sigAsked := map[probe.DeclQuery]bool{}
+	if chain != nil {
+		<-chain.funcsDone
+		if chain.funcsErr != nil {
+			return fmt.Errorf("cannot extract the declarations: %w", chain.funcsErr)
 		}
-		if tab != nil {
-			m.Add(tab)
-			mergeDecls(all, tab)
+		m.Add(chain.funcs)
+		mergeDecls(all, chain.funcs)
+		for _, q := range chain.sigQueries {
+			sigAsked[q] = true
 		}
 	}
-	queries := m.Needs(rep.Table.Results)
+	// The first round does not wait for the signatures' types, which are being asked for beside it;
+	// the names they cover are left out of it.
+	var queries []probe.DeclQuery
+	for _, q := range m.Needs(rep.Table.Results) {
+		if !sigAsked[q] {
+			queries = append(queries, q)
+		}
+	}
 	round := 0
-	if len(queries) == 0 {
+	var first *probe.DeclTable
+	if len(queries) > 0 {
+		var err error
+		if first, err = rn.Decls(ctx, cfg, dc, queries); err != nil {
+			return fmt.Errorf("cannot extract the declarations: %w", err)
+		}
+	}
+	if chain != nil && len(chain.sigQueries) > 0 {
+		<-chain.sigDone
+		if chain.sigErr != nil {
+			return fmt.Errorf("cannot extract the declarations: %w", chain.sigErr)
+		}
+		m.Add(chain.sig)
+		mergeDecls(all, chain.sig)
+	}
+	if first != nil {
+		m.Add(first)
+		mergeDecls(all, first)
+		round = 1
+		queries = m.NeedsMore()
+	} else {
 		// The functions' run was the first round: go on with the types of their signatures.
 		queries, round = m.NeedsMore(), 1
 	}
@@ -309,7 +377,7 @@ func mergeDecls(dst, src *probe.DeclTable) {
 	}
 	dst.HeaderErrors = append(dst.HeaderErrors, src.HeaderErrors...)
 	dst.Runs += src.Runs
-	dst.Deps = append(dst.Deps, src.Deps...)
+	dst.Deps = slices.Compact(slices.Sorted(slices.Values(append(dst.Deps, src.Deps...))))
 	dst.Timing.Compile += src.Timing.Compile
 	dst.Timing.CPU += src.Timing.CPU
 	dst.Timing.Total += src.Timing.Total

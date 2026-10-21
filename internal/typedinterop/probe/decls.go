@@ -423,12 +423,53 @@ func (rn *Runner) DeclRuns() int {
 
 // ---------------------------------------------------------------- type runs
 
+// typeDump is runTypeDump; the tests replace it to see how typeRun treats a refused answer, an
+// error and a canceled call.
+var typeDump = runTypeDump
+
 func (rn *Runner) typeRun(ctx context.Context, cfg Config, dc DeclConfig, r *typeRun) (*declPart, bool, error) {
 	full := composeTypeRun(dc, r)
 	return rn.memoRun(ctx, cfg, dc.Includes, full.text, full.preamble, func() (*declPart, error) {
-		// Keep the full lookup environment, without a PCH that could hide members from the dump.
-		return runTypeDump(ctx, cfg, full.text, r, full.lineQ)
+		if r.mayLoadHeader() {
+			if hcfg := rn.withPCH(ctx, cfg, full.text); hcfg.pch != nil {
+				part, err := typeDump(ctx, hcfg, full.text, r, full.lineQ)
+				switch {
+				case ctx.Err() != nil:
+					// (a canceled call has no part: makePart reads the one it is given)
+					return nil, ctx.Err()
+				case err == nil && part != nil:
+					return part, nil
+				case err == nil:
+					// The answer describes a declaration of the header, which the dump may have
+					// cut short (runTypeDump says so with a nil part and no error): the run is
+					// made again with the full library headers.
+					cacheCount.typeRechecks.Add(1)
+				}
+				// (a compiler error with the header falls through to the full run too)
+			}
+		}
+		return typeDump(ctx, cfg, full.text, r, full.lineQ)
 	})
+}
+
+// mayLoadHeader says whether the run's types are worth a try with the precompiled header of the
+// library block: it is not for a name in the library's namespace or one of its internals (_IO_FILE,
+// __gnu_cxx), whose declarations are in the header, nor for a name with template arguments (the
+// dump gives a specialization the location of its template, and the file of a location that
+// follows another in the same file is left out of the dump, so the answer would be refused and
+// made again). A wrong guess costs time, not correctness: runTypeDump checks every answer.
+func (r *typeRun) mayLoadHeader() bool {
+	for _, t := range r.types {
+		if hasArgs(t) {
+			return false
+		}
+		for _, s := range t.Path {
+			if s.Name == "std" || strings.HasPrefix(s.Name, "_") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // A composedRun is the text of one type run: the file, the part of it that the includes question is asked
@@ -479,6 +520,11 @@ type wanted struct {
 	haveSize    bool
 }
 
+// runTypeDump makes the part for a type run. With a precompiled header in cfg the dump prints only
+// the members of a class that the compiler has read from it, so the part is the answer only when no
+// declaration it describes is in a file that the header was made of (the declarations of the
+// program's own headers are parsed from their text and are whole); otherwise it returns a nil part
+// and no error, and the caller makes the run again without the header.
 func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ map[int]int) (*declPart, error) {
 	want := make([]wanted, len(r.queries))
 	for i := range want {
@@ -616,6 +662,9 @@ func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ
 		if node != nil && node.Kind != "EnumDecl" && !node.CompleteDefinition && w.size >= 0 && (tooLarge > 0 || overflow) {
 			node = nil // the compiler knows the size: this is a stub, and the definition was too large to read
 		}
+		if cfg.pch != nil && !fromProgramFiles(cfg, node) {
+			return nil, nil
+		}
 		if node == nil {
 			switch {
 			case tooLarge > 0 || overflow:
@@ -647,6 +696,26 @@ func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ
 		part.records[spelling] = rec
 	}
 	return part, nil
+}
+
+// fromProgramFiles reports whether the node is a declaration that the compiler parsed from the text
+// of a file of the program: its location names files, and none of them is a file that the
+// precompiled header of cfg was made of. A missing node is not (the dump of a run with the header
+// cannot be trusted to have it).
+func fromProgramFiles(cfg Config, node *dnode) bool {
+	if node == nil {
+		return false
+	}
+	files := node.Loc.files()
+	if len(files) == 0 {
+		return false
+	}
+	for _, f := range files {
+		if cfg.pch.madeOf(cfg.Dir, f) {
+			return false
+		}
+	}
+	return true
 }
 
 // compilerErrors attributes the compiler's errors to the queries by line (the

@@ -90,9 +90,13 @@ func TestPCHAnswersAreTheSameAsWithout(t *testing.T) {
 	if c.PCHBuilds != 1 {
 		t.Errorf("%d headers made, want 1", c.PCHBuilds)
 	}
-	// The probe runs and the one run for the functions load it; the type runs do not (TestPCHTypeRunsKeepTheMembers).
-	if want := int64(rn.Runs() + 1); c.PCHUses != want || rn.DeclRuns() < 3 {
+	// The probe runs, the one run for the functions and the runs for the program's own types (geo::Vec,
+	// geo::Body, Rect) load it; the run for std::vector<int> does not (TestPCHTypeRunsKeepTheMembers).
+	if want := int64(rn.Runs() + 1 + 3); c.PCHUses != want || rn.DeclRuns() != 5 {
 		t.Errorf("%d runs loaded the header, want %d (probes %d, declarations %d)", c.PCHUses, want, rn.Runs(), rn.DeclRuns())
+	}
+	if c.TypeRechecks != 0 {
+		t.Errorf("%d type runs were made again without the header", c.TypeRechecks)
 	}
 	if c.PCHRejects != 0 {
 		t.Errorf("%d runs were refused for the header", c.PCHRejects)
@@ -112,7 +116,9 @@ func TestPCHAnswersAreTheSameAsWithout(t *testing.T) {
 
 // Clang reads the members of a class that comes from a precompiled header when something uses them, and its
 // JSON dump prints the members read so far: a type run with the header would answer std::mutex without its
-// methods and struct tm without its fields. The type runs do not load the header, and the answers have them.
+// methods and struct tm without its fields. A type run does not load the header for a name of the library
+// (std::mutex, std::basic_string_view<char>), and one that does (tm: a global name could be anyone's) is made
+// again without it when its answer is a declaration of the header. The answers have all the members.
 func TestPCHTypeRunsKeepTheMembers(t *testing.T) {
 	dir := t.TempDir()
 	cfg := clangCacheConfig(t, dir)
@@ -126,8 +132,9 @@ func TestPCHTypeRunsKeepTheMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := CacheCounters(); c.PCHUses != 0 {
-		t.Errorf("%d type runs loaded the header", c.PCHUses)
+	// Only the run for tm tried the header, and its answer (a declaration of <ctime>, read from the header) was refused.
+	if c := CacheCounters(); c.PCHUses != 1 || c.TypeRechecks != 1 {
+		t.Errorf("%d type runs loaded the header and %d were made again, want 1 and 1", c.PCHUses, c.TypeRechecks)
 	}
 	if rn.DeclRuns() == 0 {
 		t.Fatal("no run: the test shows nothing")

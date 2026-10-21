@@ -270,5 +270,6 @@ std::vector
     => opaque: not probed: name only: it is the function of a call or the template of an instance
 
 declarations: func oop::area_of, func oop::make_shape, func oop::name_of, func oop::total_area, func std::make_shared, record oop::Circle, record oop::Rect, record oop::Shape, record oop::Square, record std::shared_ptr<oop::Rect>, record std::shared_ptr<oop::Shape>, record std::shared_ptr<oop::Square>, record std::unique_ptr<oop::Shape>, record std::vector<std::shared_ptr<oop::Shape>>
+no answer: type Shape: unknown type name 'Shape'
 no answer: type element_type: unknown type name 'element_type'
 no answer: type std::basic_string<char>: the declaration is larger than the limit of the extraction
