@@ -23,7 +23,7 @@
 - [ ] Phase 00 target programs build and run on Windows (Wine in CI + a real Windows machine)
 - [ ] Run, error and differential suites pass for windows/amd64 under Wine
 - [ ] `gocpp.exe` works natively; VS Code edits, builds and debugs on Windows
-- [ ] Win32 example (`MessageBoxW` + a small window) and raylib/SDL example run on Windows
+- [x] Win32 example (`MessageBoxW` + a small window) and raylib/SDL example run on Windows (real PC, console desktop, 2026-10-21; SDL2 is the hidden-window test program, not a visible example)
 - [ ] Phase 11 editor budgets hold on Windows
 
 ## Decisions / notes
@@ -45,6 +45,7 @@
   folder deleted afterwards; PC lock held). win32 printed exactly `examples/win32/output.txt` (message
   box answered, window opened and closed). raylib (MinGW-w64 build from nixpkgs, `libraylib.dll` and
   `glfw3.dll` beside the program) opened its 800 x 450 window, ran 828 frames of the bouncing ball
-  until the user closed it, and printed `window closed`; the user confirmed it worked. SDL2 has not been
-  run on Windows, so the exit line stays open.
+  until the user closed it, and printed `window closed`; the user confirmed it worked. The SDL2 test program
+  (`tests/testdata/windows/libsdl2.gp`, MinGW sdl2-compat; `SDL2.dll` and `SDL3.dll` beside it) was then run the
+  same way: exit code 0, nothing printed (its window is hidden and it prints only on failure). The exit line is ticked.
 

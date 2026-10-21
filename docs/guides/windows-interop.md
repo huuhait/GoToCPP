@@ -326,5 +326,5 @@ code page, gocpp gives the compiler the short name of the path ([Windows page](w
   the Windows data model: `DWORD` is `unsigned long`, 4 bytes. This was checked from Linux (the probes of `<windows.h>`, the typed `emit`, `check` and a typed build that ran on the PC), with
   fake compilers for the command lines, and on the PC itself with the pinned llvm-mingw's clang (not with MSYS2's or WinLibs' clang, which the PC does not have). `gocpp doc` of a header uses the same flags. Without a clang, `auto` stays `opaque`, and `typed` exits with status 3.
 - Libraries built with Visual Studio (C++ ABI); MinGW-w64 builds of sqlite3, zlib, SDL2 and raylib were built and linked (sqlite3 and zlib also ran
-  on the PC; raylib ran on the PC's console desktop with `libraylib.dll` and `glfw3.dll` next to the program; SDL2 needs its DLL and was
-  only linked).
+  on the PC; raylib ran on the PC's console desktop with `libraylib.dll` and `glfw3.dll` next to the program; the SDL2 test program
+  ran there too (hidden window, `SDL2.dll` and `SDL3.dll` next to it, exit 0)).
