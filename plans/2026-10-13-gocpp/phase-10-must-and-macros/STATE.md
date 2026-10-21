@@ -52,12 +52,12 @@
 
 ## Exit criteria
 
-- [ ] `must-errors` and `macros` examples pass on GCC and Clang
+- [x] `must-errors` and `macros` examples pass on GCC and Clang (TestPhase10ExamplesBothCompilers, with the real-Go twin)
 - [x] Every `!` rule and lowering context tested; outputs equal their Go twins under real `go run`
 - [x] The must-function spike's three runs pass as gocpp programs
-- [ ] No helper calls left in generated C++; no measurable overhead (incl. macros across packages)
+- [x] No helper calls left in generated C++; no measurable overhead (incl. macros across packages): holds for `!` and generic-instance macros; a plain cross-package macro is a real call (ADR-075) and the lazy `#Assert` cold path differs (see the note of 2026-10-21)
 - [x] Macro errors point at call site and definition
-- [ ] On-top macros: exit part runs on panic; `Locked`-style test race-clean; wrap macros behave as in the spike, race-clean
+- [x] On-top macros: exit part runs on panic; `Locked`-style test race-clean; wrap macros behave as in the spike, race-clean
 - [x] `gocpp fmt` round-trips `macro`, `lazy`, `func f!()`, on-top macros
 - [x] `#Derive(String)` handles shared values; `#Derive(JSON)` matches `encoding/json`
 
@@ -111,3 +111,19 @@
   ratio is unstable across builds (0.97 to 1.27, layout effect, `docs/benchmarks/must-macros.md`).
 
 - 2026-10-20: The two stale unticked sub-items of 10.4 and 10.5 were verified by job 13.vetexit (clean review): `defer f.Close()` in a must function, closures as their own context (a bare dropped-error call inside a closure stays dropped: `must_closure_bare_call_dropped`), the `go f()` vet warning (`gobang`), panic forms for functions without an error result, `init` (`must_init_plain_panic`), package-level variables and `t.Fatal` in tests (`TestGoTest/must_testing`, `must_bench`) are all implemented and tested against real Go.
+
+- 2026-10-21: 10.evidence integrated from reviewed source (clean first-round review): the
+  three open exit lines now have reproducible tests. Examples `must-errors` and `macros` run on g++
+  and clang++ and match `output.txt`, which the real-Go twin also prints. Expansion tests assert
+  structurally that `!` and macro instances use no hidden helper, no `gp::func`/`std::function`
+  and no allocation; `!` equals hand-written code; and the machine code of a wrap macro, a must
+  call and a cross-package wrap macro plus must call is identical to hand-written code on both
+  compilers (everything inlines into `main`). Four `umacro_*` programs with Go twins pin that
+  exit parts run on panic (exit status 2, order of defers and exit parts, recover) and the spike
+  program; two race tests (`Locked` on a panicking method, the wrap spike from 16 goroutines)
+  pass under TSan on both compilers and under real Go's detector for the twins. Mutation checks
+  by coder and reviewer all failed as intended. Not covered and stated in the test header: a plain
+  macro with no lazy parameter, type parameter or body is an ordinary cross-package call
+  (ADR-075), and the cold path of a lazy `#Assert` differs from hand code (its overhead evidence
+  stays the timing table in docs/benchmarks/must-macros.md). The machine-code test is Linux-only
+  and takes about 140 s. Manager focused check: gofmt of the test file; no full sweeps.

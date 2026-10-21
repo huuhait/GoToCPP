@@ -23,7 +23,7 @@ has the lines of a [run test](../run/README.md) (`// phase:`, `// ExitCode:`, `/
   "Limits"): the test says what gocpp does today (runs silent), so that a change that fixes it
   shows, and `TestRaceVsGo` skips it.
 
-**Twins (Phase 10).** A race test that uses macros (`ok_macro_locked`, `ok_macro_wrap_threads`, `race_macro_unlocked`) cannot be built by Go. Its twin is
+**Twins (Phase 10).** A race test that uses macros (`ok_macro_locked`, `ok_macro_locked_panic` (the `Locked` macro on a method that panics: the unlock is the macro's exit part and runs on the panic), `ok_macro_wrap_threads`, `ok_macro_wrap_spike` (the wrap spike's `Trace`, `VM`, `Recover`, `InThread` and `Once` called from 16 goroutines), `race_macro_unlocked`) cannot be built by Go. Its twin is
 the same program with the macros written out as functions (`testdata/twin/NAME.go`), and `TestRaceVsGo` builds the twin with
 `-race`, so real Go's detector gives the verdict: silent for the `ok_` ones, and a report at the same line for `race_macro_unlocked`
 (the twin keeps the racy statement on a line the `// Stderr:` regexp accepts).

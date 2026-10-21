@@ -109,6 +109,13 @@ is a func literal with named results), as plain Go. `TestRunVsGo` runs the twin 
 (`"umacro_wrap.gp"`, line 66, `"main.secret"`) as literals, so a change to the lines of the `.gp` file needs the same
 change in the twin. A multi-package macro test is a folder of [tests/pkgs](../pkgs/README.md); its twin is a Go module in its `twin/` folder.
 
+Phase 10's exit criteria for on-top macros have their own run tests: `umacro_exit_panic_uncaught` (the exit part of a
+start-style macro runs before the program dies of a panic: exit status 2, the panic message), `umacro_exit_panic_stacked`
+(stacked macros leave in the opposite order, after the function's own defers, and a macro that recovers ends the panic),
+`umacro_wrap_exit_panic` (a wrap macro's defer around `#body()` runs when the code panics) and `umacro_wrap_spike` (the
+wrap spike of 2026-10-13, `spikes/2026-10-13/macros-v3-wrap`, with the output of real Go). Their race counterparts are
+`ok_macro_locked_panic` and `ok_macro_wrap_spike` in [tests/race](../race/README.md).
+
 The `macro_*.gp` tests (step 10.8, the built-in macros) have twins in the same folder, `testdata/macro_twin/`: the built-ins are written
 as the constants the compiler puts in their place (`#text(x)` as a string literal, `#line()` as a number) and `#func()` as a
 call that asks the Go runtime for the name of its caller (`runtime.CallersFrames`), so the names `main.init.0` and

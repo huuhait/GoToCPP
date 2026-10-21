@@ -43,12 +43,17 @@ func TestPhase10NoHelpers(t *testing.T) {
 			}
 		}
 	}
-	// The benchmark programs of Phase 10 and the example with `!`: modules in folders.
+	// The benchmark programs of Phase 10 and the examples with `!` and macros: modules in folders.
 	var dirs []string
 	if cases, err := filepath.Glob(filepath.Join(repoRoot, "bench", "phase10", "*", "*")); err == nil {
 		dirs = append(dirs, cases...)
 	}
 	dirs = append(dirs, filepath.Join(repoRoot, "examples", "must-errors"))
+	dirs = append(dirs, filepath.Join(repoRoot, "examples", "macros"))
+	// The evidence programs of tests/phase10evidence_test.go (macros and `!` across packages).
+	for _, rel := range []string{"inline", "cross_wrap/macro", "bang_forms/bang"} {
+		dirs = append(dirs, filepath.Join(repoRoot, "tests", "testdata", "phase10", filepath.FromSlash(rel)))
+	}
 	for _, d := range dirs {
 		rel, _ := filepath.Rel(repoRoot, d)
 		progs = append(progs, &program{name: strings.ReplaceAll(filepath.ToSlash(rel), "/", "_"), path: filepath.ToSlash(rel), dir: d, arg: ".", header: &header{phase: 9}})
