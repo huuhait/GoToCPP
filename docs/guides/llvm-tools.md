@@ -52,3 +52,19 @@ generated C++ and your own C++ files (and a copy into the folder of the generate
 `gocpp test` write too). It never replaces a `compile_commands.json` that gocpp did not write (a hand-made one, CMake's or Bear's, a symbolic link): it says so, and `-compdb` overwrites (a symbolic link is replaced by a file; write the file behind it with `gocpp export compdb -o path`). `-compdb=false` turns the automatic write off and leaves an old file in place. A `-release` build writes it with `gocpp build -release -compdb`; `-compdb=false` turns the
 automatic write off; `gocpp export compdb` writes it without building. `gocpp export cmake` makes a CMake project
 of the program.
+
+What clangd shows, and what it needs:
+
+- Open the generated files from the folder that `gocpp build -x` prints after `# gocpp emit >` (the folder of
+  the generated C++ in gocpp's cache, with its own copy of `compile_commands.json`): clangd finds the file's
+  command there. The module's `.c` and `.cpp` files find theirs in the module's file. A `pkg.hpp` has no entry
+  of its own; clangd takes the command of a neighbor, as for any header.
+- The file names the compiler by its full path. With clang++ clangd needs nothing more. With g++, or a clangd
+  that cannot find the standard headers (a clangd of a Nix shell that is not the wrapped one in gocpp's dev shell),
+  start clangd with `--query-driver=<path of the compiler>` (`gocpp export compdb -h` says the same).
+- The generated code has `#line` directives that point at your `.gp` lines (debuggers use them). clangd ignores
+  them for its messages: an error that it shows is at a line of the generated C++.
+- `clangd --check=FILE` opens one file in batch mode. It counts every refusal of its refactorings
+  (`tweak: ExtractFunction ==> FAIL ...`) as an error and exits with 3 for them, so for gocpp's own test
+  (`tests/clangd_test.go`, `TestClangdOpensGeneratedCode`) a file opens cleanly when the only errors are those
+  refusals. That test runs the check over the generated code of thirteen programs with g++ and with clang++.

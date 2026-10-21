@@ -1,6 +1,6 @@
 # Phase 06: Packages, Modules & Build System · STATE
 
-**Status:** `[~]` in progress (6.1-6.3, 6.5-6.13 merged; 6.4 `gp::lazy<T>` and 6.14 (LLVM plugin test, `opt` check) open; clangd manual check open)
+**Status:** `[~]` in progress (6.1-6.3, 6.5-6.13 merged; 6.4 `gp::lazy<T>` and 6.14 (LLVM plugin test, `opt` check) open; clangd check automated)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-19
 
@@ -33,7 +33,7 @@
 - [x] No-op rebuild < 200 ms; body-only change → 1 TU recompiled; changed exported constant → dependents rebuilt
 - [x] Cross-package init order matches Go 1.25 (differential test)
 - [x] c-archive used from C; cpp-lib used from CMake; two c-shared libs load and unload in one process
-- [ ] clangd opens generated code cleanly (manual)
+- [x] clangd opens generated code cleanly (automated: tests/clangd_test.go, 13 programs, both compilers; 2026-10-21)
 - [x] `gocpp build -os windows` makes a working `hello.exe`; OS-independent run tests pass under Wine (checked on the real Windows PC over ssh instead of Wine, by the user's order: `TestWindowsPrograms` and the 10-program sample, commit b2fbc3cd)
 
 ## Decisions / notes
@@ -134,3 +134,20 @@
   collide on case-insensitive file systems; (12) stub std packages = any function without a body: Phase 09 needs a real marker;
   (13) mutant gap: dropping the hash from `unitName` survives (two file names differing only in unsafe characters would collide):
   add a fixture. NEXT: 5.7 (`errors`) and 5.11 (`fmt` on any) can start now (multi-package exists); examples/multi-pkg needs them.
+
+- 2026-10-21: the clangd exit line is automated (job 6.clangd, two review rounds, clean). `tests/clangd_test.go`
+  generates 13 programs (hello, three-package module, generics, goroutines/select, interfaces,
+  macros, `!`, `#Derive`, stdlib packages written in gocpp, mixed C/C++ sources, C++ std types,
+  `stdio.h`, sqlite3) with g++ and clang++, writes the same `compile_commands.json` as a debug
+  build, and runs `clangd --check` on every generated `.gp.cpp`, `pkg.hpp`, `pkg_desc.cpp` and
+  `pkg_init.cpp` plus the module's own C/C++ files. Clean means: compile command taken from the
+  database, no `E[` line except clangd's refactoring-tweak refusals, no warning, no config file
+  read (clangd runs with an empty `XDG_CONFIG_HOME`), and an error count equal to the refusals.
+  A control with deliberately broken files, a go-to-definition check over clangd's language
+  server, a `#line` structure check and a clangd 21 version gate are included; the tests skip
+  with a reason when clangd is absent and fail under `GOCPP_REQUIRE_CLANGD=1`, which `make ci`
+  sets. clangd's own exit code is unusable (it counts tweak refusals as errors). The
+  `Failed to resolve URI` line in headers is a clangd 21 DefineOutline-tweak log line,
+  reproducible with plain C++; it is allowed in headers only. Linux only. Manager checks:
+  gofmt, vet, the tests ran twice green in review. Seeing it in a real editor stays the VS Code
+  checklist.

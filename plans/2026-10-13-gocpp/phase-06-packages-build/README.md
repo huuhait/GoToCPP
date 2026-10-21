@@ -478,7 +478,7 @@ func main() { imgui.Begin("hello") }
 - Init order matches Go 1.25 in a differential test with prints in `init()` across packages.
 - A C program links the c-archive and calls an exported function; a CMake project uses the
   cpp-lib; two c-shared libraries load with `dlopen` in one process and unload with `dlclose`.
-- clangd opens a generated file without errors (manual check).
+- clangd opens a generated file without errors (automated: `tests/clangd_test.go`).
 - `gocpp build -os windows` produces a working `hello.exe`, and the OS-independent run tests pass
   under Wine.
 

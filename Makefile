@@ -23,6 +23,10 @@ ci: export GOCPP_REQUIRE_GO ?= 1
 # GOCPP_REQUIRE_GDB= make ci turns this off.
 ci: export GOCPP_REQUIRE_GDB ?= 1
 
+# In "make ci", the clangd tests (tests/clangd_test.go) fail instead of skipping when there is no
+# clangd (the dev shell has one). GOCPP_REQUIRE_CLANGD= make ci turns this off.
+ci: export GOCPP_REQUIRE_CLANGD ?= 1
+
 # In "make ci", the Windows tests of the runtime (runtime/windows_test.go: MinGW-w64 and Wine, which
 # the dev shell has on x86-64) fail instead of skipping when either is missing.
 # GOCPP_WINDOWS_SSH=user@host runs them on a real Windows PC instead (then this is not needed).
