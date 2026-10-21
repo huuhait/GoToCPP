@@ -212,6 +212,23 @@ a `std.` name often shows no comment, or a plain comment that is only near the d
 lists names in comments); the declaration itself is exact. The `**` of sqlite-style comments is not
 part of the text.
 
+**Time to the C/C++ data.** From `didOpen`, with an empty probe cache, on the eight compiler slots
+that the language server has on a machine with eight cores or more (the default is
+`min(8, NumCPU)`; `GOCPP_PROBE_JOBS` sets it, and a build uses `min(8, NumCPU/2)`): the names after
+a header package or a namespace come after 0.2 s (one C header) to 1.3 s (the standard headers);
+hover and definition of a name after 0.25 to 1.75 s; the native type and the members of a variable
+after 0.8 s (raylib) to 1.8 s (`<string> <vector> <map> <algorithm>`); the declaration of a member
+after 0.8 to 1.8 s. Every kind is under 2 s cold. With four slots (a machine with four cores, or
+`GOCPP_PROBE_JOBS=4`) a project of the standard headers and a header of its own takes 2.0 to 2.1 s
+for the slowest kinds, and the others stay under 2 s. With the disk cache every kind is there in
+0.35 s or less, and after an edit the names return in about 30 ms and the members in about 0.25 s.
+The work runs in the background and no request waits for it; with a compiler that is slow, hangs or
+crashes the editor keeps the plain answers (the slow-clang tests), and the Phase 11 budgets hold
+with the work running (typing is 0.1 to 0.4 ms slower while it runs). Nothing tells the editor
+when the data has come, and typing without a pause cancels the work: ask again after a pause.
+`tools/cppdata` measures these times; the tables, the method and the gaps are in
+[ADR-126](../adr/126-time-to-c-cpp-editor-data-is-measured-and-its-independent-compiler-runs-go-together.md).
+
 Known limits: a C struct behind a typedef (raylib's `Vector2`) shows `typedef struct Vector2
 Vector2;` without its fields; members of a template receiver show the instantiated declaration of the
 header; there is no separate `textDocument/declaration` request (the server has none: definition
@@ -599,6 +616,10 @@ projects, for gocpp and for gopls on the same code, and writes the table; `make 
 the speed budgets (a Go test that is not part of `make ci`, because it takes a minute and a half
 and needs a quiet machine). `go run ./tools/lspbench -h` lists the flags (`-only hover -scale 20
 -gocpp-args "-profile /tmp/p"` profiles one scenario).
+`go run ./tools/cppdata -gocpp bin/gocpp` measures when each kind of C/C++ data is there after
+`didOpen`, cold and warm (and after an edit with `-edit`), and `go run ./tools/cppdata -compare
+'A=a1.json,a2.json;B=b1.json'` pools lspbench reports into a table of n, p50, p95 and ratios (the
+rows `keystroke-cpp-new` and `hover-cpp` are the C++ interop rows of `-projects cpp`).
 
 ## Debugging
 

@@ -99,6 +99,11 @@ const (
 	ScTypingBare      = "typing-broken"
 	ScTypingReqs      = "typing-broken-reqs"
 	ScTypingReqsHover = "typing-broken-hover"
+
+	// The C/C++ rows of the cpp project (step 12.13d), gocpp only: typing in, and asking about, a
+	// file that imports C++ headers, to see what the background clang work costs the editor.
+	ScKeystrokeCpp = "keystroke-cpp-new"
+	ScHoverCpp     = "hover-cpp"
 )
 
 // order is the order of the rows in a report.
@@ -111,7 +116,8 @@ var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWar
 	ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
 	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix,
 	ScHoverMacro, ScHoverBang, ScInlayBang, ScTokensMacro, ScCompletionMacro, ScCodeAction,
-	ScTypingClean, ScTypingBare, ScTypingReqs, ScTypingReqsHover}
+	ScTypingClean, ScTypingBare, ScTypingReqs, ScTypingReqsHover,
+	ScKeystrokeCpp, ScHoverCpp}
 
 // settle is the quiet time after an edit that is put back, so that its
 // diagnostics (and a cancelled run) don't reach into the next repetition.
@@ -196,6 +202,9 @@ func scenarios(p *Project) []scenario {
 	}
 	if p.MacroFile != "" {
 		scs = append(scs, macroScenarios(p.MacroFile)...)
+	}
+	if p.CppFile != "" {
+		scs = append(scs, cppScenarios(p.CppFile)...)
 	}
 	// The forms that the generated files do not have (an import under another name, generics)
 	// are in a file that the scenarios add to the hot package, so they run last.
@@ -343,12 +352,17 @@ func keystroke(name, rel string, iters, warm int) scenario {
 // (the diagnostics stay what they were) or by the name of a variable that
 // does not exist, with a number in it (one more error), in turn.
 func keystrokeNew(name, rel string, iters, warm int) scenario {
+	return keystrokeNewAt(name, rel, "\tsum := ", "0", iters, warm)
+}
+
+// keystrokeNewAt is keystrokeNew for the value that follows head on its line, which is initial
+// to begin with (and is put back at the end).
+func keystrokeNewAt(name, rel, head, initial string, iters, warm int) scenario {
 	var off, cur int
-	const head = "\tsum := "
 	return scenario{
 		name: name, iters: iters, warm: warm,
 		prep: func(ctx context.Context, s *Session) (err error) {
-			off, err = s.Find(rel, head+"0\n", len(head))
+			off, err = s.Find(rel, head+initial+"\n", len(head))
 			cur = 1
 			return err
 		},
@@ -378,8 +392,8 @@ func keystrokeNew(name, rel string, iters, warm int) scenario {
 		done: func(ctx context.Context, s *Session) error {
 			old := s.Doc(rel).Text[off:]
 			old = old[:strings.IndexByte(old, '\n')]
-			if old != "0" {
-				_, err := s.Edit(rel, off, off+len(old), "0")
+			if old != initial {
+				_, err := s.Edit(rel, off, off+len(old), initial)
 				return err
 			}
 			return nil

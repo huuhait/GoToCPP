@@ -235,6 +235,12 @@ func memberTypeSafe(typ *ctype.Type, depth int) bool {
 	return false
 }
 
+// memberChecked is the answer of the validation run of a member query.
+type memberChecked struct {
+	aux *auxOut
+	err error
+}
+
 func (rn *Runner) makeMembers(ctx context.Context, cfg Config, includes []string,
 	text, prefix, dir, name string, write bool, tc toolchain,
 ) (*MemberNames, error) {
@@ -266,13 +272,18 @@ func (rn *Runner) makeMembers(ctx context.Context, cfg Config, includes []string
 		return nil, err
 	}
 	depsHash := DepsHash(deps)
-	_, checked, err := indexOutput(ctx, cfg, []string{"-fsyntax-only"}, text)
-	if err != nil {
-		return nil, err
-	}
-	if checked.truncated {
-		return nil, errors.New("truncated member validation diagnostics")
-	}
+	// The validation run and the completion run read the same inputs and do not depend on each
+	// other: they run at the same time, and an early return ends and joins the one still running.
+	checkedCtx, stopChecked := context.WithCancel(ctx)
+	checkedDone := make(chan memberChecked, 1)
+	go func() {
+		_, aux, err := indexOutput(checkedCtx, cfg, []string{"-fsyntax-only"}, text)
+		checkedDone <- memberChecked{aux, err}
+	}()
+	defer func() {
+		stopChecked()
+		<-checkedDone
+	}()
 	output := &limitWriter{max: maxMemberOutput}
 	completed, err := runAuxMode(ctx, cfg, func(path string) []string {
 		line := strings.Count(prefix, "\n") + 1
@@ -295,6 +306,15 @@ func (rn *Runner) makeMembers(ctx context.Context, cfg Config, includes []string
 	names, incomplete, validated, err := validateMemberNames(ctx, cfg, text, output.buf.String(), strings.HasSuffix(prefix, "->"))
 	if err != nil {
 		return nil, err
+	}
+	checkedResult := <-checkedDone
+	checkedDone <- checkedResult
+	if checkedResult.err != nil {
+		return nil, checkedResult.err
+	}
+	checked := checkedResult.aux
+	if checked.truncated {
+		return nil, errors.New("truncated member validation diagnostics")
 	}
 	for _, result := range []*auxOut{checked, completed, validated} {
 		if result == nil {

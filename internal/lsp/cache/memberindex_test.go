@@ -27,9 +27,18 @@ func fakeMemberIndexer(t *testing.T) *memberIndexer {
 
 func waitMemberEntry(t *testing.T, ix *memberIndexer, key string) *memberFacts {
 	t.Helper()
+	return waitMemberEntryWithin(t, ix, key, 5*time.Second)
+}
+
+// waitMemberEntryWithin is waitMemberEntry for tests whose compiler waits for another run: a
+// serial implementation takes longer than the wait of the run, and fails on that wait, not on
+// this deadline.
+func waitMemberEntryWithin(t *testing.T, ix *memberIndexer, key string, within time.Duration,
+) *memberFacts {
+	t.Helper()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(within)
 	defer deadline.Stop()
 	for {
 		ix.mu.Lock()
@@ -162,7 +171,7 @@ func TestMemberIndexSnapshotCancellation(t *testing.T) {
 func TestMemberAnalysisPreservesPublishedPackage(t *testing.T) {
 	t.Setenv("GOCPP_INTEROP", "typed")
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
-	defer probe.SetRacyWindow(0)()
+	t.Cleanup(probe.SetRacyWindow(0))
 	world := newWorld(t, testConfig(), map[string]string{
 		"gocpp.mod": "module example.com/member\n",
 		"main.gp":   "package main\nimport \"./api.hpp\"\nfunc main() { var x api.Widget; _ = x.field }\n",
@@ -246,7 +255,7 @@ func requireTypeNotReady(
 func TestMemberIndexHeaderRefresh(t *testing.T) {
 	t.Setenv("GOCPP_INTEROP", "typed")
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
-	defer probe.SetRacyWindow(0)()
+	t.Cleanup(probe.SetRacyWindow(0))
 	world := newWorld(t, testConfig(), map[string]string{
 		"gocpp.mod": "module example.com/refresh\n",
 		"main.gp":   "package main\nimport \"./api.hpp\"\nfunc f() { var x api.Widget; _ = x.first }\n",
@@ -277,7 +286,7 @@ func TestMemberIndexHeaderRefresh(t *testing.T) {
 func TestForeignVariableTypeHeaderRefresh(t *testing.T) {
 	t.Setenv("GOCPP_INTEROP", "typed")
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
-	defer probe.SetRacyWindow(0)()
+	t.Cleanup(probe.SetRacyWindow(0))
 	const declarations = "struct First { int field; }; struct Second { int field; };\n"
 	world := newWorld(t, testConfig(), map[string]string{
 		"gocpp.mod": "module example.com/native\n",

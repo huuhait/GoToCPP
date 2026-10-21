@@ -522,3 +522,21 @@ func TestMemberQueryRealStandardReceiver(t *testing.T) {
 		t.Fatal("unresolved method-template candidates were not marked incomplete")
 	}
 }
+
+func TestMemberQueryRunsValidationAndCompletionTogether(t *testing.T) {
+	defer SetRacyWindow(0)()
+	t.Setenv(EnvJobs, "8")
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "struct Widget {};\n")
+	t.Setenv("FAKE_RENDEZVOUS", t.TempDir())
+	t.Setenv("FAKE_RENDEZVOUS_RUNS", "2")
+	t.Setenv("FAKE_RENDEZVOUS_KIND", "member")
+	result, err := new(Runner).Members(context.Background(), fake.cfg(), []string{`"api.hpp"`},
+		MemberQuery{Type: "Widget", Category: CatLValue})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if !reflect.DeepEqual(result.Names(), []string{"Field", "call"}) {
+		t.Fatalf("names = %v", result.Names())
+	}
+}

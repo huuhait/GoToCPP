@@ -636,7 +636,8 @@ probes, the declaration parts and their refusals.
   completeness on its own copy. A canceled await returns incomplete information, which is not memoized; a canceled caller does not persist probe results, declarations or PCH metadata after the await.
 - **Processes.** A lock file per key (`locks/`, with the machine's name and the process id): a process that finds the lock waits (at most the run's limit
   plus 15 s; the context ends it) and looks again; the lock of a process of this machine that is gone is taken over at once. Counters: `probe.CacheCounters()`.
-- **Parallelism.** `Jobs()` (`GOCPP_PROBE_JOBS`, default `min(8, NumCPU/2)`) compilers at the same time in the
+- **Parallelism.** `Jobs()` (`GOCPP_PROBE_JOBS`, else `min(8, NumCPU)` in `gocpp lsp` and `min(8, NumCPU/2)` in a
+  build, ADR-126) compilers at the same time in the
   process, in all calls (a global semaphore taken by every run, also the auxiliary ones). Cancelling the
   context kills each compiler's process group.
 

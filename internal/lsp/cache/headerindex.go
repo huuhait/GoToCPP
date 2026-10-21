@@ -170,35 +170,49 @@ func (s *Snapshot) scheduleHeaders(pkg *Package) {
 			return
 		}
 	}
-	// Files with the same includes share one slot and one run: they also share the names.
-	type group struct {
-		includes []string
-		names    []foreignName
+	for _, g := range pkg.headerGroups() {
+		key := headerEntryKey(s, pkg, g.includes)
+		st.p.headers.schedule(s.ctx, key, pkg.Check.Load.Dir, pkg.Check.ProbeFlags, g.includes,
+			g.names...)
 	}
-	groups := make(map[string]*group)
-	var order []string
-	for _, file := range pkg.Check.Load.Files {
-		includes := headerIncludes(pkg, file)
-		if len(includes) == 0 {
-			continue
-		}
-		key := headerEntryKey(s, pkg, includes)
-		g := groups[key]
-		if g == nil {
-			g = &group{includes: includes}
-			groups[key] = g
-			order = append(order, key)
-		}
-		for _, name := range foreignNames(file) {
-			if !slices.Contains(g.names, name) && len(g.names) < maxForeignNames {
-				g.names = append(g.names, name)
+}
+
+// A headerGroup is the files of a package with the same includes: they share one slot and one run,
+// and so the names.
+type headerGroup struct {
+	includes []string
+	names    []foreignName
+}
+
+type headerGroupsKey struct{}
+
+// headerGroups returns the groups of the package, in the order of its files. They depend on the
+// check alone, so every request and snapshot that has the package shares them: a request must
+// not walk the syntax trees again for work that is already scheduled.
+func (pkg *Package) headerGroups() []*headerGroup {
+	return pkg.Memo(headerGroupsKey{}, func() any {
+		groups := make(map[string]*headerGroup)
+		var order []*headerGroup
+		for _, file := range pkg.Check.Load.Files {
+			includes := headerIncludes(pkg, file)
+			if len(includes) == 0 {
+				continue
+			}
+			key := fmt.Sprintf("%q", includes)
+			g := groups[key]
+			if g == nil {
+				g = &headerGroup{includes: includes}
+				groups[key] = g
+				order = append(order, g)
+			}
+			for _, name := range foreignNames(file) {
+				if !slices.Contains(g.names, name) && len(g.names) < maxForeignNames {
+					g.names = append(g.names, name)
+				}
 			}
 		}
-	}
-	for _, key := range order {
-		g := groups[key]
-		st.p.headers.schedule(s.ctx, key, pkg.Check.Load.Dir, pkg.Check.ProbeFlags, g.includes, g.names...)
-	}
+		return order
+	}).([]*headerGroup)
 }
 
 func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, includes []string,

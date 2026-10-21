@@ -825,3 +825,20 @@ func TestHeaderIndexRealTinyHeader(t *testing.T) {
 		t.Fatalf("real namespace names = %v", got)
 	}
 }
+
+func TestHeaderIndexRunsItsFourCompilerRunsTogether(t *testing.T) {
+	defer SetRacyWindow(0)()
+	t.Setenv(EnvJobs, "8")
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "Thing\nf\n")
+	t.Setenv("FAKE_RENDEZVOUS", t.TempDir())
+	t.Setenv("FAKE_RENDEZVOUS_RUNS", "4")
+	t.Setenv("FAKE_RENDEZVOUS_KIND", "index")
+	index, err := new(Runner).Index(context.Background(), fake.cfg(), []string{`"api.hpp"`})
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if !slices.Contains(index.Names(""), HeaderSymbol{Name: "Thing"}) {
+		t.Fatalf("names = %v", index.Names(""))
+	}
+}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/lsp/server"
 	"github.com/huuhait/gocpp/internal/modfetch"
+	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
 // lspUsage is the help text of "gocpp lsp". "gocpp lsp -h" prints it,
@@ -115,6 +116,10 @@ func runLSP(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: gocpp lsp [-logfile file] [-slow duration] [-profile dir [-exec-trace]] [-trace file] [-wide-family]")
 		return 2
 	}
+	// The compiler runs of the server are background work: all the cores up to eight, not half
+	// (GOCPP_PROBE_JOBS still decides).
+	probe.SetInteractive(true)
+	defer probe.SetInteractive(false)
 	logOut := stderr
 	if *logfile != "" {
 		f, err := os.OpenFile(*logfile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)

@@ -76,8 +76,10 @@ type memberIndexer struct {
 	bytes   int64
 	run     func(context.Context, *Package) (*memberFacts, error)
 
-	// stepDone is a hook of the tests, called when a declaration step has ended.
-	stepDone func()
+	// stepStart and stepDone are hooks of the tests, called when a declaration step starts, before
+	// it reads anything, and when it has ended.
+	stepStart func()
+	stepDone  func()
 }
 
 func newMemberIndexer(cfg Config) *memberIndexer {
@@ -175,12 +177,26 @@ func (s *Snapshot) scheduleMembers(pkg *Package) {
 			return
 		}
 	}
-	for id, object := range pkg.Check.Info.Uses {
-		if variable, ok := object.(*types.Var); ok && !variable.IsField() && pkg.Check.Opaque.IsOpaque(id) {
-			st.p.members.schedule(s.ctx, memberEntryKey(s, pkg), pkg)
-			return
-		}
+	if pkg.hasOpaqueVariableUse() {
+		st.p.members.schedule(s.ctx, memberEntryKey(s, pkg), pkg)
 	}
+}
+
+type opaqueVariableUseKey struct{}
+
+// hasOpaqueVariableUse reports whether the package uses a variable that the checker took as
+// opaque. It depends on the check alone: it is memoized, because every request that asks for the
+// package schedules the work and must not scan the uses each time.
+func (pkg *Package) hasOpaqueVariableUse() bool {
+	return pkg.Memo(opaqueVariableUseKey{}, func() any {
+		for id, object := range pkg.Check.Info.Uses {
+			if variable, ok := object.(*types.Var); ok && !variable.IsField() &&
+				pkg.Check.Opaque.IsOpaque(id) {
+				return true
+			}
+		}
+		return false
+	}).(bool)
 }
 
 func (ix *memberIndexer) schedule(parent context.Context, key string, pkg *Package) {
@@ -382,48 +398,31 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 	}
 	slices.SortFunc(objects, func(a, b *types.Var) int { return int(a.Pos() - b.Pos()) })
 	facts := &memberFacts{bindings: make(map[*types.Var]memberAnswer), bytes: 128}
-	queried := make(map[probe.MemberQuery]memberAnswer)
-	failed := make(map[probe.MemberQuery]bool)
-	var firstError error
-	for _, object := range objects[:min(len(objects), maxMemberBindings)] {
+	bound := objects[:min(len(objects), maxMemberBindings)]
+	queries := memberQueries(report, refs, bound)
+	early := startEarlyLocate(ctx, runner, probeConfig, report.Includes,
+		memberDeclRequest(pkg, earlyBindings(report, refs, bound, queries)))
+	defer early.stop()
+	queried, failed, firstError := queryMembersTogether(ctx, runner, probeConfig, report, queries)
+	for _, answer := range queried {
+		facts.bytes += 128
+		for _, name := range answer.names {
+			facts.bytes += 32 + int64(len(name))
+		}
+	}
+	for _, object := range bound {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		ref := refs[object]
-		if ref.ID < 0 || ref.ID >= len(report.Table.Results) {
-			continue
-		}
-		result := report.Table.Results[ref.ID]
-		if !result.OK || result.Recovered != "" || result.Base == "" {
-			continue
-		}
-		// A bound variable is a place even when its initializer was a prvalue. Do not apply
-		// this rule to arbitrary expressions; only these exact variable objects are published.
-		query := probe.MemberQuery{Type: result.Base, Category: probe.CatLValue}
-		if failed[query] {
+		query, ok := bindingQuery(report, refs[object])
+		if !ok || failed[query] {
 			continue
 		}
 		answer, seen := queried[query]
 		if !seen {
-			if len(queried)+len(failed) >= maxMemberQueries {
-				continue
-			}
-			members, err := runner.Members(ctx, probeConfig, report.Includes, query)
-			if err != nil {
-				if firstError == nil {
-					firstError = err
-				}
-				failed[query] = true
-				continue
-			}
-			answer = memberAnswer{names: members.Names(), incomplete: members.Incomplete(),
-				receiver: strings.Clone(query.Type)}
-			queried[query] = answer
-			facts.bytes += 128
-			for _, name := range answer.names {
-				facts.bytes += 32 + int64(len(name))
-			}
+			continue
 		}
+		result := report.Table.Results[refs[object].ID]
 		// Keep the compiler's canonical type of the declaration, not the member query's
 		// reference-free base. Today both are equal for every published binding: variables are
 		// probed as type forms, and a reference-typed declaration (an alias such as
@@ -435,7 +434,12 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 		facts.bindings[object] = answer
 		facts.bytes += 128 + int64(len(answer.nativeType))
 	}
-	facts.pending = memberDeclLookup(runner, probeConfig, report.Includes, pkg, facts, inputs)
+	early.wait(ctx)
+	if earlyDone != nil {
+		earlyDone()
+	}
+	facts.pending = memberDeclLookup(runner, probeConfig, report.Includes, pkg, facts, inputs,
+		early)
 	if !inputs.Unchanged(ctx) {
 		return nil, fmt.Errorf("receiver analysis inputs changed")
 	}
@@ -443,6 +447,93 @@ func analyzeMembers(ctx context.Context, cfg Config, pkg *Package) (*memberFacts
 		return nil, firstError
 	}
 	return facts, ctx.Err()
+}
+
+// bindingQuery returns the member query of a bound variable's reference, or false when the
+// reference has no usable type. A bound variable is a place even when its initializer was a
+// prvalue. Do not apply this rule to arbitrary expressions; only these exact variable objects
+// are published.
+func bindingQuery(report *typedinterop.Report, ref *collect.Ref) (probe.MemberQuery, bool) {
+	if ref.ID < 0 || ref.ID >= len(report.Table.Results) {
+		return probe.MemberQuery{}, false
+	}
+	result := report.Table.Results[ref.ID]
+	if !result.OK || result.Recovered != "" || result.Base == "" {
+		return probe.MemberQuery{}, false
+	}
+	return probe.MemberQuery{Type: result.Base, Category: probe.CatLValue}, true
+}
+
+// earlyBindings returns the bindings of the variables whose member query is asked for, with the
+// receiver of the query and every name accepted.
+func earlyBindings(report *typedinterop.Report, refs map[*types.Var]*collect.Ref,
+	bound []*types.Var, queries []probe.MemberQuery,
+) map[*types.Var]memberBinding {
+	bindings := make(map[*types.Var]memberBinding)
+	for _, object := range bound {
+		query, ok := bindingQuery(report, refs[object])
+		if ok && slices.Contains(queries, query) {
+			bindings[object] = memberBinding{receiver: query.Type, all: true}
+		}
+	}
+	return bindings
+}
+
+// memberQueries returns the distinct queries of the bound variables in the order of their first
+// use, at most maxMemberQueries of them.
+func memberQueries(report *typedinterop.Report, refs map[*types.Var]*collect.Ref,
+	bound []*types.Var,
+) []probe.MemberQuery {
+	var queries []probe.MemberQuery
+	seen := make(map[probe.MemberQuery]bool)
+	for _, object := range bound {
+		query, ok := bindingQuery(report, refs[object])
+		if !ok || seen[query] || len(queries) >= maxMemberQueries {
+			continue
+		}
+		seen[query] = true
+		queries = append(queries, query)
+	}
+	return queries
+}
+
+// queryMembersTogether asks the compiler for the members of every query at the same time: the
+// queries are independent, each waits for its place among the process's compiler runs, and the
+// facts wait for the slowest one instead of the sum. The error is the first one in query order.
+func queryMembersTogether(ctx context.Context, runner *probe.Runner, cfg probe.Config,
+	report *typedinterop.Report, queries []probe.MemberQuery,
+) (map[probe.MemberQuery]memberAnswer, map[probe.MemberQuery]bool, error) {
+	answers := make([]memberAnswer, len(queries))
+	errs := make([]error, len(queries))
+	var wg sync.WaitGroup
+	for i, query := range queries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			members, err := runner.Members(ctx, cfg, report.Includes, query)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			answers[i] = memberAnswer{names: members.Names(), incomplete: members.Incomplete(),
+				receiver: strings.Clone(query.Type)}
+		}()
+	}
+	wg.Wait()
+	queried := make(map[probe.MemberQuery]memberAnswer)
+	failed := make(map[probe.MemberQuery]bool)
+	var firstError error
+	for i, query := range queries {
+		if errs[i] != nil {
+			failed[query] = true
+			if firstError == nil {
+				firstError = errs[i]
+			}
+			continue
+		}
+		queried[query] = answers[i]
+	}
+	return queried, failed, firstError
 }
 
 // An explicit alias may not have an expression reference at its use. Follow the checker's
@@ -469,15 +560,17 @@ func declaredMemberRef(pkg *Package, report *typedinterop.Report, object types.O
 	return nil
 }
 
-// memberDeclLookup returns the second step of the member analysis: it asks the compiler where
-// the headers declare the members that the program writes on the bound variables (win.size,
-// p.x), for each receiver type once, or nil when there are none. The answers are those of an
-// unqualified lookup in a class derived from the receiver, so overloads and inherited members
-// are the set that the compiler finds. The step is valid only while the inputs of the analysis
-// are the same; a failed run gives no declarations, and the names and types of the facts stay.
-func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string, pkg *Package,
-	facts *memberFacts, inputs *probe.InputGuard,
-) func(context.Context) (map[string][]probe.Declaration, int64, error) {
+// A memberBinding is what the declaration lookup needs of a bound variable: the receiver type
+// and the member names that are proven for it (all: every name, before the names are known).
+type memberBinding struct {
+	receiver string
+	names    []string
+	all      bool
+}
+
+// memberDeclRequest returns the lookup of the members that the program writes on the bindings
+// (win.size, p.x), for each receiver type once, or an empty request when there are none.
+func memberDeclRequest(pkg *Package, bindings map[*types.Var]memberBinding) probe.LocateRequest {
 	used := make(map[string][]string) // receiver -> member names written on its bindings
 	total := 0
 	for _, file := range pkg.Check.Load.Files {
@@ -497,40 +590,166 @@ func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string,
 			if !ok {
 				return true
 			}
-			answer, bound := facts.bindings[variable]
-			if !bound || answer.receiver == "" || !slices.Contains(answer.names, sel.Sel.Name) ||
-				slices.Contains(used[answer.receiver], sel.Sel.Name) || total >= maxMemberDeclNames {
+			binding, bound := bindings[variable]
+			if !bound || binding.receiver == "" {
 				return true
 			}
-			used[answer.receiver] = append(used[answer.receiver], sel.Sel.Name)
+			proven := binding.all || slices.Contains(binding.names, sel.Sel.Name)
+			if !proven || slices.Contains(used[binding.receiver], sel.Sel.Name) ||
+				total >= maxMemberDeclNames {
+				return true
+			}
+			used[binding.receiver] = append(used[binding.receiver], sel.Sel.Name)
 			total++
 			return true
 		})
-	}
-	if total == 0 {
-		return nil
 	}
 	var request probe.LocateRequest
 	for _, receiver := range slices.Sorted(maps.Keys(used)) {
 		request.Members = append(request.Members, probe.LocateMembers{Receiver: receiver, Names: used[receiver]})
 	}
+	return request
+}
+
+// covers reports whether every name of the request is a name of the other one.
+func covers(wide, narrow probe.LocateRequest) bool {
+	for _, group := range narrow.Members {
+		i := slices.IndexFunc(wide.Members, func(g probe.LocateMembers) bool {
+			return g.Receiver == group.Receiver
+		})
+		if i < 0 {
+			return false
+		}
+		for _, name := range group.Names {
+			if !slices.Contains(wide.Members[i].Names, name) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// memberDecls reads the declarations of the request from the answers of a lookup.
+func memberDecls(locations *probe.Locations,
+	request probe.LocateRequest,
+) map[string][]probe.Declaration {
+	decls := make(map[string][]probe.Declaration)
+	for _, group := range request.Members {
+		for _, name := range group.Names {
+			if found := locations.Member(group.Receiver, name); len(found) > 0 {
+				decls[memberDeclKey(strings.Clone(group.Receiver), strings.Clone(name))] = found
+			}
+		}
+	}
+	return decls
+}
+
+// earlyDone is a hook of the tests, called when the early lookup has ended and before the inputs
+// of the analysis are compared with what they were.
+var earlyDone func()
+
+// earlyGrace is how long the facts wait for the early lookup after the member names are known.
+var earlyGrace = 750 * time.Millisecond
+
+// An earlyLocate is the declaration lookup of the second step, started while the member names are
+// still asked for. It looks up every member name that the program writes on a bound variable,
+// proven or not; the facts use the answers of the proven names only. The two compiler runs do not
+// depend on each other, so the cold second step is not a chain behind the first. It is joined
+// before the analysis ends, and the facts never wait for it for more than earlyGrace.
+type earlyLocate struct {
+	request   probe.LocateRequest
+	cancel    context.CancelFunc
+	done      chan struct{}
+	locations *probe.Locations
+	err       error
+}
+
+func startEarlyLocate(ctx context.Context, runner *probe.Runner, cfg probe.Config,
+	includes []string, request probe.LocateRequest,
+) *earlyLocate {
+	if len(request.Members) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	early := &earlyLocate{request: request, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(early.done)
+		early.locations, early.err = runner.Locate(ctx, cfg, includes, request)
+	}()
+	return early
+}
+
+// wait gives the lookup the time of earlyGrace to end; one that is later is stopped.
+func (early *earlyLocate) wait(ctx context.Context) {
+	if early == nil {
+		return
+	}
+	timer := time.NewTimer(earlyGrace)
+	defer timer.Stop()
+	select {
+	case <-early.done:
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	early.stop()
+}
+
+// stop ends the lookup and joins it.
+func (early *earlyLocate) stop() {
+	if early == nil {
+		return
+	}
+	select {
+	case <-early.done:
+	default:
+		early.cancel()
+		<-early.done
+	}
+	early.cancel() // the timer of the lookup's limit, whichever way it ended
+}
+
+// answers returns the lookup's locations when it ended well and asked for every name of the
+// request.
+func (early *earlyLocate) answers(request probe.LocateRequest) *probe.Locations {
+	if early == nil || early.err != nil || early.locations == nil {
+		return nil
+	}
+	if !covers(early.request, request) {
+		return nil // a cap on the names cut the request short of a name that is wanted
+	}
+	return early.locations
+}
+
+// memberDeclLookup returns the second step of the member analysis: it asks the compiler where
+// the headers declare the members that the program writes on the bound variables (win.size,
+// p.x), for each receiver type once, or nil when there are none. The answers are those of an
+// unqualified lookup in a class derived from the receiver, so overloads and inherited members
+// are the set that the compiler finds. The step is valid only while the inputs of the analysis
+// are the same; a failed run gives no declarations, and the names and types of the facts stay.
+// The early lookup, when it ended and asked for every name, gives the answers without a run.
+func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string, pkg *Package,
+	facts *memberFacts, inputs *probe.InputGuard, early *earlyLocate,
+) func(context.Context) (map[string][]probe.Declaration, int64, error) {
+	bindings := make(map[*types.Var]memberBinding, len(facts.bindings))
+	for variable, answer := range facts.bindings {
+		bindings[variable] = memberBinding{receiver: answer.receiver, names: answer.names}
+	}
+	request := memberDeclRequest(pkg, bindings)
+	if len(request.Members) == 0 {
+		return nil
+	}
 	return func(ctx context.Context) (map[string][]probe.Declaration, int64, error) {
-		locations, err := runner.Locate(ctx, cfg, includes, request)
-		if err != nil {
-			return nil, 0, err
+		locations := early.answers(request)
+		if locations == nil {
+			var err error
+			if locations, err = runner.Locate(ctx, cfg, includes, request); err != nil {
+				return nil, 0, err
+			}
 		}
 		if !inputs.Unchanged(ctx) {
 			return nil, 0, errors.New("member declaration inputs changed")
 		}
-		decls := make(map[string][]probe.Declaration)
-		for _, group := range request.Members {
-			for _, name := range group.Names {
-				if found := locations.Member(group.Receiver, name); len(found) > 0 {
-					decls[memberDeclKey(strings.Clone(group.Receiver), strings.Clone(name))] = found
-				}
-			}
-		}
-		return decls, locations.Bytes(), nil
+		return memberDecls(locations, request), locations.Bytes(), nil
 	}
 }
 
@@ -542,6 +761,9 @@ func (ix *memberIndexer) locateStep(ctx context.Context, entry *memberEntry, fac
 	defer ix.wg.Done()
 	if ix.stepDone != nil {
 		defer ix.stepDone()
+	}
+	if ix.stepStart != nil {
+		ix.stepStart()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

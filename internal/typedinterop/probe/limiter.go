@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 // EnvJobs names the environment variable that sets how many compiler runs of the
@@ -13,16 +14,29 @@ import (
 const EnvJobs = "GOCPP_PROBE_JOBS"
 
 // Jobs returns the bound on the compiler runs of the probes that run at the same time:
-// GOCPP_PROBE_JOBS, else min(8, NumCPU/2), and at least 1. The bound is global to the
-// process: the probe batches of Runner.Probe, the declaration runs of Runner.Decls and
-// the rounds of Analyze all draw from it, so that a program with many names never
-// starts more compilers than the bound, however the calls overlap.
+// GOCPP_PROBE_JOBS, else min(8, NumCPU/2) and at least 1 (a build: its compiler jobs and the
+// program's own work share the machine), or min(8, NumCPU) in a language server (SetInteractive).
+// The bound is global to the process: the probe batches of Runner.Probe, the declaration runs of
+// Runner.Decls and the rounds of Analyze all draw from it, so that a program with many names
+// never starts more compilers than the bound, however the calls overlap.
 func Jobs() int {
 	if n, err := strconv.Atoi(os.Getenv(EnvJobs)); err == nil && n > 0 {
 		return n
 	}
+	if interactive.Load() {
+		return max(1, min(8, runtime.NumCPU()))
+	}
 	return max(1, min(8, runtime.NumCPU()/2))
 }
+
+// interactive is set in a language server, whose compiler runs are background work for answers
+// that nobody waits for, and whose own work between the edits is small.
+var interactive atomic.Bool
+
+// SetInteractive makes the default of Jobs the one of a language server: all the cores, up to 8.
+// The language server's cold C/C++ data is a chain of runs, and it is under 2 s only when eight
+// of them can go at once (ADR-126); on eight pinned cores that cost no keystroke latency.
+func SetInteractive(on bool) { interactive.Store(on) }
 
 // A limiter is a counting semaphore whose bound is read at each acquisition
 // (tests change the environment while they run).

@@ -200,4 +200,11 @@
   declaration's comment (`std::min`); clang 21 output format only; Windows paths through real clang
   unverified (the PC has no `clang++`; parser/path unit tests pass there). Manager focused
   checks (gofmt, vet, probe/cache/server locate, foreign, member, hover and definition tests)
-  passed. The C/C++ editor budget row (< 2 s) and slow-clang test (12.13d) remain open.
+  passed. The C/C++ editor budget row (< 2 s) and slow-clang test were 12.13d.
+
+- 2026-10-21 12.13d [x] merged (ADR-126): time to C/C++ editor data measured by tools/cppdata
+  (budget under 2 s), independent probe compiler runs share slots (min(8, CPUs) in `gocpp lsp`),
+  slow-clang server tests show no request waits for the compiler; macros named like keywords
+  (`true`, `static_assert`) are still located. Known and not from this branch: under `-race`
+  `TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate` and `TestMemberQueryTimeoutJoinsCompiler`
+  fail the same way at the base commit (watchdog and a 500 ms timeout too tight).

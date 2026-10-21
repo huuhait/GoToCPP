@@ -80,6 +80,9 @@ func fakeCompiler(args []string) int {
 		}
 		f.Close()
 	}
+	if code := fakeRendezvous(args, src); code != 0 {
+		return code
+	}
 	if barrier := os.Getenv("FAKE_BARRIER"); barrier != "" {
 		// A compile waits until the includes question has been asked (a run of -E -dI creates the file): a
 		// question that is asked only after the compile ends makes the compile fail.
@@ -282,6 +285,49 @@ func fakeCompiler(args []string) int {
 		fmt.Fprintf(out, `{"id":"0x1","kind":"TypeAliasDecl","name":"%s","type":{"desugaredQualType":"gocpp_probe_internal_c<%s>","qualType":"gocpp_probe_internal_c<decltype((x))>"}}`+"\n", m[1], typ)
 	}
 	return 0
+}
+
+// fakeRendezvous makes the runs of one product wait for each other: with FAKE_RENDEZVOUS (a
+// folder), FAKE_RENDEZVOUS_RUNS (a number) and FAKE_RENDEZVOUS_KIND ("index" for the four runs of a
+// header index, "member" for the completion and the validation of a member query), a matching
+// run leaves a file in the folder and waits until that many runs have left theirs. A run is only
+// let go when the others have started, so a product that runs them one after the other fails
+// (the wait ends with an error) instead of passing slowly.
+func fakeRendezvous(args []string, src string) int {
+	dir := os.Getenv("FAKE_RENDEZVOUS")
+	want, _ := strconv.Atoi(os.Getenv("FAKE_RENDEZVOUS_RUNS"))
+	if dir == "" || want == 0 || !rendezvousRun(os.Getenv("FAKE_RENDEZVOUS_KIND"), args, src) {
+		return 0
+	}
+	os.WriteFile(filepath.Join(dir, strconv.Itoa(os.Getpid())), nil, 0o644)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if entries, _ := os.ReadDir(dir); len(entries) >= want {
+			return 0
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	fmt.Fprintln(os.Stderr, "clang: error: the other runs of the product did not start")
+	return 2
+}
+
+func rendezvousRun(kind string, args []string, src string) bool {
+	switch kind {
+	case "index":
+		return slices.Contains(args, "-ast-list") || slices.Contains(args, "-dM") ||
+			slices.Contains(args, "-P")
+	case "member":
+		if slices.ContainsFunc(args, func(a string) bool {
+			return strings.HasPrefix(a, "-code-completion-at=")
+		}) {
+			return true
+		}
+		text := string(mustRead(src))
+		return slices.Contains(args, "-fsyntax-only") &&
+			!strings.Contains(text, "gocpp_member_validation_complete") &&
+			!strings.Contains(text, "__debug dump")
+	}
+	return false
 }
 
 // markerPath is a file name as clang writes it in a line marker: with the backslashes (Windows) and the

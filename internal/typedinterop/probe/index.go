@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
@@ -189,23 +190,20 @@ func (rn *Runner) makeIndex(
 		return nil, err
 	}
 	depsHash := DepsHash(deps)
-	decls, out, err := indexOutput(ctx, cfg, []string{"-fsyntax-only", "-Xclang", "-ast-list"}, text)
-	if err != nil {
+	// The four runs read the same headers and depend on nothing but the text: they run at the
+	// same time (each waits for its place among the process's compiler runs, so the bound on
+	// them holds), and a cold index waits for the slowest one, not for the sum.
+	declsRun := &indexRun{mode: []string{"-fsyntax-only", "-Xclang", "-ast-list"}, text: text}
+	macrosRun := &indexRun{mode: []string{"-E", "-dM"}, text: text}
+	builtinRun := &indexRun{mode: []string{"-E", "-dM"}}
+	namespaceRun := &indexRun{mode: []string{"-E", "-P"}, text: text}
+	if err := runIndexModes(ctx, cfg, declsRun, macrosRun, builtinRun, namespaceRun); err != nil {
 		return nil, err
 	}
-	macros, macroOut, err := indexOutput(ctx, cfg, []string{"-E", "-dM"}, text)
-	if err != nil {
-		return nil, err
-	}
-	// Do not offer compiler predefines as if the user's header declared them.
-	builtin, _, err := indexOutput(ctx, cfg, []string{"-E", "-dM"}, "")
-	if err != nil {
-		return nil, err
-	}
-	namespaceText, namespaceOut, err := indexOutput(ctx, cfg, []string{"-E", "-P"}, text)
-	if err != nil {
-		return nil, err
-	}
+	decls, out := declsRun.output, declsRun.aux
+	macros, macroOut := macrosRun.output, macrosRun.aux
+	builtin := builtinRun.output
+	namespaceText, namespaceOut := namespaceRun.output, namespaceRun.aux
 	for _, output := range []*auxOut{out, macroOut, namespaceOut} {
 		actual := interop.ParseDeps(output.depData, output.srcPath, cfg.Dir)
 		slices.Sort(actual)
@@ -371,6 +369,36 @@ func (state *indexResolution) unchanged() bool {
 		}
 	}
 	return sameIndexTargets(state.targets)
+}
+
+// An indexRun is one compiler run of the products of an index: the mode and text it is given, and
+// its output, dependency answer and error once it has ended.
+type indexRun struct {
+	mode   []string
+	text   string
+	output string
+	aux    *auxOut
+	err    error
+}
+
+// runIndexModes runs the independent runs at the same time and returns the first error in the
+// order of the runs.
+func runIndexModes(ctx context.Context, cfg Config, runs ...*indexRun) error {
+	var wg sync.WaitGroup
+	for _, run := range runs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			run.output, run.aux, run.err = indexOutput(ctx, cfg, run.mode, run.text)
+		}()
+	}
+	wg.Wait()
+	for _, run := range runs {
+		if run.err != nil {
+			return run.err
+		}
+	}
+	return nil
 }
 
 func indexOutput(ctx context.Context, cfg Config, mode []string, text string) (string, *auxOut, error) {

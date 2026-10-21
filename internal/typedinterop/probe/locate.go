@@ -217,15 +217,45 @@ func validLocateNames(names []LocateName) []LocateName {
 	return out
 }
 
+// cxxKeywords are the words that no name of a header can be (the C++20 keywords and the
+// alternative operator tokens). The compiler's dump of a lookup of one of them has no heading for
+// it, so one such name in a request would fail the whole run.
+var cxxKeywords = map[string]bool{}
+
+func init() {
+	for _, word := range strings.Fields(`alignas alignof and and_eq asm auto bitand bitor bool break
+		case catch char char8_t char16_t char32_t class compl concept const consteval constexpr
+		constinit const_cast continue co_await co_return co_yield decltype default delete do double
+		dynamic_cast else enum explicit export extern false float for friend goto if inline int long
+		mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public
+		register reinterpret_cast requires return short signed sizeof static static_assert
+		static_cast struct switch template this thread_local throw true try typedef typeid typename
+		union unsigned using virtual void volatile wchar_t while xor xor_eq`) {
+		cxxKeywords[word] = true
+	}
+}
+
+// lookupIdent reports whether the text can be looked up as a name: an identifier of the program,
+// not a keyword and not an internal name.
+func lookupIdent(name string) bool {
+	return identRx.MatchString(name) && !strings.HasPrefix(name, "gocpp_") && !cxxKeywords[name]
+}
+
+// A macro may be named like a keyword: <stdbool.h> defines true and false, <assert.h> defines
+// static_assert.
 func validLocateName(query LocateName) bool {
-	if !identRx.MatchString(query.Name) || strings.HasPrefix(query.Name, "gocpp_") {
+	if query.Macro {
+		return identRx.MatchString(query.Name) && !strings.HasPrefix(query.Name, "gocpp_") &&
+			query.Scope == ""
+	}
+	if !lookupIdent(query.Name) {
 		return false
 	}
 	if query.Scope == "" {
 		return true
 	}
 	for _, part := range strings.Split(query.Scope, "::") {
-		if !identRx.MatchString(part) || strings.HasPrefix(part, "gocpp_") {
+		if !lookupIdent(part) {
 			return false
 		}
 	}
@@ -243,8 +273,7 @@ func validLocateMembers(groups []LocateMembers) []LocateMembers {
 		}
 		var names []string
 		for _, name := range group.Names {
-			if identRx.MatchString(name) && !strings.HasPrefix(name, "gocpp_") &&
-				!slices.Contains(names, name) && total < maxLocateNames {
+			if lookupIdent(name) && !slices.Contains(names, name) && total < maxLocateNames {
 				names = append(names, name)
 				total++
 			}

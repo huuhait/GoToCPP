@@ -180,7 +180,7 @@ func TestHeaderIndexRealPackageRefresh(t *testing.T) {
 	if _, err := probe.FindClang(context.Background()); err != nil {
 		t.Skip(err)
 	}
-	defer probe.SetRacyWindow(0)()
+	t.Cleanup(probe.SetRacyWindow(0))
 	world := newWorld(t, testConfig(), map[string]string{
 		"gocpp.mod": "module example.com/index\n",
 		"main.gp":   "package main\nimport \"./api.hpp\"\nfunc main() { api.Func() }\n",

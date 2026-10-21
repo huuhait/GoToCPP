@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -663,5 +664,69 @@ func TestLocateByteOrderMarkIsNotAColumn(t *testing.T) {
 	}
 	if d := onlyDecl(t, got.Named("", "bom2")); d.Line != 1 || d.Col != 4 {
 		t.Errorf("bom2 at %d:%d, want 1:4", d.Line, d.Col)
+	}
+}
+
+// The declaration lookup of a member name does not depend on the other names of its request: the
+// language server asks for every name that the program writes before it knows which of them are
+// members, and uses the answers of the proven ones.
+func TestLocateMembersDoNotDependOnTheOtherNames(t *testing.T) {
+	dir, _ := locateFixture(t)
+	exact := LocateRequest{Members: []LocateMembers{
+		{Receiver: "Widget", Names: []string{"size", "make"}},
+		{Receiver: "Derived", Names: []string{"w"}},
+		{Receiver: "std::basic_string<char>", Names: []string{"push_back"}},
+	}}
+	wide := LocateRequest{Members: []LocateMembers{
+		{Receiver: "Widget",
+			Names: []string{"new", "nosuch", "size", "class", "hidden", "make", "this"}},
+		{Receiver: "Derived", Names: []string{"own", "w"}},
+		{Receiver: "Sealed", Names: []string{"x"}},
+		{Receiver: "std::basic_string<char>",
+			Names: []string{"size", "push_back", "template", "int", "nosuch"}},
+	}}
+	want := locateReal(t, dir, locateIncludes, exact)
+	got := locateReal(t, dir, locateIncludes, wide)
+	for _, group := range exact.Members {
+		for _, name := range group.Names {
+			withOthers := got.Member(group.Receiver, name)
+			alone := want.Member(group.Receiver, name)
+			if !reflect.DeepEqual(withOthers, alone) {
+				t.Errorf("%s.%s: with other names %+v, alone %+v", group.Receiver, name,
+					withOthers, alone)
+			}
+		}
+	}
+}
+
+func TestLocateDropsCxxKeywordsInsteadOfFailingTheRun(t *testing.T) {
+	members := validLocateMembers([]LocateMembers{{
+		Receiver: "Widget",
+		Names: []string{
+			"new", "size", "class", "delete", "this", "template", "int", "and", "make",
+		},
+	}})
+	if len(members) != 1 || !slices.Equal(members[0].Names, []string{"size", "make"}) {
+		t.Errorf("member names kept = %+v, want size and make", members)
+	}
+	names := validLocateNames([]LocateName{{Name: "new"}, {Scope: "std", Name: "string"},
+		{Scope: "new", Name: "x"}, {Name: "operator"}, {Name: "Thing"}})
+	want := []LocateName{{Scope: "std", Name: "string"}, {Name: "Thing"}}
+	if !slices.Equal(names, want) {
+		t.Errorf("names kept = %+v, want %+v", names, want)
+	}
+}
+
+func TestLocateKeepsMacrosNamedLikeKeywords(t *testing.T) {
+	asked := []LocateName{
+		{Name: "true", Macro: true},
+		{Name: "static_assert", Macro: true},
+		{Name: "okname", Macro: true},
+		{Name: "gocpp_hidden", Macro: true},
+	}
+	got := validLocateNames(asked)
+	want := asked[:3]
+	if !slices.Equal(got, want) {
+		t.Errorf("macro names kept = %+v, want %+v", got, want)
 	}
 }
