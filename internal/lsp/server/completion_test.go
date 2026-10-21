@@ -875,7 +875,7 @@ func TestCompletionSweep(t *testing.T) {
 					if err != nil {
 						t.Fatalf("%s at offset %d: %v", name, off, err)
 					}
-					list := res.(*protocol.CompletionList)
+					list := completionListOf(t, res)
 					if len(list.Items) > 0 {
 						offered++
 					}
@@ -949,4 +949,18 @@ func TestFixDangling(t *testing.T) {
 			t.Errorf("in\n%s\nno yyy and yyz: %q", text, labels(items))
 		}
 	}
+}
+
+// completionListOf returns the list in the result of the completion handler, which is a plain
+// list or, for a receiver with member facts, the list with the member status around it.
+func completionListOf(t *testing.T, result any) *protocol.CompletionList {
+	t.Helper()
+	switch list := result.(type) {
+	case *protocol.CompletionList:
+		return list
+	case memberCompletionList:
+		return list.CompletionList
+	}
+	t.Fatalf("completion result has the type %T", result)
+	return nil
 }

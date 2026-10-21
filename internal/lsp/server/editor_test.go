@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -601,12 +602,28 @@ func checkTokenOrder(t *testing.T, c *refClient, name, src string) {
 	if err := json.Unmarshal(resp.Result, &toks); err != nil {
 		t.Fatal(err)
 	}
+	if !fileHasTokens(name, src) {
+		if toks != nil {
+			t.Fatalf("%s: a file outside its package got %d token integers", name, len(toks.Data))
+		}
+		return
+	}
 	if toks == nil {
 		t.Fatalf("%s: semanticTokens/full returned null", name)
 	}
 	if err := tokenDataValid(toks.Data, src); err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
+}
+
+// fileHasTokens reports whether the server has semantic tokens for the file. It has none for a
+// file that is not in its package: a _test.gp file (the package is checked without its tests) and
+// a file that the build constraints leave out (docs/guides/editors.md).
+func fileHasTokens(name, src string) bool {
+	if strings.HasSuffix(name, "_test.gp") {
+		return false
+	}
+	return runtime.GOOS == "windows" || !strings.Contains(src, "\n//go:build windows\n")
 }
 
 // tokenDataValid allows an empty token list (some damaged files have no tokens), but not malformed tuples,

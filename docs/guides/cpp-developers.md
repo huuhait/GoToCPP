@@ -65,9 +65,10 @@ func main() {
 ```
 
 The type becomes a struct, a value method a `const` member and a pointer method a `static`
-function that takes the receiver as a `gp::bptr`, a raw pointer that borrows the caller's `gp::ptr`
-when the method only uses it (`gp::lend(p)`; a method that keeps the pointer takes a `gp::ptr`, and a
-parameter that a function does not assign is a `const` reference):
+function that takes the receiver as a `gp::bptr`, a raw pointer that borrows the caller's variable
+when the method only uses it (`gp::borrow(&p)` for a local on the stack, `gp::lend(p)` for one in a
+`gp::ptr`; a method that keeps the pointer takes a `gp::ptr`, and a parameter that a function does
+not assign is a `const` reference):
 
 <!-- emitted: mapping -->
 ```cpp
@@ -98,14 +99,16 @@ std::tuple<int64_t, int64_t> divmod(int64_t a, int64_t b) {
 }
 ```
 
-`main` shows the rest: the variable `p` is a `gp::ptr<Point>` because a pointer method is called on
-it, results are unpacked from the tuple, and slices and maps are runtime types.
+`main` shows the rest: the variable `p` stays a plain `Point` on the stack, because the pointer
+method only borrows its address (`gp::borrow(&p)`; the variable would be a `gp::ptr<Point>` made by
+`gp::new_` if the address escaped, for example by being stored or returned), results are unpacked
+from the tuple, and slices and maps are runtime types.
 
 <!-- emitted: mapping -->
 ```cpp
 void main() {
-    gp::ptr<Point> p = gp::new_<Point>(Point{1, 2});
-    Point::Scale(gp::lend(p), 3);
+    Point p{1, 2};
+    Point::Scale(gp::borrow(&p), 3);
     auto gp_t0 = divmod(7, 2);
     int64_t q = std::get<0>(gp_t0);
     int64_t r = std::get<1>(gp_t0);
@@ -177,16 +180,19 @@ range iterator's own element read.
 
 A gocpp value is freed when the last reference goes. A pointer to a gocpp type is a
 `gp::ptr<T>`, a `std::shared_ptr` with nil checks; a pointer to a field or to an element shares the
-owner of the whole object. A local variable lives in a box on the heap when its address is taken,
-when a pointer method is called on it, or when a closure captures it and changes it: that is why
-`p` above is a `gp::ptr<Point>`. Everything else is an ordinary C++ local.
+owner of the whole object. A local variable lives in a box on the heap when its address escapes
+(it is stored, returned, sent, captured, converted to an interface or passed to code that may keep
+it) or when a closure captures it and changes it. A local whose address is only used as a borrowed
+receiver or parameter, as `p` above, stays an ordinary C++ local on the stack.
 
 - A cycle of pointers is never freed. Break it with `weak.Pointer[T]` (a `gp::weak_ptr<T>`).
 - A data race can corrupt a reference count; Go's data races are bad, gocpp's are worse
   ([D10](../spec/language.md#d10-data-races-can-break-reference-counts)).
 - A pointer that C or C++ gives you owns nothing: you have C++'s lifetime rules for it
   ([D16](../spec/language.md#d16-unsafepointer-and-pointers-from-c)).
-- A real escape analysis, which keeps more variables on the stack, is planned (step 15.2 of the plan); today the rule above is the simple one.
+- The escape analysis is conservative ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)):
+  `gocpp build -gp:m` prints where it kept a variable on the stack or boxed it, and `-gp:noescape`
+  turns it off.
 
 ## Interfaces, closures, defer and panics
 

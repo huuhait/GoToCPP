@@ -339,7 +339,10 @@ func TestMemberQueryTimeoutJoinsCompiler(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "pid")
 	t.Setenv("FAKE_MEMBER_BLOCK", marker)
 	cfg := fake.cfg()
-	cfg.Timeout = 500 * time.Millisecond
+	// The limit applies to every compiler run of the query, so it must be well above what a
+	// normal fake run needs (tens of milliseconds, a second per run before the race detector's
+	// exit sleep was switched off in TestMain) and is only reached by the blocked completion run.
+	cfg.Timeout = 2 * time.Second
 	result, err := new(Runner).Members(context.Background(), cfg, []string{`"api.hpp"`},
 		MemberQuery{Type: "Widget", Category: CatLValue})
 	if !errors.Is(err, context.DeadlineExceeded) || result != nil {
