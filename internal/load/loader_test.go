@@ -2,6 +2,7 @@ package load
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -177,7 +178,28 @@ func errorText(t *testing.T, prog *Program, root string) string {
 			t.Fatal(err)
 		}
 	}
-	return strings.ReplaceAll(b.String(), root, "$ROOT")
+	return slashed(strings.ReplaceAll(b.String(), root, "$ROOT"))
+}
+
+// slashed returns s with the folder separators of this system written as
+// '/', so that the expected texts of the tests, which write paths with '/',
+// also hold on Windows, where the loader (like the go command) prints '\'.
+func slashed(s string) string {
+	if filepath.Separator == '/' {
+		return s
+	}
+	return strings.ReplaceAll(s, string(filepath.Separator), "/")
+}
+
+// noSuchFileText returns the text of this system's error for a file that is
+// not there ("no such file or directory" on Linux).
+func noSuchFileText(t *testing.T) string {
+	t.Helper()
+	_, err := os.Open(filepath.Join(t.TempDir(), "missing.gp"))
+	if err == nil {
+		t.Fatal("a missing file was opened")
+	}
+	return errors.Unwrap(err).Error()
 }
 
 // shown returns the import path of p as go test shows it: with
@@ -687,7 +709,7 @@ func TestCommandLineFiles(t *testing.T) {
 		{[]string{"dir.gp"}, "dir.gp is a directory, should be a .gp file\n"},
 		{[]string{"a.gp", "other.gp"}, "# command-line-arguments\nfound packages main (a.gp) and other (other.gp) in $ROOT\n"},
 		{[]string{"b_test.gp"}, "# command-line-arguments\ncommand-line-arguments: no non-test .gp files in $ROOT\n"},
-		{[]string{"missing.gp"}, "# command-line-arguments\nopen $ROOT/missing.gp: no such file or directory\n"},
+		{[]string{"missing.gp"}, "# command-line-arguments\nopen $ROOT/missing.gp: " + noSuchFileText(t) + "\n"},
 	} {
 		t.Run(strings.Join(tc.files, " "), func(t *testing.T) {
 			prog := loadIn(t, Config{}, root, tc.files...)
@@ -1070,7 +1092,9 @@ func TestDirectivesJoined(t *testing.T) {
 func TestFset(t *testing.T) {
 	root := writeTree(t, map[string]string{"main.gp": "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println() }\n"})
 	fset := token.NewFileSet()
-	prog := loadIn(t, Config{Fset: fset, StdlibDir: "/opt/gocpp/stdlib"}, root, ".")
+	// An absolute folder on every system (a leading '/' is not absolute on Windows).
+	stdlibDir := filepath.Join(root, "opt", "gocpp", "stdlib")
+	prog := loadIn(t, Config{Fset: fset, StdlibDir: stdlibDir}, root, ".")
 	if prog.Fset != fset {
 		t.Errorf("Load made a new FileSet")
 	}
@@ -1079,7 +1103,7 @@ func TestFset(t *testing.T) {
 		names = append(names, f.Name())
 		return true
 	})
-	want := []string{filepath.Join(root, "main.gp"), filepath.FromSlash("/opt/gocpp/stdlib/fmt/print.gp")}
+	want := []string{filepath.Join(root, "main.gp"), filepath.Join(stdlibDir, "fmt", "print.gp")}
 	if !slices.Equal(names, want) {
 		t.Errorf("files %q, want %q", names, want)
 	}
@@ -1120,7 +1144,7 @@ func typeCheckProgram(t *testing.T, prog *Program, root string) string {
 			t.Fatal(err)
 		}
 	}
-	return strings.ReplaceAll(b.String(), root, "$ROOT")
+	return slashed(strings.ReplaceAll(b.String(), root, "$ROOT"))
 }
 
 type importerFunc func(path string) (*types.Package, error)

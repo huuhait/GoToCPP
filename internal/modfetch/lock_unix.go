@@ -28,3 +28,10 @@ func flock(f *os.File) (ok bool, err error) {
 }
 
 func funlock(f *os.File) { syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }
+
+// openProjectLock opens what LockProject locks: the folder of the project itself, which leaves no
+// file in it. removeLock has nothing to do here.
+func openProjectLock(dir string) (lock *os.File, removeLock func(), err error) {
+	lock, err = os.Open(dir)
+	return lock, func() {}, err
+}

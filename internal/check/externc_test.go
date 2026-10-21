@@ -2,6 +2,7 @@ package check
 
 import (
 	"maps"
+	"os/exec"
 	"slices"
 	"testing"
 
@@ -110,7 +111,10 @@ func TestExternCNoCompiler(t *testing.T) {
 		"main.gp": "package main\n\nimport \"./c.h\"\n\nfunc main() {}\n",
 		"c.h":     "int c(void);\n",
 	})
-	want := "# example.com/m\n./main.gp:3:8: cannot check the header imports: GOCPP_CXX: the C++ compiler \"no-such-c++\" was not found: exec: \"no-such-c++\": executable file not found in $PATH\n"
+	// exec's text names the variable of this system: $PATH, or %PATH% on Windows.
+	want := "# example.com/m\n" +
+		"./main.gp:3:8: cannot check the header imports: GOCPP_CXX: the C++ compiler " +
+		"\"no-such-c++\" was not found: exec: \"no-such-c++\": " + exec.ErrNotFound.Error() + "\n"
 	if got != want {
 		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 	}
@@ -127,7 +131,10 @@ func TestExternCNoCCompiler(t *testing.T) {
 			"c.h":     "int c(void);\n",
 			"d.hpp":   "int d(void);\n",
 		})
-		want := "# example.com/m\n./main.gp:4:2: cannot check whether header \"./c.h\" is a C header: GOCPP_CC: the C compiler \"no-such-cc\" was not found: exec: \"no-such-cc\": executable file not found in $PATH\n"
+		want := "# example.com/m\n" +
+			"./main.gp:4:2: cannot check whether header \"./c.h\" is a C header: GOCPP_CC: " +
+			"the C compiler \"no-such-cc\" was not found: exec: \"no-such-cc\": " +
+			exec.ErrNotFound.Error() + "\n"
 		if got != want {
 			t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 		}

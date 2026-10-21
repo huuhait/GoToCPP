@@ -45,7 +45,7 @@ func main() {
 	_ = n
 	cstdio.printf("%zu\n", std.string_view(C.cstr(s)).size()) // used in the statement
 }
--- nul/main.gp --
+-- nulbyte/main.gp --
 package main
 
 import "<cstdio>"

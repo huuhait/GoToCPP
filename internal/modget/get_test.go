@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -452,6 +453,9 @@ func TestGetWritesNothingOnFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can write anywhere")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows folder has no permission bits: Chmod cannot make it read-only")
+	}
 	_, err := e.get("example.com/a@v1.0.0")
 	if err == nil {
 		t.Fatal("get worked although gocpp.sum could not be written")
@@ -531,7 +535,7 @@ func TestGetConcurrentGets(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			f, _ := modfetch.New(&modfetch.Config{CacheDir: e.cache, Proxies: []modfetch.Proxy{{URL: "file://" + e.proxy}}})
+			f, _ := modfetch.New(&modfetch.Config{CacheDir: e.cache, Proxies: []modfetch.Proxy{{URL: fileURL(e.proxy)}}})
 			_, errs[i] = Run(t.Context(), Options{Dir: e.dir, Fetcher: f, Args: []string{a}})
 		}()
 	}

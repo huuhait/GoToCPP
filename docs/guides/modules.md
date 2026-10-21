@@ -85,8 +85,9 @@ cache again.
 - `exclude github.com/x/y v1.3.0` keeps a bad version out of the build, whatever other modules ask for.
 - `GOCPP_OFFLINE=1`: nothing is downloaded. A query that needs the list of versions (`latest`) fails and says so; a
   version that is in the cache works.
-- Two `gocpp get` commands at once in one project wait for each other (a lock on the project folder); the module cache is
-  shared safely. A `gocpp.mod` with Windows line ends keeps them.
+- Two `gocpp get` commands at once in one project wait for each other (a lock on the project folder; on Windows, which cannot lock a folder, a lock on the file
+  `gocpp-project-<hash>.lock` in the temporary folder, named from a hash of the project's absolute path, which is deleted
+  when the lock is given up); the module cache is shared safely. A `gocpp.mod` with Windows line ends keeps them.
 - gocpp reads the full module graph, as Go does for `go 1.16`; Go prunes it for a main module that says `go 1.17` or more.
 - A company mirror: `GOCPP_MODPROXY=https://mirror.example/...`, or a folder in the layout of Go's module proxy:
   `GOCPP_MODPROXY=file:///srv/gomodules`.

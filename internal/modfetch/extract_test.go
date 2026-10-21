@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -236,8 +237,12 @@ func TestSealModes(t *testing.T) {
 		return nil
 	})
 	st, _ := os.Stat(filepath.Join(info.Root, "suid"))
-	if st.Mode().Perm() != 0o555 {
-		t.Errorf("suid file mode %v", st.Mode())
+	want := fs.FileMode(0o555)
+	if runtime.GOOS == "windows" {
+		want = 0o444 // a read-only file has no executable bit there
+	}
+	if st.Mode().Perm() != want {
+		t.Errorf("suid file mode %v, want %v", st.Mode(), want)
 	}
 }
 

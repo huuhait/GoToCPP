@@ -46,7 +46,7 @@ func newGoRunner(t *testing.T, proxy string) *goRunner {
 	r.env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + root,
-		"GOPROXY=file://" + proxy,
+		"GOPROXY=" + fileURL(proxy),
 		"GOSUMDB=off",
 		"GONOSUMDB=*",
 		"GOMODCACHE=" + filepath.Join(root, "modcache"),

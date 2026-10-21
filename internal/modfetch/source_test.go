@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -181,8 +182,10 @@ func TestEnvConfig(t *testing.T) {
 		}
 		return func(k string) string { return m[k] }
 	}
+	// An absolute folder on every system ("/tmp/modcache" is not absolute on Windows).
+	cacheDir := filepath.Join(t.TempDir(), "modcache")
 	c, err := ConfigFromEnv(env(
-		"GOCPP_MODCACHE", "/tmp/modcache",
+		"GOCPP_MODCACHE", cacheDir,
 		"GOCPP_OFFLINE", "1",
 		"GOCPP_MODFLAGS", "-mod=readonly",
 		"GOCPP_MODPROXY", "https://proxy.corp/,direct",
@@ -193,7 +196,7 @@ func TestEnvConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.CacheDir != "/tmp/modcache" || !c.Offline || !c.ReadOnly || c.Timeout.Seconds() != 90 {
+	if c.CacheDir != cacheDir || !c.Offline || !c.ReadOnly || c.Timeout.Seconds() != 90 {
 		t.Errorf("config = %+v", c)
 	}
 	if len(c.Proxies) != 2 || c.Proxies[0].URL != "https://proxy.corp" || c.Proxies[1].URL != "" || c.Proxies[0].Any {

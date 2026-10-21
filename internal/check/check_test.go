@@ -8,6 +8,7 @@ import (
 	"go/constant"
 	"go/types"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -74,7 +75,10 @@ func fakeProbeConfig(phase int) Config {
 // errorText returns what gocpp check would print for the program, like go
 // build: the program's errors, then a "# path" line and the diagnostics of
 // each package that has some, with file names relative to dir. all prints
-// every error; without it, a package shows at most 10.
+// every error; without it, a package shows at most 10. The text has '/' in
+// the file names on every system (the printer writes the separator of the
+// system, '\' on Windows, like the go command), so a test that wants dir
+// written as $ROOT replaces filepath.ToSlash(dir).
 func errorText(t *testing.T, prog *load.Program, r *Result, dir string, all bool) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -98,7 +102,16 @@ func errorText(t *testing.T, prog *load.Program, r *Result, dir string, all bool
 		}
 		print(name, p.Errors)
 	}
-	return b.String()
+	return slashed(b.String())
+}
+
+// slashed returns s with the folder separators of this system written as
+// '/': the expected texts of the tests write paths with '/'.
+func slashed(s string) string {
+	if filepath.Separator == '/' {
+		return s
+	}
+	return strings.ReplaceAll(s, string(filepath.Separator), "/")
 }
 
 // mainPkg returns the checked root package of the program.
@@ -132,6 +145,7 @@ func TestExamples(t *testing.T) {
 		name := filepath.Base(dir)
 		n++
 		t.Run(name, func(t *testing.T) {
+			skipWithoutPkgConfig(t, dir)
 			systems := 0
 			for _, goos := range []string{"linux", "windows"} {
 				for _, tests := range []bool{false, true} {
@@ -163,6 +177,31 @@ func TestExamples(t *testing.T) {
 	}
 	if n != 19 {
 		t.Errorf("checked %d examples, want 19", n)
+	}
+}
+
+// skipWithoutPkgConfig skips the test if the program in dir has a
+// //gocpp:pkg-config directive and the machine has no pkg-config (a Windows
+// PC has none): the check then reports that, as it should, and the example
+// cannot be checked clean.
+func skipWithoutPkgConfig(t *testing.T, dir string) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*.gp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(src), "//gocpp:pkg-config") {
+			continue
+		}
+		if _, err := exec.LookPath("pkg-config"); err != nil {
+			t.Skipf("%s uses pkg-config, which is not installed: %v", filepath.Base(dir), err)
+		}
+		return
 	}
 }
 
@@ -794,7 +833,7 @@ c/c.gp:3:13: cannot use "s" (untyped string constant) as int value in variable d
 # example.com/m/d
 d/d.gp:3:17: expected operand, found '}'
 `
-	if got := strings.ReplaceAll(errorText(t, prog, r, root, true), root, "$ROOT"); got != want {
+	if got := strings.ReplaceAll(errorText(t, prog, r, root, true), filepath.ToSlash(root), "$ROOT"); got != want {
 		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 	}
 	for _, cp := range r.Packages {
@@ -841,7 +880,7 @@ func TestCouldNotImport(t *testing.T) {
 a/a.gp:6:13: cannot use "s" (untyped string constant) as int value in variable declaration
 ./main.gp:6:13: cannot use "s" (untyped string constant) as int value in variable declaration
 `
-	if got := strings.ReplaceAll(b.String(), root, "$ROOT"); got != want {
+	if got := strings.ReplaceAll(slashed(b.String()), filepath.ToSlash(root), "$ROOT"); got != want {
 		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -189,6 +190,9 @@ func TestIsModuleRoot(t *testing.T) {
 }
 
 func TestCreateZipFolderCaseClash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Sub and sub are one folder on a file system that ignores case")
+	}
 	dir := writeTree(t, map[string]string{"Sub/x.h": "x", "sub/y.h": "y"})
 	var b bytes.Buffer
 	if err := CreateZip(context.Background(), &b, dir, "example.com/m", "v1.0.0"); err == nil || !strings.Contains(err.Error(), "differ only in case") {

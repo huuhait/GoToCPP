@@ -37,6 +37,16 @@ func goroot(t *testing.T) string {
 	return dir
 }
 
+// goVersion returns the version of the go command that goroot found, like "go1.25.14".
+func goVersion(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOVERSION").Output()
+	if err != nil {
+		t.Fatalf("go env GOVERSION: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // realGofmt returns the real gofmt, $GOROOT/bin/gofmt, or "" if it is not
 // there. Every Go install has it.
 func realGofmt(t *testing.T) string {

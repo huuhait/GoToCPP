@@ -24,6 +24,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// fileURL returns the file:// URL of the absolute folder dir: file:///tmp/x, and file:///C:/x on
+// Windows (the form the go command wants too).
+func fileURL(dir string) string {
+	path := filepath.ToSlash(dir)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return "file://" + path
+}
+
 // A tmod is a module version of a test proxy.
 type tmod struct {
 	Path, Version string
@@ -142,7 +152,7 @@ func newEnv(t *testing.T, gocppMod string, mods ...tmod) *env {
 func (e *env) reopen() {
 	e.cfg = &modfetch.Config{
 		CacheDir: e.cache,
-		Proxies:  []modfetch.Proxy{{URL: "file://" + e.proxy}},
+		Proxies:  []modfetch.Proxy{{URL: fileURL(e.proxy)}},
 	}
 	f, err := modfetch.New(e.cfg)
 	if err != nil {

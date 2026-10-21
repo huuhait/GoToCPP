@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +47,18 @@ func TestDownloadGood(t *testing.T) {
 		t.Errorf("progress = %q", progress.String())
 	}
 	// Read-only files and folders; the executable bit stays.
-	for rel, want := range map[string]fs.FileMode{"README.md": 0o444, "build.sh": 0o555, "include/tiny.h": 0o444, "include": fs.ModeDir | 0o555, ".": fs.ModeDir | 0o555} {
+	wantModes := map[string]fs.FileMode{
+		"README.md":      0o444,
+		"build.sh":       0o555,
+		"include/tiny.h": 0o444,
+		"include":        fs.ModeDir | 0o555,
+		".":              fs.ModeDir | 0o555,
+	}
+	if runtime.GOOS == "windows" {
+		// Windows has a read-only flag and no executable bit: build.sh is read-only like the others.
+		wantModes["build.sh"] = 0o444
+	}
+	for rel, want := range wantModes {
 		st, err := os.Stat(filepath.Join(m.Dir, rel))
 		if err != nil || st.Mode() != want {
 			t.Errorf("%s: mode %v (%v), want %v", rel, st.Mode(), err, want)
@@ -346,6 +358,9 @@ func TestNoCacheDir(t *testing.T) {
 func TestReadOnlyCacheDir(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can write anywhere")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows folder has no permission bits: Chmod cannot make it read-only")
 	}
 	h := newFakeHost(t)
 	h.tag("acme/tiny", tver, tarGz("", library("tiny-1.2.3")...))

@@ -108,7 +108,22 @@ func runDoc(t *testing.T, dir string, goos string, tags []string, args ...string
 		}
 		out += "--- error (exit " + string(rune('0'+status)) + "): " + err.Error() + "\n"
 	}
-	return strings.ReplaceAll(out, mod, "$MOD")
+	return moduleNamed(out, mod)
+}
+
+// belowModule matches what follows $MOD in a path: the rest of the path, up to a space, a quote or
+// a bracket.
+var belowModule = regexp.MustCompile(`\$MOD[^\s)'"]*`)
+
+// moduleNamed writes the folder mod as $MOD in out, and the paths below it with '/', as the golden
+// files have them: on Windows the folder is written with '\' (and in one message with '/').
+func moduleNamed(out, mod string) string {
+	if filepath.Separator == '/' {
+		return strings.ReplaceAll(out, mod, "$MOD")
+	}
+	out = strings.ReplaceAll(out, mod, "$MOD")
+	out = strings.ReplaceAll(out, filepath.ToSlash(mod), "$MOD")
+	return belowModule.ReplaceAllStringFunc(out, filepath.ToSlash)
 }
 
 var goldenCases = []struct {

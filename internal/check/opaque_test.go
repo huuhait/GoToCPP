@@ -674,6 +674,7 @@ func TestOpaqueExamples(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			skipWithoutPkgConfig(t, dir)
 			text, err := os.ReadFile(filepath.Join(dir, "main.gp"))
 			if err != nil {
 				t.Fatal(err)

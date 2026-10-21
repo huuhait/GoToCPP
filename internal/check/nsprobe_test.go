@@ -636,7 +636,13 @@ func main() { _ = std.vector[int]{}; _ = stdd.x }
 		}
 		p := mainPkg(t, prog, r)
 		// gocpp's language flags come last (build.LanguageFlags).
-		want := []string{"-I/nowhere", "-DX"}
+		// A folder that is not absolute is made absolute by the package's folder: "/nowhere" is
+		// not absolute on Windows.
+		nowhere := "/nowhere"
+		if runtime.GOOS == "windows" {
+			nowhere = filepath.Join(root, "nowhere")
+		}
+		want := []string{"-I" + nowhere, "-DX"}
 		probeWant := slices.Concat(want, build.LanguageFlags())
 		if len(rec.calls) != 1 || !slices.Equal(rec.calls[0].flags, probeWant) ||
 			!slices.Equal(p.ProbeFlags, probeWant) || !slices.Equal(p.Flags.Compile, want) {
@@ -764,14 +770,19 @@ func f() { fmt.Println(std.vector[int]{}, stdd.x) }
 	want := `# example.com/m
 ./b.gp:5:2: cannot check the header imports: no C++ compiler found: clang++ and g++ are not in PATH (GOCPP_CXX can name the compiler to use)
 `
-	if got := probeErrors(t, Config{Phase: LastPhase}, files); got != want {
-		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+	cfg := Config{Phase: LastPhase}
+	// A Windows host looks for a MinGW-w64 compiler, and says so in other words.
+	if runtime.GOOS != "windows" {
+		if got := probeErrors(t, cfg, files); got != want {
+			t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+		}
 	}
 	t.Setenv("GOCPP_CXX", "no-such-c++")
-	want = `# example.com/m
-./b.gp:5:2: cannot check the header imports: GOCPP_CXX: the C++ compiler "no-such-c++" was not found: exec: "no-such-c++": executable file not found in $PATH
-`
-	if got := probeErrors(t, Config{Phase: LastPhase}, files); got != want {
+	// exec's text names the variable of this system: $PATH, or %PATH% on Windows.
+	want = "# example.com/m\n" +
+		"./b.gp:5:2: cannot check the header imports: GOCPP_CXX: the C++ compiler \"no-such-c++\" " +
+		"was not found: exec: \"no-such-c++\": " + exec.ErrNotFound.Error() + "\n"
+	if got := probeErrors(t, cfg, files); got != want {
 		t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 	}
 }

@@ -770,6 +770,7 @@ func TestGateExamples(t *testing.T) {
 			want[name] = got
 		}
 		t.Run(name, func(t *testing.T) {
+			skipWithoutPkgConfig(t, dir)
 			all, ok := want[name]
 			if !ok {
 				t.Fatalf("not in %s (run with -update-gates)", examplesFile)

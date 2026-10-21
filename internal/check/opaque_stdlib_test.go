@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/testgo"
 )
 
 // TestOpaqueGoStdlib runs the opaque pass over the packages of Go's own
@@ -25,11 +27,19 @@ func TestOpaqueGoStdlib(t *testing.T) {
 		t.Skip("-short: the whole Go standard library takes a few seconds")
 	}
 	ctx := build.Default
+	// The go/types of this build reads the standard library of the same Go: another version may
+	// use syntax that it refuses (the GOROOT that is built into a test binary may be that of
+	// the machine that made it, and is not there on the machine that runs it).
+	version, err := os.ReadFile(filepath.Join(ctx.GOROOT, "VERSION"))
+	if err != nil {
+		t.Skipf("no Go library at %s: %v", ctx.GOROOT, err)
+	}
+	testgo.SkipUnlessModuleVersion(t, "the Go library", strings.SplitN(string(version), "\n", 2)[0])
 	src := filepath.Join(ctx.GOROOT, "src")
 	fset := token.NewFileSet()
 	imp := goimporter.ForCompiler(fset, "source", nil).(types.ImporterFrom)
 	checked, labeled := 0, 0
-	err := filepath.WalkDir(src, func(dir string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(src, func(dir string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

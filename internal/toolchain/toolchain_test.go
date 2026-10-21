@@ -176,15 +176,18 @@ func TestDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(f.Source, "downloaded") || !strings.HasSuffix(f.Path, "bin/x86_64-w64-mingw32-clang++") {
+	if !strings.Contains(f.Source, "downloaded") || !strings.HasSuffix(filepath.ToSlash(f.Path), "bin/x86_64-w64-mingw32-clang++") {
 		t.Errorf("found %+v", f)
 	}
 	if !strings.HasPrefix(f.Path, cfg.Dir()) {
 		t.Errorf("the compiler %s is not in %s", f.Path, cfg.Dir())
 	}
-	out, err := exec.Command(f.Path).Output()
-	if err != nil || string(out) != "fake\n" {
-		t.Errorf("running the unpacked compiler: %q, %v", out, err)
+	// The fake compiler is a shell script, which Windows cannot run.
+	if runtime.GOOS != "windows" {
+		out, err := exec.Command(f.Path).Output()
+		if err != nil || string(out) != "fake\n" {
+			t.Errorf("running the unpacked compiler: %q, %v", out, err)
+		}
 	}
 	if fi, err := os.Stat(filepath.Join(cfg.Dir(), "include", "a.h")); err != nil || fi.Mode().Perm()&0o222 != 0 {
 		t.Errorf("a.h is not read-only: %v %v", fi, err)
@@ -671,9 +674,16 @@ func TestRemove(t *testing.T) {
 func TestFromEnv(t *testing.T) {
 	t.Setenv("GOCPP_TOOLCHAIN", "pinned")
 	t.Setenv("GOCPP_TOOLCHAIN_URL", "https://mirror.example/llvm")
-	t.Setenv("XDG_CACHE_HOME", "/xdg")
+	// os.UserCacheDir looks at XDG_CACHE_HOME, and at LocalAppData on Windows.
+	cacheVar := "XDG_CACHE_HOME"
+	if runtime.GOOS == "windows" {
+		cacheVar = "LocalAppData"
+	}
+	cacheBase := t.TempDir()
+	t.Setenv(cacheVar, cacheBase)
 	cfg, err := FromEnv(true)
-	if err != nil || cfg.Mode != Pinned || cfg.BaseURL != "https://mirror.example/llvm" || cfg.Cache != "/xdg/gocpp" || !cfg.Download {
+	wantCache := filepath.Join(cacheBase, "gocpp")
+	if err != nil || cfg.Mode != Pinned || cfg.BaseURL != "https://mirror.example/llvm" || cfg.Cache != wantCache || !cfg.Download {
 		t.Errorf("FromEnv = %+v, %v", cfg, err)
 	}
 	u, err := cfg.archiveURL(Archive{Name: "a.tar.xz"})
@@ -684,8 +694,9 @@ func TestFromEnv(t *testing.T) {
 	if u, _ := cfg.archiveURL(Archive{Name: "a.tar.xz"}); u != DefaultBaseURL+"/a.tar.xz" {
 		t.Errorf("default URL = %q", u)
 	}
-	if want := "/xdg/gocpp/toolchain/llvm-mingw-" + Release + "-" + runtime.GOOS + "-" + runtime.GOARCH; cfg.Dir() != want {
-		t.Errorf("Dir = %q, want %q", cfg.Dir(), want)
+	wantDir := filepath.Join(wantCache, "toolchain", "llvm-mingw-"+Release+"-"+runtime.GOOS+"-"+runtime.GOARCH)
+	if cfg.Dir() != wantDir {
+		t.Errorf("Dir = %q, want %q", cfg.Dir(), wantDir)
 	}
 	t.Setenv("GOCPP_TOOLCHAIN", "sometimes")
 	if _, err := FromEnv(false); err == nil {

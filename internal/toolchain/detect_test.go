@@ -39,6 +39,15 @@ func TestMingwMachine(t *testing.T) {
 	}
 }
 
+// drive starts the fake absolute paths of the layouts: "/msys64" is not absolute on Windows, where
+// the detection ignores a variable that holds a path that is not absolute.
+var drive = func() string {
+	if runtime.GOOS == "windows" {
+		return "C:"
+	}
+	return ""
+}()
+
 // A layout is a fake machine: the files that exist, the PATH, the environment, what each compiler
 // says it builds.
 type layout struct {
@@ -89,6 +98,7 @@ func (l *layout) config() Config {
 			return out
 		},
 		Machine: func(p string) (string, error) {
+			p = filepath.ToSlash(p) // the layouts write '/', and a folder of the install comes with '\'
 			l.asked = append(l.asked, p)
 			if m, ok := l.machine[p]; ok {
 				return m, nil
@@ -109,52 +119,52 @@ func TestDetectOrder(t *testing.T) {
 		mustAsk []string
 	}{
 		{name: "prefixed clang in PATH wins, nothing is run",
-			l:    layout{files: []string{"/llvm/bin/x86_64-w64-mingw32-clang++.exe", "/llvm/bin/g++.exe"}, path: []string{"/llvm/bin"}, machine: map[string]string{"/llvm/bin/g++.exe": gcc}},
-			want: "/llvm/bin/x86_64-w64-mingw32-clang++.exe", source: "PATH", notAsk: []string{"/llvm/bin/g++.exe"}},
+			l:    layout{files: []string{drive + "/llvm/bin/x86_64-w64-mingw32-clang++.exe", drive + "/llvm/bin/g++.exe"}, path: []string{drive + "/llvm/bin"}, machine: map[string]string{drive + "/llvm/bin/g++.exe": gcc}},
+			want: drive + "/llvm/bin/x86_64-w64-mingw32-clang++.exe", source: "PATH", notAsk: []string{drive + "/llvm/bin/g++.exe"}},
 		{name: "WinLibs: plain g++ in PATH",
-			l:    layout{files: []string{"/winlibs/mingw64/bin/g++.exe"}, path: []string{"/winlibs/mingw64/bin"}, machine: map[string]string{"/winlibs/mingw64/bin/g++.exe": gcc}},
-			want: "/winlibs/mingw64/bin/g++.exe", source: "PATH"},
+			l:    layout{files: []string{drive + "/winlibs/mingw64/bin/g++.exe"}, path: []string{drive + "/winlibs/mingw64/bin"}, machine: map[string]string{drive + "/winlibs/mingw64/bin/g++.exe": gcc}},
+			want: drive + "/winlibs/mingw64/bin/g++.exe", source: "PATH"},
 		{name: "plain clang++ of Visual Studio's LLVM is refused, g++ after it is taken",
-			l: layout{files: []string{"/vs/llvm/clang++.exe", "/w/bin/g++.exe"}, path: []string{"/vs/llvm", "/w/bin"},
-				machine: map[string]string{"/vs/llvm/clang++.exe": msvc, "/w/bin/g++.exe": gcc}},
-			want: "/w/bin/g++.exe", source: "PATH", mustAsk: []string{"/vs/llvm/clang++.exe"}},
+			l: layout{files: []string{drive + "/vs/llvm/clang++.exe", drive + "/w/bin/g++.exe"}, path: []string{drive + "/vs/llvm", drive + "/w/bin"},
+				machine: map[string]string{drive + "/vs/llvm/clang++.exe": msvc, drive + "/w/bin/g++.exe": gcc}},
+			want: drive + "/w/bin/g++.exe", source: "PATH", mustAsk: []string{drive + "/vs/llvm/clang++.exe"}},
 		{name: "MSYS2's msys g++ in PATH is refused, the folder of ucrt64 is used",
-			l: layout{files: []string{"/msys64/usr/bin/g++.exe", "/msys64/ucrt64/bin/g++.exe"}, path: []string{"/msys64/usr/bin"},
-				machine: map[string]string{"/msys64/usr/bin/g++.exe": "x86_64-pc-msys", "/msys64/ucrt64/bin/g++.exe": gcc}, env: map[string]string{"MSYS2_ROOT": "/msys64"}},
-			want: "/msys64/ucrt64/bin/g++.exe", source: "MSYS2 ucrt64"},
+			l: layout{files: []string{drive + "/msys64/usr/bin/g++.exe", drive + "/msys64/ucrt64/bin/g++.exe"}, path: []string{drive + "/msys64/usr/bin"},
+				machine: map[string]string{drive + "/msys64/usr/bin/g++.exe": "x86_64-pc-msys", drive + "/msys64/ucrt64/bin/g++.exe": gcc}, env: map[string]string{"MSYS2_ROOT": drive + "/msys64"}},
+			want: drive + "/msys64/ucrt64/bin/g++.exe", source: "MSYS2 ucrt64"},
 		{name: "MSYS2 prefers ucrt64, then clang64, then mingw64",
-			l: layout{files: []string{"/m/mingw64/bin/g++.exe", "/m/clang64/bin/clang++.exe", "/m/ucrt64/bin/g++.exe"},
-				machine: map[string]string{"/m/mingw64/bin/g++.exe": gcc, "/m/clang64/bin/clang++.exe": clang, "/m/ucrt64/bin/g++.exe": gcc}, env: map[string]string{"MSYS2_ROOT": "/m"}},
-			want: "/m/ucrt64/bin/g++.exe", source: "MSYS2 ucrt64"},
+			l: layout{files: []string{drive + "/m/mingw64/bin/g++.exe", drive + "/m/clang64/bin/clang++.exe", drive + "/m/ucrt64/bin/g++.exe"},
+				machine: map[string]string{drive + "/m/mingw64/bin/g++.exe": gcc, drive + "/m/clang64/bin/clang++.exe": clang, drive + "/m/ucrt64/bin/g++.exe": gcc}, env: map[string]string{"MSYS2_ROOT": drive + "/m"}},
+			want: drive + "/m/ucrt64/bin/g++.exe", source: "MSYS2 ucrt64"},
 		{name: "MSYS2 clang64 alone",
-			l:    layout{files: []string{"/m/clang64/bin/clang++.exe"}, machine: map[string]string{"/m/clang64/bin/clang++.exe": clang}, env: map[string]string{"MSYS2_ROOT": "/m"}},
-			want: "/m/clang64/bin/clang++.exe", source: "MSYS2 clang64"},
+			l:    layout{files: []string{drive + "/m/clang64/bin/clang++.exe"}, machine: map[string]string{drive + "/m/clang64/bin/clang++.exe": clang}, env: map[string]string{"MSYS2_ROOT": drive + "/m"}},
+			want: drive + "/m/clang64/bin/clang++.exe", source: "MSYS2 clang64"},
 		{name: "Chocolatey's mingw",
-			l: layout{files: []string{"/choco/lib/mingw/tools/install/mingw64/bin/g++.exe"}, env: map[string]string{"ChocolateyInstall": "/choco"},
-				machine: map[string]string{"/choco/lib/mingw/tools/install/mingw64/bin/g++.exe": gcc}},
-			want: "/choco/lib/mingw/tools/install/mingw64/bin/g++.exe", source: "Chocolatey mingw"},
+			l: layout{files: []string{drive + "/choco/lib/mingw/tools/install/mingw64/bin/g++.exe"}, env: map[string]string{"ChocolateyInstall": drive + "/choco"},
+				machine: map[string]string{drive + "/choco/lib/mingw/tools/install/mingw64/bin/g++.exe": gcc}},
+			want: drive + "/choco/lib/mingw/tools/install/mingw64/bin/g++.exe", source: "Chocolatey mingw"},
 		{name: "Scoop's mingw-winlibs",
-			l: layout{files: []string{"/u/scoop/apps/mingw-winlibs/current/bin/g++.exe"}, env: map[string]string{"USERPROFILE": "/u"},
-				machine: map[string]string{"/u/scoop/apps/mingw-winlibs/current/bin/g++.exe": gcc}},
-			want: "/u/scoop/apps/mingw-winlibs/current/bin/g++.exe", source: "Scoop mingw-winlibs"},
+			l: layout{files: []string{drive + "/u/scoop/apps/mingw-winlibs/current/bin/g++.exe"}, env: map[string]string{"USERPROFILE": drive + "/u"},
+				machine: map[string]string{drive + "/u/scoop/apps/mingw-winlibs/current/bin/g++.exe": gcc}},
+			want: drive + "/u/scoop/apps/mingw-winlibs/current/bin/g++.exe", source: "Scoop mingw-winlibs"},
 		{name: "Scoop's llvm-mingw has the prefixed name: no question asked",
-			l:    layout{files: []string{"/s/apps/llvm-mingw/current/bin/x86_64-w64-mingw32-clang++.exe"}, env: map[string]string{"SCOOP": "/s"}},
-			want: "/s/apps/llvm-mingw/current/bin/x86_64-w64-mingw32-clang++.exe", source: "Scoop llvm-mingw"},
+			l:    layout{files: []string{drive + "/s/apps/llvm-mingw/current/bin/x86_64-w64-mingw32-clang++.exe"}, env: map[string]string{"SCOOP": drive + "/s"}},
+			want: drive + "/s/apps/llvm-mingw/current/bin/x86_64-w64-mingw32-clang++.exe", source: "Scoop llvm-mingw"},
 		{name: "WinGet's WinLibs",
-			l: layout{files: []string{"/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe"}, env: map[string]string{"LOCALAPPDATA": "/l"},
-				machine: map[string]string{"/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe": gcc}},
-			want: "/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe", source: "WinGet WinLibs"},
+			l: layout{files: []string{drive + "/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe"}, env: map[string]string{"LOCALAPPDATA": drive + "/l"},
+				machine: map[string]string{drive + "/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe": gcc}},
+			want: drive + "/l/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_x/mingw64/bin/g++.exe", source: "WinGet WinLibs"},
 		{name: "a known folder with a compiler of another target is refused",
-			l:    layout{files: []string{"/m/mingw64/bin/g++.exe"}, machine: map[string]string{"/m/mingw64/bin/g++.exe": "i686-w64-mingw32"}, env: map[string]string{"MSYS2_ROOT": "/m"}},
+			l:    layout{files: []string{drive + "/m/mingw64/bin/g++.exe"}, machine: map[string]string{drive + "/m/mingw64/bin/g++.exe": "i686-w64-mingw32"}, env: map[string]string{"MSYS2_ROOT": drive + "/m"}},
 			want: ""},
 		{name: "a compiler that does not run is skipped",
-			l:    layout{files: []string{"/w/bin/g++.exe"}, path: []string{"/w/bin"}},
+			l:    layout{files: []string{drive + "/w/bin/g++.exe"}, path: []string{drive + "/w/bin"}},
 			want: ""},
 		{name: "nothing at all", l: layout{}, want: ""},
 		{name: "PATH wins over a known folder",
-			l: layout{files: []string{"/p/bin/g++.exe", "/m/ucrt64/bin/g++.exe"}, path: []string{"/p/bin"}, env: map[string]string{"MSYS2_ROOT": "/m"},
-				machine: map[string]string{"/p/bin/g++.exe": gcc, "/m/ucrt64/bin/g++.exe": gcc}},
-			want: "/p/bin/g++.exe", source: "PATH", notAsk: []string{"/m/ucrt64/bin/g++.exe"}},
+			l: layout{files: []string{drive + "/p/bin/g++.exe", drive + "/m/ucrt64/bin/g++.exe"}, path: []string{drive + "/p/bin"}, env: map[string]string{"MSYS2_ROOT": drive + "/m"},
+				machine: map[string]string{drive + "/p/bin/g++.exe": gcc, drive + "/m/ucrt64/bin/g++.exe": gcc}},
+			want: drive + "/p/bin/g++.exe", source: "PATH", notAsk: []string{drive + "/m/ucrt64/bin/g++.exe"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := c.l.config()

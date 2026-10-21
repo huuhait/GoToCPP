@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/testgo"
 )
 
 // TestStdlib formats every Go file of the Go standard library with Source:
@@ -29,6 +31,9 @@ func TestStdlib(t *testing.T) {
 	if gofmt == "" {
 		t.Skip("there is no real gofmt in $GOROOT/bin")
 	}
+	// Source reads the syntax of the Go that go.mod names (internal/syntax): the library of a newer
+	// Go may use syntax that it refuses (Go 1.27 has methods with type parameters).
+	testgo.SkipUnlessModuleVersion(t, "the Go library", goVersion(t))
 	src := filepath.Join(goroot(t), "src")
 	files := stdlibFiles(t, src)
 	// A wrong folder or a broken walk would make this test pass without

@@ -331,7 +331,10 @@ func TestStaleDownloadFoldersAreSwept(t *testing.T) {
 }
 
 func TestMessagesAreNotDoubleNegatives(t *testing.T) {
-	cfg := Config{Mode: Local, Cache: t.TempDir(), LookPath: func(string) (string, error) { return "", errors.New("no") }}
+	// A Linux host builds for Windows, whatever system the test runs on (a Windows host looks in
+	// the folders of its installs and says so).
+	cfg := Config{Mode: Local, Host: "linux/amd64", Cache: t.TempDir(),
+		LookPath: func(string) (string, error) { return "", errors.New("no") }}
 	_, err := resolve(t, cfg)
 	if err == nil || strings.Contains(err.Error(), "is not in PATH") || !strings.Contains(err.Error(), "neither x86_64-w64-mingw32-clang++ nor x86_64-w64-mingw32-g++ is in PATH") {
 		t.Errorf("local: %v", err)

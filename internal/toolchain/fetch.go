@@ -310,7 +310,8 @@ func unpack(r io.Reader, root string, compressed bool) error {
 			if err := rt.MkdirAll(path.Dir(name), 0o755); err != nil {
 				return err
 			}
-			if err := rt.Symlink(h.Linkname, name); err != nil {
+			// The target has '/' in the archive; Windows wants its own separator in a relative target.
+			if err := rt.Symlink(filepath.FromSlash(h.Linkname), name); err != nil {
 				return err
 			}
 		default:

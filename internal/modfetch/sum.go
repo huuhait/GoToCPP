@@ -61,7 +61,9 @@ func readSmall(name string) ([]byte, error) { return ReadRegular(name, maxSumFil
 // may be a link to one): a device such as /dev/zero, a FIFO or a folder is an
 // error and is not read, and a file that grows is cut at the limit.
 func ReadRegular(name string, max int64) ([]byte, error) {
-	f, err := os.Open(name)
+	// fsretry.Open: another gocpp that replaces the file by a rename makes it unreadable for a
+	// moment on Windows.
+	f, err := fsretry.Open(name)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -859,19 +860,41 @@ func syncDir(dir string) {
 	}
 }
 
-// LockProject takes an exclusive lock on the folder of a project (gocpp.mod is in
-// it), which every gocpp that changes the project's files respects, also when there
-// is no module cache. It waits until ctx ends and returns the function that
-// releases it. Where the system has no file locks the lock is only for this process.
+// projectLockKey names a project for its lock: the absolute, clean path of its folder, and on
+// Windows in lower case too. Windows file systems ignore case, so C:\X and c:\x are one
+// project; where a folder does keep case apart, the two projects only wait for each other
+// without need, which does no harm. windows says which rule applies (a parameter so that a
+// test can run both).
+func projectLockKey(dir string, windows bool) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	dir = filepath.Clean(dir)
+	if windows {
+		dir = strings.ToLower(dir)
+	}
+	return dir
+}
+
+// LockProject takes an exclusive lock for a project (gocpp.mod is in its folder), which
+// every gocpp that changes the project's files respects, also when there is no module
+// cache. It waits until ctx ends and returns the function that releases it. Where the
+// system has no file locks the lock is only for this process.
+//
+// On Unix the lock is on the project's folder itself. Windows cannot lock a folder, so
+// there it is on the file os.TempDir()/gocpp-project-<hash>.lock, named from a hash of
+// the project's absolute path (see projectLockKey), which is deleted when the lock is
+// given up.
 func LockProject(ctx context.Context, dir string) (func(), error) {
-	semAny, _ := inflight.LoadOrStore("project:"+dir, make(chan struct{}, 1))
+	key := "project:" + projectLockKey(dir, runtime.GOOS == "windows")
+	semAny, _ := inflight.LoadOrStore(key, make(chan struct{}, 1))
 	sem := semAny.(chan struct{})
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
 		return nil, fmt.Errorf("waiting for another gocpp that changes %s: %v", dir, ctx.Err())
 	}
-	d, err := os.Open(dir)
+	d, removeLock, err := openProjectLock(dir)
 	if err != nil {
 		<-sem
 		return nil, err
@@ -884,6 +907,7 @@ func LockProject(ctx context.Context, dir string) (func(), error) {
 		}
 		if err != nil {
 			d.Close()
+			removeLock()
 			<-sem
 			return nil, err
 		}
@@ -894,6 +918,7 @@ func LockProject(ctx context.Context, dir string) (func(), error) {
 		select {
 		case <-ctx.Done():
 			d.Close()
+			removeLock()
 			<-sem
 			return nil, fmt.Errorf("waiting for another gocpp that changes %s: %v", dir, ctx.Err())
 		case <-time.After(50 * time.Millisecond):
@@ -904,6 +929,7 @@ func LockProject(ctx context.Context, dir string) (func(), error) {
 			funlock(d)
 		}
 		d.Close()
+		removeLock()
 		<-sem
 	}, nil
 }

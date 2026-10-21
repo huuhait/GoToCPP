@@ -2,8 +2,10 @@ package modfetch
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -63,11 +65,16 @@ func TestVendor(t *testing.T) {
 	if got := readTree(t, tiny); len(got) != 3 || got["include/tiny.h"] != libFiles()["include/tiny.h"] {
 		t.Errorf("vendored tiny = %v", got)
 	}
-	if st, _ := os.Stat(filepath.Join(tiny, "README.md")); st.Mode().Perm() != 0o644 {
-		t.Errorf("mode %v", st.Mode())
+	wantFileMode, wantScriptMode := fs.FileMode(0o644), fs.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		// No permission bits for others, and no executable bit: a writable file shows as 0666.
+		wantFileMode, wantScriptMode = 0o666, 0o666
 	}
-	if st, _ := os.Stat(filepath.Join(tiny, "build.sh")); st.Mode().Perm() != 0o755 {
-		t.Errorf("mode %v", st.Mode())
+	if st, _ := os.Stat(filepath.Join(tiny, "README.md")); st.Mode().Perm() != wantFileMode {
+		t.Errorf("mode %v, want %v", st.Mode(), wantFileMode)
+	}
+	if st, _ := os.Stat(filepath.Join(tiny, "build.sh")); st.Mode().Perm() != wantScriptMode {
+		t.Errorf("mode %v, want %v", st.Mode(), wantScriptMode)
 	}
 	if got, err := HashDir(context.Background(), tiny, tmod, tver); err != nil || got != goHash(tmod+"@"+tver, libFiles()) {
 		t.Errorf("hash of the copy: %s %v", got, err)

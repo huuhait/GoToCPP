@@ -1,6 +1,7 @@
 package fsretry
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,5 +37,26 @@ func TestRenameFolderOntoFolder(t *testing.T) {
 	// test has no wall-clock bound, it checks the outcome).
 	if err := Rename(from, to); err == nil {
 		t.Fatal("renamed a folder onto a non-empty folder")
+	}
+}
+
+func TestOpen(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(name, []byte("content"), 0o644)
+	file, err := Open(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if got, _ := io.ReadAll(file); string(got) != "content" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+func TestOpenMissingFileFailsAtOnce(t *testing.T) {
+	// A missing file is an error at once, not after a wait: it is not an error that passes.
+	_, err := Open(filepath.Join(t.TempDir(), "none"))
+	if !os.IsNotExist(err) {
+		t.Errorf("missing file: %v", err)
 	}
 }

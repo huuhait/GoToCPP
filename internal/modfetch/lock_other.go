@@ -10,3 +10,10 @@ import "os"
 func flock(f *os.File) (bool, error) { return true, nil }
 
 func funlock(f *os.File) {}
+
+// openProjectLock opens the folder of the project, which is what LockProject "locks" (there is no
+// file lock here). removeLock has nothing to do.
+func openProjectLock(dir string) (lock *os.File, removeLock func(), err error) {
+	lock, err = os.Open(dir)
+	return lock, func() {}, err
+}

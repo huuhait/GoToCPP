@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/huuhait/gocpp/internal/testgo"
 )
 
 // The differential test: the same packages as .go files and as .gp files, and
@@ -83,9 +85,17 @@ func newGoDoc(t *testing.T) *goDoc {
 	if err != nil {
 		t.Skipf("go is not installed: %v", err)
 	}
+	// go doc must be the Go that the port follows (go.mod): a newer one prints other texts and
+	// refuses other flags (Go 1.27 refuses -all with -short).
+	out, err := exec.Command(bin, "env", "GOVERSION").Output()
+	if err != nil {
+		t.Fatalf("go env GOVERSION: %v", err)
+	}
+	testgo.SkipUnlessModuleVersion(t, "go", string(out))
 	tmp := t.TempDir()
+	// Run (below) documents for linux/amd64, so go doc must too, not for the system of the test.
 	return &goDoc{goBin: bin, env: append(os.Environ(),
-		"GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=", "GOWORK=off", "GO111MODULE=on", "GOOS=", "GOARCH=",
+		"GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=", "GOWORK=off", "GO111MODULE=on", "GOOS=linux", "GOARCH=amd64",
 		"GOCACHE="+filepath.Join(tmp, "cache"), "GOPATH="+filepath.Join(tmp, "path"), "GOMODCACHE="+filepath.Join(tmp, "mod"))}
 }
 

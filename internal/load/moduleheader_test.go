@@ -374,7 +374,8 @@ func TestModuleHeaderErrors(t *testing.T) {
 			}
 			root := writeTree(t, fs)
 			prog := loadIn(t, Config{}, filepath.Join(root, "app"), ".")
-			want := "# example.com/app\napp/main.gp:4:2: " + tc.want + "\n"
+			// errorText writes '/' for a Windows separator, in a path from the test too.
+			want := slashed("# example.com/app\napp/main.gp:4:2: " + tc.want + "\n")
 			if got := errorText(t, prog, root); got != want {
 				t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 			}

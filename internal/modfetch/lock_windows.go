@@ -5,6 +5,7 @@ package modfetch
 import (
 	"errors"
 	"os"
+	"path/filepath"
 
 	"github.com/huuhait/gocpp/internal/filelock"
 )
@@ -20,3 +21,20 @@ func flock(f *os.File) (ok bool, err error) {
 }
 
 func funlock(f *os.File) { filelock.Unlock(f) }
+
+// openProjectLock opens what LockProject locks. LockFileEx does not lock a folder (it fails with
+// "The parameter is incorrect"), so on Windows it is a file of the temporary folder whose name
+// comes from the hash of the project's absolute path (lower case): a project is only changed by the gocpp processes of one user, and
+// a file inside the project would show up in its listings and in version control.
+//
+// removeLock deletes the file after it was closed. Windows refuses to delete a file that another
+// process has open, so a gocpp that waits for the lock (it has the file open) keeps it, and the
+// file never goes away under a holder.
+func openProjectLock(dir string) (lock *os.File, removeLock func(), err error) {
+	name := filepath.Join(os.TempDir(), "gocpp-project-"+hashName(projectLockKey(dir, true))+".lock")
+	lock, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, nil, err
+	}
+	return lock, func() { os.Remove(name) }, nil
+}

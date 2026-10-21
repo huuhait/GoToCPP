@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -355,8 +356,11 @@ func TestSaveSumsIsAtomic(t *testing.T) {
 		default:
 		}
 		s, err := LoadSums(dir)
-		if err != nil || len(s.Lines()) < 4000 {
-			t.Fatalf("a reader saw a damaged gocpp.sum after %d reads: %v (%d lines)", reads, err, len(s.Lines()))
+		if err != nil {
+			t.Fatalf("a reader saw a damaged gocpp.sum after %d reads: %v", reads, err)
+		}
+		if lines := len(s.Lines()); lines < 4000 {
+			t.Fatalf("a reader saw a damaged gocpp.sum after %d reads: %d lines", reads, lines)
 		}
 		reads++
 	}
@@ -455,8 +459,13 @@ func TestTagListIsQuoted(t *testing.T) {
 
 func TestSymlinkedFilesAndDevices(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := ReadRegular("/dev/zero", 1<<20); err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Errorf("/dev/zero: %v", err)
+	// A device that never ends is not read: /dev/zero, or NUL (which is empty) on Windows.
+	device := "/dev/zero"
+	if runtime.GOOS == "windows" {
+		device = os.DevNull
+	}
+	if _, err := ReadRegular(device, 1<<20); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("%s: %v", device, err)
 	}
 	if _, err := ReadRegular(dir, 1<<20); err == nil {
 		t.Error("a folder was read")
@@ -486,16 +495,22 @@ func TestSymlinkedFilesAndDevices(t *testing.T) {
 }
 
 func TestDefaultCacheDirWithoutHome(t *testing.T) {
+	// os.UserCacheDir looks at XDG_CACHE_HOME and HOME, and at LocalAppData on Windows.
+	cacheVar := "XDG_CACHE_HOME"
+	if runtime.GOOS == "windows" {
+		cacheVar = "LocalAppData"
+	}
 	t.Setenv("HOME", "")
-	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv(cacheVar, "")
 	t.Setenv("GOCPP_MODCACHE", "")
 	cfg, err := ConfigFromEnv(os.Getenv, nil)
 	if err != nil || cfg.CacheDir != "" {
 		t.Errorf("without HOME: %q, %v", cfg.CacheDir, err)
 	}
-	t.Setenv("XDG_CACHE_HOME", "/xdg")
+	cacheBase := t.TempDir()
+	t.Setenv(cacheVar, cacheBase)
 	cfg, _ = ConfigFromEnv(os.Getenv, nil)
-	if cfg.CacheDir != filepath.Join("/xdg", "gocpp", "mod") {
+	if cfg.CacheDir != filepath.Join(cacheBase, "gocpp", "mod") {
 		t.Errorf("default = %q", cfg.CacheDir)
 	}
 	t.Setenv("GOCPP_MODCACHE", "off")
