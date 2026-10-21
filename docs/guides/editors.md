@@ -137,12 +137,30 @@ index supplies completion names after a header package (`api.` for `import "./ap
 namespace (`std.`, including renamed and nested namespaces). The default opaque mode is unchanged.
 The first request can have no C/C++ candidates; ask again after indexing finishes. Missing or failed
 clang leaves the existing Go answers intact and does not delay diagnostics. Names and macros are
-indexed, not signatures or locations: C++ value members, detailed hover and declaration definitions
-are still separate work. Conservatively, any open document whose path does not end in `.gp` disables
+indexed, not signatures or locations; detailed foreign hover and declaration definitions remain
+separate work. Conservatively, any open document whose path does not end in `.gp` disables
 these names until it is closed, even if that document is not a C/C++ header. The index reads saved
 headers, not unsaved header overlays. Results are isolated by snapshot, flags, compiler,
-target and header contents, with a 32 MiB / 128-entry in-memory completion cache and the existing
-bounded typed-probe disk cache. Shutdown cancels and joins index workers.
+target and header contents, with a 32 MiB / 128-entry in-memory header-completion cache and the
+existing bounded typed-probe disk cache. Shutdown cancels and joins background completion workers.
+
+Background member completion also supports bound C++ variable identifiers in the original checked
+source: explicitly typed or constructed locals, representable aliases and explicit pointers. It uses
+the exact variable binding and probed type, not the variable's spelling. Calls, dereferences,
+promoted/nested receivers, smart-pointer inference, unrepresentable aliases, and repaired or stale
+views do not borrow these facts. They keep the existing fallback answers. Member work has two
+workers and a separate 32 MiB / 16-entry retained-input-and-result budget; oversized inputs are
+skipped. No completion request or ordinary diagnostic waits for this work.
+
+Only validated unqualified member names are offered, without guessed signatures or field/method
+kinds. Some groups, such as methods with unsupported dependent argument types, are omitted; a
+partial result's items say `C/C++ member (partial result)`. For clients that inspect the protocol,
+the optional, nonstandard CompletionList field `x-gocpp-members` contains `ready` and `incomplete`:
+`ready: false` means no usable facts are available (pending, failed or unsupported), while
+`ready: true, incomplete: true` means a validated partial result, which can also be empty. A ready
+complete result has `incomplete: false`. This is separate from ordinary LSP `isIncomplete`, which
+remains true for the server's usual prefix-filtering behavior. It is not a guarantee about every
+C++ expression or the viability of a particular argument list.
 
 **Symbols.** The outline of a file (functions, methods, types with their fields, constants,
 variables) comes from its syntax tree alone, so it works while the file has errors. Workspace

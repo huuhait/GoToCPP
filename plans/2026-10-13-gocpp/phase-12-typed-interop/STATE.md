@@ -33,8 +33,9 @@
   - [x] 12.13a Background header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache); clean review and focused manager integration checks
   - [x] 12.13a Opt-in header-package (`raylib.`) and namespace (`std.`) completion from completed immutable facts
   - [x] 12.13b1 Bounded receiver-member probe primitive: compiler-validated accessible names, explicit partial results, clean independent review and focused manager checks; not yet editor member completion
-  - [~] 12.13b2 Background receiver facts and member completion on C++ values; preserve request responsiveness and explicit partial-result status
-  - [ ] hover + go-to-definition into headers
+  - [x] 12.13b2 Background member completion for proven original variable bindings; clean review and focused manager checks, explicit partial status and compiler-free requests
+  - [~] 12.13c1 Proven foreign-variable type hover from completed background facts; no new synchronous probing
+  - [ ] Richer named API/member hover and go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
   - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
@@ -51,6 +52,23 @@
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
+
+- 2026-10-20: Bounded 12.13b2 integrated from reviewed source `b8d00d15` after clean
+  revision-3 whole-net review. Original bound variable identifiers use completed background
+  receiver/member facts; arbitrary, nested, dereferenced, repaired and stale receivers still
+  fall back. Two workers, 16 entries, a 32 MiB retained-input/fact budget, and bounded queries
+  prevent unbounded queued AST ownership. Cancellation, refresh generations and joined
+  shutdown protect publication. Optional `x-gocpp-members` ready/incomplete status preserves
+  empty/partial/unavailable distinctions without changing ordinary prefix-filtering semantics.
+  A composed input guard covers receiver analysis and member queries, including compiler-
+  supplied include paths with caching off and relative/dot/parent/symlink traversal anchored
+  to the compiler working directory. This fixed both reviewed shadow-header reproductions.
+  Manager checks passed on the integrated tree: 14-file snapshot match, input/search and
+  legacy compatibility, exact-binding/repair/header-refresh behavior, bounded worker state,
+  immutability, blocked-compiler progress/shutdown, focused races and all 224 docsite pages.
+  No selected case skipped. No full latency, Windows or arbitrary-expression acceptance is
+  claimed. Next is 12.13c1 type hover for already-proven variable bindings; richer named API
+  hover, declaration locations/definitions and VFS overlays remain separate.
 
 - 2026-10-20: 12.13b1 integrated from reviewed source `4538ce11` after clean revision-2
   whole-net review. `Runner.Members` enumerates candidates and validates unqualified

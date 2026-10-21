@@ -21,7 +21,8 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.7a: existing compiler-cache launcher support documented and tested, with clean review and manager checks. Real-cache statistics were not measured because the tools were unavailable; remaining 15.7 work stays open.
 - [x] 12.13a: opt-in background header/namespace completion integrated after clean revision-5 review and focused manager checks; canonical namespace lookup, bounded immutable facts, invalidation and cancellation verified. Default opaque mode unchanged; full latency/platform acceptance remains open.
 - [x] 12.13b1: validated receiver-member query primitive integrated after clean review and focused manager checks. Unknown groups are explicitly incomplete; ambiguous/deleted/unavailable names are excluded. No LSP/default change.
-- [~] 12.13b2: background receiver facts and editor member completion from the validated primitive; no compiler work on request paths and no claims for unsupported receiver forms.
+- [x] 12.13b2: bounded background member completion integrated after clean revision-3 review and manager checks. Exact original variable bindings, partial status, cancellation and composed input/search-path identity verified; no full latency/platform claim.
+- [~] 12.13c1: proven foreign-variable type hover from completed background facts; broader named API hover/header definitions remain separate.
 - [x] 11.14b: current-implementation rapid-edit and settle-active measurements independently reviewed and recomputed by the manager; eight consistent wins, four inconclusive small typing rows, no qualifying slowdown. No source change; every-row/all-project acceptance remains open.
 - [x] 9.13a: release-preparation notes, distribution notices, reserved module filename and Nix phase-gating fixes integrated after clean re-review and focused source/integrated manager checks. Full 9.13/M6 remain open; no tag or release is authorized.
 - [x] 15.6a: proven-concrete interface calls integrated after clean review and focused source/integration checks; ownership, ordering, nil/recover behavior and dynamic fallback preserved. Kernel speedups are not whole-project performance acceptance.
@@ -29,6 +30,7 @@ Every item is built through the manager → coder → reviewer loop in [WORKFLOW
 - [x] 15.6b: existing range-bound snapshots and failure-branch hints documented and regression-tested, with clean review and integrated manager checks. No compiler/runtime optimization or new speedup claim.
 - [x] 15.7c: isolated header-unit evaluation integrated after clean review and manager evidence/synthetic/doc checks. Warm package-header reuse improves, but construction plus one replay is slower; keep the production PCH. No module adoption or full 15.7 acceptance.
 - [x] 15.4: bounded ownership experiment integrated after clean review and manager GCC/Clang checks. Retain the isolated prototype/raw results; production ownership and ADR-004 stay unchanged. Full compatibility, application performance and platform acceptance remain open.
+- [~] Parallel isolated jobs: 15.12 arm64/Windows pipeline workflow validation; Phase 10 derive acceptance fixtures; fresh matched LSP gap measurements; focused real-Windows load-test portability. Each needs independent review and manager integration; no result is accepted yet.
 - [ ] Next: remaining 12.13 editor features and real external-cache measurements when prerequisites are available.
 
 At most five active workers, including reviewers; start the next review as its coder releases a slot.

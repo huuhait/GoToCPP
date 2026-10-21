@@ -34,8 +34,8 @@ import (
 // the file of the declaration, which is too much for every candidate of a
 // big package (gopls has it in the list).
 //
-// Header and namespace names (raylib., std.) use completed background index facts
-// when typed interop is enabled. C/C++ values still await member completion (12.13b).
+// Header/namespace names and supported C/C++ variable receivers use completed background
+// facts when typed interop is enabled. No request waits for their compiler work.
 
 // completion holds what completion learned from initialize, and the index
 // of the packages to import.
@@ -159,6 +159,9 @@ func (s *Server) completion(ctx context.Context, e env, params json.RawMessage) 
 			AdditionalTextEdits: imports,
 		}
 		list.Items = append(list.Items, item)
+	}
+	if c.memberStatus != nil {
+		return memberCompletionList{CompletionList: list, Members: c.memberStatus}, nil
 	}
 	return list, nil
 }

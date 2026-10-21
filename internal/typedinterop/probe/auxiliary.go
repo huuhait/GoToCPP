@@ -196,25 +196,45 @@ func withToolchain(pre string, tc toolchain) string {
 // include path with the flags' -I and -isystem), from `-E -v`, when there is no cached toolchain.
 // The answer is kept for the life of the Runner. It is nil when the compiler does not say.
 func (rn *Runner) searchDirs(ctx context.Context, cfg Config) []string {
+	dirs, _ := rn.searchDirsChecked(ctx, cfg)
+	dirs = slices.Clone(dirs)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
+	}
+	return dirs
+}
+
+// searchDirsChecked is the same discovery with a completeness requirement for input guards.
+// Unlike toolchain, it also asks the compiler when persistent caching is disabled.
+func (rn *Runner) searchDirsChecked(ctx context.Context, cfg Config) ([]string, error) {
 	key := PreKey(cfg, &Source{Text: "search-dirs"})
 	rn.mu.Lock()
 	dirs, ok := rn.dirsMemo[key]
 	rn.mu.Unlock()
 	if ok {
-		return dirs
+		return dirs, nil
 	}
 	out, err := runAux(ctx, cfg, []string{"-E", "-v", "-o", os.DevNull}, "#include <cstddef>\n")
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	dirs = parseSearchDirs(out.stderr)
+	dirs = rawSearchDirs(out.stderr)
+	if out.exitErr != nil || out.timedOut || out.truncated ||
+		!strings.Contains(string(out.stderr), "End of search list.") {
+		// Older best-effort callers may still use the parsed paths; strict input guards
+		// reject them, and an incomplete answer is never memoized as a complete one.
+		return dirs, fmt.Errorf("incomplete compiler search path (%v)", out.exitErr)
+	}
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("compiler supplied no include search path")
+	}
 	rn.mu.Lock()
 	if rn.dirsMemo == nil {
 		rn.dirsMemo = make(map[string][]string)
 	}
 	rn.dirsMemo[key] = dirs
 	rn.mu.Unlock()
-	return dirs
+	return dirs, nil
 }
 
 // parseSearchDirs reads the lists that `clang -v` prints:
@@ -224,6 +244,15 @@ func (rn *Runner) searchDirs(ctx context.Context, cfg Config) []string {
 //	 /usr/include
 //	End of search list.
 func parseSearchDirs(stderr []byte) []string {
+	dirs := rawSearchDirs(stderr)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
+	}
+	return dirs
+}
+
+// Strict guards retain dot/parent spellings: cleaning them can change symlink traversal.
+func rawSearchDirs(stderr []byte) []string {
 	var dirs []string
 	in := false
 	for _, line := range strings.Split(string(stderr), "\n") {
@@ -236,7 +265,7 @@ func parseSearchDirs(stderr []byte) []string {
 		case in && strings.HasPrefix(line, " "):
 			d := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "(framework directory)"))
 			if d != "" {
-				dirs = append(dirs, filepath.Clean(d))
+				dirs = append(dirs, d)
 			}
 		}
 	}

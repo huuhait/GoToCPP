@@ -341,6 +341,7 @@ func (s *Snapshot) Package(ctx context.Context, dir string) (*Package, error) {
 	pkg, err := st.p.packageOf(ctx, h)
 	if err == nil {
 		s.scheduleHeaders(pkg)
+		s.scheduleMembers(pkg)
 	}
 	return pkg, err
 }

@@ -90,11 +90,12 @@ type completer struct {
 	wantType bool       // the place wants a type: var x T
 	lit      *compLit   // a struct literal whose field names the place may want
 
-	importable []importable // the packages to import (importables), once
-	cands      []*candidate
-	seen       map[types.Object]bool
-	names      map[string]bool                // the names in scope that are offered (shadowing)
-	imports    map[string][]protocol.TextEdit // the edits that add an import, by path (importEdit)
+	importable   []importable // the packages to import (importables), once
+	cands        []*candidate
+	memberStatus *memberCompletionStatus
+	seen         map[types.Object]bool
+	names        map[string]bool                // the names in scope that are offered (shadowing)
+	imports      map[string][]protocol.TextEdit // the edits that add an import, by path (importEdit)
 }
 
 // A compLit is the struct literal around the cursor (gopls's compLitInfo).
@@ -360,6 +361,7 @@ func (c *completer) selector(dot token.Pos) {
 			c.unimportedMembers(name)
 		}
 		c.headerMembers(x)
+		c.receiverMembers(x)
 		return
 	}
 	if id, ok := x.(*ast.Ident); ok {

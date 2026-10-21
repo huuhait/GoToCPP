@@ -31,7 +31,13 @@ integrated from `4538ce11` after clean revision-2 review and focused manager che
 It returns only compiler-validated names and exposes incomplete results explicitly for
 unprovable groups. Real receiver/access/overload/const-vector, invalidation, partial disk
 reuse, cancellation/race and existing header completion checks passed without selected
-skips. Next is 12.13b2 background receiver facts and LSP member completion.
+skips. The bounded 12.13b2 background member integration is now integrated from `b8d00d15`
+after clean revision-3 review and focused manager checks. Exact original variable bindings,
+partial result status, bounded retained input/facts, composed input/search-path guards,
+relative/symlink shadows, cancellation, worker races and ordinary request responsiveness
+passed; 224 docsite pages checked. Arbitrary/repaired/stale receivers, VFS, richer API
+hover/definitions and full speed/platform acceptance remain open. Next is the smaller
+12.13c1 proven-variable type-hover job.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -50,12 +56,16 @@ User-owned `c4/` has not been changed by the manager.
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. The
-12.13a source in `../GoToCPP-12.13` on `job/12.13a` and 12.13b1 source in
-`../GoToCPP-12.13b1` on `job/12.13b1` are integrated. The next worktree is
-`../GoToCPP-12.13b2` on `job/12.13b2`, based on integrated 12.13b1, for bounded background
-receiver facts and LSP member completion. Preserve `auxiliary.go`, snapshot provenance,
-explicit incomplete status and compiler-free request paths. Full member-expression
-coverage, hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
+12.13a/b1/b2 source worktrees are integrated. The next worktree is
+`../GoToCPP-12.13c1` on `job/12.13c1`, based on integrated 12.13b2, for a small proven-
+variable type-hover extension using existing background facts. Preserve snapshot provenance,
+explicit incomplete status and compiler-free request paths. The coordinating peer owns four
+isolated jobs: `../GoToCPP-15.12` / `job/15.12`, `../GoToCPP-10.derive` / `job/10.derive`,
+`../GoToCPP-11.lspgap` / `job/11.lspgap`, and `../GoToCPP-14.winload` / `job/14.winload`.
+Their changes are unreviewed and must not be treated as accepted. One local coder/reviewer
+slot plus at most four peer slots preserves the five-worker cap. Peer workers do not write
+this checkout or push; this session remains the integration writer. Full member-expression
+coverage, richer hover/definitions, VFS/Windows and speed acceptance remain open. The refcount experiment in
 `../GoToCPP-15.4` on `job/15.4` is integrated as an isolated experiment; production ownership
 stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
 an experiment, not permission for production adoption. Do not fill slots with blocked work.

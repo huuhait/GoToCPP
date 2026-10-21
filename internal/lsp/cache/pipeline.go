@@ -152,6 +152,7 @@ type Pipeline struct {
 	// background (probe.go).
 	prober  *prober
 	headers *headerIndexer // optional background C/C++ completion names
+	members *memberIndexer // optional background receiver/member facts
 
 	// importSets keeps the decoded imports of the last check of each package
 	// (importset.go).
@@ -254,6 +255,7 @@ func NewPipeline(cfg Config) *Pipeline {
 	}
 	p.prober = newProber(find, probe, cfg.OnProbe)
 	p.headers = newHeaderIndexer(cfg)
+	p.members = newMemberIndexer(cfg)
 	p.prober.rec = cfg.Trace
 	if cfg.PkgConfig != nil {
 		p.prober.pc = cfg.PkgConfig
@@ -270,6 +272,7 @@ func NewPipeline(cfg Config) *Pipeline {
 // work: their probe answers stay what they are, and their summaries are
 // not written to disk.
 func (p *Pipeline) Close() {
+	p.members.close()
 	p.headers.close()
 	p.prober.close()
 	p.diskMu.Lock()
@@ -282,6 +285,7 @@ func (p *Pipeline) Close() {
 // disk: the answers of the namespace probe are checked again in the
 // background (Config.OnProbe says when one changed).
 func (p *Pipeline) HeadersChanged() {
+	p.members.refresh()
 	p.headers.refresh()
 	p.prober.headersChanged()
 }

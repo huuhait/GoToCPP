@@ -31,7 +31,7 @@
 - [x] 15.11 Nightly ASan/UBSan/TSan/LSan (fail on any report) + leak audit
 
 ### Platforms & packaging
-- [ ] 15.12 Linux arm64 CI; Windows (Phase 14) in the release pipeline
+- [~] 15.12 Linux arm64 CI; Windows (Phase 14) in the release pipeline — isolated workflow/static-validation job active; target execution and release acceptance remain open
 - [x] 15.13 `go install`, GoReleaser binaries (linux amd64/arm64, windows amd64), Nix flake package with wrapped compilers
 - [x] 15.14 `gocpp get` + `gocpp.sum` + minimal version selection (`x/mod` workarounds for dotless paths and `gocpp.mod` boundaries)
 
