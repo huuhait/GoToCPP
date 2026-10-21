@@ -1,6 +1,6 @@
 # Phase 15: Optimization, Hardening & Release · STATE
 
-**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6 and 15.7b merged; 15.7c in progress; remaining implementation/release steps and exit criteria are open)
+**Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6 and 15.7b merged; 15.4 and 15.7c experiments in progress; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -13,7 +13,7 @@
   - [x] non-escaping pointer receivers/parameters use `gp::bptr<T>` rather than `this` (ADR-086); callers retain owners unless stability/purity proves lending safe
   - [x] `const&` ABI with owning snapshots for mutable/captured sources and implicit foreign work; defer/go collect owning values
   - [x] targeted pointer/value generators and owner-drop regressions under ASan; corrected real-runner smoke passed, not a full campaign
-- [ ] 15.4 Intrusive refcount experiment (keep only if it wins)
+- [~] 15.4 Isolated intrusive-refcount prototype and matched ownership measurements; keep only if justified, no production runtime adoption in this job
 - [x] 15.5 Swiss-table maps
 - [x] 15.6 Devirtualization + bounded bounds-check help; broader performance acceptance remains open
   - [x] 15.6a Proven-concrete interface-call devirtualization; dynamic fallback and ownership preserved, clean independent review and focused manager source/integration checks
