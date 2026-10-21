@@ -417,6 +417,9 @@ var waitDelay = 5 * time.Second
 // not used, and the probe runs again, waiting longer.
 var retryWaitDelay = 30 * time.Second
 
+// ValidateInclude checks a single include spelling before it is written into a probe source.
+func ValidateInclude(inc string) error { return checkInclude(inc) }
+
 // checkInclude reports what is wrong with the include text inc, if
 // anything. The text goes into the probe file as is, so it must be one
 // header name on one line, maybe marked with ExternC.

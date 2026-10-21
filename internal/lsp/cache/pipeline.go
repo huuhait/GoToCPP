@@ -150,7 +150,8 @@ type Pipeline struct {
 
 	// prober runs the compiler lookup and the namespace probes in the
 	// background (probe.go).
-	prober *prober
+	prober  *prober
+	headers *headerIndexer // optional background C/C++ completion names
 
 	// importSets keeps the decoded imports of the last check of each package
 	// (importset.go).
@@ -252,6 +253,7 @@ func NewPipeline(cfg Config) *Pipeline {
 		probe = interop.ProbeNamespaces
 	}
 	p.prober = newProber(find, probe, cfg.OnProbe)
+	p.headers = newHeaderIndexer(cfg)
 	p.prober.rec = cfg.Trace
 	if cfg.PkgConfig != nil {
 		p.prober.pc = cfg.PkgConfig
@@ -268,6 +270,7 @@ func NewPipeline(cfg Config) *Pipeline {
 // work: their probe answers stay what they are, and their summaries are
 // not written to disk.
 func (p *Pipeline) Close() {
+	p.headers.close()
 	p.prober.close()
 	p.diskMu.Lock()
 	p.closed = true
@@ -278,7 +281,10 @@ func (p *Pipeline) Close() {
 // HeadersChanged tells the pipeline that C/C++ headers may have changed on
 // disk: the answers of the namespace probe are checked again in the
 // background (Config.OnProbe says when one changed).
-func (p *Pipeline) HeadersChanged() { p.prober.headersChanged() }
+func (p *Pipeline) HeadersChanged() {
+	p.headers.refresh()
+	p.prober.headersChanged()
+}
 
 // astFactor is how much memory the AST of a file parsed with comments
 // takes per byte of its source (about 10 to 20).

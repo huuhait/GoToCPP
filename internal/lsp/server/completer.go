@@ -359,6 +359,7 @@ func (c *completer) selector(dot token.Pos) {
 		if name := c.namespaceGuess(x); name != "" {
 			c.unimportedMembers(name)
 		}
+		c.headerMembers(x)
 		return
 	}
 	if id, ok := x.(*ast.Ident); ok {

@@ -216,8 +216,22 @@ func fakeCompiler(args []string) int {
 	if dep != "" {
 		os.WriteFile(dep, []byte("gp_probe: "+strings.Join(append(deps, missingNames...), " ")+"\n"), 0o644)
 	}
+	if slices.Contains(args, "-ast-list") {
+		for _, header := range deps {
+			fmt.Print(string(mustRead(header)))
+		}
+		return 0
+	}
+	if slices.Contains(args, "-dM") && len(deps) > 0 {
+		fmt.Println("#define HeaderMacro 1")
+	}
 	if mode == "E" {
 		return 0
+	}
+	if strings.Contains(string(text), "gocpp_index_validation_complete") {
+		line := strings.Count(string(text), "\n")
+		fmt.Fprintf(os.Stderr, "%s:%d:1: error: gocpp_index_validation_complete\n", src, line)
+		return 1
 	}
 	helper, _ := strconv.Atoi(os.Getenv("FAKE_HELPER"))
 	probeRx := regexp.MustCompile(`^using (gp_probe_\d+(?:_alt)?|gp_decl_[0-9a-f]+) = `)

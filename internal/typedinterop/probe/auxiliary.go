@@ -25,6 +25,7 @@ import (
 
 // An auxOut is what an auxiliary run printed.
 type auxOut struct {
+	exitErr   error // callers that require a complete result must check the exit status
 	stderr    []byte
 	truncated bool // stderr is only the first part
 	timedOut  bool // the compiler was stopped at the time limit: what it printed is only the first part
@@ -83,13 +84,14 @@ func runAuxTo(ctx context.Context, cfg Config, mode []string, text string, stdou
 	if err != nil {
 		return nil, fmt.Errorf("%s didn't start: %w", cfg.CXX.Name(), err)
 	}
-	cmd.Wait()
+	exitErr := cmd.Wait()
 	timedOut := rctx.Err() != nil
 	build.KillGroup(cmd)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), ctx.Err())
 	}
-	out := &auxOut{stderr: stderr.buf.Bytes(), truncated: stderr.truncated, timedOut: timedOut, srcPath: srcPath}
+	out := &auxOut{exitErr: exitErr, stderr: stderr.buf.Bytes(), truncated: stderr.truncated,
+		timedOut: timedOut, srcPath: srcPath}
 	out.depData, _ = os.ReadFile(depPath)
 	return out, nil
 }

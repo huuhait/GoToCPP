@@ -1,6 +1,6 @@
 # Phase 12: Typed C++ Interop via Clang · STATE
 
-**Status:** `[~]` in progress (12.1-12.12 merged; safe PCH/prefetch part of 12.14 integrated; 12.13, cold-performance acceptance and remaining exit criteria are open)
+**Status:** `[~]` in progress (12.1-12.12 and bounded 12.13a header/namespace completion merged; safe PCH/prefetch part of 12.14 integrated; member completion, header navigation, cold-performance and remaining exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-20
 
@@ -30,9 +30,10 @@
   - [x] float and string macros; header edit invalidates probes
   - [~] probe speed benchmarks done; clang 17–21 JSON compatibility: tolerance tests + `tools/clang-matrix.sh` ready, only clang 21 exists in the dev shell (17-20 untested)
 - [~] 12.13 Language-server integration
-  - [~] 12.13a Background header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache)
-  - [~] 12.13a Header-package (`raylib.`) and namespace (`std.`) completion from the index
-  - [ ] member completion on C++ values (`-Xclang -code-completion-at` fallback)
+  - [x] 12.13a Background header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache); clean review and focused manager integration checks
+  - [x] 12.13a Opt-in header-package (`raylib.`) and namespace (`std.`) completion from completed immutable facts
+  - [~] 12.13b1 Bounded receiver-member probe primitive, reusing declaration facts or a narrow clang completion fallback; not yet editor member completion
+  - [ ] 12.13b2 Background receiver facts and member completion on C++ values
   - [ ] hover + go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
@@ -50,6 +51,26 @@
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
+
+- 2026-10-20: Bounded 12.13a integrated from reviewed source `bfff8002` after clean
+  revision-5 whole-net review. Header and namespace names are indexed asynchronously
+  only with the existing typed/auto opt-in; ordinary request paths read completed immutable
+  facts and the default remains opaque. Namespace aliases/using-directives use a finite,
+  declaration-ordered canonical graph, including frozen aliases and ambiguity handling.
+  Required input/resolution identities, complete compiler validation, owned compact names,
+  bounded caches and cancellation prevent the previously reproduced stale/partial results
+  and retained-buffer growth. Cache identity is `header-index-v5`.
+  Manager checks passed on the integrated tree: all 17 files matched the reviewed snapshot
+  with the existing `auxiliary.go` rename preserved; real completion, header refresh,
+  namespace/order/ambiguity regressions, ordinary request progress during a blocked compiler,
+  shutdown/join, focused race/invalidation/byte-bound tests, existing PCH keys and shared
+  include cancellation, and 224 docsite pages. No selected case skipped. Reviewer also
+  exercised four standard headers and the earlier dependency/symlink/partial-output cases.
+  These are focused correctness checks, not full latency, Windows or corpus acceptance.
+  Non-`.gp` overlays still suppress names; member completion, detailed hover/definitions,
+  signatures/UTF-16 locations and fresh-snapshot availability remain open. Split the next
+  member work into 12.13b1 (bounded receiver-member query primitive) and 12.13b2 (background
+  receiver facts and LSP publication), keeping synchronous clang work off request paths.
 
 - 2026-10-20: Safe partial 12.14 implementation (ADR-117) integrated from source `d13cf67a`
   after clean whole-net round-4 review. Expression/function probes may reuse a target-aware

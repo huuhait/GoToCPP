@@ -338,7 +338,11 @@ func (s *Snapshot) Package(ctx context.Context, dir string) (*Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	return st.p.packageOf(ctx, h)
+	pkg, err := st.p.packageOf(ctx, h)
+	if err == nil {
+		s.scheduleHeaders(pkg)
+	}
+	return pkg, err
 }
 
 // PackageOf returns the checked package of the file uri: the package of its

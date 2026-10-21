@@ -22,8 +22,12 @@ replay is slower; keep the existing production PCH. This is not end-to-end cold-
 platform acceptance. The bounded 15.4 ownership experiment is integrated from `1f39adb6`
 after clean review, manager GCC/Clang correctness checks, and recomputation of all 48 raw
 samples. Retain the prototype but defer production adoption; ADR-004 stays unchanged.
-Active work is 12.13a correction of namespace targets exposed through using-directives,
-then another whole-net review.
+Step 12.13a is integrated from `bfff8002` after clean revision-5 whole-net review and
+focused manager checks: all 17 files match the review, including the main `auxiliary.go`
+rename; namespace/alias/ambiguity, actual completion/refresh, blocked-compiler progress,
+cancellation/race, PCH and 224-page docsite checks passed without selected-case skips.
+Default opaque behavior stays unchanged. Next is the bounded 12.13b1 receiver-member
+probe primitive; background LSP receiver facts/member completion follow separately.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -42,11 +46,11 @@ User-owned `c4/` has not been changed by the manager.
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. The
-12.13a coder is fixing qualified targets that obtain namespace components through using
-visibility, after round-4 review confirmed the direct-alias fix. The whole 17-file change in
-`../GoToCPP-12.13` on `job/12.13a`, based on `ca4819df`, needs another independent review.
-Preserve the main-branch rename from `aux.go` to `auxiliary.go` during integration. Full
-member/hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
+12.13a source in `../GoToCPP-12.13` on `job/12.13a` is integrated; all reviewed content
+was preserved, with `aux.go` changes applied to main's `auxiliary.go`. The next worktree is
+`../GoToCPP-12.13b1` on `job/12.13b1`, based on the integrated 12.13a commit, for the small
+member-query primitive. LSP receiver scheduling/publication is a later 12.13b2 job, not part
+of that primitive. Full member/hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
 `../GoToCPP-15.4` on `job/15.4` is integrated as an isolated experiment; production ownership
 stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
 an experiment, not permission for production adoption. Do not fill slots with blocked work.

@@ -132,6 +132,18 @@ are declared in headers, not in gocpp code: references and highlights show nothi
 and rename says that it does not rename them. The Go names around them (a variable that holds a
 C value, a Go function that returns one) are ordinary names.
 
+With `GOCPP_INTEROP=typed` or `GOCPP_INTEROP=auto` in the server's environment, a background clang
+index supplies completion names after a header package (`api.` for `import "./api.hpp"`) or a
+namespace (`std.`, including renamed and nested namespaces). The default opaque mode is unchanged.
+The first request can have no C/C++ candidates; ask again after indexing finishes. Missing or failed
+clang leaves the existing Go answers intact and does not delay diagnostics. Names and macros are
+indexed, not signatures or locations: C++ value members, detailed hover and declaration definitions
+are still separate work. Conservatively, any open document whose path does not end in `.gp` disables
+these names until it is closed, even if that document is not a C/C++ header. The index reads saved
+headers, not unsaved header overlays. Results are isolated by snapshot, flags, compiler,
+target and header contents, with a 32 MiB / 128-entry in-memory completion cache and the existing
+bounded typed-probe disk cache. Shutdown cancels and joins index workers.
+
 **Symbols.** The outline of a file (functions, methods, types with their fields, constants,
 variables) comes from its syntax tree alone, so it works while the file has errors. Workspace
 symbols search every `.gp` file of the modules of the workspace folders and of the open files

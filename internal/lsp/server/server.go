@@ -570,6 +570,7 @@ func (s *Server) shutdown(id protocol.ID) protocol.Work {
 	s.mu.Unlock()
 	return func(ctx context.Context) (any, error) {
 		s.diags.stop()
+		s.pipeline.StopHeaderIndex()
 		wctx, cancel := context.WithTimeout(ctx, s.shutdownWait)
 		defer cancel()
 		if s.conn.Wait(wctx, id) || ctx.Err() != nil {

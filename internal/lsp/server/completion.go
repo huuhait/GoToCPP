@@ -34,8 +34,8 @@ import (
 // the file of the declaration, which is too much for every candidate of a
 // big package (gopls has it in the list).
 //
-// C/C++ names (raylib., std., a C/C++ value) get no candidates: their
-// completion comes from the header index of Phase 12.
+// Header and namespace names (raylib., std.) use completed background index facts
+// when typed interop is enabled. C/C++ values still await member completion (12.13b).
 
 // completion holds what completion learned from initialize, and the index
 // of the packages to import.

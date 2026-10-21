@@ -32,6 +32,7 @@ type includeInfo struct {
 	directives []directive
 	entered    []string // the files that were entered (cleaned, absolute), in order
 	complete   bool     // false when the output may be only a part: the answer is then to be completed by guessing
+	successful bool     // the compiler exited successfully; strict consumers cannot use partial errors
 }
 
 // maxDirectiveLine is the longest line of the preprocessed output that is kept when it is a directive or a
@@ -233,6 +234,7 @@ func (rn *Runner) includeInfo(ctx context.Context, cfg Config, text string, read
 	// The published scanner and its slices are immutable; completeness belongs to this caller.
 	answer := sc.info
 	info = &answer
+	info.successful = out.exitErr == nil && !out.timedOut
 	info.complete = !out.timedOut && !sc.overlong && !sc.unterminated() &&
 		(len(info.entered) > 0 || len(read) == 0) && (len(info.directives) > 0 || !missing)
 	// The key has the hash of the headers as they are now, the question saw them as they were when it started: a
