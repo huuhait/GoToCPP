@@ -26,8 +26,12 @@ Step 12.13a is integrated from `bfff8002` after clean revision-5 whole-net revie
 focused manager checks: all 17 files match the review, including the main `auxiliary.go`
 rename; namespace/alias/ambiguity, actual completion/refresh, blocked-compiler progress,
 cancellation/race, PCH and 224-page docsite checks passed without selected-case skips.
-Default opaque behavior stays unchanged. Next is the bounded 12.13b1 receiver-member
-probe primitive; background LSP receiver facts/member completion follow separately.
+Default opaque behavior stays unchanged. The 12.13b1 receiver-member primitive is
+integrated from `4538ce11` after clean revision-2 review and focused manager checks.
+It returns only compiler-validated names and exposes incomplete results explicitly for
+unprovable groups. Real receiver/access/overload/const-vector, invalidation, partial disk
+reuse, cancellation/race and existing header completion checks passed without selected
+skips. Next is 12.13b2 background receiver facts and LSP member completion.
 The 9.13a changes passed independent re-review and focused source/integrated manager
 checks. Full 9.13/M6 remain open; no release or tag is authorized.
 User-owned `c4/` has not been changed by the manager.
@@ -46,11 +50,12 @@ User-owned `c4/` has not been changed by the manager.
 
 One coder and one independent reviewer per job, sequentially: no subject edits during review,
 no delegation by workers, and final reports only except genuinely blocked decisions. The
-12.13a source in `../GoToCPP-12.13` on `job/12.13a` is integrated; all reviewed content
-was preserved, with `aux.go` changes applied to main's `auxiliary.go`. The next worktree is
-`../GoToCPP-12.13b1` on `job/12.13b1`, based on the integrated 12.13a commit, for the small
-member-query primitive. LSP receiver scheduling/publication is a later 12.13b2 job, not part
-of that primitive. Full member/hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
+12.13a source in `../GoToCPP-12.13` on `job/12.13a` and 12.13b1 source in
+`../GoToCPP-12.13b1` on `job/12.13b1` are integrated. The next worktree is
+`../GoToCPP-12.13b2` on `job/12.13b2`, based on integrated 12.13b1, for bounded background
+receiver facts and LSP member completion. Preserve `auxiliary.go`, snapshot provenance,
+explicit incomplete status and compiler-free request paths. Full member-expression
+coverage, hover/VFS/Windows and speed acceptance remain open. The refcount experiment in
 `../GoToCPP-15.4` on `job/15.4` is integrated as an isolated experiment; production ownership
 stays unchanged. The module evaluation in `../GoToCPP-15.7c` is integrated as
 an experiment, not permission for production adoption. Do not fill slots with blocked work.

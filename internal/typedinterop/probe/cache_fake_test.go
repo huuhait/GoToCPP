@@ -41,7 +41,11 @@ import (
 func fakeCompiler(args []string) int {
 	var dep, src string
 	mode, verbose, mg, di := "run", false, false, false
+	memberCompletion := false
 	for i, a := range args {
+		if strings.HasPrefix(a, "-code-completion-at=") {
+			memberCompletion = true
+		}
 		if a == "c++-header" && i > 0 && args[i-1] == "-x" {
 			return fakeHeaderBuild(args)
 		}
@@ -60,6 +64,9 @@ func fakeCompiler(args []string) int {
 			}
 		}
 		src = a
+	}
+	if memberCompletion {
+		mode = "member"
 	}
 	if f, err := os.OpenFile(os.Getenv("FAKE_COUNTER"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 		if verbose {
@@ -216,6 +223,9 @@ func fakeCompiler(args []string) int {
 	if dep != "" {
 		os.WriteFile(dep, []byte("gp_probe: "+strings.Join(append(deps, missingNames...), " ")+"\n"), 0o644)
 	}
+	if memberCompletion {
+		return fakeMemberCompletion()
+	}
 	if slices.Contains(args, "-ast-list") {
 		for _, header := range deps {
 			fmt.Print(string(mustRead(header)))
@@ -227,6 +237,9 @@ func fakeCompiler(args []string) int {
 	}
 	if mode == "E" {
 		return 0
+	}
+	if strings.Contains(string(text), "gocpp_member_validation_complete") {
+		return fakeMemberValidation(string(text), src)
 	}
 	if strings.Contains(string(text), "gocpp_index_validation_complete") {
 		line := strings.Count(string(text), "\n")

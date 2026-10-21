@@ -43,6 +43,13 @@ func runAux(ctx context.Context, cfg Config, mode []string, text string) (*auxOu
 // runAuxTo is runAux with the standard output sent to the writer that stdout makes from the name of the
 // probe file (nil: dropped).
 func runAuxTo(ctx context.Context, cfg Config, mode []string, text string, stdout func(srcPath string) io.Writer) (*auxOut, error) {
+	return runAuxMode(ctx, cfg, func(string) []string { return mode }, text, stdout)
+}
+
+// runAuxMode lets a narrowly scoped compiler mode refer to the temporary source path.
+func runAuxMode(ctx context.Context, cfg Config, mode func(string) []string, text string,
+	stdout func(string) io.Writer,
+) (*auxOut, error) {
 	release, err := gate.acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), err)
@@ -61,7 +68,7 @@ func runAuxTo(ctx context.Context, cfg Config, mode []string, text string, stdou
 	if err := os.WriteFile(srcPath, []byte(text), 0o644); err != nil {
 		return nil, err
 	}
-	args, err := interop.ProbeCompilerArgs(cfg.CXX, mode, cfg.Dir, cfg.Flags, depPath, srcPath)
+	args, err := interop.ProbeCompilerArgs(cfg.CXX, mode(srcPath), cfg.Dir, cfg.Flags, depPath, srcPath)
 	if err != nil {
 		return nil, err
 	}

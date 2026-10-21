@@ -32,8 +32,8 @@
 - [~] 12.13 Language-server integration
   - [x] 12.13a Background header index from `-Xclang -ast-list` + `-E -dM` (on-disk cache); clean review and focused manager integration checks
   - [x] 12.13a Opt-in header-package (`raylib.`) and namespace (`std.`) completion from completed immutable facts
-  - [~] 12.13b1 Bounded receiver-member probe primitive, reusing declaration facts or a narrow clang completion fallback; not yet editor member completion
-  - [ ] 12.13b2 Background receiver facts and member completion on C++ values
+  - [x] 12.13b1 Bounded receiver-member probe primitive: compiler-validated accessible names, explicit partial results, clean independent review and focused manager checks; not yet editor member completion
+  - [~] 12.13b2 Background receiver facts and member completion on C++ values; preserve request responsiveness and explicit partial-result status
   - [ ] hover + go-to-definition into headers
   - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
@@ -51,6 +51,22 @@
 - [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
 
 ## Decisions / notes
+
+- 2026-10-20: 12.13b1 integrated from reviewed source `4538ce11` after clean revision-2
+  whole-net review. `Runner.Members` enumerates candidates and validates unqualified
+  access/availability with bounded dependent requires-expressions. It excludes ambiguous
+  inherited names and deleted/unavailable-only groups, retaining names with a proven usable
+  overload. Unsupported argument groups are omitted with explicit `Incomplete()` status,
+  preserved in `member-names-v2` cache entries; complete-empty, partial-empty and failure
+  remain distinct. No argument types or signatures are invented. Supported receiver types
+  retain their cv/value category and explicit-pointer access; broader forms remain unsupported.
+  Manager checks passed: all four files match the reviewed snapshot; real receiver/category,
+  inheritance/overload/partial-result and const-vector cases, validation rejection, context
+  invalidation, cache reuse, cancellation/shared-include race checks, PCH keys and existing
+  header completion/blocked-compiler tests. No selected case skipped. This remains a
+  synchronous low-level primitive that request handlers do not call. Background receiver
+  inference/publication is 12.13b2; hover/definitions, VFS, Windows and speed acceptance
+  remain open. No full sweep or new performance measurement was run.
 
 - 2026-10-20: Bounded 12.13a integrated from reviewed source `bfff8002` after clean
   revision-5 whole-net review. Header and namespace names are indexed asynchronously
