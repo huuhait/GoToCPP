@@ -24,6 +24,7 @@
 - [ ] Run, error and differential suites pass for windows/amd64 under Wine
 - [ ] `gocpp.exe` works natively; VS Code edits, builds and debugs on Windows
 - [x] Win32 example (`MessageBoxW` + a small window) and raylib/SDL example run on Windows (real PC, console desktop, 2026-10-21, all seen by the user; the visible SDL2 program was a scratch program, not in the repository)
+- [x] Dear ImGui demo `demos/imgui` (a library built from source by a `cxx` recipe, GLFW + OpenGL 3) runs on the real PC (2026-10-21, seen by the user); not a target program and not in any test (needs network, a GPU and a display)
 - [ ] Phase 11 editor budgets hold on Windows
 
 ## Decisions / notes
