@@ -59,7 +59,7 @@
 - [x] Macro errors point at call site and definition
 - [ ] On-top macros: exit part runs on panic; `Locked`-style test race-clean; wrap macros behave as in the spike, race-clean
 - [x] `gocpp fmt` round-trips `macro`, `lazy`, `func f!()`, on-top macros
-- [ ] `#Derive(String)` handles shared values; `#Derive(JSON)` matches `encoding/json`
+- [x] `#Derive(String)` handles shared values; `#Derive(JSON)` matches `encoding/json`
 
 ## Decisions / notes
 
@@ -97,3 +97,15 @@
   line before it (gofmt's rule for comments between top-level declarations), on-top macro arguments are not
   walked by the legacy object resolver (only matters with SkipObjectResolution off), internal/format/parens.go's
   workaround could now be simplified.
+
+- 2026-10-20: Exit criteria review (job 10.derive, independent review clean after two rounds). The
+  `#Derive` line is ticked: `#Derive(String)` means constants that share a value (ADR-080: integer
+  enums only; the first constant in file order names the value), now tested across three files
+  (`tests/pkgs/derive_enum_files`), and `#Derive(JSON)` output equals a plain struct under real Go
+  for the `Marshal`/`Unmarshal`/`Encode`/`Decode` route (`tests/run/derive_json_shapes`, real-Go
+  compared on g++ and clang++). Known difference kept as a documented limitation (ADR-102): error
+  texts of a derived type name the hidden struct `gp_plain`. No compiler, macro or stdlib change.
+  The other open lines (examples on both compilers, no helper calls and overhead, on-top macro exit
+  and race) had focused-test evidence from the job (364 focused tests passed; `TestPhase10NoHelpers`
+  passes), but they stay unticked until the user's final review; the clang `cross` macro/hand
+  ratio is unstable across builds (0.97 to 1.27, layout effect, `docs/benchmarks/must-macros.md`).
