@@ -75,7 +75,8 @@ is never silently ignored.
 
 **Recipes are opaque.** A brace block, such as the recipe of a C++ library (`cxx path { ... }`), is not read at
 all: its lines are kept as they are up to the `}` that matches the `{`. A line that ends with `{` or `(`
-inside opens a block of its own, and a line that is only `}` or `)` closes it, so
+inside opens a block of its own, and a line that is only `}` or `)` closes it (a line that starts with `}` and ends with
+`{`, such as `} else {` of an `if` block in a recipe, closes one block and opens the next), so
 ```text
 cxx example.com/x {
 	define {
@@ -566,9 +567,13 @@ cxx github.com/ocornut/imgui {
 	src      backends/imgui_impl_glfw.cpp backends/imgui_impl_opengl3.cpp
 	include  . backends                       // <imgui.h>, "imgui_impl_glfw.h"
 	define   IMGUI_DISABLE_OBSOLETE_FUNCTIONS // in the library and in the user's code
-	pkg-config glfw3
-	linux:   link GL
-	windows: link opengl32
+	if linux {
+		pkg-config glfw3
+		link GL
+	}
+	if windows {
+		link glfw3dll opengl32 gdi32 dwmapi // MinGW's import library for glfw3.dll, and system libraries
+	}
 }
 ```
 
@@ -604,12 +609,49 @@ the file may be shared), since a typo in the module path would otherwise show on
 
 Each line of the block is one statement: a verb and its arguments, split like the arguments of a `//gocpp:`
 directive (white space separates; single, double and back quotes keep white space; a backslash
-makes the next character ordinary; `//` starts a comment). A statement can be preceded by an operating
-system condition as a word of its own: `linux:`, `linux,darwin:` (any of them) or `!windows:` (any
-other system). The system is the target (`GOOS`).
+makes the next character ordinary; `//` starts a comment). The statements of an `if` block apply only to
+the targets for which its condition holds ([ADR-129](../adr/129-a-recipe-condition-is-an-if-block-over-build-constraints.md)):
+
+```text
+cxx github.com/ocornut/imgui {
+	src imgui.cpp imgui_draw.cpp
+	if windows {
+		link glfw3dll opengl32
+	} else if linux || darwin {
+		pkg-config glfw3
+		if linux && arm64 {
+			define GL_ES
+		}
+	} else {
+		define NO_WINDOW_SYSTEM
+	}
+}
+```
+
+- **The condition** is a `//go:build` constraint with the same reader and the same tags as the files of a package:
+  the operating system (`linux`, `windows`, `darwin`, ...), the architecture (`amd64`, `arm64`, ...), `unix`,
+  `gocpp`, the release tags `go1.N` and the tags of `-tags`; `!`, `&&`, `||` and parentheses
+  (`if !windows {`, `if windows && amd64 {`, `if (linux || darwin) && arm64 {`). A tag that is not known is not
+  satisfied, as in a `//go:build` line (`if widnows {` is never taken, and is not an error), but the loader
+  **warns** about a tag that is no system, no architecture, not `unix`, `gocpp`, `gc`, `gccgo`, `cgo`, `go1.N` and
+  not one of the `-tags`, with a guess (`warning: ... the tag "widnows" ... did you mean windows?`). `android` also
+  satisfies `linux`, as in Go. The target is the one of the build (`-os`, `-arch`, `-tags`), not the machine's.
+- **The shape** is Go's: `if condition {` with the `{` at the end of the same line, the statements on the lines
+  after it, and a line that is only `}` to close. `} else {` and `} else if condition {` continue the block, on the
+  line of the `}`; the first branch whose condition holds is taken. A line has one statement or one brace line:
+  `if windows { link gdi32 }` and `} link m` are errors. Blocks nest to a depth of 4. A comment (`//`) may follow any
+  line, and a brace inside a quoted argument or a comment is only text.
+- **The statements** inside a block are the verbs below, the same as outside it. A statement outside every block
+  applies to every target. The statements that apply to the target are the recipe: the order is the order of the
+  file, and the object cache key follows them (a block that is not taken changes nothing, and the same recipe
+  for another target has another key).
+- **The old form is gone.** A condition in front of a statement (`windows: link gdi32`, `linux,darwin: link dl`,
+  `!windows: define X`) was removed by ADR-129; it is an error that shows the block to write
+  (`a condition is written as a block, if windows { ... }, since ADR-129`).
 
 | Statement | Meaning |
 |---|---|
+| `if condition { ... }` | The statements inside apply only to the targets for which the condition holds; `} else {` and `} else if condition {` continue it (above). |
 | `src pattern...` | C and C++ files to compile: `.c`, `.cc`, `.cpp`, `.cxx`. A pattern (`*`, `?`, `[a-z]`) matches inside one folder (`backends/*.cpp`; `**` is not supported); it must match at least one source file, and a file named without a pattern must exist. A name that starts with a dot is matched only by a pattern that starts with a dot. |
 | `exclude pattern...` | Leave out of the sources the files that match, whatever line listed them. |
 | `include folder...` | `-I folder`, for the compiles of the library **and** of every package that uses it (and its probes): `<x.h>`-style includes work. The module's own folder is always an `-iquote` folder (`.` in `include` makes it `-I`). **Hazard:** `-I` puts the folder before the system's, so a file in it named like a standard header (`stdint.h`, `string.h`, `vector`) hides the system's in every compile with the flag; use a more specific folder (`include include`) when the library root has such a file. gocpp adds a hint when a compile with a recipe folder fails and the folder has such a name. |
@@ -626,10 +668,13 @@ other system). The system is the target (`GOOS`).
 
 A line that gocpp does not understand is an **error at its line**: `gocpp.mod:12: cxx
 github.com/x/y: unknown statement "frobnicate": gocpp does not know it, and ignoring it could build
-the wrong library`. So are a wrong number of arguments, a bad macro name, a path that is not allowed, an
-unknown system in a condition, a nested block, a line longer than 16 KiB, a NUL or another control
-character, and more than 4096 statements in a recipe. The other lines are still checked, and all the errors come at once, at their lines of
-the file that has the recipe.
+the wrong library`. So are a wrong number of arguments, a bad macro name, a path that is not allowed, an `if`
+without a condition, a condition that is not a build constraint, an `else` without an `if` or after an `else`, a
+statement on the line of a `}` or of an `if`, a block that is not an `if`, an `if` that is not closed (the file
+reader names the `{` that stays open), more than 4 levels of `if`, more than 1024 conditions, a line longer
+than 16 KiB, a NUL or another control character, and more than 4096 statements in a recipe. The other lines are
+still checked, and all the errors come at once, at their line and column of the file that has the recipe
+(`gocpp.mod:12:3: ...`; the column is that of the word at fault), up to 100 of them.
 
 `define` and `private-define` become `-DNAME=value`, and every flag of `cflags`, `cxxflags`, `ldflags`,
 `define`, `private-define` and `pkg-config` goes through the flag allow-list of `//gocpp:cflags`
@@ -716,6 +761,6 @@ that run, and the allow-list is what keeps their flags from running code.
 - `gocppmod.Parse` and `gocppmod.Format` read and write the file; `Format` keeps comments, blank
   lines and every statement it does not know.
 - `gocppmod.File.Recipes` finds the `cxx path { }` blocks, and `gocppmod.ParseRecipe` reads the lines of one (the
-  statements, their lines and OS conditions, and the errors). `load.Package.CxxModules` lists the modules whose
+  statements, their lines and conditions, and the errors). `load.Package.CxxModules` lists the modules whose
   headers a package imports, each with its recipe block (`load.CxxModule`); `build.ReadPackageFlags` turns them into
   `PackageFlags.Libs` (`build.CxxLib`, with `Sources()`), the public compile flags and the link flags.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -42,9 +43,15 @@ func TestRecipeStatements(t *testing.T) {
 		"\tstd c++17",
 		"\tcstd gnu11",
 		"",
-		"\tlinux: src x11.cpp",
-		"\tlinux,darwin: link dl",
-		"\t!windows: define UNIX",
+		"\tif linux {",
+		"\t\tsrc x11.cpp",
+		"\t}",
+		"\tif linux || darwin {",
+		"\t\tlink dl",
+		"\t}",
+		"\tif !windows {",
+		"\t\tdefine UNIX",
+		"\t}",
 	)
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
@@ -70,9 +77,9 @@ func TestRecipeStatements(t *testing.T) {
 		{15, "pkg-config", []string{"glfw3", "gl"}, "", ""},
 		{16, "std", []string{"c++17"}, "", ""},
 		{17, "cstd", []string{"gnu11"}, "", ""},
-		{19, "src", []string{"x11.cpp"}, "linux:", ""},
-		{20, "link", []string{"-ldl"}, "linux,darwin:", ""},
-		{21, "define", []string{"UNIX"}, "!windows:", ""},
+		{20, "src", []string{"x11.cpp"}, "linux", ""},
+		{23, "link", []string{"-ldl"}, "linux || darwin", ""},
+		{26, "define", []string{"UNIX"}, "!windows", ""},
 	} {
 		if i >= len(r.Stmts) {
 			t.Fatalf("only %d statements: %+v", len(r.Stmts), r.Stmts)
@@ -87,32 +94,6 @@ func TestRecipeStatements(t *testing.T) {
 	}
 	if got := r.Stmts[0].Text; got != "src imgui.cpp  imgui_draw.cpp ./backends/*.cpp" {
 		t.Errorf("Text = %q (the comment and the indentation are dropped)", got)
-	}
-}
-
-func TestRecipeConditions(t *testing.T) {
-	for _, tc := range []struct {
-		cond string
-		os   map[string]bool
-	}{
-		{"linux:", map[string]bool{"linux": true}},
-		{"linux,windows:", map[string]bool{"linux": true, "windows": true}},
-		{"!windows:", map[string]bool{"linux": true, "darwin": true, "freebsd": true}},
-		{"!linux:", map[string]bool{"windows": true, "darwin": true, "freebsd": true}},
-	} {
-		r, errs := recipeOf(t, "\t"+tc.cond+" define X")
-		if len(errs) > 0 {
-			t.Errorf("%s: %v", tc.cond, errs)
-			continue
-		}
-		for _, goos := range []string{"linux", "windows", "darwin", "freebsd"} {
-			if got := r.Stmts[0].Cond.Match(goos); got != tc.os[goos] {
-				t.Errorf("%s matches %s = %v", tc.cond, goos, got)
-			}
-		}
-	}
-	if !(Cond{}).Match("anything") {
-		t.Error("an empty condition matches every OS")
 	}
 }
 
@@ -161,12 +142,16 @@ func TestRecipeLineErrors(t *testing.T) {
 		{"pkg-config FOO.PC", "ends in .pc"},
 		{"define A=\"x", "unterminated quote"},
 		{"cflags \\", "backslash at the end"},
-		{"linux:", "the condition linux: has no statement after it"},
-		{"linuxx: src a.c", `unknown operating system "linuxx"`},
-		{"linux,linux: src a.c", "is repeated"},
-		{"!linux,windows: src a.c", "names one operating system"},
-		{"linux:src a.c", `unknown statement "linux:src"`},
-		{"a:b: src a.c", `unknown operating system "a:b"`},
+		{"linux:", "since ADR-129"},
+		{"linuxx: src a.c", "written as a block, if linuxx { ... }, since ADR-129"},
+		{"linux,darwin: src a.c", "if linux || darwin { ... }"},
+		{"!linux,windows: src a.c", "if !linux || !windows { ... }"},
+		{"linux:src a.c", "if linux { ... }"},
+		{"windows:link gdi32", "if windows { ... }"},
+		{"linux, darwin: link dl", "if linux || darwin { ... }"},
+		{"!linux,windows:link m", "if !linux || !windows { ... }"},
+		{"linux:frob a.c", `unknown statement "linux:frob"`},
+		{"a:b: src a.c", `unknown statement "a:b:"`},
 		{"define { x", "blocks inside a recipe are not part of the recipe language"},
 		{"src a.c )", "blocks inside a recipe are not part of the recipe language"},
 		{long, "the line is too long"},
@@ -196,7 +181,7 @@ func TestRecipeLineErrors(t *testing.T) {
 		if len(r.Stmts) != 2 || r.Stmts[0].Verb != "src" || r.Stmts[1].Verb != "define" || r.Stmts[1].Line != 6 {
 			t.Errorf("%q: the other lines were not read: %+v", firstN(tc.line), r.Stmts)
 		}
-		if got := e.Error(); !strings.HasPrefix(got, "gocpp.mod:5: ") {
+		if got := e.Error(); !regexp.MustCompile(`^gocpp\.mod:5(:\d+)?: `).MatchString(got) {
 			t.Errorf("%q: Error() = %q", firstN(tc.line), firstN(got))
 		}
 	}
@@ -369,8 +354,9 @@ func TestRecipeLineNumbers(t *testing.T) {
 // are not "..", with none of the characters a recipe refuses; link gets
 // library names, pkg-config names that cannot name a file, define macro names.
 func FuzzParseRecipe(f *testing.F) {
-	for _, s := range []string{"src a.c", "linux: define A=1", "pkg-config x", "define \"x", "src a/*/b.c", "\x00", strings.Repeat("a ", 1000),
-		"src 0/..0", "src a/../b.c\ninclude /x", "define {\n}\nsrc a.c", "link -l:../x", "src `a\\b.c`", "exclude ~/x $y c:d"} {
+	for _, s := range []string{"src a.c", "if linux {\ndefine A=1\n}", "pkg-config x", "define \"x", "src a/*/b.c", "\x00", strings.Repeat("a ", 1000),
+		"src 0/..0", "src a/../b.c\ninclude /x", "define {\n}\nsrc a.c",
+		"if linux {\nsrc a.c\n} else if !windows && (darwin || unix) {\nlink m\n} else {\nsrc b.c\n}", "if {", "} else {", "if a {\nif b {\nif c {\nif d {\nif e {\n}\n}\n}\n}\n}", "link -l:../x", "src `a\\b.c`", "exclude ~/x $y c:d"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, body string) {
@@ -404,6 +390,9 @@ func FuzzParseRecipe(f *testing.F) {
 			if len(s.Args) == 0 || s.Line < b.Start.Line+1 {
 				t.Fatalf("bad statement %+v", s)
 			}
+			// The condition can be evaluated and printed for any target.
+			_ = s.Cond.String()
+			s.Cond.Match(func(tag string) bool { return tag == "linux" })
 			for _, a := range s.Args {
 				switch s.Verb {
 				case RecipeSrc, RecipeExclude, RecipeInclude, RecipeSystemInclude:

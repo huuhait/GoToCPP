@@ -366,10 +366,18 @@ func (p *parser) parseParenBody(b *Block) {
 // not read as words: the body of a C++ library recipe may hold anything.
 // Inside, a line that ends with { or ( opens a block of its own, and a line
 // that is only the matching } or ) closes it, so that the first } at depth 0
-// closes the recipe. A ) with no ( open is an ordinary line. Quotes and //
-// comments are skipped when the words of a line are looked at.
+// closes the recipe. A line that starts with the closer of an open block
+// and ends with { (} else {, } else if windows {) closes it and opens the
+// next one; a line that starts with the closer and has other words after it
+// only closes (the recipe reader reports the words). A ) with no ( open is an
+// ordinary line. Quotes and // comments are skipped when the words of a line
+// are looked at, so a brace in them counts for nothing.
 func (p *parser) parseBraceBody(b *Block) {
-	var open []byte // the closers that are expected, innermost last
+	type opener struct {
+		closer byte
+		pos    Position
+	}
+	var open []opener // the blocks that are open, innermost last
 	for p.i < p.n {
 		m := p.i
 		p.i++
@@ -377,6 +385,11 @@ func (p *parser) parseBraceBody(b *Block) {
 		words, comment := scanWords(line)
 		if len(words) > 0 {
 			f, l := words[0], words[len(words)-1]
+			closes := len(open) > 0 && (f.text == "}" || f.text == ")") &&
+				open[len(open)-1].closer == f.text[0]
+			if len(open) > 0 && open[len(open)-1].closer == '}' && strings.HasPrefix(f.text, "}") {
+				closes = true // }else { is an error of the recipe, but it closes a block, as } else { does
+			}
 			switch {
 			case len(words) == 1 && (f.text == "}" || f.text == ")"):
 				if len(open) == 0 && f.text == "}" {
@@ -386,19 +399,39 @@ func (p *parser) parseBraceBody(b *Block) {
 					}
 					return
 				}
-				if len(open) > 0 && open[len(open)-1] == f.text[0] {
+				if closes {
 					open = open[:len(open)-1]
 				}
-			case l.text == "{":
-				open = append(open, '}')
+			case closes:
+				open = open[:len(open)-1]
+				if opensBlock(line, words) {
+					open = append(open, opener{'}', p.pos(m, l.off)})
+				}
+			case opensBlock(line, words):
+				open = append(open, opener{'}', p.pos(m, l.off)})
 			case l.text == "(":
-				open = append(open, ')')
+				open = append(open, opener{')', p.pos(m, l.off)})
 			}
 		}
 		b.Raw = append(b.Raw, line)
 	}
 	b.Unterminated = true
+	if len(open) > 0 {
+		last := open[len(open)-1]
+		p.errAt(p.eofPos(), "syntax error (unterminated block started at %s:%d:%d; "+
+			"the %s at %s:%d:%d is not closed)", p.name, b.Start.Line, b.Start.LineRune,
+			openerOf(last.closer), p.name, last.pos.Line, last.pos.LineRune)
+		return
+	}
 	p.errAt(p.eofPos(), "syntax error (unterminated block started at %s:%d:%d)", p.name, b.Start.Line, b.Start.LineRune)
+}
+
+// openerOf returns the opening bracket that a closer closes.
+func openerOf(closer byte) string {
+	if closer == ')' {
+		return `"("`
+	}
+	return `"{"`
 }
 
 // scanWords splits a line into words at white space, like lexLine but with no

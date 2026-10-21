@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -358,6 +359,112 @@ func TestRecipeRecipeOfTheLibrary(t *testing.T) {
 	})
 }
 
+// ifRecipe is a recipe of clibC with a block for each system: the scale is 5 on Windows and 3 elsewhere,
+// and the private define is in a block that every system takes.
+const ifRecipe = "\tsrc src/clib.c\n\tinclude include\n" +
+	"\tif windows {\n\t\tdefine CLIB_SCALE=5\n\t} else {\n\t\tdefine CLIB_SCALE=3\n\t}\n" +
+	"\tif windows || !windows { // a condition that is always true\n\t\tprivate-define CLIB_BUILD=1\n\t}"
+
+// ifScale is the scale that ifRecipe gives on the system that runs the tests.
+func ifScale() int {
+	if runtime.GOOS == "windows" {
+		return 5
+	}
+	return 3
+}
+
+func TestRecipeIfBlocks(t *testing.T) {
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_GATE_PHASE", "04")
+		inDir(t, libProject(ifRecipe, "\tfmt.Println(clib.clib_scaled(14))",
+			map[string]string{"include/clib.h": clibH, "src/clib.c": clibC}))
+		want := fmt.Sprintf("%d\n", 14*ifScale())
+		if r := gocppRun("", false, "run", "."); r != (result{0, want, ""}) {
+			t.Fatalf("gocpp run = %+v, want %q", r, want)
+		}
+	})
+}
+
+// TestRecipeIfOldForm checks the message of the condition written as it was before ADR-129.
+func TestRecipeIfOldForm(t *testing.T) {
+	withOneCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_GATE_PHASE", "04")
+		lib := map[string]string{"include/clib.h": clibH, "src/clib.c": clibC}
+		recipe := "\tsrc src/clib.c\n\tlinux,darwin: define CLIB_SCALE=3"
+		inDir(t, libProject(recipe, "\tfmt.Println(clib.clib_square(2))", lib))
+		want := "./gocpp.mod:8:2: cxx example.com/clib: " +
+			"a condition is written as a block, if linux || darwin { ... }, since ADR-129"
+		for _, cmd := range []string{"check", "build", "run"} {
+			r := gocppRun("", false, cmd, ".")
+			if r.code != 1 || !strings.Contains(r.stderr, want) {
+				t.Errorf("gocpp %s = %+v, want exit 1 and %q", cmd, r, want)
+			}
+		}
+	})
+}
+
+// TestRecipeIfWarningAndBraceErrors checks, through the command, the warning for a tag nobody defines (the
+// build goes on) and the errors for an if line whose { is glued or in a comment (the file is read, and the
+// error is the recipe's, at its place).
+func TestRecipeIfWarningAndBraceErrors(t *testing.T) {
+	withOneCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_GATE_PHASE", "04")
+		lib := map[string]string{"include/clib.h": clibH, "src/clib.c": clibC}
+		const body = "\tfmt.Println(clib.clib_square(2))"
+		recipe := "\tsrc src/clib.c\n\tinclude include\n\tprivate-define CLIB_BUILD=1\n\tdefine CLIB_SCALE=1\n" +
+			"\tif widnows {\n\t\tdefine WINDOWS_ONLY\n\t}"
+		inDir(t, libProject(recipe, body, lib))
+		r := gocppRun("", false, "run", ".")
+		want := `./gocpp.mod:11:5: warning: cxx example.com/clib: the tag "widnows" in a condition ` +
+			`is not an operating system`
+		if r.code != 0 || r.stdout != "4\n" || !strings.Contains(r.stderr, want) ||
+			!strings.Contains(r.stderr, "did you mean windows?") {
+			t.Fatalf("a tag nobody defines: gocpp run = %+v, want a warning with %q", r, want)
+		}
+		for _, tc := range []struct{ ifLine, want string }{
+			{"if linux{", `./gocpp.mod:8:5: cxx example.com/clib: put a space before the "{"`},
+			{"if //go:build linux {",
+				`./gocpp.mod:8:2: cxx example.com/clib: the "{" of an if line is not in a comment`},
+			{"if(linux) {", `./gocpp.mod:8:2: cxx example.com/clib: write a space after "if"`},
+		} {
+			inDir(t, libProject("\tsrc src/clib.c\n\t"+tc.ifLine+"\n\t\tdefine A\n\t}", body, lib))
+			if r := gocppRun("", false, "check", "."); r.code != 1 || !strings.Contains(r.stderr, tc.want) ||
+				strings.Contains(r.stderr, "syntax error") {
+				t.Errorf("%q: gocpp check = %+v, want exit 1 and %q", tc.ifLine, r, tc.want)
+			}
+		}
+	})
+}
+
+// TestRecipeIfVendorRoundTrip vendors a library that ships a recipe with blocks and builds from vendor/: the
+// recipe is copied as it is, and builds the same program.
+func TestRecipeIfVendorRoundTrip(t *testing.T) {
+	withOneCXX(t, func(t *testing.T, c testCXX) {
+		t.Setenv("GOCPP_GATE_PHASE", "04")
+		libMod := "module example.com/clib\n\ncxx example.com/clib {\n" + ifRecipe + "\n}\n"
+		files := libProject("", "\tfmt.Println(clib.clib_scaled(2))",
+			map[string]string{"include/clib.h": clibH, "src/clib.c": clibC, "gocpp.mod": libMod})
+		files["gocpp.mod"] = "module example.com/app\n\nrequire example.com/clib v1.0.0\nreplace example.com/clib => ./clib\n"
+		dir := inDir(t, files)
+		want := fmt.Sprintf("%d\n", 2*ifScale())
+		if r := gocppRun("", false, "run", "."); r != (result{0, want, ""}) {
+			t.Fatalf("from the replaced folder: gocpp run = %+v, want %q", r, want)
+		}
+		if r := gocppRun("", false, "mod", "vendor"); r.code != 0 {
+			t.Fatalf("gocpp mod vendor = %+v", r)
+		}
+		vendored := readFile(t, filepath.Join(dir, "vendor", "example.com", "clib", "gocpp.mod"))
+		if vendored != libMod {
+			t.Errorf("the vendored gocpp.mod is not the library's:\n%s", vendored)
+		}
+		// Without the library's folder, the program is built from vendor/.
+		os.RemoveAll(filepath.Join(dir, "clib"))
+		if r := gocppRun("", false, "run", "."); r != (result{0, want, ""}) {
+			t.Fatalf("from vendor/: gocpp run = %+v, want %q", r, want)
+		}
+	})
+}
+
 func TestRecipeVendored(t *testing.T) {
 	withOneCXX(t, func(t *testing.T, c testCXX) {
 		t.Setenv("GOCPP_GATE_PHASE", "04")
@@ -379,9 +486,9 @@ func TestRecipeErrorsAtTheLine(t *testing.T) {
 		lib := map[string]string{"include/clib.h": clibH, "src/clib.c": clibC}
 		for _, tc := range []struct{ recipe, want string }{
 			// check finds the text and flag errors, build finds the files too.
-			{"\tsrc src/clib.c\n\tfrobnicate 1", "./gocpp.mod:8: cxx example.com/clib: unknown statement \"frobnicate\""},
+			{"\tsrc src/clib.c\n\tfrobnicate 1", "./gocpp.mod:8:2: cxx example.com/clib: unknown statement \"frobnicate\""},
 			{"\tsrc src/clib.c\n\tcflags -fplugin=evil.so", "./gocpp.mod:8: cxx example.com/clib: cflags: invalid flag in the cxx recipe of example.com/clib: -fplugin=evil.so"},
-			{"\tsrc src/clib.c ../escape.c", `./gocpp.mod:7: cxx example.com/clib: src "../escape.c": a ".." element`},
+			{"\tsrc src/clib.c ../escape.c", `./gocpp.mod:7:2: cxx example.com/clib: src "../escape.c": a ".." element`},
 		} {
 			inDir(t, libProject(tc.recipe, "\tfmt.Println(clib.clib_square(2))", lib))
 			for _, cmd := range []string{"check", "build", "run"} {

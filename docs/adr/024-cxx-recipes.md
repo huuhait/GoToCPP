@@ -13,7 +13,7 @@ downloaded code to run anything on the user's machine. The Phase 04 flag allow-l
 ## Decision
 
 `gocpp.mod` holds the recipe in a brace block `cxx <module path> { ... }`, one statement a line, with an
-optional operating system condition (`linux:`, `!windows:`). The statements: `src`, `exclude`, `include`,
+optional operating system condition (`linux:`, `!windows:`; replaced by `if` blocks in [ADR-129](129-a-recipe-condition-is-an-if-block-over-build-constraints.md)). The statements: `src`, `exclude`, `include`,
 `system-include`, `define`, `private-define`, `cflags`, `cxxflags`, `ldflags`, `link`, `pkg-config`, `std`,
 `cstd`. The full language, with examples, is in [docs/spec/modules.md](../spec/modules.md#c-and-c-libraries-cxx-recipes).
 

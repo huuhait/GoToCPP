@@ -118,23 +118,23 @@ var (
 // nothing.
 func readRecipes(ctx context.Context, lp *load.Package, pkgConfig PkgConfigFunc, flags *PackageFlags) (errs []diag.Diagnostic, pending bool) {
 	seen := make(map[string]bool) // errors of a file, once
-	report := func(file string, line int, msg string) {
-		key := fmt.Sprintf("%s:%d:%s", file, line, msg)
+	report := func(pos token.Position, msg string) {
+		key := fmt.Sprintf("%s:%d:%d:%s", pos.Filename, pos.Line, pos.Column, msg)
 		if !seen[key] {
 			seen[key] = true
-			errs = append(errs, diag.Diagnostic{Pos: token.Position{Filename: file, Line: line}, Msg: msg})
+			errs = append(errs, diag.Diagnostic{Pos: pos, Msg: msg})
 		}
 	}
 	for _, cm := range lp.CxxModules {
 		for _, e := range cm.Errors {
-			report(e.Filename, e.Pos.Line, e.Err)
+			report(token.Position{Filename: e.Filename, Line: e.Pos.Line}, e.Err)
 		}
 		if cm.Recipe == nil {
 			continue
 		}
 		lib, lerrs, lpending := readRecipe(ctx, lp, cm, pkgConfig)
 		for _, e := range lerrs {
-			report(e.Pos.Filename, e.Pos.Line, e.Msg)
+			report(e.Pos, e.Msg)
 		}
 		pending = pending || lpending
 		if lib == nil || len(lerrs) > 0 || lpending {
@@ -152,7 +152,9 @@ func readRecipe(ctx context.Context, lp *load.Package, cm *load.CxxModule, pkgCo
 	mod := cm.Module
 	recipe, perrs := gocppmod.ParseRecipe(cm.RecipeFile, mod.Path, cm.Recipe)
 	for _, e := range perrs {
-		errs = append(errs, diag.Diagnostic{Pos: token.Position{Filename: e.Filename, Line: e.Pos.Line}, Msg: e.Err})
+		// A column of 0 is an error about the whole line (too long, not UTF-8).
+		pos := token.Position{Filename: e.Filename, Line: e.Pos.Line, Column: e.Pos.LineRune}
+		errs = append(errs, diag.Diagnostic{Pos: pos, Msg: e.Err})
 	}
 	lib = &CxxLib{Module: mod.Path, Version: mod.Version, Dir: mod.Dir, File: cm.RecipeFile, FromLibrary: cm.FromLibrary,
 		Std: "c++20", CStd: "gnu17"}
@@ -165,8 +167,9 @@ func readRecipe(ctx context.Context, lp *load.Package, cm *load.CxxModule, pkgCo
 			Msg: fmt.Sprintf("cxx %s: the module's folder: %v", mod.Path, err)})
 		return lib, errs, false
 	}
+	tag := load.BuildTags(cm.GOOS, cm.GOARCH, cm.Tags)
 	for _, s := range recipe.Stmts {
-		if !s.Cond.Match(cm.GOOS) {
+		if !s.Cond.Match(tag) {
 			continue
 		}
 		fail := func(format string, args ...any) {

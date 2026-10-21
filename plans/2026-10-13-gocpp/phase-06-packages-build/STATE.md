@@ -151,3 +151,9 @@
   reproducible with plain C++; it is allowed in headers only. Linux only. Manager checks:
   gofmt, vet, the tests ran twice green in review. Seeing it in a real editor stays the VS Code
   checklist.
+- 2026-10-21: Job 06.recipeif merged after two review rounds (user decision: the colon form of an OS condition in a `cxx`
+  recipe looked wrong). ADR-129: a condition is an `if cond {` block with `} else {` and `} else if cond {`; the condition is a
+  `//go:build` expression evaluated with the loader's tags; the colon form is removed and gives an error that shows the new
+  form; nesting up to 4, 1024 conditions and 100 errors per recipe; an unknown tag is false with a warning and a guess; the
+  object-cache key still follows the statements that apply to the target. Open nits: `if(windows){` and `}else{` glued
+  spellings still give the older file-level message.

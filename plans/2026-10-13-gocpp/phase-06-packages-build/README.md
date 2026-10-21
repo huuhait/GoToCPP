@@ -376,7 +376,7 @@ func main() { imgui.Begin("hello") }
   that the `cxx` recipe lists, once per (module, version, recipe, compiler, flags), through the object cache,
   and links the objects statically. The recipe is the block `cxx <module path> { ... }` of the project's `gocpp.mod`, or
   the one the library ships in its own `gocpp.mod` (the project's replaces it, no merging); it is read only for a module the
-  program imports a header from. The statements (one a line, an optional `linux:` / `!windows:` condition): `src` (globs
+  program imports a header from. The statements (one a line; `if windows { ... } else { ... }` blocks over build constraints for a system, [ADR-129](../../../docs/adr/129-a-recipe-condition-is-an-if-block-over-build-constraints.md)): `src` (globs
   inside one folder), `exclude`, `include` (`-I`) and `system-include` (`-isystem`), `define` (library and users),
   `private-define` (library only), `cflags`, `cxxflags`, `ldflags`, `link`, `pkg-config`, `std`, `cstd`. A line gocpp
   does not understand is an error at its line. The flag allow-list (Phase 04) applies to every flag and to the output of

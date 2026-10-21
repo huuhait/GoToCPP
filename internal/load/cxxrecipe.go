@@ -39,8 +39,11 @@ type CxxModule struct {
 	// Module is the module: its path, version and folder.
 	Module *Module
 
-	// GOOS is the target of the load, for the OS conditions of the recipe.
-	GOOS string
+	// GOOS and GOARCH are the target of the load, and Tags the extra build
+	// tags (Config.Tags): the if blocks of the recipe ask for them
+	// (BuildTags).
+	GOOS, GOARCH string
+	Tags         []string
 
 	// Recipe is the cxx block of the module, or nil: the module has no
 	// recipe, and its headers are used as they are.
@@ -87,7 +90,7 @@ func (l *loader) cxxModule(p *Package, mod *Module) *CxxModule {
 	if c, ok := l.cxxMods[key]; ok {
 		return c
 	}
-	c := &CxxModule{Module: mod, GOOS: l.cfg.GOOS}
+	c := &CxxModule{Module: mod, GOOS: l.cfg.GOOS, GOARCH: l.cfg.GOARCH, Tags: l.cfg.Tags}
 	l.cxxMods[key] = c
 	// The library's own file: its cxx line, and a recipe if the project has
 	// none.
@@ -100,6 +103,7 @@ func (l *loader) cxxModule(p *Package, mod *Module) *CxxModule {
 		c.Errors = append(c.Errors, errs...)
 		if b := blocks[mod.Path]; b != nil {
 			c.Recipe, c.RecipeFile = b, filepath.Join(main.Dir, modFile)
+			l.warnUnknownTags(c)
 			return c
 		}
 	}
@@ -108,6 +112,7 @@ func (l *loader) cxxModule(p *Package, mod *Module) *CxxModule {
 		c.Errors = append(c.Errors, errs...)
 		if b := blocks[mod.Path]; b != nil {
 			c.Recipe, c.RecipeFile, c.FromLibrary = b, libName, true
+			l.warnUnknownTags(c)
 		}
 	}
 	return c

@@ -97,3 +97,53 @@ func TestMatchFileBroken(t *testing.T) {
 		t.Errorf("x_linux.c is in a windows package")
 	}
 }
+
+// BuildTags is what the if blocks of a cxx recipe ask (ADR-129): the tags of a
+// //go:build line for the target, with the same answers as go/build for the
+// ones that it knows, and false for a tag that nobody knows.
+func TestBuildTags(t *testing.T) {
+	targets := []struct{ goos, goarch string }{
+		{"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}, {"windows", "arm64"},
+		{"darwin", "arm64"}, {"freebsd", "amd64"}, {"android", "arm64"}, {"ios", "arm64"},
+		{"illumos", "amd64"},
+	}
+	tags := []string{
+		"linux", "windows", "darwin", "freebsd", "android", "ios", "illumos", "solaris",
+		"amd64", "arm64", "386", "unix", "go1.18", "go1.99", "fancy", "ignore", "widnows", "cgo", "gc",
+	}
+	for _, extra := range [][]string{nil, {"fancy"}} {
+		for _, tg := range targets {
+			ref := build.Context{GOOS: tg.goos, GOARCH: tg.goarch, Compiler: "gocpp", BuildTags: extra}
+			for i := 1; i <= goMinor; i++ {
+				ref.ReleaseTags = append(ref.ReleaseTags, fmt.Sprintf("go1.%d", i))
+			}
+			tag := BuildTags(tg.goos, tg.goarch, extra)
+			for _, name := range tags {
+				src := "//go:build " + name + "\n\npackage p\n"
+				ref.OpenFile = func(string) (io.ReadCloser, error) {
+					return io.NopCloser(strings.NewReader(src)), nil
+				}
+				want, err := ref.MatchFile("", "x.go")
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Asked twice: the second answer is the remembered one.
+				if got, again := tag(name), tag(name); got != want || again != want {
+					t.Errorf("%s/%s %v %s = %v, %v; go/build says %v",
+						tg.goos, tg.goarch, extra, name, got, again, want)
+				}
+			}
+		}
+	}
+	// The names that a recipe uses most.
+	tag := BuildTags("linux", "arm64", nil)
+	answers := map[string]bool{
+		"linux": true, "unix": true, "arm64": true, "gocpp": true,
+		"windows": false, "amd64": false, "cgo": false, "nonsense": false,
+	}
+	for name, want := range answers {
+		if got := tag(name); got != want {
+			t.Errorf("linux/arm64 %s = %v, want %v", name, got, want)
+		}
+	}
+}

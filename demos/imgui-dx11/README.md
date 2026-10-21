@@ -32,7 +32,7 @@ task with `/it`). Closing the window ends the program, which prints `window clos
 
 ## Notes
 
-- The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32`. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
+- The recipe links `d3d11 dxgi d3dcompiler dxguid dwmapi gdi32` in an `if windows { ... }` block. `imgui_impl_dx11.cpp` asks for `d3dcompiler` with
   `#pragma comment(lib, ...)`, which MinGW ignores, so the recipe names it. `dxguid` holds the `IID_` constants.
 - `GetBuffer` wants a `void**`: `var raw unsafe.Pointer` and `&raw`, then a conversion to the interface pointer.
 - A covered or minimized window: `Present` returns at once with `DXGI_STATUS_OCCLUDED` instead of waiting for the

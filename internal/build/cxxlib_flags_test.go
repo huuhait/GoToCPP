@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -61,6 +62,10 @@ func recipeProject(recipe ...string) map[string]string {
 	}
 }
 
+// recipeErrPrefix is the start of an error of line 8 of the project's gocpp.mod: the column is
+// that of the word (the line is read as text) or 0 (a statement that the build checks).
+var recipeErrPrefix = regexp.MustCompile(`^gocpp\.mod:8:\d+: cxx example\.com/lib: `)
+
 func readFlags(t *testing.T, lp *load.Package, prog *load.Program, pc build.PkgConfigFunc) (build.PackageFlags, []diag.Diagnostic) {
 	t.Helper()
 	flags, errs, pending := build.ReadPackageFlags(context.Background(), prog.Fset, lp, pc)
@@ -84,9 +89,20 @@ func TestRecipeFlagsOrder(t *testing.T) {
 		"\tlink m -lpthread",
 		"\tldflags -Linc",
 		"\tpkg-config zlib",
-		"\tlinux: define ON_LINUX",
-		"\twindows: define ON_WINDOWS",
-		"\t!linux: define NOT_LINUX",
+		"\tif linux {",
+		"\t\tdefine ON_LINUX",
+		"\t}",
+		"\tif windows {",
+		"\t\tdefine ON_WINDOWS",
+		"\t} else if darwin {",
+		"\t\tdefine ON_DARWIN",
+		"\t}",
+		"\tif !linux {",
+		"\t\tdefine NOT_LINUX",
+		"\t}",
+		"\tif amd64 && !windows {",
+		"\t\tdefine UNIX_AMD64",
+		"\t}",
 	)
 	files["main.gp"] = "//gocpp:cflags -DDIRECTIVE\n//gocpp:link rt\n" + recipeMain
 	lp, prog, dir := loadTree(t, files)
@@ -103,6 +119,7 @@ func TestRecipeFlagsOrder(t *testing.T) {
 		"-DPUB=1", "-DPUBV=x y",
 		"-DFROM_PC", "-I/usr/include/zlib",
 		"-DON_LINUX",
+		"-DUNIX_AMD64",
 		"-iquote", lib, // the module folder last
 	}
 	if !slices.Equal(flags.Compile, wantCompile) {
@@ -141,7 +158,8 @@ func TestRecipeFlagsOrder(t *testing.T) {
 	// The other OS: the conditions choose.
 	lp.CxxModules[0].GOOS = "windows"
 	flags, errs = readFlags(t, lp, prog, pc.run)
-	if len(errs) > 0 || !slices.Contains(flags.Compile, "-DON_WINDOWS") || !slices.Contains(flags.Compile, "-DNOT_LINUX") || slices.Contains(flags.Compile, "-DON_LINUX") {
+	if len(errs) > 0 || !slices.Contains(flags.Compile, "-DON_WINDOWS") || !slices.Contains(flags.Compile, "-DNOT_LINUX") || slices.Contains(flags.Compile, "-DON_LINUX") ||
+		slices.Contains(flags.Compile, "-DON_DARWIN") || slices.Contains(flags.Compile, "-DUNIX_AMD64") {
 		t.Errorf("windows: %q %s", flags.Compile, errText(errs))
 	}
 }
@@ -330,7 +348,7 @@ func TestRecipeErrors(t *testing.T) {
 		}
 		flags, errs := readFlags(t, lp, prog, nil)
 		got := errText(errs)
-		if len(errs) != 1 || !strings.Contains(got, tc.want) || !strings.HasPrefix(got, "gocpp.mod:8:0: cxx example.com/lib: ") {
+		if len(errs) != 1 || !strings.Contains(got, tc.want) || !recipeErrPrefix.MatchString(got) {
 			t.Errorf("%q: errors\n%swant one with %q at gocpp.mod line 8", tc.line, got, tc.want)
 		}
 		if len(flags.Libs) != 0 || slices.Contains(flags.Compile, "-DAFTER") || len(flags.Link) != 0 {

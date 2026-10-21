@@ -12,6 +12,8 @@ cxx github.com/example/minijson {
 	include include
 	define MINIJSON_MAX_DEPTH=16
 	private-define MINIJSON_BUILDING
-	linux,darwin: define MINIJSON_UNIX
+	if linux || darwin {
+		define MINIJSON_UNIX
+	}
 	link m
 }

@@ -41,9 +41,10 @@ On a Windows host with MinGW-w64 (MSYS2: `mingw-w64-x86_64-glfw`), `gocpp build 
 
 ## Notes
 
-- `//gocpp:` link flags are in the recipe: `windows: link glfw3dll opengl32 gdi32 dwmapi`. The recipe has no
-  `linux:` or `darwin:` line, so this folder builds only for Windows; for another system add the GLFW and OpenGL
-  libraries to the recipe (`pkg-config glfw3` and `link GL` on Linux, [spec](../../docs/spec/modules.md#c-and-c-libraries-cxx-recipes)).
+- `//gocpp:` link flags are in the recipe: `link glfw3dll opengl32 gdi32 dwmapi` in an `if windows { ... }` block. The recipe
+  has no block for Linux or macOS, so this folder builds only for Windows; for another system add a block with the GLFW and
+  OpenGL libraries (on Linux `pkg-config glfw3` and `link GL` in an `if linux { ... }` block,
+  [spec](../../docs/spec/modules.md#c-and-c-libraries-cxx-recipes)).
 - `imgui_demo.cpp` is in the recipe because the checkbox calls `ImGui.ShowDemoWindow`.
 - Out-parameters of the widgets are C values: `var speed C.float` and `&speed`, `var showDemo bool` and `&showDemo`,
   `&clear[0]` for the color array.
