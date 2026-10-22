@@ -79,8 +79,15 @@ void unlock_os_thread() noexcept;
 
 // --- memory ---
 
-// gc is runtime.GC: nothing (memory is reference counted).
+// gc is runtime.GC: it counts the call (gc_count, for MemStats.NumGC) and does nothing else
+// (memory is reference counted).
 void gc() noexcept;
+uint32_t gc_count() noexcept;
+
+// total_alloc is MemStats.TotalAlloc: the highest number of live bytes seen so far, including
+// in_use, the number of this call. It does not decrease, as Go's TotalAlloc, and it is never below
+// Alloc; it is a lower bound of the bytes allocated (the allocator does not count allocations).
+uint64_t total_alloc(uint64_t in_use) noexcept;
 
 // set_finalizer is runtime.SetFinalizer and keep_alive is runtime.KeepAlive: nothing. A finalizer
 // never runs.

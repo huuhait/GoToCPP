@@ -2,6 +2,7 @@ package rtfiles_test
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,33 @@ func runRuntimePkg(t *testing.T, bin string, asan bool) {
 			if code < 10 || code > 13 || o != "" || e != "" {
 				t.Errorf("exit code %d, stdout %q, stderr %q; want one of 10 to 13 and nothing printed", code, o, e)
 			}
+		}
+	})
+	// Like Go's os.Exit and the return of main: no static destructor, no atexit function, no
+	// thread-local destructor (nothing but the program's own output).
+	for _, name := range []string{"exit-atexit", "return-atexit"} {
+		t.Run(name, func(t *testing.T) {
+			o, e, code := run(name)
+			if code != 0 || o != "main\n" || e != "" {
+				t.Errorf("exit code %d, stdout %q, stderr %q; want 0, \"main\\n\" and nothing else", code, o, e)
+			}
+		})
+	}
+	t.Run("exit-claimed", func(t *testing.T) {
+		// exit waits for the thread that claimed the end of the program: its code wins.
+		o, e, code := run("exit-claimed")
+		if code != 11 || o != "claimer ends\n" || e != "" {
+			t.Errorf("exit code %d, stdout %q, stderr %q; want 11 and \"claimer ends\\n\"", code, o, e)
+		}
+	})
+	t.Run("exit-guard", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("needs sched_setaffinity and SCHED_IDLE")
+		}
+		// The second exit waits for the first: the code of the one that got the guard.
+		o, e, code := run("exit-guard")
+		if code != 11 || o != "" || e != "" {
+			t.Errorf("exit code %d, stdout %q, stderr %q; want 11 (22 is the second exit getting past the guard)", code, o, e)
 		}
 	})
 	t.Run("return-main", func(t *testing.T) {

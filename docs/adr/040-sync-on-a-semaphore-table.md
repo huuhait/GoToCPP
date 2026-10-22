@@ -28,7 +28,13 @@ blocking operation parks on a `gp::waiter` (ADR-026). Three constraints shaped t
 - **The algorithms are Go's, line by line**: `internal/sync/mutex.go` (normal and starvation mode,
   `lockSlow`, `unlockSlow`), `sync/rwmutex.go` (writer preference), `sync/waitgroup.go`,
   `sync/cond.go` with `runtime/sema.go`'s notify list, and the semaphore (`semacquire`/`semrelease`,
-  with the waiter count read without the lock, and the hand-off of the starving mutex).
+  with the waiter count read without the lock, and the hand-off of the starving mutex). One difference: a
+  hand-off release (`sema_release(addr, true)`) takes the first waiter off the queue and gives it the unit in
+  one step under the bucket's lock, and the count of the word never shows the unit; Go adds the unit first and
+  takes it for the waiter after the dequeue, a window of nanoseconds on a P, but microseconds with a thread for
+  each goroutine, in which a newcomer took the unit (the easy path of `semacquire`) and got in ahead of the
+  waiters of a starving mutex. With nobody queued the unit is left in the word, as a plain release does
+  (`test_sema_handoff_is_one_step`).
 - **The waiters live in a table keyed by the address of the semaphore word** (251 buckets of a
   `std::mutex` and a FIFO list of `gp::detail::sudog`, on the waiting goroutine's stack), as Go's
   `semaTable` is. A goroutine parks through `block_scope` (entered under the bucket's lock, before the
@@ -52,7 +58,12 @@ blocking operation parks on a `gp::waiter` (ADR-026). Three constraints shaped t
   `gp::ptr<T>`) for the runtime type under `atomic.Pointer[T]`. `atomic.Value` is a spin lock around an
   interface (two words and a count cannot be one atomic word).
 - **`sync.Map` is a `map[any]any` under an `RWMutex`**, not Go's `HashTrieMap`; the key is hashed first
-  (`hash_check`) so an unhashable key panics with Go's text before any lock is taken. `Pool` is a
+  (`hash_check`) so an unhashable key panics with Go's text before any lock is taken. `Range` walks a
+  cached list of the entries (made by the first `Range` after the set of keys changed, kept only for a map of at
+  most 4096 entries, about 64 bytes an entry) and looks each key up again, so it no longer copies everything under
+  the read lock on every call (job 08.synclows; a port of Go's
+  read-only plus dirty map was measured and dropped: its `atomic.Pointer` loads cost a spin lock each and made
+  `Load` 2 to 10 times slower than the `RWMutex`). `Pool` is a
   mutex-protected free list (at most 65536 items: there is no collector to drop them).
 - **`OnceFunc`, `OnceValue` and `OnceValues` are Go's source**; the two generic ones are instantiated
   per call by step 7.1 (merged) and tested. `atomic.Pointer[T]` (step 7.3) is a generic type written in Go over the same spin lock as `Value`
@@ -83,4 +94,11 @@ Bad:
   only `sync` (Phase 15).
 - A contended mutex wakes OS threads: hand-offs are microseconds, not nanoseconds.
 - The templates read fields by name: `stdlib/sync` and `gocpp/sync.hpp` must change together.
-- `sync.Map` is not lock-free for readers, and `atomic.Value.Load` takes a spin lock.
+- `sizeof(sync.Map)` grew from 40 to 144 bytes: the list (a slice) and 64 bytes of padding between the lock and the
+  map (15 to 20 percent on `Load` at 8 goroutines; 104 MB more for a million Maps). A `Range` of a map above 4096
+  entries makes its list for the one call and keeps nothing, and the first `Range` after a change of the keys pays
+  O(n) for it (docs/benchmarks/runtime.md).
+- `sync.Map` readers take the read lock (the same cost as before the cached list of `Range`) and
+  `atomic.Value.Load` and `atomic.Pointer.Load` take a spin lock (a counted pointer is not one atomic word): about
+  50 ns on one thread and microseconds under 64 threads, which is why `sync.Map` does not use `atomic.Pointer`.
+- `NewCond(&q.mu)` with `mu` in the same struct as the Cond is a reference cycle; see the sync PORT.md.

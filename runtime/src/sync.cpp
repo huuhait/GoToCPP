@@ -102,7 +102,13 @@ void park(std::unique_lock<std::mutex>& lk, bucket& b, entry& e, const char* rea
     gp::detail::park_cell(cell);
 }
 
+// The clock of the starvation rule: the monotonic clock, or the test's (set_clock_for_test).
+constinit std::atomic<int64_t (*)() noexcept> clock_hook{nullptr};
+
 int64_t nanotime() noexcept {
+    if (auto* hook = clock_hook.load(std::memory_order_relaxed); hook != nullptr) {
+        return hook();
+    }
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
                std::chrono::steady_clock::now().time_since_epoch())
         .count();
@@ -130,16 +136,8 @@ constexpr int32_t mutex_woken = 2;
 constexpr int32_t mutex_starving = 4;
 constexpr int mutex_waiter_shift = 3;
 
-// A waiter that waited longer than this when it was woken puts the mutex in starvation mode: Go's
-// threshold is 1 ms, plus here 100 us for each goroutine that waits too. A hand-off in starvation
-// mode costs a futex wake-up and a context switch (20 to 50 us on an idle machine, more on a loaded
-// one), where Go's costs about 200 ns, so with 100 threads on one mutex a wait of 1 ms is the
-// normal order of the queue, not a sign of unfairness; with Go's constant the mutex went into
-// starvation mode at once and stayed in it (every Unlock a hand-off, 13 s for 2M Lock/Unlock pairs
-// of 100 threads, against 0.3 s without it). A wait that the length of the queue explains is not
-// starvation; one that it does not explain is.
-constexpr int64_t starvation_base_ns = 1000000;
-constexpr int64_t starvation_per_waiter_ns = 100000;
+// (The starvation threshold, starvation_base_ns and starvation_per_waiter_ns, is in
+// gocpp/sync.hpp.)
 
 template <typename R>
 bool cas(R& s, int32_t old, int32_t now) noexcept {
@@ -147,6 +145,22 @@ bool cas(R& s, int32_t old, int32_t now) noexcept {
 }
 
 } // namespace
+
+void set_clock_for_test(int64_t (*clock)() noexcept) noexcept {
+    clock_hook.store(clock, std::memory_order_relaxed);
+}
+
+int64_t sema_queued_for_test(const uint32_t* addr) noexcept {
+    bucket& b = bucket_of(addr);
+    std::lock_guard<std::mutex> lk(b.mu);
+    int64_t queued = 0;
+    for (sudog* s = b.q.first; s != nullptr; s = s->next) {
+        if (static_cast<entry*>(s)->elem == addr) {
+            queued++;
+        }
+    }
+    return queued;
+}
 
 void sema_acquire(uint32_t* addr, const char* reason, bool lifo) {
     // Easy case.
@@ -178,6 +192,28 @@ void sema_acquire(uint32_t* addr, const char* reason, bool lifo) {
 
 void sema_release(uint32_t* addr, bool handoff) {
     bucket& b = bucket_of(addr);
+    if (handoff) {
+        // The unit goes to the first waiter in the step that takes it off the queue (the bucket's
+        // lock is held), and the count of the semaphore never shows it: Go adds the unit first and
+        // takes it for the waiter after the dequeue (runtime.semrelease), and a goroutine that
+        // arrives in that window and finds the unit takes it from the waiter (the easy path of
+        // semacquire): a newcomer of a starving mutex then gets in ahead of the waiters. With a
+        // thread for each goroutine the window is microseconds, not nanoseconds.
+        std::unique_lock<std::mutex> lk(b.mu);
+        entry* e = find(b, addr, false, 0);
+        if (e == nullptr) {
+            // Nobody waits yet (or they wait for another word of the bucket): leave the unit, as a
+            // release does. A waiter that registers later sees it under the same lock.
+            at(*addr).fetch_add(1);
+            return;
+        }
+        b.q.remove(e);
+        at(b.nwait).fetch_sub(1);
+        lk.unlock();
+        e->ticket = 1;
+        gp::detail::wake(e);
+        return;
+    }
     at(*addr).fetch_add(1);
     // Easy case: no waiters? This check must happen after the add, to avoid a missed wake-up.
     if (at(b.nwait).load() == 0) {
@@ -194,11 +230,7 @@ void sema_release(uint32_t* addr, bool handoff) {
     b.q.remove(e);
     at(b.nwait).fetch_sub(1);
     lk.unlock();
-    // The entry is off the queue and its goroutine is parked: nobody else will wake it, so it may
-    // be written until the wake.
-    if (handoff && can_acquire(addr)) {
-        e->ticket = 1;
-    }
+    // The entry is off the queue and its goroutine is parked: nobody else will wake it.
     gp::detail::wake(e);
 }
 

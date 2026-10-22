@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -239,6 +240,224 @@ void test_mutex_starvation() {
     CHECK(g.wait());
     CHECK(waiter_in.load());
     CHECK_EQ(mu->state, 0);
+}
+
+// The clock of the starvation tests: the test says what time it is, and holds the waiter (the one
+// goroutine with is_waiter) in the clock call that follows its wake-up.
+namespace starve {
+
+// The time at which W starts to wait; the clock is the test's own.
+constexpr int64_t start_ns = 1000000;
+std::atomic<int64_t> now_ns{start_ns};
+std::atomic<int> waiter_calls{0};
+std::atomic<bool> in_wake_call{false};
+std::atomic<bool> go_on{false};
+thread_local bool is_waiter = false;
+
+int64_t clock() noexcept {
+    if (is_waiter && waiter_calls.fetch_add(1) == 1) {
+        // The second call is the one after the wake-up (the first one starts the wait): hold the
+        // waiter here until the test has taken the mutex that the waiter was woken for.
+        in_wake_call.store(true);
+        wait_for([] { return go_on.load(); });
+    }
+    return now_ns.load();
+}
+
+void reset() {
+    now_ns.store(start_ns);
+    waiter_calls.store(0);
+    in_wake_call.store(false);
+    go_on.store(false);
+}
+
+// The mutex bits (internal/sync/mutex.go): locked 1, woken 2, starving 4, the waiters from bit 3.
+constexpr int32_t starving_bit = 4;
+
+} // namespace starve
+
+// A waiter that was woken and lost the mutex to a goroutine that arrived in the meantime, after
+// it had waited longer than the threshold, puts the mutex in starvation mode: the next Unlock
+// hands the mutex to the first waiter, and a newcomer queues behind it. The clock is the test's,
+// and the waiter is held after its wake-up until the mutex is taken from under it: no sleep decides
+// anything. A second waiter X is queued behind the first one W (W must go back to the front of the
+// queue when it waits again, ahead of X), and it counts for the threshold (base plus one waiter).
+//
+// waited_ns is how long W has waited when it is woken. sticky also checks that the mutex stays in
+// starvation mode when W takes it (W is held in its critical section, the clock is back at the
+// start of its wait: once W has seen the long wait it does not forget); without sticky this
+// goroutine unlocks and comes back at once, as a newcomer, and must queue behind W and X.
+void test_mutex_starvation_handoff(int64_t waited_ns, bool starving_expected, bool sticky) {
+    starve::reset();
+    gp::sync::detail::set_clock_for_test(&starve::clock);
+    auto mu = gp::new_<Mutex>();
+    std::vector<int> order;
+    std::mutex order_mu;
+    auto note = [&](int who) {
+        std::lock_guard<std::mutex> lk(order_mu);
+        order.push_back(who);
+    };
+    std::atomic<bool> w_holds{false};
+    std::atomic<bool> w_release{false};
+    gp::sync::mutex_lock(mu);
+    group g;
+    g.go([&] {
+        // A goroutine's thread is reused by the next goroutine: the flag goes with this body.
+        struct flag_guard {
+            flag_guard() { starve::is_waiter = true; }
+            ~flag_guard() { starve::is_waiter = false; }
+        } waiter_flag;
+        gp::sync::mutex_lock(mu);
+        note(1);
+        if (sticky) {
+            w_holds.store(true);
+            wait_for([&] { return w_release.load(); });
+        }
+        gp::sync::mutex_unlock(mu);
+    });
+    CHECK(blocked_is(1));
+    g.go([&] {
+        gp::sync::mutex_lock(mu);
+        note(2);
+        gp::sync::mutex_unlock(mu);
+    });
+    CHECK(blocked_is(2));
+    starve::now_ns.store(starve::start_ns + waited_ns);
+    gp::sync::mutex_unlock(mu); // wakes W, the first waiter
+    CHECK(wait_for([] { return starve::in_wake_call.load(); }));
+    // W was woken for the mutex and is held before it tries; this goroutine takes it.
+    gp::sync::mutex_lock(mu);
+    starve::go_on.store(true);
+    // W finds the mutex locked and queues again, at the front: with the long wait it switches the
+    // mutex to starvation mode on its way.
+    CHECK(wait_for([&] { return (gp::sync::detail::at(mu->state).load() >> 3) == 2; }));
+    bool starving = (gp::sync::detail::at(mu->state).load() & starve::starving_bit) != 0;
+    CHECK_EQ(starving, starving_expected);
+    CHECK(blocked_is(2));
+    if (sticky) {
+        starve::now_ns.store(starve::start_ns);
+    }
+    gp::sync::mutex_unlock(mu);
+    if (sticky) {
+        CHECK(wait_for([&] { return w_holds.load(); }));
+        bool still = (gp::sync::detail::at(mu->state).load() & starve::starving_bit) != 0;
+        CHECK_EQ(still, starving_expected);
+        w_release.store(true);
+        gp::sync::mutex_lock(mu);
+    } else {
+        gp::sync::mutex_lock(mu);
+    }
+    note(3);
+    // This goroutine holds the mutex, so W and X that have not taken it yet end up in the queue:
+    // wait for that before the unlock (W that was woken a second time is counted in the state but
+    // not in the queue for a moment, and the unlock would then wake X first).
+    int64_t not_yet_in = 2;
+    {
+        std::lock_guard<std::mutex> lk(order_mu);
+        not_yet_in -= int64_t(order.size()) - 1;
+    }
+    CHECK(
+        wait_for([&] { return gp::sync::detail::sema_queued_for_test(&mu->sema) == not_yet_in; }));
+    gp::sync::mutex_unlock(mu);
+    CHECK(g.wait());
+    if (starving_expected) {
+        CHECK((order == std::vector<int>{1, 2, 3}));
+    } else {
+        // Without starvation the newcomer may take the mutex before the woken waiter: only W and X
+        // keep their order.
+        order.erase(std::remove(order.begin(), order.end(), 3), order.end());
+        CHECK((order == std::vector<int>{1, 2}));
+    }
+    CHECK_EQ(mu->state, 0);
+    gp::sync::detail::set_clock_for_test(nullptr);
+}
+
+void test_mutex_starvation_handoffs() {
+    using gp::sync::detail::starvation_base_ns;
+    using gp::sync::detail::starvation_per_waiter_ns;
+    // The threshold of ADR-040 (Go's 1 ms plus 100 us for each waiting goroutine): the cases below
+    // are made from the constants, so a changed constant is caught here.
+    CHECK_EQ(starvation_base_ns, int64_t(1000000));
+    CHECK_EQ(starvation_per_waiter_ns, int64_t(100000));
+    // X is the one waiter that is queued when W is woken: the threshold is base + one waiter.
+    const int64_t threshold = starvation_base_ns + starvation_per_waiter_ns;
+    // Not longer than the threshold: no starvation; one nanosecond longer: starvation.
+    test_mutex_starvation_handoff(0, false, false);
+    test_mutex_starvation_handoff(threshold, false, false);
+    test_mutex_starvation_handoff(threshold + 1, true, false);
+    test_mutex_starvation_handoff(3600LL * 1000000000LL, true, true);
+    for (int round = 0; round < 25; round++) {
+        // The newcomer's race against the waiter is decided by the hand-off in every round; a
+        // hand-off that is missing is seen in most rounds, so in 25 of them for certain.
+        test_mutex_starvation_handoff(3600LL * 1000000000LL, true, false);
+        if (failures.load() != 0) {
+            break; // a broken hand-off would wait out every round
+        }
+    }
+}
+
+// A hand-off gives the unit of the semaphore to the first waiter in the release itself (Go's
+// semrelease with handoff: the release takes the unit for the waiter), so nobody who comes in
+// before the waiter has run can take it. A plain release leaves the unit for whoever is first.
+void test_sema_handoff_takes_unit() {
+    for (int round = 0; round < 50; round++) {
+        uint32_t s = 0;
+        std::atomic<int> got{0};
+        group g;
+        g.go([&] {
+            gp::sync::detail::sema_acquire(&s, "test");
+            got++;
+        });
+        CHECK(blocked_is(1));
+        gp::sync::detail::sema_release(&s, true);
+        // Read before the waiter can have run: the unit is gone already.
+        CHECK_EQ(gp::sync::detail::at(s).load(), 0u);
+        CHECK(g.wait());
+        CHECK_EQ(got.load(), 1);
+    }
+}
+
+// The hand-off is one step, deterministically: the unit never shows in the count of the semaphore
+// while a waiter is queued (an observer thread that reads the word all the time never sees 1: the
+// release that adds the unit first and takes it for the waiter later shows it, and a newcomer of a
+// starving mutex could take it then), and a hand-off release with nobody queued leaves exactly one
+// unit for the next acquire.
+void test_sema_handoff_is_one_step() {
+    uint32_t word = 0;
+    std::atomic<bool> stop{false};
+    std::atomic<int64_t> seen{0};
+    std::atomic<bool> watching{false};
+    std::thread observer([&] {
+        watching.store(true);
+        while (!stop.load()) {
+            if (gp::sync::detail::at(word).load() != 0) {
+                seen++;
+            }
+        }
+    });
+    CHECK(wait_for([&] { return watching.load(); }));
+    for (int round = 0; round < 300; round++) {
+        std::atomic<int> got{0};
+        group g;
+        g.go([&] {
+            gp::sync::detail::sema_acquire(&word, "test");
+            got++;
+        });
+        CHECK(wait_for([&] { return gp::sync::detail::sema_queued_for_test(&word) == 1; }));
+        gp::sync::detail::sema_release(&word, true);
+        CHECK(g.wait());
+        CHECK_EQ(got.load(), 1);
+        CHECK_EQ(gp::sync::detail::at(word).load(), 0u);
+    }
+    stop.store(true);
+    observer.join();
+    CHECK_EQ(seen.load(), int64_t(0));
+
+    uint32_t lone = 0;
+    gp::sync::detail::sema_release(&lone, true);
+    CHECK_EQ(gp::sync::detail::at(lone).load(), 1u);
+    gp::sync::detail::sema_acquire(&lone, "test");
+    CHECK_EQ(gp::sync::detail::at(lone).load(), 0u);
 }
 
 // Wake-ups are not lost: n goroutines wait in a chain, each unlocks for the next.
@@ -742,6 +961,108 @@ void test_atomic_concurrent() {
     CHECK(each_once);
 }
 
+// Publication through an atomic: a goroutine writes plain memory and then does an atomic
+// operation; this goroutine sees the effect of the operation and reads the plain memory. Go's
+// memory model makes every atomic operation a synchronizing one (seq_cst), so the plain read
+// is ordered after the plain write; ThreadSanitizer reports a data race when the operation is
+// weaker than that (a relaxed fetch_add, for example): the unit tests of the counters above cannot
+// see it, they only add up. The check is in the TSan build (sync_test.go: TestSyncTSan), where a
+// race is a warning on stderr; in the other builds the values are still checked.
+template <typename Flag, typename Make, typename Publish, typename Seen>
+void publication(Make make, Publish publish, Seen seen) {
+    for (int round = 0; round < 20; round++) {
+        Flag flag = make();
+        int64_t payload = 0; // plain
+        group g;
+        g.go([&] {
+            payload = 42;
+            publish(flag);
+        });
+        CHECK(wait_for([&] { return seen(flag); }));
+        CHECK_EQ(payload, int64_t(42));
+        CHECK(g.wait());
+    }
+}
+
+void test_atomic_publication() {
+    using namespace gp::sync_atomic;
+    auto make_fn = [] { return gp::new_<int64_t>(0); };
+    auto fn_seen = [](const gp::ptr<int64_t>& f) { return fn_load(f) != 0; };
+    publication<gp::ptr<int64_t>>(make_fn, [](auto& f) { fn_add(f, int64_t(1)); }, fn_seen);
+    publication<gp::ptr<int64_t>>(make_fn, [](auto& f) { fn_store(f, int64_t(1)); }, fn_seen);
+    publication<gp::ptr<int64_t>>(make_fn, [](auto& f) { fn_swap(f, int64_t(1)); }, fn_seen);
+    publication<gp::ptr<int64_t>>(
+        make_fn, [](auto& f) { fn_cas(f, int64_t(0), int64_t(1)); }, fn_seen);
+    publication<gp::ptr<int64_t>>(make_fn, [](auto& f) { fn_or(f, int64_t(1)); }, fn_seen);
+    // fn_and clears: the flag starts set.
+    publication<gp::ptr<int64_t>>([] { return gp::new_<int64_t>(1); },
+                                  [](auto& f) { fn_and(f, int64_t(0)); },
+                                  [](const gp::ptr<int64_t>& f) { return fn_load(f) == 0; });
+    auto make_ty = [] { return gp::new_<U64>(); };
+    auto ty_seen = [](const gp::ptr<U64>& f) { return ty_load(f) != 0; };
+    publication<gp::ptr<U64>>(make_ty, [](auto& f) { ty_add(f, uint64_t(1)); }, ty_seen);
+    publication<gp::ptr<U64>>(make_ty, [](auto& f) { ty_store(f, uint64_t(1)); }, ty_seen);
+    publication<gp::ptr<U64>>(make_ty, [](auto& f) { ty_swap(f, uint64_t(1)); }, ty_seen);
+    publication<gp::ptr<U64>>(
+        make_ty, [](auto& f) { ty_cas(f, uint64_t(0), uint64_t(1)); }, ty_seen);
+    publication<gp::ptr<U64>>(make_ty, [](auto& f) { ty_or(f, uint64_t(1)); }, ty_seen);
+    // ty_and clears: the flag starts set.
+    publication<gp::ptr<U64>>(
+        [] {
+            auto f = gp::new_<U64>();
+            f->v = 1;
+            return f;
+        },
+        [](auto& f) { ty_and(f, uint64_t(0)); },
+        [](const gp::ptr<U64>& f) { return ty_load(f) == 0; });
+}
+
+// The spin lock of the pointer operations (atomic.Pointer, atomic.Value, atomic_ptr): a plain
+// counter under it is exact, and for TSan the unlock releases what the next lock acquires (a
+// relaxed unlock, or a relaxed lock in the contended path, is a data race on the counter).
+void test_atomic_spin_lock_orders() {
+    using namespace gp::sync_atomic;
+    auto lock = gp::new_<uint32_t>(0);
+    int64_t counter = 0; // plain
+    group g;
+    const int goroutines = 8;
+    const int iters = 20000;
+    for (int i = 0; i < goroutines; i++) {
+        g.go([&] {
+            for (int k = 0; k < iters; k++) {
+                spin_lock_word(lock);
+                counter++;
+                spin_unlock_word(lock);
+            }
+        });
+    }
+    CHECK(g.wait());
+    CHECK_EQ(counter, int64_t(goroutines) * iters);
+}
+
+// A pointer stored in an atomic.Pointer[T] publishes what its writer wrote to the object before.
+void test_atomic_ptr_publication() {
+    struct Box {
+        int64_t value = 0;
+    };
+    for (int round = 0; round < 20; round++) {
+        gp::atomic_ptr<Box> p;
+        group g;
+        g.go([&] {
+            auto box = gp::new_<Box>();
+            box->value = 42; // plain
+            gp::atomic_store(p, box);
+        });
+        gp::ptr<Box> got;
+        CHECK(wait_for([&] {
+            got = gp::atomic_load(p);
+            return got != nullptr;
+        }));
+        CHECK_EQ(got->value, int64_t(42));
+        CHECK(g.wait());
+    }
+}
+
 void test_atomic_pointers() {
     using namespace gp::sync_atomic;
     auto slot = gp::new_<gp::ptr<void>>();
@@ -846,6 +1167,21 @@ void test_atomic_value_helpers() {
     } else if (name == "negative-counter") {
         auto wg = gp::new_<WaitGroup>();
         gp::sync::wg_add(wg, -1);
+    } else if (name == "one-step") {
+        // The one-step hand-off alone, for the mutation checks.
+        test_sema_handoff_is_one_step();
+        if (failures.load() != 0) {
+            say(std::to_string(failures.load()) + " checks failed\n");
+            gp::os::exit(1);
+        }
+    } else if (name == "starvation") {
+        // The starvation tests alone, for loops that look for a flaky one.
+        test_mutex_starvation_handoffs();
+        test_sema_handoff_is_one_step();
+        if (failures.load() != 0) {
+            say(std::to_string(failures.load()) + " checks failed\n");
+            gp::os::exit(1);
+        }
     } else if (name == "blocked-forever") {
         auto mu = gp::new_<Mutex>();
         gp::sync::mutex_lock(mu);
@@ -864,6 +1200,9 @@ void run_unit_tests() {
     test_mutex_exclusion();
     test_mutex_blocked();
     test_mutex_starvation();
+    test_mutex_starvation_handoffs();
+    test_sema_handoff_takes_unit();
+    test_sema_handoff_is_one_step();
     test_mutex_chain();
     test_sema();
     test_rwmutex_single();
@@ -878,6 +1217,9 @@ void run_unit_tests() {
     test_atomic_functions();
     test_atomic_typed();
     test_atomic_concurrent();
+    test_atomic_publication();
+    test_atomic_spin_lock_orders();
+    test_atomic_ptr_publication();
     test_atomic_pointers();
     test_atomic_ptr();
     test_atomic_value_helpers();

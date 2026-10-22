@@ -26,8 +26,11 @@ What is different (a goroutine is an OS thread, memory is reference counted, ADR
 - `Stack(buf, true)` writes the calling goroutine only (the other goroutines are threads, and their stacks are not
   known).
 - `ReadMemStats` fills `Alloc`, `HeapAlloc`, `HeapInuse`, `Sys`, `HeapSys` and `HeapIdle` from the
-  allocator (`mallinfo2`, or the sanitizer's allocator in a sanitizer build); every other field (the counts of allocations,
-  frees and collections, `TotalAlloc`, `HeapReleased`, the pauses) stays 0 because nothing counts them.
+  allocator (`mallinfo2`, or the sanitizer's allocator in a sanitizer build); `TotalAlloc` is the highest `HeapAlloc`
+  that any `ReadMemStats` has seen (it does not decrease and is never below `Alloc`; a lower bound of Go's cumulative
+  count) and `NumGC` is the number of `runtime.GC()` calls (each one completes a cycle; there are no other
+  cycles) and `NumForcedGC` is the same number (every cycle is forced by a call). Every other field (the counts of allocations and frees, `HeapReleased`, the pauses) stays 0 because
+  nothing counts them.
 - `MemProfileRate`, `SetBlockProfileRate`, `SetMutexProfileFraction` and `SetCPUProfileRate` keep their values; no
   profile is made.
 - `TypeAssertionError` and `PanicNilError` are the types of the panics that the runtime makes. The runtime makes

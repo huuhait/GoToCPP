@@ -109,7 +109,8 @@ on an injected UBSan, ASan, LeakSanitizer and ThreadSanitizer error.
 gocpp frees by reference counting (ADR-004), so **a cycle that the program drops is never freed**
 (divergence D1 of [the language spec](../spec/language.md)): a closure that calls itself through the
 variable that holds it, two structs that point at each other, a doubly linked list, a `sync.Cond` whose
-`Locker` is a field of the struct that holds the Cond. LeakSanitizer reports every one of them at exit.
+`Locker` is a field of the struct that holds the Cond (keep the mutex in its own allocation, `mu *sync.Mutex`,
+to avoid it: [sync port](../../stdlib/sync/PORT.md)). LeakSanitizer reports every one of them at exit.
 The policy:
 
 1. **A leak is a bug unless it is a reference cycle that the program makes.** Memory that C or C++

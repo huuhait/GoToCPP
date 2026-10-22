@@ -14,6 +14,9 @@ package sync
 //
 // A Cond must not be copied after first use.
 //
+// (gocpp: L is a counted reference. With L = &q.mu, a field of the struct q that holds the Cond, q and the
+// Cond keep each other alive and q is never freed; give the mutex an allocation of its own. See PORT.md.)
+//
 // In the terminology of [the Go memory model], Cond arranges that
 // a call to [Cond.Broadcast] or [Cond.Signal] “synchronizes before” any Wait call
 // that it unblocks.

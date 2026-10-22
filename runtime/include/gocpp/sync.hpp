@@ -51,6 +51,28 @@ namespace detail {
 void sema_acquire(uint32_t* addr, const char* reason, bool lifo = false);
 void sema_release(uint32_t* addr, bool handoff = false);
 
+// A waiter that waited longer than this when it was woken puts the mutex in starvation mode: Go's
+// threshold is 1 ms, plus here 100 us for each goroutine that waits too. A hand-off in starvation
+// mode costs a futex wake-up and a context switch (20 to 50 us on an idle machine, more on a loaded
+// one), where Go's costs about 200 ns, so with 100 threads on one mutex a wait of 1 ms is the
+// normal order of the queue, not a sign of unfairness; with Go's constant the mutex went into
+// starvation mode at once and stayed in it (every Unlock a hand-off, 13 s for 2M Lock/Unlock pairs
+// of 100 threads, against 0.3 s without it). A wait that the length of the queue explains is not
+// starvation; one that it does not explain is.
+inline constexpr int64_t starvation_base_ns = 1000000;
+inline constexpr int64_t starvation_per_waiter_ns = 100000;
+
+// The clock of the starvation rule of the Mutex (a waiter that waited longer than the threshold
+// when it was woken puts the mutex in starvation mode). A test sets its own, so that a waiter has
+// "waited an hour" without waiting; nullptr (the default) is the monotonic clock. Only tests call
+// it.
+void set_clock_for_test(int64_t (*clock)() noexcept) noexcept;
+
+// The number of goroutines that are in the queue of the semaphore word at addr right now (parked
+// and visible to a release), not those that were woken and have not run yet, which the count of
+// blocked goroutines still includes. Only tests call it.
+int64_t sema_queued_for_test(const uint32_t* addr) noexcept;
+
 // The mutex's slow paths (internal/sync/mutex.go lockSlow, unlockSlow).
 void mutex_lock_slow(int32_t& state, uint32_t& sema);
 void mutex_unlock_slow(int32_t& state, uint32_t& sema, int32_t new_state);

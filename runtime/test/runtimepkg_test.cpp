@@ -19,7 +19,13 @@
 #include <gocpp/trace.hpp>
 #include "threads_ended.hpp"
 
+#if defined(__linux__)
+#include <sched.h>
+#include <stdio.h>
+#endif
+
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -290,6 +296,22 @@ void test_mem() {
     (void)idle2;
 }
 
+// TotalAlloc never decreases and is never below the live bytes of its own call; NumGC counts the
+// calls of runtime.GC.
+void test_mem_counters() {
+    uint64_t live = 1000000;
+    uint64_t first = gp::runtime::total_alloc(live);
+    CHECK(first >= live);
+    // Fewer live bytes later: the total stays.
+    CHECK_EQ(gp::runtime::total_alloc(live / 2), first);
+    CHECK(gp::runtime::total_alloc(first + 5) == first + 5);
+    CHECK_EQ(gp::runtime::total_alloc(0), first + 5);
+    uint32_t before = gp::runtime::gc_count();
+    gp::runtime::gc();
+    gp::runtime::gc();
+    CHECK_EQ(gp::runtime::gc_count(), before + 2);
+}
+
 // runtime_rand (runtime.rand: math/rand's global generator): values differ, the bits are balanced,
 // and each thread has a stream of its own.
 void test_rand() {
@@ -372,6 +394,7 @@ void run_unit_tests() {
     test_stack();
     test_settings();
     test_mem();
+    test_mem_counters();
     rt_test::threads_ended();
     if (failures > 0) {
         say("FAIL: " + std::to_string(failures.load()) + " of " + std::to_string(checks.load()) +
@@ -394,6 +417,113 @@ void run_unit_tests() {
     auto* leak = new int[1000];
     asm volatile("" : : "r"(leak) : "memory");
 }
+
+// --- what must not run when the program ends (exit-atexit, return-atexit) ---
+//
+// Go's os.Exit and the return of main end the process at once: no C++ static destructor, no
+// atexit function and no thread-local destructor of the thread that exits runs (gp::exit ends the
+// process with _exit, ADR-038). A std::exit instead of _exit runs all three.
+
+struct Probe {
+    const char* what;
+    ~Probe() { out(what); }
+};
+
+Probe static_probe{"BUG: static destructor ran\n"};
+
+void touch_thread_local() {
+    thread_local Probe tl_probe{"BUG: thread-local destructor ran\n"};
+    asm volatile("" : : "r"(&tl_probe) : "memory");
+}
+
+void at_exit_probe() {
+    out("BUG: atexit function ran\n");
+}
+
+void arm_exit_probes() {
+    asm volatile("" : : "r"(&static_probe) : "memory");
+    std::atexit(at_exit_probe);
+    touch_thread_local();
+}
+
+// --- exit with a thread that already claimed the end of the program (exit-claimed) ---
+//
+// This thread claims it (a fatal error that is being reported, in real life); a goroutine calls
+// gp::exit(22) meanwhile: it must wait for the claimer (claim_death) and not end the process with
+// its own code. Without the claim the goroutine's exit ends the process with 22 at once, while the
+// claimer is still sleeping. A slow machine can only make the claimer's sleep longer than the time
+// the goroutine needs, which is what the test wants.
+[[noreturn]] void exit_claimed_case() {
+    gp::detail::claim_death();
+    static std::atomic<bool> about{false};
+    gp::go([] {
+        about.store(true);
+        gp::exit(22);
+    });
+    wait_for([] { return about.load(); });
+    gp::waiter w;
+    w.gp_park_for(std::chrono::milliseconds(1500));
+    out("claimer ends\n");
+    gp::exit(11);
+}
+
+#if defined(__linux__)
+// --- two exits at once, and the guard of os::exit (exit-guard) ---
+//
+// Everything runs on one CPU. Thread A has the idle scheduling policy and calls os::exit(11); it
+// takes the guard and flushes the C streams, and the write function of a stream that holds data
+// wakes thread B. B, a normal thread, preempts A at once (a woken normal thread always preempts an
+// idle one on the same CPU) and calls os::exit(22). With the guard B waits for A, which ends the
+// process with 11. Without it B flushes behind A (it waits for the lock that A holds in
+// fflush(nullptr)) and, when A lets go of the lock, B preempts A again and ends the process with
+// 22 before A can.
+std::atomic<int> guard_stage{0};
+gp::waiter* guard_b = nullptr;
+
+ssize_t guard_write(void*, const char*, size_t size) {
+    if (guard_stage.exchange(1) == 0) {
+        // A is in fflush: B may go.
+        guard_b->gp_unpark();
+    }
+    return static_cast<ssize_t>(size);
+}
+
+[[noreturn]] void exit_guard_case() {
+    // One CPU: one this process may run on.
+    cpu_set_t one;
+    CPU_ZERO(&one);
+    CPU_SET(sched_getcpu() < 0 ? 0 : sched_getcpu(), &one);
+    if (sched_setaffinity(0, sizeof one, &one) != 0) {
+        say("sched_setaffinity failed\n");
+        gp::os::exit(3);
+    }
+    cookie_io_functions_t io{};
+    io.write = guard_write;
+    FILE* f = fopencookie(nullptr, "w", io);
+    if (f == nullptr || std::fputs("data for the flush\n", f) < 0) {
+        say("fopencookie failed\n");
+        gp::os::exit(3);
+    }
+    // B: sleeps until A is in the flush, then ends the program with 22.
+    static gp::waiter b_waiter;
+    guard_b = &b_waiter;
+    gp::go([] {
+        b_waiter.gp_park();
+        gp::os::exit(22);
+    });
+    // A: idle policy; it runs only when nothing else can, that is when B sleeps and this thread
+    // parks.
+    gp::go([] {
+        sched_param param{};
+        if (sched_setscheduler(0, SCHED_IDLE, &param) != 0) {
+            say("SCHED_IDLE failed\n");
+            gp::os::exit(3);
+        }
+        gp::os::exit(11);
+    });
+    park_forever();
+}
+#endif
 
 void run_case(const std::string& name) {
     gp::os::no_core_dump();
@@ -444,6 +574,20 @@ void run_case(const std::string& name) {
             });
         }
         park_forever();
+    } else if (name == "exit-atexit") {
+        arm_exit_probes();
+        out("main\n");
+        gp::exit(0);
+    } else if (name == "return-atexit") {
+        arm_exit_probes();
+        out("main\n");
+        return; // run_main ends the program with code 0
+    } else if (name == "exit-claimed") {
+        exit_claimed_case();
+#if defined(__linux__)
+    } else if (name == "exit-guard") {
+        exit_guard_case();
+#endif
     } else if (name == "exit-leak") {
         // A leak that LeakSanitizer must find even though the process ends by _exit.
         make_leak();

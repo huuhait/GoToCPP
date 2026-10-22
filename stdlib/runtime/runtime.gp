@@ -878,6 +878,9 @@ func ReadMemStats(m *MemStats) {
 	m.Sys = sys
 	m.HeapSys = sys
 	m.HeapIdle = idle
+	m.TotalAlloc = totalAlloc(inUse)
+	m.NumGC = gcCount()
+	m.NumForcedGC = m.NumGC // every cycle is a call of GC
 	m.EnableGC = true
 }
 
@@ -1155,6 +1158,17 @@ func (f *Func) FileLine(pc uintptr) (file string, line int) {
 //
 //gocpp:native gp::runtime::mem_info
 func memInfo() (inUse, sys, idle uint64)
+
+// totalAlloc is the highest number of live bytes that ReadMemStats has seen, including inUse: a
+// TotalAlloc that does not decrease and is never below Alloc (nothing counts the allocations).
+//
+//gocpp:native gp::runtime::total_alloc
+func totalAlloc(inUse uint64) uint64
+
+// gcCount is the number of calls of GC: each one is a completed collection cycle for NumGC.
+//
+//gocpp:native gp::runtime::gc_count
+func gcCount() uint32
 
 // A Pinner is a set of Go objects each pinned to a fixed location in memory. The
 // [Pinner.Pin] method pins one object, while [Pinner.Unpin] unpins all pinned

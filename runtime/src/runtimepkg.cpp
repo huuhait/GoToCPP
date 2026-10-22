@@ -213,7 +213,30 @@ void unlock_os_thread() noexcept {
     }
 }
 
-void gc() noexcept {}
+// The calls of runtime.GC: Go's NumGC counts the cycles that completed, and a call of GC completes
+// one, so the number of calls is a true lower bound (memory is reference counted: there are no
+// other cycles).
+constinit std::atomic<uint32_t> gc_calls{0};
+
+// The highest number of live bytes that ReadMemStats has seen (TotalAlloc).
+constinit std::atomic<uint64_t> total_alloc_seen{0};
+
+void gc() noexcept {
+    gc_calls.fetch_add(1, std::memory_order_relaxed);
+}
+
+uint32_t gc_count() noexcept {
+    return gc_calls.load(std::memory_order_relaxed);
+}
+
+uint64_t total_alloc(uint64_t in_use) noexcept {
+    uint64_t seen = total_alloc_seen.load(std::memory_order_relaxed);
+    while (seen < in_use &&
+           !total_alloc_seen.compare_exchange_weak(seen, in_use, std::memory_order_relaxed)) {
+    }
+    return std::max(seen, in_use);
+}
+
 void set_finalizer(const gp::any&, const gp::any&) noexcept {}
 void keep_alive(const gp::any&) noexcept {}
 

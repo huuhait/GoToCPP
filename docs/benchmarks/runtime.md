@@ -320,3 +320,114 @@ program changed; `noop`: nothing changed. `default` is gocpp's current build (-O
 | pkgs20 | noop | O2 | 0.05 | 0.01 | 0.01 | 0.26 | 0.25 |
 | pkgs20 | noop | release | 0.05 | 0.02 | 0.01 | 0.33 | 0.29 |
 
+
+## sync.Map and timers (job 08.synclows)
+
+All numbers: the shared 192-core machine at a load of 25 to 40 (the first measurements ran at 60 to 130), `gocpp
+build -release`, one process per run, runs of the old and the new binary alternating (6 rounds, the minimum is
+shown), pinned with `taskset` (CPU 100 for one goroutine, CPUs 100-115 for 8 and 64 goroutines), each compiler on
+its own. Go is 1.25.14, built with `go build`.
+
+### sync.Map: the old `RWMutex` Map against the new one
+
+Programs: `docs/benchmarks/sync-map-bench/` (`main.gp` and the Go twin `main.go`; the argument is the mode; a map of
+1000 keys; nanoseconds per operation). "old" is the Map of dev 81c0d4e1: `Range` copies every entry under the read
+lock and looks each key up again. "new" caches the list of the entries for `Range` until the set of keys changes
+(stdlib/sync/map.gp), and has a padding field between the lock and the words that `Load` reads.
+
+| Mode | g++ old | g++ new | new/old | clang++ old | clang++ new | new/old |
+|---|---|---|---|---|---|---|
+| `Load`, 1 goroutine | 65.8 | 70.2 | 1.07 | 71.0 | 71.1 | 1.00 |
+| `Load`, 8 goroutines | 98.9 | 82.2 | 0.83 | 73.2 | 62.7 | 0.86 |
+| `Load`, 64 goroutines | 59.0 | 62.3 | 1.06 | 58.1 | 57.2 | 0.98 |
+| `Load`, 64 goroutines and 1 writer | 76.2 | 70.1 | 0.92 | 81.8 | 84.7 | 1.04 |
+| `Store`, key present | 64.5 | 64.6 | 1.00 | 70.7 | 71.1 | 1.01 |
+| `Store` new key + `Delete` (per call) | 74.4 | 76.3 | 1.03 | 81.0 | 83.6 | 1.03 |
+| `LoadOrStore`, key present | 110.8 | 116.6 | 1.05 | 101.0 | 100.8 | 1.00 |
+| `CompareAndSwap`, equal | 109.8 | 110.1 | 1.00 | 108.3 | 108.5 | 1.00 |
+| `Range`, all 1000 entries | 162157 | 123053 | 0.76 | 139993 | 108098 | 0.77 |
+| `Range`, stops after 3 entries | 53387 | 440 | 0.008 | 47221 | 382 | 0.008 |
+| new key, then `Range` that stops after 3 | 589791 | 525401 | 0.89 | 516924 | 464202 | 0.90 |
+
+(The last row grows the map by one key per iteration, from 1000 to 21000 keys, so the list is made again each time.)
+`Load`, `Store`, `LoadOrStore` and `CompareAndSwap` are within noise of the old Map (at most 1.07). A `Range` that
+stops early went from 53 us to 0.4 us (the 120 times of the `stops after 3` row) only while the set of keys does not
+change and the map has at most 4096 entries (O(entries visited)). The first `Range` after a key was added or removed
+pays the whole list, O(n), and holds its memory (about 64 bytes an entry) until the next change; for a map above 4096
+entries every `Range` pays it and keeps nothing. When every `Range` follows a change of the set of keys it still
+makes one copy, 10 to 11 percent faster than before.
+
+The padding field (64 bytes between the lock and `m`) gains 15 to 20 percent on `Load` with 8 pinned goroutines, and it
+does not make `Load` independent of where the allocator puts the Map. Measured with one Map object at each address
+modulo 64 (24 Maps, 8 goroutines on CPUs 100-107, 100000 loads each, the mean of the Maps at each offset, nanoseconds
+per load, two runs of each build interleaved; the allocator puts a Map at offset 0, 16, 32 or 48):
+
+| Address mod 64 | 0 | 16 | 32 | 48 |
+|---|---|---|---|---|
+| with padding | 159 | 90 | 84 | 158 |
+| without padding | 188 | 104 | 94 | 192 |
+
+Both builds have the same two modes (about 1.8 times apart: offsets 16 and 32 fast, 0 and 48 slow), so the padding
+is not what removes the placement effect, and "the reader count shares a line with the map word" is not the cause of
+it: the review found it in the old Map too. The cause is the call itself: the lowering of `m.mu.RLock()` on an embedded
+field builds a counted pointer into the Map (`gp::ptr<RWMutex>(m, &m->mu)`), an atomic increment and decrement of the
+Map's reference count on every `RLock` and every `RUnlock`, a second hot atomic next to the lock. It costs about 2.5
+times on `Load` for any struct that embeds a mutex (the old Map too) and is a TODO item of its own. The padding is kept
+for the 15 to 20 percent; it costs 64 bytes a Map: `sizeof(sync.Map)` is 144 bytes (80 without the padding, 40 for the
+Map before the cached list of `Range`).
+
+The memory of the cached list: it costs about 64 bytes an entry, kept until the set of keys changes. The first version
+kept it for every size: a map of a million entries (RSS 196 MB filled) had 258 MB after ONE `Range`, even one that stops
+after 3, and the old Map kept nothing. The list is now kept only for a map of at most 4096 entries (`rangeListMax`,
+256 KiB at most); a bigger map makes the list for the one `Range` and frees it, as the old Map copied its entries
+for each `Range`. Measured (one process, a million `int` entries): RSS 196.4 MB filled, 196.7 MB after a `Range` that
+stops after 3 and after a `Range` of all of them (it was 257.8 MB). The price: a `Range` of a big map always pays the
+O(n) list, 129 ms for the first `Range` and 126 ms for the second one that stops after 3 (162 and 0 ms before, where
+the first paid for the list and the second used it). The cap is not a regression against the old Map, which copied its entries for each `Range`
+(the review, clang++, a million `int` entries, `Range` that stops after 3: old Map 194 to 201 ms per call, new Map
+157 to 162 ms per call; at 4096 entries the first call is 130 us and the next ones 0.3 to 0.4 us; at 4097 entries three
+calls in a row cost 167, 113 and 111 us against 129, 121 and 109 us for the old Map). The 1000-entry rows are unchanged (interleaved against the
+version before the cap, 5 runs, minimum, g++ and clang++: `Range` of all 125 and 116 us against 125 and 116,
+stops after 3 0.44 us against 0.44, 0.44, the churn row 406 and 445 us against 471 and 466; `Load` at 8
+goroutines 69 and 60 ns against 68 and 60).
+
+A port of Go's read-only plus dirty map (`sync/map.go`, an `atomic.Pointer[readOnly]` and one `atomic.Pointer[any]`
+per entry) was built first and dropped. It made `Range` 24 times faster, but every `atomic.Pointer` operation takes a
+spin lock here (a counted pointer is not one atomic word; the review measured 46 to 58 ns on one thread, tens of microseconds per load
+with 64 threads on one line) and, in the review's interleaved runs: `Load` 2 times slower on one goroutine and 4 to 10 times slower with 8 to 64, `Store`
+of a present key 3.7 times slower, `Store` of a new key and `Delete` 5.6 times, `LoadOrStore` 3.5 times,
+`CompareAndSwap` 2.5 times. Making `atomic.Pointer` cheap (a reader lock or a borrowed read) would help every user
+of it and is the way to a lock-free Map; it was not started.
+
+### sync.Map: the 64-goroutine stress against Go
+
+Program: `docs/benchmarks/sync-map-stress/` (`main.gp`, `main.go`): 64 goroutines, 2000 operations each on 1000 keys
+(`Store`, `Load`, `Range` that stops after 3 entries, `Delete`). Milliseconds for the whole program, 3 runs, g++:
+
+| Version | ms |
+|---|---|
+| gocpp, old Map | 4396 to 5019 |
+| gocpp, new Map | 1505 to 1651 |
+| Go 1.25.14, default (`HashTrieMap`) | 4 to 5 |
+| Go 1.25.14, `GOEXPERIMENT=nosynchashtriemap` (the read/dirty design), `GOMAXPROCS=1` | 45 to 53 |
+| the same, `GOMAXPROCS=4` | 111 to 127 |
+| the same, `GOMAXPROCS=64` | 128 to 162 |
+| the same, default `GOMAXPROCS` | 167 to 193 |
+
+The new Map is 3 times faster than the old on this mix. The gap to Go's default is the trie: it has no lock on
+`Load`, `Store` of a present key or `Range`, and does not copy. Against the same read/dirty design in Go (which
+`Range`s without copying too, but promotes the dirty map and re-copies it at the next new-key `Store`, as this mix
+does all the time) gocpp is 7 to 13 times slower here (the Go figures are ranges at a machine load of 25 to 60; the
+review saw 168 to 232 ms for the last row under heavy load, so the ratio, not the milliseconds, is the result); the stress has a new key after most `Range`s, so the cached
+list is made again most times and the cost is the copy plus the locks. A lock-free `Load` (item above) and a
+`Range` that does not copy need the cheap `atomic.Pointer`.
+
+### time.NewTimer and Stop
+
+Program: `docs/benchmarks/timer-stop/` (`main.gp`, `main.go`): `NewTimer(Hour)` then `Stop`, 100000 times in one
+goroutine, pinned to one CPU, load about 37, 6 alternating runs of Go, g++ and clang++ (nanoseconds per pair):
+Go 129 to 130; g++ 668 to 771; clang++ 677 to 754. gocpp is 5.2 times slower than Go. (An earlier note here said
+390 to 550 ns against Go's 390 to 417 ns and called it fine: the two sides were not measured under the same
+conditions; that claim is withdrawn.) The TODO item "8.8 time performance" (an intrusive heap node, a vector heap, no
+global mutex for an idle `Stop`) stays open; it touches runtime/src/timed_wait.* and the Windows timer code, which
+ADR-132/133 just changed.

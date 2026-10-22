@@ -33,7 +33,28 @@ package sync
 // [the Go memory model]: https://go.dev/ref/mem
 type Map struct {
 	mu RWMutex
-	m  map[any]any
+
+	// (gocpp: 64 bytes of padding between the lock and the words that every Load reads, m and snap.
+	// Measured with 8 pinned goroutines at every address of the Map modulo 64: Load is 15 to 20
+	// percent faster with it, and still depends on the address (about 90 ns at 16 and 32, 160 at 0
+	// and 48). It costs 64 bytes a Map: sizeof(sync.Map) is 144 bytes, 80 without it, 40 before the list.)
+	_ [64]byte
+
+	m map[any]any
+
+	// snap is the list of the entries for Range of a map of at most rangeListMax entries: built by
+	// the first Range after a key was added or removed (under the write lock), dropped (nil) by the
+	// next change of the set of keys, never written after it is built, so a Range reads it with no
+	// lock. A Store of a key that is there and a Swap or CompareAndSwap do not change the set of
+	// keys and keep it.
+	snap []snapEntry
+}
+
+// A snapEntry is a key of the map and, for a key that is not equal to itself (a NaN), its value.
+// Range looks any other key up again for the current value; nothing can find, change or delete the
+// entry of a NaN, so its value is the list's.
+type snapEntry struct {
+	key, value any
 }
 
 // Load returns the value stored in the map for a key, or nil if no
@@ -54,7 +75,11 @@ func (m *Map) Store(key, value any) {
 	if m.m == nil {
 		m.m = make(map[any]any)
 	}
+	n := len(m.m)
 	m.m[key] = value
+	if len(m.m) != n {
+		m.snap = nil
+	}
 	m.mu.Unlock()
 }
 
@@ -62,6 +87,7 @@ func (m *Map) Store(key, value any) {
 func (m *Map) Clear() {
 	m.mu.Lock()
 	m.m = nil
+	m.snap = nil
 	m.mu.Unlock()
 }
 
@@ -79,6 +105,7 @@ func (m *Map) LoadOrStore(key, value any) (actual any, loaded bool) {
 		m.m = make(map[any]any)
 	}
 	m.m[key] = value
+	m.snap = nil
 	return value, false
 }
 
@@ -91,6 +118,7 @@ func (m *Map) LoadAndDelete(key any) (value any, loaded bool) {
 	value, loaded = m.m[key]
 	if loaded {
 		delete(m.m, key)
+		m.snap = nil
 	}
 	return value, loaded
 }
@@ -112,6 +140,9 @@ func (m *Map) Swap(key, value any) (previous any, loaded bool) {
 		m.m = make(map[any]any)
 	}
 	m.m[key] = value
+	if !loaded {
+		m.snap = nil
+	}
 	return previous, loaded
 }
 
@@ -140,6 +171,7 @@ func (m *Map) CompareAndDelete(key, old any) (deleted bool) {
 	defer m.mu.Unlock()
 	if cur, ok := m.m[key]; ok && cur == old {
 		delete(m.m, key)
+		m.snap = nil
 		return true
 	}
 	return false
@@ -157,31 +189,60 @@ func (m *Map) CompareAndDelete(key, old any) (deleted bool) {
 // Range may be O(N) with the number of elements in the map even if f returns
 // false after a constant number of calls.
 func (m *Map) Range(f func(key, value any) bool) {
-	// The entries are copied under the read lock, and each key is looked up again before f sees
-	// it, so f may call any method of m, and an entry that was deleted since (by f too) is not
-	// shown, as in Go. A key that is not equal to itself (a NaN) cannot be looked up: it is shown
-	// with the value that was copied.
-	m.mu.RLock()
-	keys := make([]any, 0, len(m.m))
-	vals := make([]any, 0, len(m.m))
-	for k, v := range m.m {
-		keys = append(keys, k)
-		vals = append(vals, v)
-	}
-	m.mu.RUnlock()
-	for i, k := range keys {
-		v := vals[i]
-		if k == k {
+	// f may call any method of m, so it runs with no lock: it walks the list of the entries (made
+	// once for a set of keys, and dropped when a key is added or removed), looks each key up for its
+	// current value, and skips one that was deleted since (by f too), as in Go. A key that is not
+	// equal to itself (a NaN) cannot be looked up: it is shown with the value of the list.
+	for _, e := range m.entries() {
+		v := e.value
+		if e.key == e.key {
 			var ok bool
-			v, ok = m.Load(k)
+			v, ok = m.Load(e.key)
 			if !ok {
 				continue
 			}
 		}
-		if !f(k, v) {
+		if !f(e.key, v) {
 			break
 		}
 	}
+}
+
+// rangeListMax is the most entries for which the list of Range is kept between calls. The list costs
+// about 64 bytes an entry (measured: 62 MB for a million), so 4096 entries are 256 KiB at most; a Range
+// of a bigger map makes its list for the one call and keeps nothing, so a map of a million entries does
+// not hold 62 MB more after a Range.
+const rangeListMax = 4096
+
+// entries returns the list of the entries for Range, which is not changed after it is returned.
+func (m *Map) entries() []snapEntry {
+	m.mu.RLock()
+	snap := m.snap
+	if snap == nil && len(m.m) > rangeListMax {
+		snap = m.listLocked()
+	}
+	m.mu.RUnlock()
+	if snap != nil {
+		return snap
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.snap == nil {
+		m.snap = m.listLocked()
+	}
+	return m.snap
+}
+
+// listLocked makes the list of the entries (with mu held, for reading at least).
+func (m *Map) listLocked() []snapEntry {
+	snap := make([]snapEntry, 0, len(m.m))
+	for k, v := range m.m {
+		if k == k {
+			v = nil // looked up again by Range; not kept alive here after a Swap
+		}
+		snap = append(snap, snapEntry{k, v})
+	}
+	return snap
 }
 
 // hashCheck panics for a key that can't be hashed ("runtime error: hash of unhashable type
