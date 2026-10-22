@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -75,12 +76,15 @@ func TestHeaderIndexOwnsScopeAfterDiscardedDeclarations(t *testing.T) {
 	}
 }
 
+// TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate indexes more versions of a header than a
+// cache entry keeps variants. Every version costs about ten compiler runs (each one starts the
+// test binary again, which is slow under -race), so the count is just above the bound and no more.
 func TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate(t *testing.T) {
 	defer SetRacyWindow(0)()
 	fake := newFake(t)
 	header := filepath.Join(fake.inc, "api.hpp")
 	runner := new(Runner)
-	for version := range 140 {
+	for version := range maxVariants + 3 {
 		if err := os.WriteFile(header, []byte(fmt.Sprintf("Name%d\n", version)), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -96,6 +100,21 @@ func TestHeaderIndexAuxiliaryMetadataDoesNotAccumulate(t *testing.T) {
 	if len(runner.st.mem) > 2 || runner.st.bytes > maxMem {
 		t.Fatalf("unexpected retained index variants: entries=%d bytes=%d",
 			len(runner.st.mem), runner.st.bytes)
+	}
+	checked := 0
+	for key, body := range runner.st.mem {
+		var entry variantFile
+		if json.Unmarshal(body, &entry) != nil || entry.Kind != "i" {
+			continue
+		}
+		checked++
+		if len(entry.Variants) > maxVariants {
+			t.Fatalf("index entry %q keeps %d variants, limit %d",
+				key, len(entry.Variants), maxVariants)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no index entry is kept in memory, so the variant cap was not checked")
 	}
 }
 

@@ -19,6 +19,8 @@ func fakeMemberCompletion() int {
 	if marker := os.Getenv("FAKE_MEMBER_BLOCK"); marker != "" {
 		os.WriteFile(marker, []byte(strconv.Itoa(os.Getpid())), 0o600)
 		time.Sleep(time.Minute)
+		// (only a compiler that was not stopped gets here)
+		os.WriteFile(marker+".survived", nil, 0o600)
 	}
 	switch os.Getenv("FAKE_MEMBER_OUTPUT") {
 	case "missing":
@@ -333,25 +335,71 @@ func TestMemberQueryRejectsRacingInput(t *testing.T) {
 	}
 }
 
+// TestMemberQueryTimeoutJoinsCompiler ends the time limit of a blocked completion run by hand:
+// no wall-clock time decides, so a slow machine or the race detector cannot change the outcome.
 func TestMemberQueryTimeoutJoinsCompiler(t *testing.T) {
 	fake := newFake(t)
 	fake.header(t, "api.hpp", "struct Widget {};\n")
 	marker := filepath.Join(t.TempDir(), "pid")
 	t.Setenv("FAKE_MEMBER_BLOCK", marker)
-	cfg := fake.cfg()
-	// The limit applies to every compiler run of the query, so it must be well above what a
-	// normal fake run needs (tens of milliseconds, a second per run before the race detector's
-	// exit sleep was switched off in TestMain) and is only reached by the blocked completion run.
-	cfg.Timeout = 2 * time.Second
-	result, err := new(Runner).Members(context.Background(), cfg, []string{`"api.hpp"`},
-		MemberQuery{Type: "Widget", Category: CatLValue})
-	if !errors.Is(err, context.DeadlineExceeded) || result != nil {
-		t.Fatalf("accepted timed-out query or lost status: %v, %v", result, err)
+	limitReached := make(chan struct{})
+	restore := auxRunContext
+	t.Cleanup(func() { auxRunContext = restore })
+	auxRunContext = func(ctx context.Context, cfg Config) (context.Context, context.CancelFunc) {
+		limited, cancel := context.WithCancel(ctx)
+		go func() {
+			select {
+			case <-limitReached:
+				cancel()
+			case <-limited.Done():
+			}
+		}()
+		return limited, cancel
 	}
-	data, _ := os.ReadFile(marker)
-	pid, _ := strconv.Atoi(string(data))
-	if pid == 0 || pidAlive(pid) {
+	type answer struct {
+		result *MemberNames
+		err    error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		result, err := new(Runner).Members(context.Background(), fake.cfg(), []string{`"api.hpp"`},
+			MemberQuery{Type: "Widget", Category: CatLValue})
+		done <- answer{result, err}
+	}()
+	pid := waitForPid(t, marker, done)
+	close(limitReached)
+	got := <-done
+	if !errors.Is(got.err, context.DeadlineExceeded) || got.result != nil {
+		t.Fatalf("accepted timed-out query or lost status: %v, %v", got.result, got.err)
+	}
+	if pidAlive(pid) {
 		t.Fatalf("timeout did not join the blocked compiler: pid=%d", pid)
+	}
+	if _, err := os.Stat(marker + ".survived"); err == nil {
+		t.Fatal("the blocked compiler ran to its end: the timeout did not stop it")
+	}
+}
+
+// waitForPid waits until the blocked fake compiler wrote its process id to marker. The wait ends
+// early if the query returned (the test then fails); the long bound only stops a hung test.
+func waitForPid[A any](t *testing.T, marker string, done <-chan A) int {
+	t.Helper()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	hung := time.NewTimer(time.Minute)
+	defer hung.Stop()
+	for {
+		data, _ := os.ReadFile(marker)
+		if pid, _ := strconv.Atoi(string(data)); pid != 0 {
+			return pid
+		}
+		select {
+		case early := <-done:
+			t.Fatalf("query ended before the compiler blocked: %v", early)
+		case <-ticker.C:
+		case <-hung.C:
+			t.Fatal("compiler did not enter controlled block")
+		}
 	}
 }
 

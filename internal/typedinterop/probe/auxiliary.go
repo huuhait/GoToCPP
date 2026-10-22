@@ -46,6 +46,13 @@ func runAuxTo(ctx context.Context, cfg Config, mode []string, text string, stdou
 	return runAuxMode(ctx, cfg, func(string) []string { return mode }, text, stdout)
 }
 
+// auxRunContext makes the context of one auxiliary compiler run: it ends at the time limit of cfg.
+// It is a variable so that a test can end a run when the test decides (a blocked compiler), not
+// after a wall-clock time that a slow machine or the race detector can exceed.
+var auxRunContext = func(ctx context.Context, cfg Config) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, effTimeout(cfg))
+}
+
 // runAuxMode lets a narrowly scoped compiler mode refer to the temporary source path.
 func runAuxMode(ctx context.Context, cfg Config, mode func(string) []string, text string,
 	stdout func(string) io.Writer,
@@ -72,7 +79,7 @@ func runAuxMode(ctx context.Context, cfg Config, mode func(string) []string, tex
 	if err != nil {
 		return nil, err
 	}
-	rctx, cancel := context.WithTimeout(ctx, effTimeout(cfg))
+	rctx, cancel := auxRunContext(ctx, cfg)
 	defer cancel()
 	stderr := &limitWriter{max: maxStderr}
 	cmd, err := build.Start(rctx, func() *exec.Cmd {
