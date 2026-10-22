@@ -1,7 +1,7 @@
 # gocpp · TODO
 
 **Legend:** `[ ]` todo · `[~]` doing · `[x]` done
-**Last updated:** 2026-10-20
+**Last updated:** 2026-10-21
 
 Keep this list short: only what is next. The full step lists live in each phase's `STATE.md`.
 Every item is built through the manager → coder → reviewer loop in [WORKFLOW.md](WORKFLOW.md).
@@ -139,7 +139,7 @@ back together after each round; workers report only at completion or a genuine b
 - [ ] `gocpp test -cover` via clang source-based coverage mapped through `#line`
 - [ ] Fuzzing in `testing` (`testing.F`)
 - [ ] `net/http` package wrapping a C++ HTTP library
-- [ ] Optional tracing-GC mode for cycle-heavy programs (grown into the Phase 16 idea: a GC engine for Go packages; in discussion, see phase-16-dual-engine/README.md)
+- [ ] Phase 16, dual engine: Go modules from gp code, on a second engine with a garbage collector (bdwgc) while gp stays on reference counting. Planned in full on 2026-10-21 (your answers are in phase-16-dual-engine/STATE.md); it starts when you decide
 - [ ] WebAssembly target through emscripten
 - [ ] Self-hosting: compile the gocpp compiler with gocpp
 - [ ] Procedural macros: user code generators run at compile time (AST in, AST out), after v1.0

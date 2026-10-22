@@ -205,7 +205,9 @@ func main!() { // ! on main: an error is printed and the program exits 1
 
 **Non-goals (for v1)**
 - 100% Go compatibility. Existing Go code and Go modules are not expected to build unchanged.
+  (After v1.0, Phase 16 plans exactly that for Go modules, on a second engine.)
 - A garbage collector, full `reflect` (only a subset for `fmt`/`json`/`sort`, see Phase 09) or `plugin`.
+  (Phase 16 adds a collector for Go packages only; gp code stays on reference counting.)
 - Doing the C++ compiler's job (optimization and machine code stay with clang/gcc).
 - macOS (not a target), and MSVC's own compiler (Windows uses MinGW-w64 first; the MSVC ABI
   through `clang-cl` comes later).
@@ -255,7 +257,7 @@ is written mostly in gocpp itself and calls C/C++ where needed.
 | Parser | **Fork of `go/scanner` + `go/parser`**, stock `go/ast` | Battle-tested Go grammar; 3 small patches in Phase 01, 3 more plus a small `go/printer` fork in Phase 10 |
 | Type checker | **Stock `go/types`** with `FakeImportC`. Phase 12 adds C/C++ types in a separate interop checker; no fork (a fork would cut us off from x/tools: the language server's export data and `gocpp vet`) | Full Go typing rules (generics, constants, embedding) for free |
 | Output | **Readable C++20** with `#line` | Debuggable, trustworthy, links with anything |
-| Memory | **Automatic reference counting** (`gp::ptr<T>` over `std::shared_ptr`) | No GC, deterministic. No use-after-free in gocpp code, except data races, `unsafe` and C/C++ values. Reference cycles leak unless broken with `weak.Pointer` |
+| Memory | **Automatic reference counting** (`gp::ptr<T>` over `std::shared_ptr`) | No GC, deterministic. No use-after-free in gocpp code, except data races, `unsafe` and C/C++ values. Reference cycles leak unless broken with `weak.Pointer`. After v1.0, Phase 16 runs Go packages on a second engine with a garbage collector; gp code stays on ARC |
 | C/C++ access | `import "<raylib.h>"`, `import "./x.h"`: **a header is a package** named after its file (`raylib.InitWindow`), and **C++ namespaces are packages** (`std.vector`); `C` keeps only C's built-in types (`C.int`) and helpers | Looks exactly like using Go packages, works for almost all C/C++ (a few gaps until Phase 12) |
 | Errors | Go `error` values; `panic` = C++ exception; `defer` = frame object | Go style; a panic costs nothing until it is thrown (each `defer` costs a little) |
 | Goroutines | **OS threads**: `go f()` starts a real thread; no goroutine scheduler, now or later | Simple, robust, easy to debug; tens of thousands of goroutines are fine |
@@ -354,7 +356,7 @@ probing, formatting, and Go output details the runtime must copy exactly.
 | 13 | [Tooling](phase-13-tooling/README.md) | C++ errors in gocpp terms, debugger printers, `vet`, `doc` | |
 | 14 | [Windows](phase-14-windows/README.md) | Everything works on Windows: runtime, build, stdlib, `<windows.h>`, editor, debugger | **M8: Windows works** |
 | 15 | [Hardening & release](phase-15-hardening-release/README.md) | Speed, fuzzing, docs, packaging | **M9: v1.0** |
-| 16 | [Dual engine](phase-16-dual-engine/README.md) | Idea only: a GC engine for Go packages next to the current no-GC engine | none yet (after M9) |
+| 16 | [Dual engine](phase-16-dual-engine/README.md) | Go modules from gp code: `.go` packages translated for a second engine with Go's layout and a garbage collector (bdwgc), next to gp's reference counting; values converted at the boundary. Planned, starts when you decide | **M10: Go libraries pass their own tests** · **M11: `net/http`, TLS and gin on Linux and Windows** |
 
 **What each phase needs.** The phase number is the recommended order for one person. The
 table shows the real dependencies, so you can see what may move or overlap:
@@ -374,9 +376,10 @@ table shows the real dependencies, so you can see what may move or overlap:
 | 13 Tooling | 02, 04, 10, 12 | |
 | 14 Windows | 06, 08, 09 (11–13 for the editor and tool parts) | Windows test builds already run from Phase 06 on |
 | 15 Hardening & release | everything | |
+| 16 Dual engine | 15 (after v1.0); builds on 06, 07, 08, 09, 14, 15.2 (escape analysis), 15.14 (MVS) | planned only; it starts when you decide |
 
 Short version: `00 → 01 → … → 09 → 10 → 11 → 12 → 13 → 14 → 15`,
-with the language server's v0 starting after 01. The audit made 03–09 a strict chain (each phase
+with the language server's v0 starting after 01, and 16 after v1.0. The audit made 03–09 a strict chain (each phase
 uses the one before it). VS Code syntax highlighting needs nothing and can be written any time.
 
 ## 9. How to use this plan
