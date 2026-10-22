@@ -123,6 +123,9 @@ A step is done only when **all** of these hold:
   directly (that folder also holds the Phase 08 thread layer `gp::os`); the standard library's
   own per-OS files (Phase 09, Phase 14) are the other allowed place. Linux and Windows are both
   targets.
+- **TODO.md**: the TODO.md claims the job fixes are listed in the report and will be closed at
+  the merge (7.1); a fixed claim the report forgets, or a claim marked fixed that is still
+  reproducible, is a finding.
 - **Scope and quality**: only the ticket's change; Go code is gofmt- and vet-clean; C++ follows
   `.clang-format`; comments explain what isn't obvious.
 
@@ -152,6 +155,30 @@ A step is done only when **all** of these hold:
 | the plan changed | the phase README, plus a dated line in "Decisions / notes" |
 | all exit criteria of a phase are `[x]` | the phase to `[x]` in both STATE files, the milestone row and "Current focus" |
 | after every job | TODO.md "Now" shows the next jobs |
+| a job merges | every TODO.md claim the job fixed is ticked `[x]` with `(done: <commit>)` or deleted, in the same commit as the merge (see 7.1) |
+
+### 7.1 TODO.md must not go stale
+
+TODO.md holds open claims only: a "lows" or "follow-ups" bullet is a list of separate claims,
+and each claim is closed on its own.
+
+- **Ticket:** the coder's ticket lists the TODO.md claims the job is meant to fix (quote the
+  line or its first words), and the coder's report says, claim by claim, `fixed`, `already done
+  (commit)`, `skipped (reason)`. Before coding a claim, check it is still open on dev
+  (`rg`, `git log -S`, a one-minute repro): a stale claim is reported, not worked on.
+- **Merge:** the manager closes the fixed claims in the same commit as the merge: the claim is
+  ticked `[x]` with `(done: <short commit>)` when the bullet still has open claims, or the whole
+  bullet is deleted when all its claims are done. A claim the job found obsolete is deleted with
+  a one-line note in the commit message. Priority words (`PRIORITY`) go with the claim they
+  belong to.
+- **Review:** the reviewer checks this: a merge that fixes a claim of TODO.md and leaves it open
+  is a finding (severity: should-fix), and so is a claim the report says is fixed that is not.
+- **New claims:** a review that finds something it does not fix adds it to TODO.md as one short
+  claim (file or area, what is wrong, a repro in one line), not a paragraph, grouped under the
+  area headings of the file.
+- **Audit:** once per phase (and before each release step) the manager checks a sample of the
+  open claims against the code; a claim that cannot be reproduced is deleted. The last full
+  audit is in AUDIT-2026-10-22.md.
 
 **Commits:** one commit per clean job, with a message like
 `phase 01, step 1.2: parser patch 1 (keywords after .)`; a job split from a step uses the job
