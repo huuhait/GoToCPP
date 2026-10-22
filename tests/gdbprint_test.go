@@ -172,6 +172,9 @@ func TestGDBPrinters(t *testing.T) {
 			if why := phaseGate(phase, c.phase, c.phaseFrom); why != "" {
 				t.Skip(why)
 			}
+			if onlyLLDBSession(file) {
+				t.Skip("the program is for the lldb test only: it has a .lldb session and no .gdb session")
+			}
 			tags := map[string]int{}
 			for i, line := range strings.Split(string(src), "\n") {
 				if m := gdbTagRx.FindStringSubmatch(line); m != nil {
@@ -298,6 +301,18 @@ func (c *config) gdbPrintTest(t *testing.T, gdb string, cc compiler, v gdbVarian
 	}
 }
 
+// onlyLLDBSession reports whether the program has an lldb session (NAME.lldb) and no gdb session
+// (NAME.gdb): borrowed.gp is for TestLLDBPrinters only. A program with neither is not skipped: the
+// missing NAME.gdb is a failure.
+func onlyLLDBSession(file string) bool {
+	base := strings.TrimSuffix(file, ".gp")
+	if _, err := os.Stat(base + ".gdb"); err == nil {
+		return false
+	}
+	_, err := os.Stat(base + ".lldb")
+	return err == nil
+}
+
 // realPath returns dir with its symlinks resolved.
 func realPath(dir string) string {
 	if p, err := filepath.EvalSymlinks(dir); err == nil {
@@ -343,6 +358,35 @@ func TestNormalizeGDB(t *testing.T) {
 	want := "Breakpoint 1, at values.gp:129\n129\tx\npp (*main.Point) = &{X:7 Y:8} @0xADDR\nsmall 0x10\n"
 	if got := normalizeGDB(in); got != want {
 		t.Errorf("normalizeGDB:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestOnlyLLDBSession pins which programs TestGDBPrinters skips: only one with an lldb session and
+// no gdb session. A program with neither is not skipped (its missing .gdb file fails the test).
+func TestOnlyLLDBSession(t *testing.T) {
+	cases := []struct {
+		name  string
+		files []string
+		want  bool
+	}{
+		{"both sessions", []string{"p.gdb", "p.lldb"}, false},
+		{"gdb session only", []string{"p.gdb"}, false},
+		{"lldb session only", []string{"p.lldb"}, true},
+		{"neither session", nil, false},
+		{"the session of another program", []string{"q.lldb"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range c.files {
+				if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := onlyLLDBSession(filepath.Join(dir, "p.gp")); got != c.want {
+				t.Errorf("onlyLLDBSession = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 

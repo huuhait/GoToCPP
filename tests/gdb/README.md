@@ -18,6 +18,10 @@ gp locals
 #want (?m)^ints \(.*\)$      the output of the last command must match (a #want line is a Go regexp)
 ```
 
+`make ci` runs it with `GOCPP_TEST_PHASE=10` (the Makefile's `CI_TEST_PHASE`), and so does the gate of the phase: a plain `go test ./tests` has no such
+variable and skips the programs of later phases (`generics`, `chans`, `goroutines`, `borrowed`), so run it as
+`GOCPP_TEST_PHASE=10 GOCPP_REQUIRE_GDB=1 go test ./tests -run '^TestGDBPrinters$'` to run everything.
+
 `TestGDBPrinters` builds the program with each compiler (`g++`, `clang++`) in every variant, runs one gdb
 session on the binary (`gdb -batch`, no gdbinit files, auto-loading of the program's script allowed) and checks
 the output of each command in its own subtest. The text is normalized first: no addresses (`0xADDR`),
@@ -44,7 +48,14 @@ of values.gdb.
 | `robust.gp` | bad memory and the daily commands: a string with a negative length and an interface with a damaged descriptor (`set var`) still print and `gp locals` goes on; boxed variables (`count (int)`, also in a closure); Go expressions in `gp print` (`acc.n`, `*acc`, `len(grid)`, `grid[1][2]`); a 300x300 `[][]int` stays small; float map keys sort by value; `$gp_blocked()` without goroutines is 0; the skip rules (on at load, once, `off`); `step` never stops in the C++ library; a deferred call's `bt` has no helper frames |
 | `chans.gp` | channels: nil, buffered, unbuffered, closed, in an `any`, a slice and a map |
 | `goroutines.gp` | `gp goroutines`: goroutines blocked in a receive, a send, a select and a `select {}`; the breakpoint (`$gp_blocked() == 6`) waits until all six are blocked, so the list never depends on timing; a failing condition ends the program after 40 s, so a broken `$gp_blocked` fails fast; the backtrace of a goroutine thread ends at its Go function |
-| `borrowed.gp` | borrowed pointers (`gp::bptr`, ADR-086): a pointer receiver and a pointer parameter that the function only uses print like owning pointers (`borrowed.lldb` only: lldb session) |
+| `boxed.gp` | a variable that a returned closure captures is a heap box in the C++: `gp locals`, `gp print` and `gp whatis` show the Go variable (`n (int)`) in the closure with both compilers (clang++ has no local for a capture); `p` stays a `*T` |
+| `closures.gp` | func literals that stay C++ lambdas (ADR-114): `gp locals` and `print` show `func(0xADDR closure in main.main)` with the Go type read from the literal's line; an unnamed type is a closure only in a frame of a `.gp` file (`classify` in the runtime's frame says none), and a Go anonymous struct never is one |
+| `inline.gp` | a method the optimizer inlines keeps its Go name at `-O2` (`inline.O2.gdb`: `main.(*Counter).Bump` over `main.main` with both compilers) |
+| `panics.gp` | `gp catch panic`: the throw of a panic in a function without defers, the panic statement of a function with defers, which is not thrown (ADR-085) and so is missed by `catch throw` alone, `runtime.Goexit` in a goroutine with defers (one stop, at the `.gp` line), and a panic that nothing recovers (one stop, not two); the Go function is the selected frame; running the command twice leaves one set of stops; `panics.O2.gdb` for the optimized build |
+| `userstops.gp` | the stops of the user's own while `gp catch panic` is set: a breakpoint on `gp::panic_constant` and a `catch throw` keep the runtime frame (also the `catch throw` at the second throw of an unrecovered panic, where `gp catch panic`'s condition is false); a stop that `gp catch panic` made selects the Go function |
+| `ignorehit.gp` | an `ignore` count on gp catch panic's `gp_panic` breakpoint: the ignored hits leave nothing behind, so a user breakpoint in a runtime function (`gp::panic_constant`) and the user's `catch throw` at the second throw of an unrecovered panic keep their runtime frames, while gp catch panic's own throw still selects the Go function |
+| `nodefer.gp` | `gp catch panic` in a program without defers: no `gp_panic` in the program, the command says so, and the throw still selects the Go function |
+| `borrowed.gp` | borrowed pointers (`gp::bptr`, ADR-086): a pointer receiver and a pointer parameter that the function only uses print like owning pointers (`borrowed.lldb` only: lldb session; `TestGDBPrinters` skips a program that has a `.lldb` session and no `.gdb` session) |
 
 The runtime's frames are filtered out of the golden files (`#filter`): their line numbers change with
 the runtime.

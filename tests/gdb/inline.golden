@@ -1,0 +1,11 @@
+### 00 break inline.gp:15
+Breakpoint 1 at 0xADDR: file inline.gp, line 15.
+
+### 01 run
+
+Breakpoint 1, at inline.gp:15
+15		c.n += by // @bump
+
+### 02 bt
+#0  main.(*Counter).Bump (c=&{n:2} @0xADDR, by=2) at inline.gp:15
+#1  0xADDR in main.main () at inline.gp:23

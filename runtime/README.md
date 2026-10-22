@@ -317,8 +317,11 @@ this.
 backtraces, `gp goroutines` and the other `gp` commands (see [docs/guides/debugging.md](../docs/guides/debugging.md)
 and [ADR-066](../docs/adr/066-debugger-support.md)). Every program carries it in a `.debug_gdb_scripts` section that
 `src/os/linux/debug_scripts.cpp` (ELF) and `src/os/windows/debug_scripts.cpp` (PE: the same section,
-written with `.section` because COFF has no `.pushsection`) write from `src/os/gocpp_gdb.inc`; the `.inc` is generated: after you change the
-`.py`, run `go test ./runtime -run TestDebugScript -update-debug-script` (the test fails while it is stale).
+written with `.section` because COFF has no `.pushsection`) write from `src/os/gocpp_gdb.inc`; the `.inc` is generated (without the blank and comment lines of the `.py`; `TestDebugScriptTrim`
+checks that python reads the same program): after you change the `.py`, run `go test ./runtime -run TestDebugScript -update-debug-script` (the test fails while it is stale).
+The embedded copy has no blank or comment lines, so a Python error from an auto-loaded script names lines that are not the file's:
+to debug the script, load the file by hand (`source runtime/debug/gocpp-gdb.py`). The trimmer follows strings by their triple
+double quotes, so the script uses no `'''`, no escaped triple quote, and no triple quote after a `#` or another quote on its line (`TestDebugScript` refuses the file otherwise).
 `debug/gocpp_lldb.py` is the LLDB version (best effort; `gocpp debug` loads it). The printers read the fields of the
 runtime's classes by name (`gp_len_`, `gp_data_`, `gp_owner_`, `gp_sp_`, `gp_impl_`, `gp_type_`, ...) and the layout of
 libstdc++'s `unordered_map` and `shared_ptr`: **renaming a field or changing a layout of `string`, `slice`, `array`,

@@ -51,12 +51,12 @@ Breakpoint 4, at frames.gp:23
 
 ### 14 bt
 #0  main.outer.func1.1 () at frames.gp:23
-#3  0xADDR in main.outer.func1 () at frames.gp:25
-#6  0xADDR in main.main () at frames.gp:52
+#1  0xADDR in main.outer.func1 () at frames.gp:25
+#4  0xADDR in main.main () at frames.gp:52
 ### 15 gp bt
 #0  main.outer.func1.1 () at frames.gp:23
-#3  0xADDR in main.outer.func1 () at frames.gp:25
-#6  0xADDR in main.main () at frames.gp:52
+#1  0xADDR in main.outer.func1 () at frames.gp:25
+#4  0xADDR in main.main () at frames.gp:52
 ### 16 continue
 12
 body

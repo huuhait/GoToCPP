@@ -271,7 +271,9 @@ program as gdb's safe path (forward slashes, `;` as the list separator), so the 
 `.debug_gdb_scripts` section of the `.exe`) loads and the printers work. On the PC, with WinLibs' gdb 17.2, in a folder and a
 `TEMP` with spaces, in batch mode, these were checked: a breakpoint on a `.gp` line, `bt` with Go names and `.gp` lines, the printers
 for strings, slices, maps and `int`, `gp locals`, `gp goroutines` (seven goroutines of every state), a stack overflow that stops at its `.gp` line,
-and `catch throw` that stops a Go panic at the function that caused it. `gocpp debug -vscode` prints the VS Code `launch.json` (cppdbg with
+`catch throw` that stops a Go panic at the function that caused it, and `gp catch panic` that stops at both starts of a panic (the throw of
+a panic in a function without defers, and `gp::defer_frame::gp_panic` for the panic statement of a function with defers, which is not thrown;
+the Go function is the selected frame at either stop). `gocpp debug -vscode` prints the VS Code `launch.json` (cppdbg with
 `miDebuggerPath` and the safe path; `-debugger lldb` prints one for lldb-dap). Not tried on Windows: lldb and lldb-dap (the PC has no lldb), a launch in
 VS Code, and stepping through a long session. Run `gocpp debug` from a terminal that gdb can take over: without `-batch` and without a
 terminal it waits for input. A bare `bt` on a stack-overflow crash walks a hundred thousand frames: use `bt 5`. See the

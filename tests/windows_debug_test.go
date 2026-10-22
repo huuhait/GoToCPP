@@ -64,14 +64,40 @@ func main() {
 }
 `
 
+// debugWinPanics has a panic that is thrown (direct) and the panic statement of a function with
+// defers (withDefer), which is not: gp catch panic stops at both.
+const debugWinPanics = `package main
+
+import "fmt"
+
+func direct() {
+	panic("direct")
+}
+
+func withDefer() {
+	defer func() { recover() }()
+	panic("with defer")
+}
+
+func main() {
+	func() {
+		defer func() { recover() }()
+		direct()
+	}()
+	withDefer()
+	fmt.Println("done")
+}
+`
+
 func TestWindowsDebug(t *testing.T) {
 	n := nativeRemote(t)
 	// A folder with spaces for the sources, and a TEMP with spaces for the work folder of the build
 	// (the program that gdb starts is in it).
 	n.put(t, "dbg dir", map[string]string{
-		"hello.gp": debugWinHello,
-		"deep.gp":  debugWinDeep,
-		"boom.gp":  debugWinBoom,
+		"hello.gp":  debugWinHello,
+		"deep.gp":   debugWinDeep,
+		"boom.gp":   debugWinBoom,
+		"panics.gp": debugWinPanics,
 	})
 	n.cmd(t, "", nil, `mkdir "tmp dir"`)
 	spaced := []string{"TEMP=" + n.abs("tmp dir"), "TMP=" + n.abs("tmp dir")}
@@ -147,6 +173,22 @@ func TestWindowsDebug(t *testing.T) {
 			"boom.gp:6",
 			"main.main () at ",
 			"boom.gp:12",
+		)
+	})
+
+	t.Run("gp catch panic stops at the throw and at a panic statement that does not throw", func(t *testing.T) {
+		out := debug(t, spaced, "-ex", "gp catch panic", "-ex", "run", "-ex", "bt 8", "-ex", "continue",
+			"-ex", "bt 4", "-ex", "kill", "panics.gp")
+		needs(t, out,
+			"Catchpoint 1 (throw)",
+			"Breakpoint 2 at ",
+			"Catchpoint 1 (exception thrown)",
+			"main.direct () at ",
+			"panics.gp:6",
+			"Breakpoint 2, ",
+			"gp::defer_frame::gp_panic",
+			"main.withDefer () at ",
+			"panics.gp:11",
 		)
 	})
 

@@ -1,6 +1,6 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[~]` in progress (audit 2026-10-22: 13.1-13.5 and 13.3b are merged and every step and exit line is ticked, but the first exit criterion is NOT met on dev now: `go test ./tests -run TestGDBPrinters` (GOCPP_TEST_PHASE=15) fails with 61 lines in the groups borrowed, frames, robust and values, e.g. `print clo` prints `{k = @0xADDR}` instead of `func(0xADDR closure in main.show)`, probably since the escape analysis of 15.2 made local closures plain lambdas; re-bless or fix the printers, then this phase is done)
+**Status:** `[~]` in progress (13.1-13.5 and 13.3b are merged and every step is ticked; the debugger exit criterion is met again since job 13.gdbprinters: `TestGDBPrinters` passes with 0 failing lines at phase 15 and 10 on g++ and clang++; the phase stays open for the panic-perf lows exit line below)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-22
 
@@ -27,7 +27,7 @@
 
 ## Exit criteria
 
-- [~] Scripted gdb/lldb sessions show gocpp values and stop on `.gp` breakpoints (also with `-trimpath`): was met when 13.2 merged; `TestGDBPrinters` fails on dev 81c0d4e1 (61 lines, see the status line; the stale-golden failures counted at 14.6 were 8)
+- [x] Scripted gdb/lldb sessions show gocpp values and stop on `.gp` breakpoints (also with `-trimpath`): met again by 13.gdbprinters (the printers read references and print local closures, `gp catch panic` stops once per panic, the goldens follow the fewer helper frames of ADR-114)
 - [x] vet finds a closure cycle, a printf mistake (also through a cross-package wrapper), and a panicking `!` in a library
 - [x] vet runs over every interop example without crashing
 - [x] ≥ 20 error tests show C++ errors with gocpp type names

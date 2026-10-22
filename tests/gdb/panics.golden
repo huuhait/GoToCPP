@@ -1,0 +1,35 @@
+### 00 gp catch panic
+Catchpoint 1 (throw)
+### 01 gp catch panic
+Catchpoint 3 (throw)
+### 02 run
+### 03 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+gpkg_main::direct [(3, 1), (4, 0)]
+
+### 04 bt
+#2  0xADDR in main.direct () at panics.gp:17
+#3  0xADDR in main.main.func1 () at panics.gp:44
+#4  0xADDR in main.main () at panics.gp:45
+### 05 continue
+### 06 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+gpkg_main::withDefer [(3, 1), (4, 1)]
+
+### 07 bt
+#1  0xADDR in main.withDefer () at panics.gp:22
+#2  0xADDR in main.main () at panics.gp:46
+### 08 continue
+### 09 python print([(b.number, b.hit_count) for b in gdb.breakpoints()])
+[(3, 2), (4, 1)]
+
+### 10 bt
+#2  0xADDR in main.goexit.func1 () at panics.gp:36
+### 11 continue
+### 12 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+gpkg_main::unrecovered [(3, 2), (4, 2)]
+
+### 13 bt
+#1  0xADDR in main.unrecovered () at panics.gp:27
+#2  0xADDR in main.main () at panics.gp:49
+### 14 continue
+### 15 python print([(b.number, b.hit_count) for b in gdb.breakpoints()])
+[(3, 2), (4, 2)]

@@ -56,6 +56,10 @@ or load the script by hand, in a program without it or in a core file:
 (gdb) source /path/to/gocpp/runtime/debug/gocpp-gdb.py
 ```
 
+If the script itself fails (a Python error printed by gdb, `Python Exception` or a traceback), load the file by
+hand as above before reporting it: the copy inside a program has no blank or comment lines, so the line numbers
+of its tracebacks are not the file's; `source` gives the file's own line numbers.
+
 The script is inside every program that gocpp links on Linux: a section that is not loaded into
 memory (it makes the file about 90 KB bigger, and `strip` removes it with the debug
 information, so a program built with `-strip` has no printers), so a program that you move to another
@@ -158,7 +162,7 @@ without Python gdb still debugs the program, with C++ names and without printers
 - The commands: `gp locals` (the locals of the frame with their Go types and names), `gp print
   EXPR` (an expression with its Go type), `gp whatis EXPR`, `gp bt` (a backtrace with Go names,
   also if you set `gocpp names cpp`), `gp break main.main` (a breakpoint on a Go function by its
-  Go name: `main.f`, `main.T.M`, `main.(*T).M`, `main.init` for the package variables' initializer and `main.init.0` for the first `init()`), `gp skip-runtime [on|off]`.
+  Go name: `main.f`, `main.T.M`, `main.(*T).M`, `main.init` for the package variables' initializer and `main.init.0` for the first `init()`), `gp catch panic` (see "Where a panic starts"), `gp skip-runtime [on|off]`.
 - Go expressions. gdb's own `print` and `break` speak C++: `print c->n` or `print $gp_deref(c).n`
   for a `*T`, `break gpkg_main::main` for `main.main`. `gp print` and `gp whatis` also read `c.n`
   (through a pointer, as Go does), `*c`, `s[i]` (slice, array, string, and a pointer to an array)
@@ -176,7 +180,19 @@ without Python gdb still debugs the program, with C++ names and without printers
   `gp::ptr` that owns nothing; so is the object of a `p := &T{}` that does not escape (a
   `gp::local_ptr<T>`, which holds the object itself). `gocpp build -gp:m` says which variables are
   which. In a closure, `gp locals` lists the
-  captured variables too (under their Go names; the C++ calls them `__count` in g++).
+  captured variables too (under their Go names; the C++ calls them `__count` in g++; a variable that
+  the closure captures by reference is read through the reference).
+- A func literal that is only called in its function (the escape analysis keeps it local) is a plain C++
+  lambda on the stack, not a `gp::func`. `print`, `info locals` and `gp locals` show it as a func value,
+  `inc (func()) = func(0x7fffffffe2a8 closure in main.main)`: the address is the closure object's, and
+  `main.main` is the function whose frame holds it (the selected frame: `up` first to see the closure of a
+  caller). The Go type is read from the literal on the line that declares the variable (`inc := func() {`), so
+  gdb needs the `.gp` file, as for the names in "Moved sources"; without it the type is `func(...)`. A local
+  closure shows as a func value only when the selected frame is in a `.gp` file: from a runtime frame (after
+  `gp catch panic`, or `catch throw`, stops in `__cxa_throw`) it is the compiler's raw struct, so `up` to your
+  function first. A closure
+  that is stored, returned or passed on is a `gp::func`, and prints as `func(0x55555556f9e6 closure in main.f)`
+  with its address in the code.
 - Bad memory does not stop a command. A frame stopped before its locals are declared holds
   whatever the stack held, a string may have a negative length, a type descriptor may be
   damaged: the value prints as `<unreadable: ...>` or as much as can be read, and `gp locals`
@@ -192,6 +208,48 @@ without Python gdb still debugs the program, with C++ names and without printers
   `bt` and `gp bt` print the Go names.
 - `set gocpp print-style tree` shows a short summary and children: the style an IDE needs for its
   variable tree (VS Code uses it); `set gocpp names cpp` goes back to C++ names in backtraces.
+
+## Where a panic starts
+
+A Go panic (an index out of range, a nil dereference, `panic(...)`) is a C++ exception, and `catch throw`
+stops at the point where it is thrown: `bt` shows the Go function that caused it with its `.gp` line, and its
+callers. Two things make a plain `catch throw` miss or repeat:
+
+- The `panic` statement of a function that has deferred calls is not thrown: the function handles it in its own
+  frame (a `goto` to its exit, [ADR-085](../adr/085-panic-stacks-up-to-the-handler-and-no-throw-for-a-local-panic.md)),
+  so `catch throw` does not stop there when a `recover()` takes it.
+- A panic that nothing recovers is thrown again when the function's deferred calls have run, so `catch throw` stops a
+  second time, at the closing brace of the function.
+
+`gp catch panic` handles both: it sets the catchpoint with a condition that skips that second throw, and a breakpoint
+on the runtime function that takes a panic statement (`gp::defer_frame::gp_panic`). The debugger stops once for each
+panic, and the Go function that panicked is the selected frame (the stop itself is in the runtime: `bt` lists the
+runtime's frames above it, `down` goes back to them). The frame line that gdb prints at the stop uses the C++ name
+(`gpkg_main::direct`), as `frame`, `up` and `finish` do; `bt` and `gp bt` show the Go name (`main.direct`).
+`runtime.Goexit` is a throw too, and stops once, also in a goroutine with deferred calls. Running the
+command again replaces the first one's stops (no duplicates); `delete` removes them.
+
+A program without deferred calls has no `gp_panic` (the linker drops it): the command says so, and the throws are
+then all there is to stop at, with the Go function selected as before.
+
+Your own breakpoints are not touched. A `catch throw` or a breakpoint on a runtime function (`break gp::panic_constant`)
+that you set yourself stops in its own frame, also while `gp catch panic` is set, and also at the second throw of an
+unrecovered panic (which `gp catch panic` skips): only a stop that `gp catch panic` made selects the Go function. (An `ignore` count on its breakpoints changes nothing there.)
+
+```
+(gdb) gp catch panic
+Catchpoint 1 (throw)
+Breakpoint 2 at 0x...
+(gdb) run
+Catchpoint 1 (exception thrown), 0x... in __cxa_throw () from .../libstdc++.so.6
+#2  0x... in gpkg_main::direct () at panics.gp:17                a throw: panic("direct") in a function without defers
+17	        panic("direct")
+(gdb) continue
+Breakpoint 2, gp::defer_frame::gp_panic (...)
+#1  0x... in gpkg_main::withDefer () at panics.gp:22             the panic statement of a function with defers
+22	        panic("with defer")
+(gdb) continue                                                   (an unrecovered panic: one stop at gp_panic, not two)
+```
 
 ## Go names and goroutines
 

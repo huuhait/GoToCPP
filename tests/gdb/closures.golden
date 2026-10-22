@@ -1,0 +1,26 @@
+### 00 break closures.gp:20
+Breakpoint 1 at 0xADDR: file closures.gp, line 20.
+
+### 01 run
+
+Breakpoint 1, at closures.gp:20
+20		fmt.Println(add(1), text, err, anon) // @show
+
+### 02 gp locals
+add (func(int) int) = func(0xADDR closure in main.main)
+greet (func(string, int) (string, error)) = func(0xADDR closure in main.main)
+anon (struct{...}) = {x:3}
+### 03 print add
+$1 = func(0xADDR closure in main.main)
+
+### 04 print anon
+$2 = {x:3}
+
+### 05 python v = gdb.selected_frame().read_var("add")
+
+### 06 python print(classify(unwrap(v.type)))
+closure
+
+### 07 up
+### 08 python print(classify(unwrap(v.type)))
+None

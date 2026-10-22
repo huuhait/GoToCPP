@@ -20,6 +20,9 @@ def load():
     g.error = RuntimeError
     g.MemoryError = type("MemoryError", (RuntimeError,), {})
     g.GdbError = type("GdbError", (Exception,), {})
+    g.TYPE_CODE_STRUCT = 3
+    g.TYPE_CODE_PTR = 1
+    g.BreakpointEvent = type("BreakpointEvent", (), {})
     for name in ("Command", "Function", "Parameter"):
         setattr(g, name, type(name, (), {"__init__": lambda self, *a, **k: None}))
     sys.modules["gdb"] = g
@@ -405,6 +408,283 @@ class Source(unittest.TestCase):
         src = G.GoSource('package p\n\nfunc a() {\n\ts := "func x() {"\n\t// func b() {\n\t_ = s\n}\n\nfunc (t *T[K]) M() {}\n')
         self.assertEqual(src.package, "p")
         self.assertEqual([f.name for f in src.funcs], ["a", "(*T).M"])
+
+
+class ClosureSignature(unittest.TestCase):
+    """The Go type of a func literal that stays a C++ lambda: the debug info has no signature for
+    its closure object, so gp locals reads it from the literal in the .gp source."""
+
+    def source_of(self, literal, pkg="main", before=""):
+        return "package %s\n\n%sfunc f() {\n\tx := %s\n\t_ = x\n}\n" % (pkg, before, literal)
+
+    def sig(self, literal, pkg="main", before=""):
+        src = G.GoSource(self.source_of(literal, pkg, before))
+        line = 4 + before.count("\n")
+        lit = src.literal_for(line, "x")
+        self.assertIsNotNone(lit, literal)
+        return lit.sig
+
+    def test_signatures(self):
+        cases = [
+            ("func() {}", "func()"),
+            ("func(x int) int { return x }", "func(int) int"),
+            (
+                "func(a, b int, s string) (int, error) { return 0, nil }",
+                "func(int, int, string) (int, error)",
+            ),
+            ("func(int, string) {}", "func(int, string)"),
+            ("func(n int) (r int, err error) { return }", "func(int) (int, error)"),
+            ("func(xs []int, m map[string][]int) {}", "func([]int, map[string][]int)"),
+            ("func(p *T) *T { return p }", "func(*main.T) *main.T"),
+            ("func(w fmt.Stringer) {}", "func(fmt.Stringer)"),
+            ("func(f func(int) string) func() {}", "func(func(int) string) func()"),
+            ("func(vs ...int) {}", "func(...int)"),
+            ("func(a [3]int) {}", "func([3]int)"),
+            ("func(a any, e error) bool { return true }", "func(any, error) bool"),
+            ("func(\n\ta int,\n\tb string,\n) {}", "func(int, string)"),
+            # the names of a func type's parameters are not part of the type
+            ("func(f func(x, y int) bool) {}", "func(func(int, int) bool)"),
+            (
+                "func(f func(a string) (n int, err error)) {}",
+                "func(func(string) (int, error))",
+            ),
+            (
+                "func(c chan<- string, d <-chan int, e chan int) {}",
+                "func(chan<- string, <-chan int, chan int)",
+            ),
+            ("func(v interface{}) {}", "func(interface{})"),
+            # a channel of receive-only channels keeps the space (Go writes chan (<-chan int))
+            ("func(c chan (<-chan int)) {}", "func(chan (<-chan int))"),
+            ("func(c chan<- chan int) {}", "func(chan<- chan int)"),
+            # the type arguments of an instance have no space after the comma
+            ("func(p Pair[K, string]) {}", "func(main.Pair[main.K,string])"),
+            ("func(p Pair[int, []string]) {}", "func(main.Pair[int,[]string])"),
+            ("func(m map[string]Pair[int, int]) {}", "func(map[string]main.Pair[int,int])"),
+        ]
+        for literal, want in cases:
+            self.assertEqual(self.sig(literal), want, literal)
+
+    def test_unrenderable_types_are_not_guessed(self):
+        # a struct or interface with members is not spelled: the printer shows func(...)
+        for literal in (
+            "func(s struct{ a int }) {}",
+            "func(i interface{ M() }) {}",
+            "func() struct{ n int } { return struct{ n int }{} }",
+        ):
+            self.assertIsNone(self.sig(literal), literal)
+
+    def test_an_array_length_that_is_a_name_is_not_guessed(self):
+        # Go spells the value of the constant ([4]string), which the source does not say here
+        for literal in (
+            "func(a [N]string) {}",
+            "func(a [N + 1]string) {}",
+            "func(a map[string][N]int) {}",
+            "func() [N]int { return [N]int{} }",
+        ):
+            self.assertIsNone(self.sig(literal), literal)
+
+    def test_slices_and_arrays_with_a_number_are_spelled(self):
+        self.assertEqual(self.sig("func(a [4]string, b [][2]int) {}"), "func([4]string, [][2]int)")
+
+    def test_type_parameters_are_not_package_types(self):
+        src = G.GoSource(
+            "package main\n\n"
+            "func g[T any, K comparable](v T, k K) {\n"
+            "\tx := func(a T, b []K) K { var z K; return z }\n"
+            "\t_ = x\n"
+            "}\n"
+        )
+        self.assertEqual(src.literal_for(4, "x").sig, "func(T, []K) K")
+        src = G.GoSource(
+            "package main\n\n"
+            "func (s *Stack[E]) Push(v E) {\n"
+            "\tx := func(e E) T { return T{} }\n"
+            "\t_ = x\n"
+            "}\n"
+        )
+        self.assertEqual(src.literal_for(4, "x").sig, "func(E) main.T")
+
+    def test_package_name(self):
+        self.assertEqual(self.sig("func(p *T) {}", "shapes"), "func(*shapes.T)")
+
+    def test_literal_of_a_line(self):
+        src = G.GoSource(
+            "package main\n\n"
+            "func main() {\n"
+            "\ta := func() {}\n"
+            "\tb := func(n int) int {\n"
+            "\t\treturn n\n"
+            "\t}\n"
+            "\t_, _ = a, b\n"
+            "}\n"
+        )
+        self.assertEqual(src.literal_for(4, "a").sig, "func()")
+        self.assertEqual(src.literal_for(5, "b").sig, "func(int) int")
+        self.assertIsNone(src.literal_for(3, "a"))  # (before the first literal)
+        self.assertIsNone(src.literal_for(6, "a"))
+        self.assertIsNone(src.literal_for(8, "a"))
+        self.assertIsNone(src.literal_for(4, "b"))  # (not the variable that the line declares)
+
+    def test_two_literals_in_a_line_match_by_position(self):
+        src = G.GoSource(
+            "package main\n\n"
+            "func main() {\n"
+            "\tx, y := func(a int) int { return a }, func(s string) {}\n"
+            "\t_, _ = x, y\n"
+            "}\n"
+        )
+        self.assertEqual(src.literal_for(4, "x").sig, "func(int) int")
+        self.assertEqual(src.literal_for(4, "y").sig, "func(string)")
+
+    def test_a_line_that_does_not_say_is_not_guessed(self):
+        # three names, two literals; one name, two literals (a literal in a literal is one: its
+        # owner's)
+        text = (
+            "package main\n\n"
+            "func main() {\n"
+            "\tx, y, z := func() {}, 1, func(n int) {}\n"
+            "\tw := f(func() {}, func(n int) {})\n"
+            "\tq := func() func() { return func() {} }\n"
+            "}\n"
+        )
+        src = G.GoSource(text)
+        for name in ("x", "y", "z"):
+            self.assertIsNone(src.literal_for(4, name), name)
+        self.assertIsNone(src.literal_for(5, "w"))
+        self.assertEqual(src.literal_for(6, "q").sig, "func() func()")
+
+
+class ClosureType(unittest.TestCase):
+    """The closure type of a func literal has no name; only a frame of a .gp file says that an
+    unnamed type is one (a C++ program's unnamed structs are not closures)."""
+
+    class Field:
+        def __init__(self, name, base=False, member=True):
+            self.name = name
+            self.is_base_class = base
+            if member:
+                self.bitpos = 0
+
+    class Type:
+        def __init__(self, text, fields=(), code=3, tag=None, name=None):
+            self.text = text
+            self._fields = list(fields)
+            self.code = code
+            self.tag = tag
+            self.name = name
+
+        def fields(self):
+            return self._fields
+
+        def __str__(self):
+            return self.text
+
+    def check(self, t, in_go):
+        old = G._in_go_frame
+        G._in_go_frame = lambda: in_go
+        try:
+            return G.is_closure_type(t)
+        finally:
+            G._in_go_frame = old
+
+    def test_unnamed_struct_in_a_go_frame(self):
+        F, T = self.Field, self.Type
+        self.assertTrue(self.check(T("struct {...}"), True))  # no captures
+        self.assertTrue(self.check(T("struct {...}", [F("__k"), F("__err")]), True))
+        self.assertTrue(self.check(T("class {...}", [F("count")]), True))  # clang++
+
+    def test_the_same_types_outside_a_go_frame(self):
+        F, T = self.Field, self.Type
+        self.assertFalse(self.check(T("struct {...}"), False))
+        self.assertFalse(self.check(T("struct {...}", [F("__k")]), False))
+        self.assertFalse(self.check(T("class {...}", [F("count")]), False))
+
+    def test_other_types(self):
+        F, T = self.Field, self.Type
+        self.assertFalse(self.check(T("struct {...}", [F("x")]), True))  # g++: captures are __x
+        self.assertFalse(self.check(T("struct {...}", [F("gp::string", base=True)]), True))
+        self.assertFalse(self.check(T("gp_anon_1", tag="gp_anon_1"), True))
+        self.assertFalse(self.check(T("gpkg_main::T", tag="gpkg_main::T"), True))
+        self.assertFalse(self.check(T("int", code=8), True))
+
+
+class PanicStops(unittest.TestCase):
+    """gp catch panic selects the Go frame at a stop that it made: its flag is set (the condition
+    of one of its stops was true) and one of its stops is in the event's list."""
+
+    class Frame:
+        def __init__(self):
+            self.selected = False
+
+        def select(self):
+            self.selected = True
+
+    def setUp(self):
+        self.state = G._panic_state()
+        self.state["numbers"][:] = [3, 4]
+        self.state["pending"] = False
+        self.runtime_frame = self.Frame()
+        self.go_frame = self.Frame()
+        self.saved_go_frame_above = G.go_frame_above
+        G.go_frame_above = lambda frame: self.go_frame
+        G.gdb.selected_frame = lambda: self.runtime_frame
+        G.gdb.execute = lambda *args, **kwargs: None
+
+    def tearDown(self):
+        G.go_frame_above = self.saved_go_frame_above
+        del G.gdb.selected_frame
+        del G.gdb.execute
+        self.state["numbers"][:] = []
+        self.state["pending"] = False
+
+    def stop(self, *numbers):
+        event = G.gdb.BreakpointEvent()
+        event.breakpoints = [types.SimpleNamespace(number=n) for n in numbers]
+        G._select_go_frame(event)
+
+    def test_a_stop_of_gp_catch_panic_selects_the_go_frame(self):
+        self.state["pending"] = True
+        self.stop(3)
+        self.assertTrue(self.go_frame.selected)
+
+    def test_a_user_breakpoint_at_the_same_place_does_not_stop_it(self):
+        self.state["pending"] = True
+        self.stop(1, 3)
+        self.assertTrue(self.go_frame.selected)
+
+    def test_a_stop_of_the_users_only_keeps_its_frame(self):
+        self.state["pending"] = False  # (the condition of gp catch panic's was false there)
+        self.stop(1, 3)
+        self.assertFalse(self.go_frame.selected)
+
+    def test_a_flag_left_by_a_hit_that_did_not_stop_is_not_enough(self):
+        # an ignore count or commands that continue: the condition was true, the stop never came
+        self.state["pending"] = True
+        self.stop(1)
+        self.assertFalse(self.go_frame.selected)
+
+    def test_the_flag_is_used_once(self):
+        self.state["pending"] = True
+        self.stop(1)
+        self.stop(3)
+        self.assertFalse(self.go_frame.selected)
+
+    def test_other_events_do_nothing(self):
+        self.state["pending"] = True
+        G._select_go_frame(object())
+        self.assertFalse(self.go_frame.selected)
+
+    def test_a_second_copy_of_the_script_shares_the_state(self):
+        # auto-load and a manual source: two copies, one gdb module
+        path = os.path.join(HERE, "gocpp-gdb.py")
+        spec = importlib.util.spec_from_file_location("gocpp_gdb2", path)
+        other = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(other)
+        self.assertIs(other.gdb, G.gdb)
+        self.assertIs(other._panic_state(), self.state)
+        other._panic_state()["pending"] = True
+        self.stop(4)
+        self.assertTrue(self.go_frame.selected)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ the lines are (a line counts once):
 |---|---|---|
 | In a running job | about 9 | recover, `&cvar`, anonymous interface field, reflect, sync.Map, paths and offline, HRESULT, LSP speed: they close at merge |
 | Real bugs a user can hit | about 16 | 8 MiB stack, generic types in functions, range over generic iterator with C++ types, `const d = x+1`, `sys/select.h`, header ending mid-declaration, `check` and `build` disagree, `make([]struct{}, MaxInt)`, builds flaky when several run in one cache, syscall small differences, `-release` traces without frames |
-| Failing or never-run tests and CI | about 9 | `TestGDBPrinters` (61 lines), clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
+| Failing or never-run tests and CI | about 9 | `tests/debug` `TestDebug` (11 stale lines), clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
 | Performance (no wrong answer) | about 8 | timers, string maps, panic from a callee, `iter.Pull`, `-O0` default speed |
 | Old review leftovers ("lows" bundles) | about 20 | 6.x, 7.x, 8.x, 10.x, 12.x, 13.x, 14.x, 15.x bundles: mutants, cosmetic output, rare shapes |
 | Cosmetic, stale comments, docs | about 15 | wording, stale text, missing run tests |
@@ -92,7 +92,7 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] 8.11 lows: no `, N minutes` suffix; a goroutine blocked in a child wait or blocking read counts as running; a foreign C++ thread is invisible to the detector; a fatal error in a goroutine prints only that goroutine (was L267).
 - [ ] 6.4/6.14 lows: surviving mutants (array variables not lazy, only the first lazy variable ensured); `lazy_boot` pinned by a golden only; a c-shared lib built `-asan` with a filled `std::vector` package var leaks across `dlclose`; `notePkgVar` still says "not constinit" for lazy variables (was L285).
 - [ ] 6.10 lows: cgo-parity gaps of ADR-043 "Known gaps"; `internal/libgen.Collect` has no direct unit test; the pin is released by a later exported call (was L245).
-- [ ] panic-perf lows: no unit test pins the panicking-goroutine count across the local-panic move; `catch throw` in gdb no longer stops at a direct `panic()`; the lazy path is off under ASan; Windows on non-x86-64 keeps the old stack walk (was L278).
+- [ ] panic-perf lows: no unit test pins the panicking-goroutine count across the local-panic move; the lazy path is off under ASan; Windows on non-x86-64 keeps the old stack walk (was L278).
 - [ ] append-cap lows: gc stack-buffer cases are not copied; `&s[i] == &s[j]` for distinct zero-size elements is false; `reflect.cpp` and `golayout.hpp` disagree on pointer-ful foreign types; huge zero-size lengths allocate (was L269).
 - [ ] 15.5 maps: string maps 84 B/entry at n=1000 (Go 48), range 3.5-4.2 ns/entry, string delete 66 ns (Go 57-60) (was L253).
 
@@ -158,7 +158,8 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Tooling (debugger, vet, test runner, fuzz, tests infrastructure)
 
-- [ ] `tests/gdb` `TestGDBPrinters` fails with 61 lines in groups `borrowed`, `frames`, `robust`, `values` (e.g. `print clo` prints `{k = @0xADDR}` instead of `func(0xADDR closure in main.show)`, `gp locals`, `bt` frame numbers). Probably stale since escape analysis (local lambdas, ADR-114): re-bless or fix the printers (was L307).
+- [ ] `tests/debug` `TestDebug` fails on dev with 11 lines (closures.gp:23 a capture by reference prints `(int64_t &) @0x..: 5` where the test wants `5`, closures.gp:37 `next 38 42` over a local lambda declaration differs by compiler, pointers.gp:24 `x` is no longer boxed so `print *x` fails): the programs are stale since ADR-114 (done: gdb printers and `gp catch panic` in job 13.gdbprinters).
+- [ ] gdb printers: `info locals` and raw gdb `print` still show raw closure structs on clang++ and `n = &6` for a g++ box; exotic Go types (a struct or interface with members, an array length that is a name) print as `func(...)`; a generic type argument that is a type parameter prints the parameter name inside a generic function.
 - [ ] 13.2 lows: the stop line, `frame`, `up` and `info locals` still print C++ names and temporaries; a boxed local is unwrapped by reading the `.gp` declaration line; `gp print` has no map indexing or calls; `$gp_blocked()` counts only channel waits; the lldb script got no robustness pass (was L240).
 - [ ] `TestScales` (internal/load/gocppmod/review_test.go:193) compares wall-time ratios; `TestOrderLarge` (internal/cppgen/order_test.go:758) has a 1 s bound; `probeTimeout` is a fixed 1 minute (internal/interop/nsprobe.go:400); the fake compilers of internal/interop (nsproc_linux_test.go:86,89; nsparse_test.go:788) start unbounded `while :; do :; done` loops without `Pdeathsig`; the compiler-matrix test code exists in 18+ files (rg `GOCPP_REQUIRE_CXX`); two Wine layers and two ssh runners (internal/wine, internal/winssh, runtime/windows_test.go, runtime/winremote_test.go) are not unified (was L77, L187, L189, L190, L205, L219, L252).
 - [ ] A FIFO named like a source still blocks: a FIFO header `#include`d by a `.c`/`.h` file or reached through `-I` hangs the C/C++ compiler itself (only top-level `import "./x.h"` is checked), and the language server reads sources with `os.ReadFile` (internal/lsp/cache/pipeline.go:602, server/readfail.go:71, server/autoimport.go:392,402: hover and workspace/symbol freeze); `gocpp fmt` of a FIFO named on the command line blocks without a writer, like gofmt (was L250).

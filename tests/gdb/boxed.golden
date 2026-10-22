@@ -1,0 +1,28 @@
+### 00 break boxed.gp:21
+Breakpoint 1 at 0xADDR: file boxed.gp, line 21.
+
+### 01 break boxed.gp:18
+Breakpoint 2 at 0xADDR: file boxed.gp, line 18.
+
+### 02 run
+
+Breakpoint 1, at boxed.gp:21
+21		return f // @make
+
+### 03 gp locals
+f (func() int) = func(0xADDR closure in main.counter)
+### 04 continue
+
+Breakpoint 2, at boxed.gp:18
+18			p.v++ // @inc
+
+### 05 gp locals
+n (int) = 6
+### 06 gp print n
+(int) 6
+
+### 07 gp whatis n
+type = int
+
+### 08 gp print p.v
+(int) 5

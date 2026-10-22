@@ -8,7 +8,8 @@
 #   - Go names in backtraces (main.f, main.(*T).Inc, main.main.func1) through a frame filter
 #     that reads the .gp source, and the commands "bt" (as before), "gp bt";
 #   - "gp goroutines" and "info goroutines": one line for each goroutine (thread), with its id,
-#     its state and its top Go frame; "gp locals", "gp print", "gp whatis", "gp skip-runtime".
+#     its state and its top Go frame; "gp locals", "gp print", "gp whatis", "gp skip-runtime",
+#     "gp catch panic" (stops where a Go panic starts).
 #
 # It is loaded by the .debug_gdb_scripts section of every gocpp program (runtime/src/
 # debug_scripts.cpp embeds this file), or by hand: "source gocpp-gdb.py". Everything is read
@@ -21,6 +22,13 @@
 #            set gocpp names go|cpp          go (default): Go names in backtraces.
 #
 # The part before "gdb glue" doesn't use gdb: runtime/debug/test_gocpp_gdb.py tests it.
+#
+# The copy that programs carry (runtime/src/os/gocpp_gdb.inc) has no blank lines and no comment
+# lines, so the line numbers of a Python error from an auto-loaded script are not this file's:
+# to find the line, load the file by hand: source runtime/debug/gocpp-gdb.py. The trimmer
+# (runtime/debugscript_test.go) follows strings by their triple double quotes: docstrings are
+# written with them; no triple single quote, no escaped triple quote and no triple quote after a
+# comment sign or another quote on its line (the test refuses the file otherwise).
 
 import os
 import re
@@ -387,10 +395,190 @@ def go_tokens(text):
     return toks
 
 
+_GO_PREDECLARED = frozenset(
+    "any bool byte comparable complex64 complex128 error float32 float64 int int8 int16 int32 "
+    "int64 rune string uint uint8 uint16 uint32 uint64 uintptr "
+    "func map chan interface struct".split()
+)
+_GO_TYPE_WORDS = frozenset(("func", "map", "chan", "interface", "struct"))
+
+
+class _Unrenderable(Exception):
+    """A type that signature_text does not spell (a struct or interface with members): the
+    printer shows func(...) rather than a type that might be wrong."""
+
+
+def _split_commas(toks):
+    """The tokens of a parameter list cut at the commas outside brackets, without semicolon
+    tokens."""
+    parts = [[]]
+    depth = 0
+    for t in toks:
+        if t[0] == "semi":
+            continue
+        if t[1] in ("(", "[", "{"):
+            depth += 1
+        elif t[1] in (")", "]", "}"):
+            depth -= 1
+        if t[1] == "," and depth == 0:
+            parts.append([])
+        else:
+            parts[-1].append(t)
+    return [p for p in parts if p]
+
+
+def _is_word(c):
+    return c.isalnum() or c == "_"
+
+
+def _close_at(toks, i):
+    """The index of the token that closes the parenthesis at toks[i], or len(toks)."""
+    depth = 0
+    for k in range(i, len(toks)):
+        depth += (toks[k][1] == "(") - (toks[k][1] == ")")
+        if depth == 0:
+            return k
+    return len(toks)
+
+
+def _type_text(pkg, toks, tparams=frozenset()):
+    """The Go text of a type written with toks: a name that is not predeclared, not qualified and
+    not a type parameter belongs to the package (T is main.T), as the printers spell the types
+    of the program. Raises _Unrenderable for struct and interface types with members and for
+    arrays whose length is a name (Go spells the value: [3]string)."""
+    out = []
+    prev = None
+    prev2 = None
+    brackets = []  # "t" for the brackets of type arguments (Pair[K,string]), "o" for the others
+    k = 0
+    while k < len(toks):
+        text = toks[k][1]
+        nxt = toks[k + 1][1] if k + 1 < len(toks) else None
+        opened = None
+        if text == "[":
+            is_args = toks[k - 1][0] == "ident" and prev not in _GO_PREDECLARED if k else False
+            if not is_args and prev != "map" and nxt != "]":  # an array: its length
+                close = k + 1
+                while close < len(toks) and toks[close][1] != "]":
+                    close += 1
+                length = toks[k + 1 : close]
+                if len(length) != 1 or not length[0][1].isdigit():
+                    raise _Unrenderable()
+            opened = "t" if is_args else "o"
+        if text in ("struct", "interface"):
+            if nxt != "{" or k + 2 >= len(toks) or toks[k + 2][1] != "}":
+                raise _Unrenderable()
+            text = text + "{}"
+            k += 2
+        elif (
+            toks[k][0] == "ident"
+            and text not in _GO_PREDECLARED
+            and text not in tparams
+            and prev != "."
+            and nxt != "."
+        ):
+            text = pkg + "." + text
+        if out:
+            before = out[-1][-1]
+            after = text[0]
+            if _is_word(before) and _is_word(after):
+                out.append(" ")
+            elif prev == ")" and (_is_word(after) or after in "(*["):
+                out.append(" ")
+            elif prev == "," and not (brackets and brackets[-1] == "t"):
+                out.append(" ")  # Go writes the type arguments without it: Pair[int,string]
+            elif prev == "<-" and prev2 == "chan":
+                out.append(" ")
+            elif prev == "chan" and text == "(":
+                out.append(" ")  # chan (<-chan int)
+        if opened:
+            brackets.append(opened)
+        elif text == "]" and brackets:
+            brackets.pop()
+        if text == "func" and nxt == "(":
+            # a func type: its parameter names are not part of the type
+            close = _close_at(toks, k + 1)
+            inner = _param_types(pkg, toks[k + 2 : close], tparams)
+            text = "func(%s)" % ", ".join(inner)
+            k = close + 1
+            if k < len(toks) and toks[k][1] == "(":  # a result list: its names go, too
+                end = _close_at(toks, k)
+                results = _param_types(pkg, toks[k + 1 : end], tparams)
+                if len(results) == 1:
+                    text += " " + results[0]
+                elif results:
+                    text += " (%s)" % ", ".join(results)
+                k = end + 1
+            out.append(text)
+            prev2 = prev
+            prev = ")"
+            continue
+        out.append(text)
+        prev2 = prev
+        prev = toks[k][1] if text[-2:] != "{}" else "}"
+        k += 1
+    return "".join(out)
+
+
+def _named_param(entry):
+    """Whether a parameter entry is a name and a type (x int, x []int), not a type alone (int,
+    pkg.T, T[int], func(int)) or a name alone (the a of a, b int)."""
+    if len(entry) < 2 or entry[0][0] != "ident" or entry[0][1] in _GO_TYPE_WORDS:
+        return False
+    if entry[1][1] in (".", "("):
+        return False
+    if entry[1][1] == "[":  # x []int and x [3]int are named; T[int] is a generic type
+        depth = 0
+        for k, t in enumerate(entry[1:], 1):
+            depth += (t[1] == "[") - (t[1] == "]")
+            if depth == 0:
+                return k != len(entry) - 1 or entry[2][1] == "]"
+    return True
+
+
+def _param_types(pkg, toks, tparams=frozenset()):
+    """The Go types of a parameter or result list (the tokens between the parentheses), without
+    the names: (x int, y, z string) is int, string, string."""
+    entries = _split_commas(toks)
+    if not any(_named_param(e) for e in entries):
+        return [_type_text(pkg, e, tparams) for e in entries]
+    types = []
+    for e in reversed(entries):
+        if _named_param(e):
+            types.append(_type_text(pkg, e[1:], tparams))
+        else:  # a name that shares the type of the next one: (a, b int)
+            types.append(types[-1] if types else "?")
+    return types[::-1]
+
+
+def type_param_names(toks):
+    """The names of a type parameter list ([K comparable, V any], [T, U any]): toks are the
+    tokens between the brackets."""
+    return frozenset(e[0][1] for e in _split_commas(toks) if e[0][0] == "ident")
+
+
+def signature_text(pkg, params, result, tparams=frozenset()):
+    """The Go type of a func literal from the tokens of its parameters and of its result:
+    func(int, string) (int, error), or None for a type that is not spelled (see _Unrenderable)."""
+    try:
+        text = "func(%s)" % ", ".join(_param_types(pkg, params, tparams))
+        result = [t for t in result if t[0] != "semi"]
+        if not result:
+            return text
+        if result[0][1] == "(" and result[-1][1] == ")":
+            types = _param_types(pkg, result[1:-1], tparams)
+            if not types:
+                return text
+            return text + " " + (types[0] if len(types) == 1 else "(%s)" % ", ".join(types))
+        return text + " " + _type_text(pkg, result, tparams)
+    except _Unrenderable:
+        return None
+
+
 class GoFunc:
     """A function of a .gp file: a declaration or a func literal."""
 
-    __slots__ = ("name", "start", "end", "literal", "parent")
+    __slots__ = ("name", "start", "end", "literal", "parent", "sig", "tparams")
 
     def __init__(self, name, start, literal=False, parent=None):
         self.name = name  # without the package: f, T.M, (*T).M, f.func1, f.func1.1
@@ -398,6 +586,9 @@ class GoFunc:
         self.end = start  # the line of the closing brace of the body
         self.literal = literal
         self.parent = parent
+        self.sig = None  # a literal's Go type, func(int) int (signature_text)
+        # the type parameters of the function (of the declaration that holds a literal)
+        self.tparams = parent.tparams if parent is not None else frozenset()
 
     @property
     def plain_name(self):
@@ -457,16 +648,21 @@ class GoSource:
                 if at_start and depth == 0 and not stack and j < n and (toks[j][1] == "(" or toks[j][0] == "ident"):
                     # A declaration: func Name(...) {...} or func (recv) Name(...) {...}.
                     recv = None
+                    tparams = frozenset()
                     if toks[j][1] == "(":
                         k = self._close(toks, j)
                         if k is None:
                             i += 1
                             continue
                         recv = self._receiver(toks[j + 1 : k])
+                        tparams = self._type_params(toks, toks[j + 1 : k])
                         j = k + 1
                     if j < n and toks[j][0] == "ident":
                         name = toks[j][1] if recv is None else "%s.%s" % (recv, toks[j][1])
                         f = GoFunc(name, line)
+                        if j + 1 < n and toks[j + 1][1] == "[":
+                            tparams |= self._type_params(toks, toks[j + 1 :], True)
+                        f.tparams = tparams
                         self.funcs.append(f)
                         b = self._body(toks, j + 1, False)
                         if b is not None:
@@ -487,6 +683,8 @@ class GoSource:
                         else:
                             top_literals += 1
                             f = GoFunc("init.func%d" % top_literals, line, True)
+                        params, result = toks[j + 1 : k], toks[k + 1 : b]
+                        f.sig = signature_text(self.package, params, result, f.tparams)
                         self.funcs.append(f)
                         depth += 1
                         stack.append((f, depth))
@@ -500,6 +698,20 @@ class GoSource:
         if owner.literal:
             return "%s.%d" % (owner.name, c)
         return "%s.func%d" % (owner.name, c)
+
+    @staticmethod
+    def _type_params(toks, inside, from_bracket=False):
+        """The type parameters that a declaration names: after the function name (inside starts at
+        its "["), or in the receiver's T[K, V] (inside is the receiver's tokens)."""
+        start = 0 if from_bracket else next((k for k, t in enumerate(inside) if t[1] == "["), None)
+        if start is None:
+            return frozenset()
+        depth = 0
+        for k in range(start, len(inside)):
+            depth += (inside[k][1] == "[") - (inside[k][1] == "]")
+            if depth == 0:
+                return type_param_names(inside[start + 1 : k])
+        return frozenset()
 
     @staticmethod
     def _close(toks, i):
@@ -595,6 +807,25 @@ class GoSource:
             if (f.start, -f.end) >= (best.start, -best.end):
                 best = f
         return best
+
+    _LHS = re.compile(
+        r"^\s*(?:var\s+)?(?P<names>[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?::=|=|[A-Za-z*\[(])"
+    )
+
+    def literal_for(self, line, name):
+        """The func literal that the variable name, declared in line, holds, or None when the
+        line does not say: f := func(...) {...}, or x, y := func() {}, func(s string) {} (the
+        literals of the line in order, one for each name; a line with another number of
+        literals, such as a literal in a call, is not guessed)."""
+        lits = [f for f in self.funcs if f.literal and f.start == line]
+        lits = [f for f in lits if f.parent not in lits]  # (a literal inside another one: no)
+        m = self._LHS.match(self.line_text(line))
+        if not lits or m is None:
+            return None
+        names = [x.strip() for x in m.group("names").split(",")]
+        if name not in names or len(names) != len(lits):
+            return None
+        return lits[names.index(name)]
 
     def name_at(self, line):
         """The Go name, without the package, of the innermost function that holds line, or None."""
@@ -842,9 +1073,38 @@ def type_tag(t):
 _kind_cache = {}
 
 
+def _in_go_frame():
+    """Whether the selected frame is in a .gp file: only there is a type without a name a func
+    literal's closure (the unnamed types of a C++ program, of the runtime and of C code that a
+    program uses are not)."""
+    try:
+        return frame_source(gdb.selected_frame())[0] is not None
+    except (gdb.error, RuntimeError):
+        return False
+
+
+def is_closure_type(t):
+    """Whether t is the type of a func literal that stays a plain C++ lambda (a local that never
+    escapes, ADR-114): the compiler's closure type has no name. clang++ makes a class of it, g++ a
+    struct whose members (the captures) are named __x; a struct without a name that the program
+    writes is a gp_anon_ one. The debug info says no more (the call operator is hidden), so the
+    type must be seen from a frame of a .gp file."""
+    if t.code != gdb.TYPE_CODE_STRUCT or t.tag is not None or t.name is not None:
+        return False
+    fields = list(t.fields())
+    if any(f.is_base_class for f in fields):
+        return False
+    if str(t).startswith("class "):
+        return _in_go_frame()
+    captures = [f for f in fields if hasattr(f, "bitpos")]
+    return all(f.name is not None and f.name.startswith("__") for f in captures) and _in_go_frame()
+
+
 def classify(t):
     """What the runtime or the emitter makes of the struct type t: "string", "slice", "array",
     "map", "ptr", "weak", "chan", "func", "iface", "newtype", "struct", or None."""
+    if is_closure_type(t):
+        return "closure"
     tag = type_tag(t)
     hit = _kind_cache.get(tag)
     if hit is not None:
@@ -971,9 +1231,11 @@ def _exc_text(e):
 
 
 def _fmt(v, depth):
+    # A reference (a variable that a func literal captured by reference, the local that g++ makes
+    # for it) is read through. unwrap would hide the reference from the checks below.
+    if v.type.strip_typedefs().code in (gdb.TYPE_CODE_REF, gdb.TYPE_CODE_RVALUE_REF):
+        v = v.referenced_value()
     t = unwrap(v.type)
-    if t.code in (gdb.TYPE_CODE_REF, gdb.TYPE_CODE_RVALUE_REF):
-        return _fmt(v.referenced_value(), depth)
     if depth > MAX_DEPTH:
         return "..."
     s = go_scalar(v)
@@ -1217,6 +1479,54 @@ def fmt_func(v, t, depth):
     return "func(0x%x%s)" % (a, " " + name if name else "")
 
 
+def closure_var(v):
+    """(symbol, frame) of the local of the selected frame that holds the closure v, or (None, None):
+    the closure object has no name in the debug info, so the variable is found by its address."""
+    addr = v.address
+    if addr is None:
+        return None, None
+    try:
+        frame = gdb.selected_frame()
+        for sym in _block_vars(frame):
+            if sym.name in ("__closure", "this"):
+                continue
+            x = sym.value(frame)
+            if x.type.strip_typedefs().code in (gdb.TYPE_CODE_REF, gdb.TYPE_CODE_RVALUE_REF):
+                continue
+            same = x.address is not None and int(x.address) == int(addr)
+            if same and is_closure_type(unwrap(x.type)):
+                return sym, frame
+    except (gdb.error, RuntimeError):
+        pass
+    return None, None
+
+
+def closure_info(v):
+    """(Go type, Go name of the function that holds it) of the closure v, with None for what the
+    debug info and the .gp source don't tell."""
+    sym, frame = closure_var(v)
+    if sym is None:
+        return None, None
+    owner = frame_go_name(frame)
+    sig = None
+    try:
+        if sym.line and sym.symtab is not None:
+            src = go_source(sym.symtab.fullname())
+            lit = src.literal_for(sym.line, sym.name) if src is not None else None
+            sig = lit.sig if lit is not None else None
+    except Exception:
+        sig = None
+    return sig, owner
+
+
+def fmt_closure(v, t, depth):
+    addr = int(v.address) if v.address is not None else 0
+    if depth > 0:
+        return "0x%x" % addr
+    owner = closure_info(v)[1]
+    return "func(0x%x closure%s)" % (addr, " in " + owner if owner else "")
+
+
 DESC_BASIC_KINDS = KIND_BASE
 
 
@@ -1414,6 +1724,7 @@ KINDS = {
     "weak": fmt_weak,
     "chan": fmt_chan,
     "func": fmt_func,
+    "closure": fmt_closure,
     "iface": fmt_iface,
     "newtype": fmt_newtype,
     "complex": fmt_complex,
@@ -1779,7 +2090,10 @@ def _block_vars(frame):
 
 
 def go_type_of(v):
-    return go_type(type_tag(unwrap(v.type)))
+    t = unwrap(v.type)
+    if is_closure_type(t):
+        return closure_info(v)[0] or "func(...)"
+    return go_type(type_tag(t))
 
 
 def _user_errors(invoke):
@@ -1858,7 +2172,8 @@ def capture_lines(closure, skip=(), path=None, line=0):
 
 
 class GP(gdb.Command):
-    """gocpp debugging commands: gp goroutines | bt | locals | print | whatis | break | skip-runtime."""
+    """gocpp debugging commands: gp goroutines | bt | locals | print | whatis | break |
+    catch panic | skip-runtime."""
 
     def __init__(self):
         super().__init__("gp", gdb.COMMAND_USER, gdb.COMPLETE_NONE, True)
@@ -2067,9 +2382,14 @@ def unbox_named(name, v):
     unbox_local): gp print and gp locals agree on a boxed variable."""
     try:
         sym = gdb.lookup_symbol(name)[0]
-        if sym is None or not sym.is_variable or sym.is_argument:
-            return v
         path, line = frame_source(gdb.selected_frame())
+        if sym is None:
+            # clang++ has no local for a capture of a func literal: gdb reads the member of the
+            # closure (this) under its name, and the .gp line above the frame says what it is.
+            src = go_source(path) if path else None
+            return unbox(v, find_decl_kind(src, name, line)) if src is not None else v
+        if not sym.is_variable or sym.is_argument:
+            return v
         return unbox_local(sym, v, path, line)
     except Exception:
         return v
@@ -2184,6 +2504,27 @@ if not STUB:
                 return _int(int(v["_M_i"]) & 0xFFFFFFFF)
             except (gdb.error, TypeError, ValueError, OverflowError):
                 return _int(0)
+
+    class GpPanicStart(gdb.Function):
+        """$gp_panic_start(): the condition of the stops that gp catch panic makes. 1 where a
+        panic starts (a throw that is not the second one of gp_run, the gp_panic call), else 0.
+        When it is 1, the stop is gp catch panic's: the Go frame is selected there (if the stop
+        happens: an ignore count or a silent continue can still resume the program)."""
+
+        def __init__(self):
+            super().__init__("gp_panic_start")
+
+        def invoke(self, *args):
+            _arity(args, 0, "$gp_panic_start")
+            state = _panic_state()
+            # A new evaluation: what an earlier one set belonged to a stop that never reached
+            # the user (an ignore count, commands that continue).
+            state["pending"] = False
+            if _is_rethrow():
+                return _int(0)
+            state["pending"] = True
+            return _int(1)
+
 
     class GpLen(gdb.Function):
         """$gp_len(x): the length of a gp::string, slice, array or map, or the buffered values of a gp::chan."""
@@ -2338,6 +2679,123 @@ class GPBreak(gdb.Command):
             bp.condition = cond
 
 
+class GPCatch(gdb.Command):
+    """Stop where a Go panic starts: gp catch panic.
+
+A panic is a C++ exception, and catch throw stops at its throw. The panic statement of a function
+that has deferred calls does not throw (the function handles it in its own frame: ADR-085), so this
+command also sets a breakpoint on the runtime function that takes it. At either stop the Go
+function that panicked is the selected frame. A panic that nothing recovers is thrown again when
+the function's deferred calls have run: that second throw is not reported (a plain catch throw
+stops at it). runtime.Goexit is a throw, and stops once."""
+
+    def __init__(self):
+        super().__init__("gp catch", gdb.COMMAND_BREAKPOINTS, gdb.COMPLETE_NONE, True)
+
+
+# The state of gp catch panic is kept on the gdb module, as the guard that connects the handler is:
+# a second copy of this script (auto-load and a manual source) then agrees with the first one.
+#   "numbers": the numbers of the catchpoint and the breakpoint that gp catch panic made;
+#   "pending": set by $gp_panic_start() when the condition of one of them was true. The stop
+#   handler needs it and one of the numbers in event.breakpoints: that list has every breakpoint at
+#   the place, those whose condition was false too (a user's catch throw at the second throw of
+#   a panic keeps its frame), and the flag alone can be left over from a hit that an ignore count
+#   or a command that continues resumed.
+def _panic_state():
+    state = getattr(gdb, "_gocpp_panic", None)
+    if state is None:
+        state = {"numbers": [], "pending": False}
+        gdb._gocpp_panic = state
+    return state
+
+
+def _is_rethrow():
+    """True at a throw whose caller is defer_frame::gp_run (the selected frame is the throw)."""
+    try:
+        caller = gdb.selected_frame().older()
+        name = caller.name() if caller is not None else None
+        return isinstance(name, str) and name.startswith("gp::defer_frame::gp_run")
+    except gdb.error:
+        return False
+
+
+def go_frame_above(frame):
+    """The first frame of frame and its callers that is in a .gp file, or None."""
+    for _ in range(64):
+        if frame is None:
+            return None
+        if frame_source(frame)[0] is not None:
+            return frame
+        frame = frame.older()
+    return None
+
+
+def _select_go_frame(event):
+    """After a stop that gp catch panic made, the user's frame is the selected one (the stop is in
+    the runtime: __cxa_throw, gp_panic). A stop that only a breakpoint of the user's made keeps its
+    own frame."""
+    state = _panic_state()
+    pending = state["pending"]
+    state["pending"] = False
+    if not pending or not isinstance(event, gdb.BreakpointEvent):
+        return
+    if not any(b.number in state["numbers"] for b in event.breakpoints):
+        return
+    try:
+        frame = go_frame_above(gdb.selected_frame())
+        if frame is not None and frame != gdb.selected_frame():
+            frame.select()
+            gdb.execute("frame")
+    except gdb.error:
+        pass
+
+
+class GPCatchPanic(gdb.Command):
+    """Stop where a Go panic starts: gp catch panic (see help gp catch)."""
+
+    def __init__(self):
+        super().__init__("gp catch panic", gdb.COMMAND_BREAKPOINTS)
+
+    @_user_errors
+    def invoke(self, arg, from_tty):
+        if arg.strip():
+            raise gdb.GdbError("usage: gp catch panic")
+        # Again: the earlier ones go, so that there are never two stops at one panic.
+        numbers = _panic_state()["numbers"]
+        for bp in gdb.breakpoints() or ():
+            if bp.number in numbers:
+                bp.delete()
+        del numbers[:]
+        # The handler first: the Go frame is selected at the throw even if the runtime has no
+        # gp_panic (below).
+        if not getattr(gdb, "_gocpp_panic_stop", False):
+            gdb._gocpp_panic_stop = True
+            gdb.events.stop.connect(_select_go_frame)
+        before = {bp.number for bp in gdb.breakpoints() or ()}
+        gdb.execute("catch throw")
+        for bp in gdb.breakpoints() or ():
+            if bp.number not in before:
+                numbers.append(bp.number)
+                # The throw that gp_run makes again after the deferred calls (the panic was
+                # reported at gp_panic or at its first throw) is not a new panic.
+                gdb.execute("condition %d $gp_panic_start()" % bp.number)
+        try:
+            gdb.execute("break gp::defer_frame::gp_panic")
+        except gdb.error:
+            pass
+        made = False
+        for bp in gdb.breakpoints() or ():
+            if bp.number not in before and bp.number not in numbers:
+                numbers.append(bp.number)
+                gdb.execute("condition %d $gp_panic_start()" % bp.number)
+                made = True
+        if not made:
+            # A program without defers has no gp_panic (the linker drops it): gdb says so and
+            # makes no breakpoint (it does not raise), and the throws are all there is.
+            gdb.write("The runtime has no gp_panic here: a panic statement in a function with ")
+            gdb.write("defers is not seen.\n")
+
+
 def register_params():
     class PrintStyle(gdb.Parameter):
         """Set how gocpp values print: go (one line of Go text) or tree (a summary and children, for IDEs)."""
@@ -2408,7 +2866,10 @@ def register(objfile=None):
     GPWhatis()
     GPSkipRuntime()
     GPBreak()
+    GPCatch()
+    GPCatchPanic()
     GpDeref()
+    GpPanicStart()
     GpIndex()
     GpLen()
     GpBlocked()

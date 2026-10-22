@@ -1,0 +1,13 @@
+### 00 gp catch panic
+Catchpoint 1 (throw)
+Function "gp::defer_frame::gp_panic" not defined.
+Make breakpoint pending on future shared library load? (y or [n]) [answered N; input not from terminal]
+The runtime has no gp_panic here: a panic statement in a function with defers is not seen.
+
+### 01 run
+### 02 python print(gdb.selected_frame().name())
+gpkg_main::boom
+
+### 03 bt
+#2  0xADDR in main.boom () at nodefer.gp:9
+#3  0xADDR in main.main () at nodefer.gp:13

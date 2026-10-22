@@ -1,0 +1,19 @@
+### 00 break gp::panic_constant
+### 01 catch throw
+### 02 gp catch panic
+Catchpoint 3 (throw)
+### 03 ignore 4 2
+
+### 04 run
+### 05 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+gp::panic_constant [(1, 1), (2, 0), (3, 0), (4, 1)]
+
+### 06 continue
+### 07 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+gpkg_main::direct [(1, 1), (2, 1), (3, 1), (4, 1)]
+
+### 08 continue
+### 09 python print(gdb.selected_frame().name(), [(b.number, b.hit_count) for b in gdb.breakpoints()])
+__cxa_throw [(1, 1), (2, 2), (3, 1), (4, 2)]
+
+### 10 continue
