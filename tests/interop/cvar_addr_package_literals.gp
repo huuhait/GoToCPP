@@ -1,4 +1,4 @@
-// phase: 05
+// phase: 08
 
 // Function literals in package-level initializers (and in init, methods and method values): a literal in
 // the second, third ... initializer is analysed with its own initializer, not the first one. Each local

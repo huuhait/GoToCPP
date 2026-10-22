@@ -1,4 +1,4 @@
-// phase: 05
+// phase: 08
 
 // The address of a C/C++ local that is stored through a pointer, slice or map that the function
 // did not make keeps the local alive (ADR-139): the pointer may point into package data or into

@@ -1,4 +1,4 @@
-// phase: 05
+// phase: 08
 
 // A function literal stores the address of its own local (or an outer one) where the enclosing function
 // reads it after clobber(): into an outer holder, three levels deep, copied into a package
