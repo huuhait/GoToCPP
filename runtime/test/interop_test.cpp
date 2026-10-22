@@ -1140,6 +1140,183 @@ void test_cgo() {
     CHECK_EQ(gp::len(gp::cgo::GoBytes(vp, int32_t(2))), int64_t(2));
 }
 
+// --- argument adaptations (ADR-130): scalar_arg, scalar_in, void_out, wide_cstr ---
+
+struct adapt_obj {
+    int v;
+};
+
+int adapt_store_five(int* value) {
+    *value = 5;
+    return 0;
+}
+
+void adapt_store_six(int* value) {
+    *value = 6;
+}
+
+int& adapt_ref(int* value, int& other) {
+    *value = 7;
+    return other;
+}
+
+int adapt_bump(int* value) {
+    *value += 1;
+    return *value;
+}
+
+void adapt_set_small(short* value) {
+    *value = 12;
+}
+
+unsigned adapt_bump_unsigned(unsigned* value) {
+    *value += 1;
+    return *value;
+}
+
+int adapt_read(const int* value) {
+    return *value;
+}
+
+double adapt_half(const double* value) {
+    return *value / 2;
+}
+
+void adapt_make(void** out) {
+    static adapt_obj object{7};
+    *out = &object;
+}
+
+void adapt_nothing(void** out) {
+    *out = nullptr;
+}
+
+void test_adaptations() {
+    // A wider Go variable behind an int*: the value goes in, the callee's write comes back.
+    int64_t n = 41;
+    CHECK_EQ(adapt_bump(gp::cgo::scalar_arg<int>(&n, "n")), 42);
+    CHECK_EQ(n, int64_t(42));
+    int64_t s = 0;
+    adapt_set_small(gp::cgo::scalar_arg<short>(&s, "s"));
+    CHECK_EQ(s, int64_t(12));
+    // The write back happens when the statement ends, and the temporary is the callee's pointer.
+    int64_t w = 5;
+    {
+        auto arg = gp::cgo::scalar_arg<int>(&w, "w");
+        int* raw = arg;
+        *raw = 9;
+        CHECK_EQ(w, int64_t(5));
+    }
+    CHECK_EQ(w, int64_t(9));
+    // A gocpp pointer is a target as well.
+    gp::ptr<int64_t> gpn = gp::new_<int64_t>(3);
+    CHECK_EQ(adapt_bump(gp::cgo::scalar_arg<int>(gpn, "gpn")), 4);
+    CHECK_EQ(*gpn, int64_t(4));
+    // A value that does not fit stops the program with a runtime error that names the variable.
+    int64_t huge = int64_t(1) << 40;
+    CHECK_EQ(panic_text([&] { (void)adapt_bump(gp::cgo::scalar_arg<int>(&huge, "huge")); }),
+             std::string("runtime error: the variable huge holds 1099511627776, which does not fit "
+                         "the C type int of the parameter it is passed to"));
+    CHECK_EQ(huge, int64_t(1) << 40); // not written
+    int64_t negative = -1;
+    CHECK_EQ(panic_text([&] {
+                 (void)adapt_bump_unsigned(
+                     gp::cgo::scalar_arg<unsigned int>(&negative, "negative"));
+             }),
+             std::string("runtime error: the variable negative holds -1, which does not fit the C "
+                         "type unsigned int of the parameter it is passed to"));
+    // A const T*: copy in only.
+    int16_t small = -3;
+    CHECK_EQ(adapt_read(gp::cgo::scalar_in<int>(&small, "small")), -3);
+    float f = 5;
+    CHECK(adapt_half(gp::cgo::scalar_in<double>(&f, "f")) == 2.5);
+    CHECK_EQ(panic_text([&] { (void)adapt_read(gp::cgo::scalar_in<int>(&huge, "huge")); }),
+             std::string("runtime error: the variable huge holds 1099511627776, which does not fit "
+                         "the C type int of the parameter it is passed to"));
+
+    // call_out: the callee's write is in the variable as soon as the call has returned, so the rest
+    // of the expression sees it (the destructor of scalar_arg would run at the end of the
+    // statement).
+    int64_t seen = 0;
+    bool both =
+        gp::cgo::call_out<int>(
+            &seen, "seen", [&](int* p) -> decltype(auto) { return adapt_store_five(p); }) == 0 &&
+        seen == 5;
+    CHECK(both);
+    // A void callee, and a callee that returns a reference: the result is the callee's, as it is.
+    int64_t quiet = 0;
+    gp::cgo::call_out<int>(&quiet, "quiet",
+                           [&](int* p) -> decltype(auto) { return adapt_store_six(p); });
+    CHECK_EQ(quiet, int64_t(6));
+    int64_t side = 0;
+    int other = 1;
+    int& result = gp::cgo::call_out<int>(
+        &side, "side", [&](int* p) -> decltype(auto) { return adapt_ref(p, other); });
+    CHECK_EQ(side, int64_t(7));
+    CHECK(&result == &other);
+    // A value that does not fit stops the call before the callee runs, and writes nothing back.
+    int64_t toobig = int64_t(1) << 40;
+    bool called = false;
+    CHECK_EQ(panic_text([&] {
+                 gp::cgo::call_out<int>(&toobig, "toobig", [&](int* p) -> decltype(auto) {
+                     called = true;
+                     return adapt_store_five(p);
+                 });
+             }),
+             std::string("runtime error: the variable toobig holds 1099511627776, which does not "
+                         "fit the C type int of the parameter it is passed to"));
+    CHECK(!called);
+    CHECK_EQ(toobig, int64_t(1) << 40);
+    // A callee that stores and then panics: the variable holds what the callee stored, as it does
+    // through a pointer in Go.
+    int64_t stopped = 1;
+    CHECK_EQ(panic_text([&] {
+                 gp::cgo::call_out<int>(&stopped, "stopped", [&](int* p) -> decltype(auto) {
+                     *p = 77;
+                     gp::panic_nil();
+                     return 0;
+                 });
+             }),
+             nil_msg);
+    CHECK_EQ(stopped, int64_t(77));
+
+    // void**: the callee's pointer is stored in the gocpp pointer when the statement ends.
+    gp::cptr<adapt_obj> obj;
+    adapt_make(gp::cgo::void_out(obj));
+    CHECK(obj.gp_get() != nullptr);
+    CHECK_EQ(obj.gp_get()->v, 7);
+    adapt_nothing(gp::cgo::void_out(obj));
+    CHECK(obj.gp_get() == nullptr);
+    // call_void_out: the same, as soon as the call has returned.
+    gp::cptr<adapt_obj> early;
+    bool stored = gp::cgo::call_void_out(early,
+                                         [&](void** p) -> decltype(auto) {
+                                             adapt_make(p);
+                                             return true;
+                                         }) &&
+                  early.gp_get() != nullptr;
+    CHECK(stored);
+    // A callee that stores nothing leaves the pointer as it was.
+    static adapt_obj storage{1};
+    gp::cptr<adapt_obj> kept = gp::cptr<adapt_obj>(&storage);
+    {
+        auto arg = gp::cgo::void_out(kept);
+        (void)arg;
+    }
+    CHECK(kept.gp_get() == &storage);
+
+    // Wide strings: UTF-16 or UTF-32 by the unit's size.
+    gp::string text = gp::concat("h\xc3\xa9"_gs, "llo"_gs);
+    CHECK_EQ(std::wcslen(gp::wide_cstr<wchar_t>(text).gp_ptr()), std::size_t(5));
+    auto holder = gp::wide_cstr<char16_t>(gp::concat("a"_gs, "\xf0\x9f\x98\x80"_gs));
+    const char16_t* units = holder.gp_ptr();
+    CHECK_EQ(units[0], char16_t('a'));
+    CHECK_EQ(units[1], char16_t(0xD83D));
+    CHECK_EQ(units[2], char16_t(0xDE00));
+    CHECK_EQ(units[3], char16_t(0));
+    CHECK_EQ(std::wcslen(gp::wide_cstr<wchar_t>("abc").gp_ptr()), std::size_t(3));
+}
+
 // --- C.wstr, C.GoStringW, C.GoStringWN (step 14.4, ADR-082) ---
 
 template <typename W>
@@ -1587,6 +1764,7 @@ void run_tests() {
     test_cstr();
     test_cgo();
     test_wstr();
+    test_adaptations();
     test_callback();
     rt_test::threads_ended(); // see threads_ended.hpp
     if (failures > 0) {

@@ -40,9 +40,8 @@ var (
 )
 
 func createTarget() {
-	var raw unsafe.Pointer
-	swapChain.GetBuffer(0, d3d11.IID_ID3D11Texture2D, &raw)
-	backBuffer := (*d3d11.ID3D11Texture2D)(raw)
+	var backBuffer *d3d11.ID3D11Texture2D
+	swapChain.GetBuffer(0, d3d11.IID_ID3D11Texture2D, &backBuffer)
 	device.CreateRenderTargetView(backBuffer, nil, &target)
 	backBuffer.Release()
 }
@@ -115,7 +114,7 @@ func main() {
 		fmt.Println("RegisterClassExW failed:", int(windows.GetLastError()))
 		os.Exit(1)
 	}
-	hwnd := windows.CreateWindowExW(0, className, C.wstr("gocpp + Dear ImGui + Direct3D 11"),
+	hwnd := windows.CreateWindowExW(0, className, "gocpp + Dear ImGui + Direct3D 11",
 		windows.WS_OVERLAPPEDWINDOW, 100, 100, 1100, 700, nil, nil, instance, nil)
 	if hwnd == nil {
 		fmt.Println("CreateWindowExW failed:", int(windows.GetLastError()))
@@ -132,11 +131,11 @@ func main() {
 	imgui_impl_win32.ImGui_ImplWin32_Init(unsafe.Pointer(hwnd))
 	imgui_impl_dx11.ImGui_ImplDX11_Init(device, context)
 
-	var speed C.float = 1
+	speed := float32(1)
 	var showDemo bool
 	var clicks int
-	var clear [4]C.float = [4]C.float{0.93, 0.95, 0.98, 1}
-	var wave [120]C.float
+	clear := [4]float32{0.93, 0.95, 0.98, 1}
+	var wave [120]float32
 	phase := 0.0
 	frames := 0
 	occluded := false
@@ -172,7 +171,7 @@ func main() {
 
 		phase += float64(speed) * 0.05
 		for i := range wave {
-			wave[i] = C.float(math.Sin(phase + float64(i)*0.12))
+			wave[i] = float32(math.Sin(phase + float64(i)*0.12))
 		}
 
 		imgui.ImGui.Begin("gocpp + Direct3D 11")
@@ -185,7 +184,7 @@ func main() {
 			clicks++
 		}
 		imgui.ImGui.SameLine()
-		imgui.ImGui.Text(C.cstr(fmt.Sprintf("clicked %d times, frame %d", clicks, frames)))
+		imgui.ImGui.Text("%s", fmt.Sprintf("clicked %d times, frame %d", clicks, frames))
 		imgui.ImGui.End()
 		if showDemo {
 			imgui.ImGui.ShowDemoWindow(&showDemo)

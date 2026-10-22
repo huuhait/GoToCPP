@@ -21,6 +21,18 @@ void unsafe_panic(unsafe_what what) {
     fatal("unsafe_panic: bad kind");
 }
 
+void arg_overflow(const char* name, const char* value, const char* ctype) {
+    constexpr panic_identity id{panic_identity::gp_runtime, 0, 0};
+    std::string text = "runtime error: the variable ";
+    text += name;
+    text += " holds ";
+    text += value;
+    text += ", which does not fit the C type ";
+    text += ctype;
+    text += " of the parameter it is passed to";
+    throw panic_error{string::gp_copy(std::string_view(text)), id};
+}
+
 void misaligned() noexcept {
     // runtime/checkptr.go: checkptrAlignment throws this.
     fatal("checkptr: misaligned pointer conversion");

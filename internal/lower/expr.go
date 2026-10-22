@@ -93,6 +93,9 @@ type funcGen struct {
 	// pointer to what the C++ type of the expression says, so typed mode leaves them to gp::deref.
 	thunk int
 
+	// outSeq numbers the parameters of the out-parameter lambdas of the function (outParam).
+	outSeq int
+
 	// boxed are the variables of the function that live in a box (box.go): nil in
 	// gp_var_init, which has none.
 	boxed map[*types.Var]boxReason

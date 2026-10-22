@@ -391,6 +391,9 @@ func (g *gen) cOperandsOK(op token.Token, x, y ast.Expr, expr string, pos token.
 	if t == nil {
 		return true
 	}
+	if g.cIdentical(g.cBuiltinName(cv), t) {
+		return true // C.int is int32 (cidentity.go)
+	}
 	if g.typedOperandsOK(op, typed, cv) {
 		return true // typed mode: C++'s usual arithmetic conversions (typed.go)
 	}
@@ -891,6 +894,9 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	if hasTypeParam(t.to) {
 		return true // a type parameter: the C++ compiler deduces the type argument (generics.go)
 	}
+	if !t.multi && g.cIdentical(g.cBuiltinName(e), t.to) {
+		return true // C.int is int32 (cidentity.go)
+	}
 	if !t.multi && g.typedScalarOK(e, t.to) {
 		return true // typed mode: C++'s conversion into a Go number (typed.go)
 	}
@@ -947,6 +953,9 @@ func (w *cWalk) gocppTargetOK(e ast.Expr, parent ast.Node) bool {
 	te := t.texpr
 	if t.v != nil {
 		te = g.typeExprOf(t.v)
+	}
+	if g.cIdentical(g.cBuiltinOfType(te), tv.Type) {
+		return true // C.int is int32 (cidentity.go)
 	}
 	if g.typedNumberToC(e, te) {
 		return true // typed mode: C++'s conversion into a C number (typed.go)
@@ -1019,7 +1028,8 @@ func (g *gen) cConvOK(e ast.Expr, to types.Type, toName string) bool {
 	case kind == "pointer" && to != nil && isPointer(to):
 		g.userError(e.Pos(), "cannot convert %s (C pointer) to type %s: convert it through unsafe.Pointer, (%s)(unsafe.Pointer(%s))", g.srcText(e), toName, toName, g.srcText(e))
 		return false
-	case kind != "pointer" && b != nil && b.Info()&types.IsBoolean != 0:
+	case kind != "pointer" && b != nil && b.Info()&types.IsBoolean != 0 &&
+		g.cBuiltinName(e) != "bool": // (C.bool is bool: the conversion is the identity)
 		g.userError(e.Pos(), "cannot convert %s (C/C++ value of type %s) to type bool", g.srcText(e), typ)
 		return false
 	}

@@ -980,6 +980,153 @@ T** out_ptr(T*& target) noexcept {
     return &target;
 }
 
+// ---- argument adaptations of typed interop (ADR-130) ------------------------------------------
+//
+// These are what the lowering writes for an argument that the C++ type of the parameter adapts
+// (internal/lower/typedadapt.go). Each is a temporary: it lives until the end of the statement that
+// holds the call, and the call is the only one that may use what it points to.
+
+namespace detail {
+
+// c_name is the name of the C number type T in the messages of arg_in.
+template <typename T>
+constexpr const char* c_name() {
+    if constexpr (std::is_same_v<T, int>) {
+        return "int";
+    } else if constexpr (std::is_same_v<T, unsigned int>) {
+        return "unsigned int";
+    } else if constexpr (std::is_same_v<T, long>) {
+        return "long";
+    } else if constexpr (std::is_same_v<T, unsigned long>) {
+        return "unsigned long";
+    } else if constexpr (std::is_same_v<T, long long>) {
+        return "long long";
+    } else if constexpr (std::is_same_v<T, unsigned long long>) {
+        return "unsigned long long";
+    } else if constexpr (std::is_same_v<T, short>) {
+        return "short";
+    } else if constexpr (std::is_same_v<T, unsigned short>) {
+        return "unsigned short";
+    } else if constexpr (std::is_same_v<T, signed char>) {
+        return "signed char";
+    } else if constexpr (std::is_same_v<T, unsigned char>) {
+        return "unsigned char";
+    } else {
+        return "a C integer";
+    }
+}
+
+// arg_in converts the value v of the gocpp variable `name` to the C type T for the copy that the
+// call gets. The lowering uses it only for integers (floats are widened only, never narrowed): a
+// value that does not fit T is the panic of arg_overflow, not a silent wrap.
+template <typename T, typename G>
+T arg_in(G v, const char* name) {
+    if constexpr (std::is_integral_v<G> && std::is_integral_v<T> && !std::is_same_v<G, T>) {
+        if (!std::in_range<T>(v)) {
+            ::gp::detail::arg_overflow(name, std::to_string(v).c_str(), c_name<T>());
+        }
+    }
+    return static_cast<T>(v);
+}
+
+// scalar_out is the argument &x of a C function whose parameter is a T* (not const), for a gocpp
+// variable x of another number type G: a T* to a temporary that starts as x's value and that x gets
+// back when the statement ends (the destructor, so it also runs when a C++ exception leaves the
+// call). The lowering uses it only when every value of T is a value of G, so the write-back never
+// loses.
+template <typename T, typename G>
+class scalar_out {
+public:
+    scalar_out(G& target, const char* name)
+        : gp_target_(target), gp_tmp_(arg_in<T>(target, name)) {}
+    scalar_out(const scalar_out&) = delete;
+    scalar_out& operator=(const scalar_out&) = delete;
+    ~scalar_out() { gp_target_ = static_cast<G>(gp_tmp_); }
+    operator T*() noexcept { return &gp_tmp_; }
+
+private:
+    G& gp_target_;
+    T gp_tmp_;
+};
+
+// scalar_in is the same for a const T* parameter: the callee reads the temporary and x is not
+// written.
+template <typename T, typename G>
+class scalar_in {
+public:
+    scalar_in(const G& source, const char* name) : gp_tmp_(arg_in<T>(source, name)) {}
+    scalar_in(const scalar_in&) = delete;
+    scalar_in& operator=(const scalar_in&) = delete;
+    operator const T*() const noexcept { return &gp_tmp_; }
+
+private:
+    T gp_tmp_;
+};
+
+// out_void is the argument &p of a C function whose parameter is a void**, for a gocpp pointer to a
+// C type p (a gp::cptr<T>): a void* that the function writes, started with p's address, and stored
+// into p when the statement ends (as out_cptr does for a T**). The type of p says what the function
+// writes there, as the conversion (*T)(raw) of the unsafe.Pointer form did.
+template <typename T>
+class out_void {
+public:
+    explicit out_void(cptr<T>& target) noexcept
+        : gp_target_(target), gp_raw_(const_cast<std::remove_cv_t<T>*>(target.gp_get())) {}
+    out_void(const out_void&) = delete;
+    out_void& operator=(const out_void&) = delete;
+    ~out_void() {
+        if (gp_raw_ != static_cast<const void*>(gp_target_.gp_get())) {
+            gp_target_ = cptr<T>(static_cast<T*>(gp_raw_));
+        }
+    }
+    operator void**() noexcept { return &gp_raw_; }
+
+private:
+    cptr<T>& gp_target_;
+    void* gp_raw_;
+};
+
+} // namespace detail
+
+// scalar_arg<T>(&x, "x") is that argument for a T* parameter (lvalue x of a gocpp number type), and
+// scalar_in<T> the one for a const T*. The target is a gocpp pointer or a raw pointer to x.
+template <typename T, typename P>
+auto scalar_arg(P&& target, const char* name) {
+    using G = std::remove_cvref_t<decltype(*target)>;
+    return detail::scalar_out<T, G>(*target, name);
+}
+
+template <typename T, typename P>
+auto scalar_in(P&& source, const char* name) {
+    using G = std::remove_cvref_t<decltype(*source)>;
+    return detail::scalar_in<T, G>(*source, name);
+}
+
+// void_out(p) is the argument &p for a void** parameter (detail::out_void).
+template <typename T>
+detail::out_void<T> void_out(cptr<T>& target) {
+    return detail::out_void<T>(target);
+}
+
+// call_out<T>(&x, "x", f) is f(p) with p the T* of scalar_arg<T>(&x, "x"), and x gets the value
+// the callee stored in *p as soon as f has returned: the rest of the Go expression
+// (`f(&n) == 0 && n > 0`) sees the new x, as it does in Go. The lowering writes f as a lambda that
+// makes the call.
+template <typename T, typename P, typename F>
+decltype(auto) call_out(P&& target, const char* name, F&& f) {
+    using G = std::remove_cvref_t<decltype(*target)>;
+    detail::scalar_out<T, G> out(*target, name);
+    return std::forward<F>(f)(static_cast<T*>(out));
+}
+
+// call_void_out(p, f) is the same for the void** parameter: f(&raw), and p gets raw when f has
+// returned.
+template <typename T, typename F>
+decltype(auto) call_void_out(cptr<T>& target, F&& f) {
+    detail::out_void<T> out(target);
+    return std::forward<F>(f)(static_cast<void**>(out));
+}
+
 // raw(x) is x for a C/C++ function's argument, with a gocpp pointer (a gp::ptr, a gp::cptr) as its
 // raw address: through a C function's `...` a class object is an error, and f(bool) + f(void*) is
 // ambiguous for it.

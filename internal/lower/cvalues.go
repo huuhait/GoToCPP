@@ -222,7 +222,8 @@ func (fg *funcGen) opaqueCall(c *ast.CallExpr) cppir.Expr {
 		fg.g.unsupported(c.Ellipsis, "... in a call of a C/C++ function")
 		return placeholder
 	}
-	return &cppir.Call{Fun: fg.expr(c.Fun), Args: fg.typedStringArgs(c, fg.cArgs(c.Args))}
+	args, outs := fg.typedAdaptArgs(c, fg.cArgs(c.Args))
+	return wrapOuts(&cppir.Call{Fun: fg.expr(c.Fun), Args: args}, outs)
 }
 
 // cBinary returns the C++ of x op y where x or y is a C/C++ value: C++'s operator, with C++'s
@@ -357,10 +358,11 @@ func (fg *funcGen) cCall(c *ast.CallExpr) (cppir.Expr, bool) {
 		return placeholder, true // reported
 	}
 	args := fg.cArgs(c.Args)
-	args = fg.typedStringArgs(c, args) // typed mode: Go strings to const char* and std::string parameters
 	if r.kind == interop.Value {
 		fg.rawPointerArgs(c.Args, args) // a gocpp pointer through a C function's ... (cunsafe.go)
 	}
+	// typed mode: the table of argument adaptations (typedadapt.go)
+	args, outs := fg.typedAdaptArgs(c, args)
 	switch r.kind {
 	case interop.Namespace:
 		fg.g.userError(c.Fun.Pos(), "%s is a C++ namespace, not a function", r.src)
@@ -381,7 +383,7 @@ func (fg *funcGen) cCall(c *ast.CallExpr) (cppir.Expr, bool) {
 		fg.g.unsupported(c.Ellipsis, "... in a call of a C/C++ function")
 		return placeholder, true
 	}
-	return &cppir.Call{Fun: r.x, Args: args}, true
+	return wrapOuts(&cppir.Call{Fun: r.x, Args: args}, outs), true
 }
 
 // isBuiltinC reports whether the C++ name s is a C type of cBuiltins.

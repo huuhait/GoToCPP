@@ -57,6 +57,7 @@ var cBuiltins = map[string]string{
 	"ulonglong": "unsigned long long",
 	"float":     "float",
 	"double":    "double",
+	"bool":      "bool",
 	"size_t":    "size_t",
 	"wchar_t":   "wchar_t", // (step 14.4: 16 bits on Windows, 32 elsewhere)
 }

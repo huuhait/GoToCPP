@@ -60,6 +60,10 @@ type Static struct {
 type Param struct {
 	Name    string `json:"name,omitempty"`
 	Default bool   `json:"default,omitempty"`
+	// Array says the parameter is written as an array (`float col[3]`: its type is the pointer
+	// `float *`, but the callee takes several elements), or that how it is written could not be
+	// read (a macro's place): the lowering never passes the address of one variable for it.
+	Array bool `json:"array,omitempty"`
 }
 
 // MethodKind says what a member function is.
@@ -207,6 +211,20 @@ type Overload struct {
 	Kind string `json:"kind"`
 	// Sig is the function type (the type of a variable for "variable").
 	Sig TypeText `json:"sig"`
+
+	// FormatKind and FormatParam say, for a variadic function, that its parameter number
+	// FormatParam (from 1) is a format string by the compiler's own rule, a format attribute
+	// (__attribute__((format(printf, ...))), IM_FMTARGS in Dear ImGui): FormatKind is "printf" or
+	// "scanf". Found by a compiler run over generated calls (formatChecks); empty when the function
+	// has no such attribute, or when the run did not tell.
+	FormatKind  string `json:"formatKind,omitempty"`
+	FormatParam int    `json:"formatParam,omitempty"`
+
+	// ArrayParams has an entry for every parameter, true for a parameter that is written as an
+	// array, or whose spelling is not known (arrayparams.go). It is nil when no call passes an
+	// address (DeclConfig.AddrFuncs) and when the compiler's answer is missing: the lowering treats
+	// a pointer parameter of such an overload as an array.
+	ArrayParams []bool `json:"arrayParams,omitempty"`
 }
 
 // A FuncSet is the overload set of a name.

@@ -37,7 +37,7 @@ the folder, and how many compilers may run.
    (the alias is declared once, before the first line that uses it, so whose error it was depended on the
    neighbours; the reference fails on its own line for the same reason), and a message that points into
    another reference's line has no line (0).
-3. **The key.** `probe.PreKey` (version `gocpp-probe-v4`) has the text, the compiler (path, arguments, family,
+3. **The key.** `probe.PreKey` (version `gocpp-probe-v5`) has the text, the compiler (path, arguments, family,
    target OS and architecture, version line, identity of the program file), the flags in order, the package
    folder (spelled the same way on Windows: slashes, lower case), `MaxDecl`, `MaxJSON` and `build.KeyEnv`
    (`CPATH`, `CPLUS_INCLUDE_PATH`, `SDKROOT`, the Nix wrappers' variables, ...). The disk key adds gocpp's own

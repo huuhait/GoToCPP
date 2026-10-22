@@ -54,6 +54,7 @@ var aliasFuncs = map[string]bool{
 	"strstr": true, "strchr": true, "strrchr": true, "strpbrk": true, "strcasestr": true,
 	"index": true, "rindex": true, "basename": true, "dirname": true, "memchr": true,
 	"memmem": true, "strchrnul": true, "strptime": true,
+	"wcschr": true, "wcsrchr": true, "wcsstr": true, "wcspbrk": true, "wmemchr": true,
 }
 
 // destructorArg is the index of the destructor (SQLITE_STATIC, SQLITE_TRANSIENT or a function)

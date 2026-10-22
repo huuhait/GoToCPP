@@ -25,7 +25,9 @@ No other library is needed: MinGW-w64 has the Direct3D 11, DXGI and `d3dcompiler
 gocpp build -os windows -o imguidx11.exe .
 ```
 
-(on a Windows host with MinGW-w64: `gocpp build .`). Copy `imguidx11.exe` to the PC and start it from a desktop
+(on a Windows host with MinGW-w64: `gocpp build .`). The program is written for typed interop (ADR-130, the default when a clang++ is found):
+it passes `&backBuffer` for a `void**`, a plain string for a `LPCWSTR`, and `Text("%s", s)` for a printf-like function. A machine without
+clang++, or `-interop=opaque`, stops at the first of them with the C++ compiler's own error. Copy `imguidx11.exe` to the PC and start it from a desktop
 session; a program started over ssh runs in session 0, which has no desktop (use the console, or a scheduled
 task with `/it`). Closing the window ends the program, which prints `window closed, frames: N, clicks: N`.
 
@@ -42,7 +44,9 @@ task with `/it`). Closing the window ends the program, which prints `window clos
   `<d3d11.h>`, `<dxgi.h>` and the ImGui headers: about 14 s more on a first build with an empty probe cache (the machine was
   loaded), 0.3 to 0.4 s more on a build with a warm one. `-interop=opaque` (or `GOCPP_INTEROP=opaque`) skips the probes; the
   program is the same.
-- `GetBuffer` wants a `void**`: `var raw unsafe.Pointer` and `&raw`, then a conversion to the interface pointer.
+- `GetBuffer` wants a `void**`: typed mode takes `&backBuffer` of a `*d3d11.ID3D11Texture2D` variable and stores the pointer in it
+  when the call returns. `CreateWindowExW` takes the title as a Go string (a wide copy that lives until the end of the statement).
+  The window class name stays a `C.WString`, because `WNDCLASSEXW` keeps the pointer.
 - A covered or minimized window: `Present` returns at once with `DXGI_STATUS_OCCLUDED` instead of waiting for the
   screen, so the loop sleeps (10 ms) until a test `Present` says the window is visible again. Measured on the PC
   with the window minimized: 18.3 CPU seconds in 10 s before, 0.02 after. With the window visible both use about 1 s

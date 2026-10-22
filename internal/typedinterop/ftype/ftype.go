@@ -220,6 +220,9 @@ func (m *Mapper) Add(d *probe.DeclTable) {
 	}
 }
 
+// Target returns the data model the mapper maps for.
+func (m *Mapper) Target() Target { return m.target }
+
 // Decls returns the declarations the mapper has.
 func (m *Mapper) Decls() *probe.DeclTable { return m.decls }
 

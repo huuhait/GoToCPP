@@ -112,9 +112,10 @@ type dumpChange struct {
 	apply func(o *orderedObject)
 }
 
-// ignored are the fields of clang's dump that the reader does not use.
+// ignored are the fields of clang's dump that the reader does not use ("loc" and "range" are read for
+// the parameters that are written as arrays, arrayparams.go).
 var ignored = []string{
-	"range", "loc", "mangledName", "previousDecl", "parentDeclContextId",
+	"mangledName", "previousDecl", "parentDeclContextId",
 	"isUsed", "isReferenced", "inline",
 }
 

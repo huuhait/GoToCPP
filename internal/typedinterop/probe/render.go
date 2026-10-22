@@ -512,10 +512,24 @@ func aliasNameOf(line string) string {
 // template called with explicit arguments (std::max[float64]) is named by its
 // template. These are the names for which step 12.3 extracts overload sets.
 func FuncNames(set *collect.Set, kinds map[string]interop.Kind) []string {
+	names, _ := funcNames(set, kinds)
+	return names
+}
+
+// AddrFuncNames returns the names (of FuncNames) of the functions that a call may give the address
+// of a variable, f(&x). Only for these does the probe look at how a parameter is spelled, whether
+// float col[3] or float *col (the argument adaptations of step 12.13 need it for &x).
+func AddrFuncNames(set *collect.Set, kinds map[string]interop.Kind) map[string]bool {
+	_, addr := funcNames(set, kinds)
+	return addr
+}
+
+func funcNames(set *collect.Set, kinds map[string]interop.Kind) ([]string, map[string]bool) {
 	r := &rend{kinds: kinds}
 	seen := map[string]bool{}
+	addrOf := map[string]bool{}
 	var out []string
-	add := func(p *collect.Path) {
+	add := func(p *collect.Path, addr bool) {
 		if p == nil || p.Ns == "C" && len(p.Parts) == 0 {
 			return
 		}
@@ -541,20 +555,24 @@ func FuncNames(set *collect.Set, kinds map[string]interop.Kind) []string {
 			seen[name] = true
 			out = append(out, name)
 		}
+		if addr {
+			addrOf[name] = true
+		}
 	}
 	for _, ref := range set.Refs {
 		collect.Walk(ref.Expr, func(e collect.Expr) bool {
 			if c, ok := e.(*collect.Call); ok {
+				addr := passesAddress(c)
 				switch f := c.Fun.(type) {
 				case *collect.Path:
-					add(f)
+					add(f, addr)
 				case *collect.Inst:
 					if p, ok := f.X.(*collect.Path); ok {
-						add(p)
+						add(p, addr)
 					}
 				case *collect.IndexOrInst:
 					if p, ok := f.X.(*collect.Path); ok {
-						add(p)
+						add(p, addr)
 					}
 				}
 			}
@@ -562,5 +580,29 @@ func FuncNames(set *collect.Set, kinds map[string]interop.Kind) []string {
 		})
 	}
 	sort.Strings(out)
-	return out
+	return out, addrOf
+}
+
+// passesAddress reports whether an argument of the call may be &x: the address of a C/C++ value
+// (an Addr), or a pointer to a Go variable (which the collector keeps as an unknown Go pointer
+// type). A pointer variable that is passed on is counted too; it costs one more lookup only.
+func passesAddress(c *collect.Call) bool {
+	for _, arg := range c.Args {
+		for {
+			paren, ok := arg.(*collect.Paren)
+			if !ok {
+				break
+			}
+			arg = paren.X
+		}
+		switch arg := arg.(type) {
+		case *collect.Addr:
+			return true
+		case *collect.Unknown:
+			if strings.HasPrefix(arg.Why, "Go type *") {
+				return true
+			}
+		}
+	}
+	return false
 }

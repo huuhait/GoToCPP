@@ -795,6 +795,9 @@ func (c *checker) ruleArgType(fc *failCtx, m []string) string {
 		fc.skip = "the argument is a void call: reported at the argument"
 		return "-"
 	}
+	if c.adaptedArg(fc, m[1], m[2]) {
+		return "-"
+	}
 	text, desc := c.argText(fc)
 	if fc.argIdx < 0 || desc == "value" {
 		desc = "value of type " + c.ty(m[2])
@@ -809,6 +812,9 @@ func (c *checker) ruleConversionFrom(fc *failCtx, m []string) string {
 		fc.skip = "the argument is a void call: reported at the argument"
 		return "-"
 	}
+	if c.adaptedArg(fc, m[2], m[1]) {
+		return "-"
+	}
 	text, desc := c.argText(fc)
 	if fc.argIdx < 0 || desc == "value" {
 		desc = "value of type " + c.ty(m[1])
@@ -816,6 +822,63 @@ func (c *checker) ruleConversionFrom(fc *failCtx, m []string) string {
 	fc.cppReason(c, m[2], m[1])
 	fc.pos = c.argPos(fc, fc.pos)
 	return fmt.Sprintf(fmtCannotUse, text, desc, c.ty(m[2]), "argument to "+c.calleeName(fc))
+}
+
+// adaptedArg reports whether the lowering turns the argument into one that the parameter takes (the
+// argument adaptations of ADR-130, internal/lower/typedadapt.go), so that the probe's error about
+// the unadapted argument is not one. It sets fc.skip when it does. Only the shapes that the
+// compiler's message and the written argument show are recognized; the lowering decides the rest.
+func (c *checker) adaptedArg(fc *failCtx, to, from string) bool {
+	if fc.call == nil || fc.argIdx < 0 || fc.argIdx >= len(fc.call.Args) {
+		return false
+	}
+	to = strings.TrimSpace(to)
+	from = strings.TrimSpace(from)
+	text := ""
+	if fc.args != nil {
+		text = strings.TrimSpace(fc.args[fc.argIdx])
+	}
+	switch arg := fc.call.Args[fc.argIdx].(type) {
+	case *collect.Lit:
+		kind := describeLit(arg.Text)
+		tm, ok := c.mapType(to)
+		switch {
+		case kind == "untyped int constant" && ok && tm.Kind == ftype.Enum &&
+			integerLiteral(arg.Text):
+			fc.skip = "the lowering casts an integer constant to the enumeration (ADR-130)"
+			return true
+		case kind == "untyped string constant" && isWideCharPointer(to):
+			fc.skip = "the lowering turns a string constant into a wide string (ADR-130)"
+			return true
+		}
+	}
+	if strings.HasPrefix(text, "&") && to == "void **" && strings.HasSuffix(from, "**") {
+		fc.skip = "the lowering adapts the address of a pointer variable to a void ** parameter " +
+			"(ADR-130)"
+		return true
+	}
+	return false
+}
+
+// integerLiteral reports whether text is a written integer (a sign and digits, 0x digits).
+func integerLiteral(text string) bool {
+	t := strings.TrimLeft(strings.TrimSpace(text), "+-")
+	if t == "" || t[0] < '0' || t[0] > '9' {
+		return false
+	}
+	if strings.HasPrefix(t, "0x") || strings.HasPrefix(t, "0X") {
+		return true
+	}
+	return !strings.ContainsAny(t, ".eE")
+}
+
+// isWideCharPointer reports whether the clang spelling of a type is a pointer to wchar_t or
+// char16_t (const or not).
+func isWideCharPointer(t string) bool {
+	if !strings.HasSuffix(t, "*") || strings.HasSuffix(t, "**") {
+		return false
+	}
+	return strings.Contains(t, "wchar_t") || strings.Contains(t, "char16_t")
 }
 
 // cppReason adds the line that says why C++ refuses the conversion from the

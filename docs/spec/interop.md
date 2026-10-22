@@ -363,8 +363,11 @@ declares comes through its package or a namespace, never through `C` (`cstdio.pr
 | `C.long`, `C.ulong` | `long`, `unsigned long` (64 bits on Linux, 32 bits on Windows: [LLP64](#windows-headers)) |
 | `C.longlong`, `C.ulonglong` | `long long`, `unsigned long long` |
 | `C.float`, `C.double` | `float`, `double` |
+| `C.bool` | `bool` |
 | `C.size_t` | `size_t` |
 | `C.wchar_t` | `wchar_t` (16 bits on Windows, 32 bits on Linux) |
+
+`C.int`, `C.float` and the others are the Go fixed-size types of the same size: [`C.int` is `int32`](#the-c-number-types-are-gos).
 
 | Helper | What it does | More |
 |---|---|---|
@@ -622,13 +625,16 @@ fmt.Println(n + 1)          // fully type-checked by gocpp
 
 **gocpp values next to C/C++ values.** As in cgo, a typed gocpp number, bool or string next to a
 C/C++ value in an operator is an error, because C++ would convert one of them without a word
-(`n + v.size()` would turn a negative `n` into a huge unsigned number):
+(`n + v.size()` would turn a negative `n` into a huge unsigned number). The exception is the type that *is*
+the same: `C.int` is `int32` and the other C number types are Go's fixed-size types
+([below](#the-c-number-types-are-gos)), so `x + n32` is fine and only `x + n` with `n int` is the error:
 
 <!-- illustration: a fragment, not a program -->
 ```go
 var x C.int = 2
 n := 3
 _ = x + 1      // fine: 1 is a C literal
+_ = x + n32    // fine: C.int is int32, n32 an int32
 _ = int(x) + n // fine: both are gocpp ints
 _ = x + n      // invalid operation: x + n (mismatched types C.int and int): convert one of them: int(x) or C.int(n)
 _ = v.begin() + C.long(k) // an iterator and a C long: fine (v.begin() + k is the error, with this hint)
@@ -707,7 +713,9 @@ parameter of a gocpp function or result (`fv := 1e30; var i C.int = fv` is "cann
 untyped constant does (it is a C literal there). An argument of a C/C++ function is different:
 gocpp doesn't know the parameter's type, so C++'s rules convert it (a gocpp float passed to a C
 integer parameter out of its range is undefined behavior: write `C.int(x)`). Phase 12 (typed
-interop) knows the parameter types and makes this exact.
+interop) knows the parameter types and makes this exact: it converts a float with Go's rules, checks
+a constant against the parameter's range, and adapts a few other arguments
+([argument adaptations](#argument-adaptations-typed-interop)).
 
 ### Composite literals of C/C++ types
 
@@ -1122,10 +1130,141 @@ fmt.Println(strings.ToUpper(s + "!"))
   string next to `std::string_view` or `std::string`, `f("x")`, is ambiguous for a constant (pass
   `std.string("x")` or a gocpp string variable). A gocpp string itself converts only to
   `std::string_view`, and a C `char*` never converts to a gocpp string (`C.GoString(p)` copies one).
-- Typed interop (Phase 12) will convert a `string` passed to a `const char*` parameter
-  automatically, except for functions that keep the pointer ([below](#what-typed-interop-adds)).
+- Typed interop (Phase 12) converts a `string` passed to a `const char*` or `std::string` parameter
+  automatically, except for functions that keep the pointer, and a `string` passed to a `const wchar_t*`
+  parameter too ([argument adaptations](#argument-adaptations-typed-interop)).
 
 Source: [Phase 04 §2.6](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#26-strings-at-the-boundary).
+
+## Argument adaptations (typed interop)
+
+In typed mode (the default when clang++ is installed) gocpp knows the exact type of every parameter of a C/C++ function, because
+clang says it, so it writes the conversion that C++ would refuse where the meaning is certain from the two types
+alone. All of them are rows of **one table** (`internal/lower/typedadapt.go`, [ADR-130](../adr/130-argument-adaptations-are-one-table-over-the-parameter-type-and-the-go-argument.md)):
+the class of the Go argument, the parameter type that clang reports, and what is written.
+
+| Go argument | Parameter | Written | Since |
+|---|---|---|---|
+| a `string` that is not a constant | `const char*` | `gp::cstr(s).gp_ptr()`: a NUL-terminated copy, alive until the end of the statement | 12.6 |
+| a `string` | `std::string`, `const std::string&` | `std::string(s)` | 12.6 |
+| a `string` (also a constant) | `const wchar_t*`, `const char16_t*`, `const char32_t*` (`LPCWSTR`) | `gp::wide_cstr<wchar_t>(s).gp_ptr()`: UTF-16 where `wchar_t` has 16 bits, UTF-32 where it has 32, alive until the end of the statement | new |
+| `&x`, `x` a variable or field of a Go number type | `T*` or `const T*`, `T` another C number type | `gp::cgo::call_out<T>(&x, "x", ...)`: a temporary `T` filled from `x` when the call starts and copied back as soon as the call returns (not at the end of the statement: `if f(&n) == 0 && n > 0` sees the new `n`); a `const T*` copies in only | new |
+| `&p`, `p` a variable or field of type `*lib.T` | `void**` | `gp::cgo::call_void_out(p, ...)`: the callee's pointer is stored in `p` as soon as the call returns | new |
+| an untyped integer constant | an enum `E` (also `enum class`) | `static_cast<E>(3)`, if the value is one that C++ defines for `E` | new |
+| an untyped number constant | a C number type | the argument as it is, after Go's check that the value fits (`300` for a `char` is an error) | new |
+| a `float32` or `float64` | an integer type, or a `float` from a `float64` | `gp::cgo::as<T>(x)`: Go's conversion, truncation toward zero, defined for every value | new |
+| a pointer to a C type, `unsafe.Pointer`, a gocpp pointer | `void*`, `const void*` | the pointer converts by itself | before typed mode |
+| `&b`, a Go `bool` | `bool*` | the same type: the pointer converts by itself | before typed mode |
+| a function | a C function pointer | a function pointer (see [C function pointers](#c-function-pointers)) | before typed mode |
+
+**When a row applies.** Only when **every** overload that the call can reach (enough parameters, or a variadic one)
+has the same row at that place, with the same detail. Then the call without the adaptation was ill-formed for each of
+them, and the adapted argument has exactly the parameter's type, so C++'s overload resolution cannot pick another
+function than the one you meant. A set that mixes kinds (`f(const char*)` next to `f(std::string_view)`, `f(int*)`
+next to `f(long long*)`) is left to C++, as in opaque mode. A template, a function of an unknown signature, a call
+with `args...` and a deferred or spawned call of a row that needs the call to end first (`void**`) are left alone
+or are an error that says so.
+
+**What is not adapted.** Each of these stays the C++ compiler's error (or your explicit conversion), because the
+types do not say what is meant:
+
+- a Go `string` to a `char*` (the callee may write: `C.CString(s)` and `C.free`), to a `std::string&`, to a `[]byte`
+  parameter, or the other way round, a `char*` result to a `string` (`C.GoString(p)`);
+- `&a[i]`, `&s.items[0]`, a pointer value, a pointer to a named type or to a `char`/`bool`: the address of an element is
+  the start of an array to C, and a `char*` is nearly always a buffer or a string. Only `&x` of a **variable or field**
+  of a Go number type is a pointer to exactly one value. A parameter that is **spelled as an array** (`float col[3]`,
+  `int v[2]`) is no pointer to one value either, though clang types it `float*`; `&speed` for it is C++'s error, and the
+  element of an array (`&col[0]`) is the argument. The same holds for a parameter written with the typedef of an array
+  (`typedef float vec3[3]; void scale(vec3 v)`, `mat4 m`); a typedef of a pointer (`LPDWORD`) is a pointer;
+- a non-constant integer for an enum (`Mode(k)` is the conversion that says that `k` is a mode), and a **typed** constant
+  (`const mode int = 2` is an `int` in Go);
+- a number to a `bool` parameter and a `bool` to a number parameter (C++ converts them silently; Go does not);
+- a Go `int` or `uint` behind a pointer whose pointee cannot hold every value of the type in the direction that the
+  callee writes (`&n` of a `uint32` for an `unsigned long*` on Linux: the copy back would cut the value): an error that
+  says to declare `n` with the C type;
+- an integer behind a pointer for a `double*` or the other way round: C converts neither way through a pointer;
+- a Go value whose address was taken for a pointer that the callee **keeps** (a `T*` stored in a C object): the temporary
+  dies when the call returns.
+
+**When the variable is read and written.** The value of `&x` goes in when the call starts, after every other argument has
+been evaluated (a call among the arguments that changes `x` is seen by the callee, as in Go), and what the callee stored is
+in `x` as soon as the call has returned. A callee that panics or throws leaves `x` as the callee stored it, as a write
+through a pointer in Go.
+
+**Lifetimes.** The temporary that a row makes lives until the end of the statement that holds the call, as `C.cstr(s)`
+does, and no longer: that is the whole rule. A callee that keeps the pointer after the call (a C library that stores
+a `const wchar_t*`, a function that remembers the `int*` it was given) reads a dead object afterwards. gocpp cannot see
+that. The names it knows (`InitWindow`, `sqlite3_bind_text`, `openlog`, ...), a method that stores a pointer parameter and a
+character pointer that the callee writes are an error that says to use `C.CString` and `C.free` (`C.WString` for wide text: the
+same checks hold for `wchar_t`, `char16_t` and `char32_t`); for any other function, a callee that keeps a pointer is documented to do so, so pass a value that you
+own: `C.WString`, `C.CString`, `C.malloc`, or a variable of C's type that lives as long as the callee needs it, and the
+program has no adaptation to make, because the argument already is a pointer.
+
+**printf-like functions.** A parameter that clang knows as a format string (`__attribute__((format(printf, ...)))`,
+`IM_FMTARGS`, glibc's `printf`) refuses a Go string that is not a constant: its `%` would be a conversion (the
+format-string bug), and nothing in the types says whether that is meant. Write `f("%s", s)`; `C.cstr(s)` is the way
+to say that `s` is a format. A constant string is a format as it is. The message shows the call as you wrote it with the fix (`ImGui.Text("%s", label)`). (The functions are found by asking
+clang to check a call with a deliberately incomplete format, so any compiler-known format attribute counts; a *method*
+with the attribute is not found yet: its string is converted as before.)
+
+Messages:
+
+```text
+main.gp:16:24: say is printf-like (its parameter 1 is a format string), and text would be read as a format: a % in its text is a conversion (the format-string bug); pass it as an argument, say("%s", text), or write C.cstr(text) when it is a format on purpose
+main.gp:16:28: add_one takes a pointer to unsigned long that it may write, and &n points to uint32 that cannot hold every unsigned long (the copy's value would be cut when it is stored back): declare n with the C type (C.ulong)
+main.gp:14:32: level_value: the constant 300 is outside the values that C++ defines for the enum Level (0 to 255): pass an enumerator by name
+main.gp:14:30: cannot use 200 (untyped int constant) as C.char value in argument to take_char (overflows)
+```
+
+Opaque mode (a machine without clang++, or `-interop=opaque`) does none of this: the same call is the C++ compiler's own error at the `.gp` line, as before
+(`cannot convert 'const char*' to 'const wchar_t*'`, `invalid conversion from 'int' to 'Mode'`). It is unchanged by the
+adaptations. (`gocpp check -interop=typed` does not report the shapes that the lowering adapts, as it did before
+for the string rows.)
+
+### The C number types are Go's
+
+`C.int` **is** `int32`, `C.uint` is `uint32`, `C.longlong` is `int64`, `C.ulonglong` is `uint64`, `C.float` is
+`float32`, `C.double` is `float64`, `C.bool` is `bool`, `C.char` and `C.schar` are `int8`, `C.uchar` is `uint8`,
+`C.short` is `int16`, `C.ushort` is `uint16`, and `C.long` and `C.ulong` follow the target (`int64` and `uint64` on
+Linux, `int32` and `uint32` on Windows, where `long` has 32 bits). They are the same type, not types with a conversion
+between them: `var x C.int = n32` and `x + n32` need no conversion, a gocpp function that takes a `C.int` takes an
+`int32`, and `int32(x)` and `C.int(n32)` stay legal (a conversion between identical types). Go's `int`, `uint` and
+`uintptr` are **not** aliases (they are 64 bits and spell no C type), nor is a named type over a fixed-size
+type (`type Count int32`), nor `C.size_t` and `C.wchar_t`: those are still the mismatches above (`x + n` with
+`n int` is "mismatched types C.int and int").
+
+This is the checker's rule, so it holds in **both modes** and needs no clang. What does not change, and where the
+identity stops: the C++ side is what it was (`C.int` is `int`, which is `int32_t`; `C.longlong` is `long long`,
+which is not `int64_t` on Linux, where that is `long`; the two convert by themselves), so `fmt.Printf("%T", x)`
+prints `int32` for a `C.int`, and `int` for a `C.long` on Linux (gocpp's `int` is also `long`); an interface that
+holds a `C.int` holds a C value with the descriptor of its C++ type, so `v.(int32)` is false for it (write
+`any(int32(x))`); a named type over a C number (`type Count C.int`) is its own type, as in Go. A value whose C type
+gocpp does not know in opaque mode (a function's result, the result of an operator on C values, where C++'s
+promotions decide the type: `x*n`) is still a C/C++ value that needs `int32(x)`.
+
+### Numbers at a call
+
+What happens to a Go number that is passed by value to a C/C++ number parameter. "Opaque" is C++'s implicit
+conversion (no clang, no parameter types); "typed" is the table above.
+
+| Go argument → parameter | Opaque | Typed | `gocpp vet` |
+|---|---|---|---|
+| the same type (`int32` → `C.int`, `float32` → `float`) | silent | silent | silent |
+| a wider integer of the same signedness, an unsigned one into a wider signed one (`int32` → `long long`, `uint8` → `int`) | silent | silent | silent |
+| `float32` → `double`, any integer → a floating type | silent (C++ rounds) | silent | silent |
+| a narrower integer: `int`, `int64`, `uint32` → `int`, `short`, `char` | wraps (C++20: modular, as Go's conversion) | wraps | a warning when the value is not provably in range |
+| a different sign, same width (`int32` → `unsigned`) | wraps | wraps | a warning, as for narrowing |
+| a float → an integer | C++'s conversion: **undefined** when out of range | `gp::cgo::as<T>`: Go's conversion, no undefined behavior | a warning |
+| `float64` → `float` | C++'s: undefined when out of range | `gp::cgo::as<float>` | a warning |
+| an untyped constant that fits | silent | silent | silent |
+| an untyped constant that does not fit (`300` → `char`, `-1` → `unsigned`, `2.5` → `int`, `1e60` → `float`) | C++ wraps or truncates: **no error** | an error with Go's words (`overflows`, `truncated`) | (the error stops the build) |
+| a number → `bool`, a `bool` → a number | C++ converts | C++ converts | silent |
+
+Extern declarations (`//gocpp:extern`, ADR-128) stay strict: a Go `int` or `uint` is an error
+there, because it is 64 bits and spells no C type; write `C.int` (now the same as `int32`), `C.long`, `int64`.
+
+The `gocpp vet` column is the design of ADR-130; the warnings for implicit narrowing at a call are **not built yet**
+(vet has no parameter types: only the explicit `C.int(n)` conversion is reported, by the `narrowing` analyzer).
 
 ## Pointers, unsafe and slices at the boundary
 
@@ -2685,6 +2824,11 @@ generated "probe" files, the way cgo asks gcc about C names.
   (step 12.6), unless the call may keep the pointer or give back one into the string (`InitWindow`,
   `sqlite3_bind_text` with `SQLITE_STATIC`, `strtol(s, &end, 10)`, …): those are an error that says to use
   `C.CString`. A C++ function of your own that stores its `const char*` is not known: use `C.CString` for it.
+- **Argument adaptations** (ADR-130, [one table](#argument-adaptations-typed-interop)): a `string` also goes to a
+  `const wchar_t*` (`LPCWSTR`); `&x` of a Go number variable goes to an `int*` or `long long*` (a temporary, copied
+  back); `&p` of a `*lib.T` goes to a `void**` (`GetBuffer`); an untyped constant goes to an enum; a float goes to an
+  integer with Go's conversion; a constant that does not fit the parameter is an error; a runtime string at the format
+  place of a printf-like function is an error. [`C.int` is `int32`](#the-c-number-types-are-gos), and so on, in both modes.
 - **Wrong header package:** a C-level name used through the wrong header package
   (`raylib.printf`) gets a warning.
 - **`gocpp bindgen <header>`** (step 12.10, built: [the spec](typed-interop.md#12-gocpp-bindgen-step-1210)) writes a readable

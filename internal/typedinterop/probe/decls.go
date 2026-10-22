@@ -62,6 +62,11 @@ type DeclConfig struct {
 	// headers; reading them costs seconds, and the answer would be big and useless to
 	// typing, so such a run stops and the names it was for have an error.
 	MaxJSON int64
+
+	// AddrFuncs are the functions (by the names of their queries) that a call gives the address of
+	// a variable, `f(&x)`: the run of the function sets also asks how their parameters are written,
+	// to tell a pointer from an array (ArrayParams, arrayparams.go). See AddrFuncNames.
+	AddrFuncs map[string]bool
 }
 
 // maxSavedDecls bounds the bytes of candidate declarations kept in memory
@@ -616,6 +621,7 @@ func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ
 	part := &declPart{records: map[string]*Record{}, enums: map[string]*Enum{}, canon: map[string]string{}, errs: map[string]string{}, stats: d.stats, deps: d.deps}
 	part.timing = Timing{Compile: d.compile, CPU: d.cpu, Parse: parse}
 	errOf := compilerErrors(d, lineQ, part)
+	sources := newSourceFiles(cfg.Dir, d.deps)
 	for i, q := range r.queries {
 		key := QueryKey(q)
 		w := want[i]
@@ -650,6 +656,7 @@ func runTypeDump(ctx context.Context, cfg Config, text string, r *typeRun, lineQ
 			p0 := time.Now()
 			var n dnode
 			if err := json.Unmarshal(c.raw, &n); err == nil {
+				n.annotateParams(sources)
 				if f := n.find(w.id); f != nil && (node == nil || f.CompleteDefinition && !node.CompleteDefinition) {
 					node = f
 				}
@@ -755,15 +762,27 @@ func (rn *Runner) funcRun(ctx context.Context, cfg Config, dc DeclConfig, qs []D
 		g.emit(fmt.Sprintf("namespace gp_f%d_%s { using ::%s; }", i, t.Last(), t.String()), nil)
 		lineQ[g.line] = i
 	}
+	// The functions that a call gives the address of a variable: the compiler prints their
+	// declarations (stderr, beside the JSON dump of the same run) to tell the array parameters.
+	var lookups []lookupSite
+	for i, q := range qs {
+		t, _ := ctype.Parse(q.Name)
+		if dc.AddrFuncs[q.Name] && lookupIdent(t.Last()) {
+			g.emit(lookupSnippet(scopeOf(t), t.Last()), nil)
+			lookups = append(lookups, lookupSite{set: i, name: t.Last()})
+		}
+	}
 	text := g.b.String()
 	return rn.memoRun(ctx, cfg, dc.Includes, text, preamble, func() (*declPart, error) {
-		return runFuncDump(ctx, rn.withPCH(ctx, cfg, text), text, qs, lineQ)
+		return runFuncDump(ctx, rn.withPCH(ctx, cfg, text), text, qs, lineQ, lookups)
 	})
 }
 
 var funcNsRx = regexp.MustCompile(`^gp_f(\d+)_`)
 
-func runFuncDump(ctx context.Context, cfg Config, text string, qs []DeclQuery, lineQ map[int]int) (*declPart, error) {
+func runFuncDump(
+	ctx context.Context, cfg Config, text string, qs []DeclQuery, lineQ map[int]int, lookups []lookupSite,
+) (*declPart, error) {
 	sets := make([]*FuncSet, len(qs))
 	var parse time.Duration
 	d, err := runDump(ctx, cfg, text, "gp_f", func(rd RawDecl) error {
@@ -810,6 +829,8 @@ func runFuncDump(ctx context.Context, cfg Config, text string, qs []DeclQuery, l
 	if err != nil {
 		return nil, err
 	}
+	formatChecks(ctx, cfg, text, qs, sets)
+	readArraySpellings(d, cfg.Dir, lookups, sets)
 	part := &declPart{funcs: map[string]*FuncSet{}, errs: map[string]string{}, stats: d.stats, deps: d.deps}
 	part.timing = Timing{Compile: d.compile, CPU: d.cpu, Parse: parse}
 	errOf := compilerErrors(d, lineQ, part)
@@ -824,4 +845,121 @@ func runFuncDump(ctx context.Context, cfg Config, text string, qs []DeclQuery, l
 		}
 	}
 	return part, nil
+}
+
+// ---------------------------------------------------------------- format attributes
+
+var warningRx = regexp.MustCompile(`^(.+?):(\d+):\d+: warning: (.*)$`)
+
+// formatChecks finds the format strings of the variadic overloads of sets (typed interop, ADR-130) in
+// one more run over the probe file with generated calls added (formatCalls). The answer is best
+// effort: a run that fails or says nothing leaves the functions without a format (the lowering then
+// trusts a Go string to be a plain string, as before).
+func formatChecks(ctx context.Context, cfg Config, text string, qs []DeclQuery, sets []*FuncSet) {
+	probe := &formatProbe{qs: qs, sets: sets, sites: make(map[int]formatSite)}
+	probe.b.WriteString(text)
+	probe.line = strings.Count(text, "\n")
+	probe.emit("namespace gp_fmt_any { template <class T> T any(); }")
+	for si, fs := range sets {
+		if fs != nil {
+			probe.formatCalls(si, fs)
+		}
+	}
+	if len(probe.sites) == 0 {
+		return
+	}
+	cfg.warnings = true
+	filter := "gp_fmt_no_declaration_has_this_name"
+	d, err := runDump(ctx, cfg, probe.b.String(), filter, func(RawDecl) error { return nil })
+	if err != nil || d == nil {
+		return
+	}
+	probe.readWarnings(d)
+}
+
+// A formatSite is a generated call of a variadic function: the overload and the parameter that
+// holds the deliberately incomplete format.
+type formatSite struct{ set, overload, param int }
+
+// A formatProbe is the probe file of formatChecks while it is made, and what its lines mean.
+type formatProbe struct {
+	qs    []DeclQuery
+	sets  []*FuncSet
+	b     strings.Builder
+	line  int
+	sites map[int]formatSite // by the line of the call
+}
+
+func (p *formatProbe) emit(text string) {
+	p.b.WriteString(text)
+	p.b.WriteByte('\n')
+	p.line++
+}
+
+// formatCalls writes the call of a variadic overload for each of its parameters that is a char
+// pointer. The declarations do not say the format strings (the JSON dump of an attribute has no
+// arguments), but the compiler's check of a call does: a call of a function with a format attribute
+// whose format string is "%[" draws a warning that depends on the archetype ("incomplete format
+// specifier" for printf, "no closing ']'" for scanf), and a function without the attribute draws
+// none. All other arguments are values of the parameter types that are never evaluated, and the
+// call is in the namespace of the function so that its parameter types resolve.
+func (p *formatProbe) formatCalls(si int, fs *FuncSet) {
+	for oi, ov := range fs.Overloads {
+		t := ov.Sig.T
+		if ov.Kind != "function" || t == nil || t.Kind != ctype.Func || !t.Variadic {
+			continue
+		}
+		for j, param := range t.Params {
+			if !isCharPointer(param) {
+				continue
+			}
+			args := make([]string, len(t.Params))
+			for k, q := range t.Params {
+				args[k] = "::gp_fmt_any::any<" + q.String() + ">()"
+				if k == j {
+					args[k] = `"%["`
+				}
+			}
+			call := fmt.Sprintf("void gp_fmt_%d_%d_%d() { ::%s(%s); }",
+				si, oi, j, p.qs[si].Name, strings.Join(args, ", "))
+			if fs.Scope != "" {
+				call = "namespace " + fs.Scope + " { " + call + " }"
+			}
+			p.emit(call)
+			p.sites[p.line] = formatSite{si, oi, j}
+		}
+	}
+}
+
+func isCharPointer(t *ctype.Type) bool {
+	if t == nil || t.Kind != ctype.Pointer || t.Elem == nil {
+		return false
+	}
+	return t.Elem.Kind == ctype.Builtin && t.Elem.Name == "char"
+}
+
+// readWarnings sets the format of the overloads from the warnings of the generated calls.
+func (p *formatProbe) readWarnings(d *dump) {
+	for _, l := range strings.Split(string(d.stderr), "\n") {
+		m := warningRx.FindStringSubmatch(strings.TrimRight(l, "\r"))
+		if m == nil || !isProbeFile(m[1], d.srcPath) {
+			continue
+		}
+		n, _ := strconv.Atoi(m[2])
+		site, ok := p.sites[n]
+		if !ok {
+			continue
+		}
+		ov := &p.sets[site.set].Overloads[site.overload]
+		if ov.FormatKind != "" {
+			continue
+		}
+		switch {
+		case strings.Contains(m[3], "no closing ']'"):
+			ov.FormatKind, ov.FormatParam = "scanf", site.param+1
+		case strings.Contains(m[3], "incomplete format specifier"),
+			strings.Contains(m[3], "invalid conversion specifier"):
+			ov.FormatKind, ov.FormatParam = "printf", site.param+1
+		}
+	}
 }

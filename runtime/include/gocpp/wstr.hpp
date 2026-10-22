@@ -184,6 +184,34 @@ wstr_holder wstr(const char (&a)[N]) {
     return wstr_holder(a);
 }
 
+// wide_holder<W> is the same for any wide character type W (wchar_t, char16_t, char32_t): the
+// argument a typed call passes for a const W* parameter (ADR-130). gp::wstr is the one of wchar_t.
+template <typename W>
+class wide_holder {
+public:
+    explicit wide_holder(const string& s) : gp_buf_(detail::to_wide<W>(s.gp_data(), gp::len(s))) {}
+
+    template <std::size_t N>
+    explicit wide_holder(const char (&a)[N])
+        : gp_buf_(detail::to_wide<W>(a, static_cast<int64_t>(N) -
+                                            (N > 0 && a[N - 1] == '\0' ? 1 : 0))) {}
+
+    const W* gp_ptr() const noexcept { return gp_buf_.c_str(); }
+
+private:
+    std::basic_string<W> gp_buf_;
+};
+
+// wide_cstr<W>(s) is s as a const W* for the statement that holds the call.
+template <typename W>
+wide_holder<W> wide_cstr(const string& s) {
+    return wide_holder<W>(s);
+}
+template <typename W, std::size_t N>
+wide_holder<W> wide_cstr(const char (&a)[N]) {
+    return wide_holder<W>(a);
+}
+
 namespace cgo {
 
 // WString(s) is C.WString: C.CString for wide characters. A copy of s as wchar_t units and a NUL,

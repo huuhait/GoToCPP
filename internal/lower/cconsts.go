@@ -35,6 +35,7 @@ var cConstTypes = map[string]types.BasicKind{
 	"short": types.Int16, "ushort": types.Uint16, "int": types.Int32, "uint": types.Uint32,
 	"long": types.Int64, "ulong": types.Uint64, "longlong": types.Int64, "ulonglong": types.Uint64,
 	"float": types.Float32, "double": types.Float64, "size_t": types.Uint64, "wchar_t": types.Int32,
+	"bool": types.Bool,
 }
 
 // cConstType returns the Go type with the range of the C built-in type name for the target of the
@@ -206,6 +207,9 @@ func representable(tv types.TypeAndValue, kind types.BasicKind) (string, bool) {
 	v := tv.Value
 	src := underBasic(tv.Type)
 	info := types.Typ[kind].Info()
+	if info&types.IsBoolean != 0 {
+		return "", v.Kind() == constant.Bool // C.bool takes true and false
+	}
 	if src == nil || src.Info()&types.IsNumeric == 0 {
 		return "", false
 	}

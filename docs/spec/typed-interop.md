@@ -218,7 +218,7 @@ file is 162 MB.)
 
 ### 2.4 Keys
 
-- `probe.PreKey(cfg, src)` (`gocpp-probe-v4`): hash of the probe text, compiler (path, arguments, family,
+- `probe.PreKey(cfg, src)` (`gocpp-probe-v5`): hash of the probe text, compiler (path, arguments, family,
   target OS and architecture, version, identity), package folder (on purpose: quoted includes and messages
   depend on it; slashes and lower case on Windows), flags, `MaxDecl`, `MaxJSON` and the environment of
   `build.KeyEnv` (`CPATH`, `CPLUS_INCLUDE_PATH`, `NIX_CFLAGS_COMPILE*`, `CCC_ADD_ARGS`, `NIX_HARDENING_ENABLE`, ...:
@@ -502,8 +502,23 @@ library's, except the build for windows/amd64, whose probes read the MinGW-w64 h
 | `lib.puts(s)`, `s` a Go string | the user writes `C.cstr(s)` | `::puts(gp::cstr(s).gp_ptr())` |
 | `lib.take(s)`, a `std::string` parameter | `std.string(s)` | `::take(::std::string(s))` |
 | `m[key]`, `key` a Go string | a C++ error | `m[::std::string(key)]` |
+| `lib.title(s)`, a `const wchar_t*` parameter | a C++ error | `::title(gp::wide_cstr<wchar_t>(s).gp_ptr())` (ADR-130) |
+| `lib.bump(&n)`, `n` a Go `int`, an `int*` parameter | a C++ error | `::bump(gp::cgo::call_out<int>(&n, "n", [&](int* gp_out0) -> decltype(auto) { return ::bump(gp_out0); }))` (ADR-130) |
+| `lib.get(&p)`, `p` a `*lib.T`, a `void**` parameter | a C++ error | `gp::cgo::call_void_out(p, [&](void** gp_out0) -> decltype(auto) { return ::get(gp_out0); })` (ADR-130) |
+| `lib.mode(2)`, an enum parameter | a C++ error | `::mode(static_cast<::Mode>(2))` (ADR-130) |
+| `lib.take(f)`, `f` a Go float, an `int` parameter | C++'s conversion (undefined when out of range) | `::take(gp::cgo::as<int>(f))` (ADR-130) |
 | `v.at(0) = 5`, `v.back()++`, `&v.at(0)` | an error of the lowering | accepted: a `T&` result is an lvalue |
 | `var n int = cstring.strlen(s)`, `cstring.strlen(s) + len(s)`, `var c C.int = n` | "mismatched types", "cannot use ... convert it" | `gp::cgo::as<int64_t>(::strlen(...))`, C++'s arithmetic, `gp::cgo::as<int>(n)` |
+
+**One table of argument adaptations (ADR-130).** The rows below that are not about members (the strings, the wide
+strings, `&x` of a number, `&p` for `void**`, constants for enums and numbers, floats for integers) are the rows of
+one table in `internal/lower/typedadapt.go`: an argument class of the Go side, a verdict of each row about the
+parameter that clang reports (adapts, can never take it, or unknown), and the lowering of the row. A row is used
+only when every overload the call can reach has the same row (with the same detail) there; the rest is C++'s. The
+spec of the rows, what is not adapted and the lifetime rule is in [interop.md](interop.md#argument-adaptations-typed-interop);
+the printf-like functions come from a second compiler run over a generated call with a deliberately incomplete
+format (`probe.Overload.FormatKind`, `FormatParam`), whose warning says whether the parameter is a printf or a
+scanf format.
 
 **Which parameter takes a string.** For a call of a named function (or a method of a class), the overload sets
 of the declarations (`Result.Decls.Funcs`, `MembersOf`) are searched for the parameter at each place that

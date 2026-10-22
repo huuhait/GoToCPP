@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -44,54 +45,6 @@ const (
 	// anything but const char, a wide string): an overload with it is no candidate for the string.
 	convNoStr
 )
-
-// typedStringArgs returns the C++ of the arguments args of the call c of a C/C++ function with
-// the conversions of Go strings made (see above); args is cArgs' result for c.Args. It returns args
-// unchanged when typed mode is off or has nothing to convert.
-func (fg *funcGen) typedStringArgs(c *ast.CallExpr, args []cppir.Expr) []cppir.Expr {
-	g := fg.g
-	if !g.typedOn() || c.Ellipsis.IsValid() {
-		return args
-	}
-	var convs []argConv
-	name := ""
-	for i, a := range c.Args {
-		if !g.goStringValue(a) {
-			continue
-		}
-		if convs == nil {
-			var ok bool
-			if convs, name, ok = g.paramConvs(c); !ok {
-				return args
-			}
-		}
-		if i >= len(convs) || convs[i] == convNone {
-			continue
-		}
-		if convs[i] == convCStr {
-			if why, keeps := keepsPointer(name, len(c.Args), func(n int) string { return g.srcText(c.Args[n]) }); keeps {
-				g.userError(a.Pos(), "%s keeps the pointer that it is given (%s), and a Go string's bytes live only until the end of the statement: use C.CString(%s) and C.free it when the library is done with it", name, why, g.srcText(a))
-				return args
-			}
-			if why, keeps := g.methodKeepsCharPtr(c); keeps {
-				g.userError(a.Pos(), "%s may keep the pointer that it is given (%s), and a Go string's bytes live only until the end of the statement: use C.CString(%s) and C.free it when the object is done with it", name, why, g.srcText(a))
-				return args
-			}
-			if out := g.charPtrOutParam(c, i); out != nil {
-				g.userError(out.Pos(), "%s is given the address of a char pointer (%s) next to the string %s: the pointer that it stores can point into the string, whose C string lives only until the end of the statement: use C.CString(%s) and C.free it when you are done with the pointer", name, g.srcText(out), g.srcText(a), g.srcText(a))
-				return args
-			}
-			if aliasFuncs[lastName(name)] && !g.aliasUseOK(c) {
-				g.userError(c.Pos(), "%s returns a pointer into its argument %s, which as a C string lives only until the end of the statement: use it in the statement, or keep the string alive with a variable, h := C.cstr(%s)", name, g.srcText(a), g.srcText(a))
-				return args
-			}
-			args[i] = &cppir.Call{Fun: &cppir.Member{X: call("gp::cstr", args[i]), Name: "gp_ptr"}}
-			continue
-		}
-		args[i] = &cppir.Call{Fun: cxxName("::std::string"), Args: []cppir.Expr{args[i]}}
-	}
-	return args
-}
 
 // lastName returns the last part of a qualified C++ name.
 func lastName(name string) string {
@@ -256,6 +209,23 @@ func isStdString(t *ctype.Type, inStd bool) bool {
 type calleeSig struct {
 	t     *ctype.Type
 	scope string
+
+	// fmtKind and fmtParam: the overload's parameter number fmtParam (from 1) is a format string
+	// ("printf" or "scanf") by the compiler's own rule (probe.Overload.FormatKind).
+	fmtKind  string
+	fmtParam int
+
+	// arrays says for each parameter whether the declaration writes it as an array
+	// (`float col[3]`: a pointer for the compiler, several elements for the callee); nil when it
+	// is not known (the probe did not tell). arrayAt is the question to ask.
+	arrays []bool
+}
+
+// arrayAt reports whether the parameter number i may be an array parameter: it is written as one,
+// or it is not known how it is written. The address of one Go variable is not passed for such a
+// parameter.
+func (s calleeSig) arrayAt(i int) bool {
+	return i >= len(s.arrays) || s.arrays[i]
 }
 
 // isWideString reports whether t is std::wstring, u16string, u32string or basic_string of a type
@@ -300,7 +270,10 @@ func (g *gen) calleeSigs(c *ast.CallExpr) ([]calleeSig, string, bool) {
 			if o.Kind != "function" || o.Sig.T == nil || o.Sig.T.Kind != ctype.Func {
 				return nil, "", false
 			}
-			out = append(out, calleeSig{o.Sig.T, fs.Scope})
+			out = append(out, calleeSig{
+				t: o.Sig.T, scope: fs.Scope, fmtKind: o.FormatKind, fmtParam: o.FormatParam,
+				arrays: o.ArrayParams,
+			})
 		}
 		return out, name, true
 	}
@@ -339,26 +312,53 @@ func (g *gen) methodSigs(xe ast.Expr, name string) ([]calleeSig, bool) {
 		if m.Template || m.Sig.C == nil || m.Sig.C.Kind != ctype.Func {
 			return nil, false
 		}
-		out = append(out, calleeSig{m.Sig.C, scope})
+		out = append(out, calleeSig{t: m.Sig.C, scope: scope, arrays: methodArrays(m)})
 	}
 	return out, len(out) > 0
+}
+
+// A charSet is the character types that a string argument converts to: the C++ builtin types (for
+// the parameter and the members of a class) and the names the program has for them in C.x.
+type charSet struct {
+	cpp []string
+	c   []string
+}
+
+// narrowChars are the characters of a const char* parameter; wideChars(name) the one of a wide
+// string (wchar_t, char16_t or char32_t).
+var narrowChars = charSet{
+	cpp: []string{"char", "signed char", "unsigned char"},
+	c:   []string{"char", "schar", "uchar"},
+}
+
+func wideChars(name string) charSet {
+	cs := charSet{cpp: []string{name}}
+	if name == "wchar_t" {
+		cs.c = []string{"wchar_t"}
+	}
+	return cs
+}
+
+// has reports whether t is one of the characters (const or not).
+func (cs charSet) has(t *ctype.Type) bool {
+	return t != nil && t.Kind == ctype.Builtin && slices.Contains(cs.cpp, t.Name)
 }
 
 // charPtrOutParam returns the argument of the call c, other than the string argument number skip,
 // that is the address of a char pointer (&end of a *C.char variable: char **), or nil: the
 // function can store a pointer into the string there (strtol, sqlite3_prepare_v2's tail).
-func (g *gen) charPtrOutParam(c *ast.CallExpr, skip int) ast.Expr {
+func (g *gen) charPtrOutParam(c *ast.CallExpr, skip int, cs charSet) ast.Expr {
 	for j, a := range c.Args {
 		if j == skip {
 			continue
 		}
 		if v := g.tvalOf(a); v != nil && v.Kind == ftype.Pointer && v.Elem != nil && v.Elem.Kind == ftype.Pointer &&
-			v.Elem.Elem != nil && charLike(v.Elem.Elem.C) {
+			v.Elem.Elem != nil && cs.has(v.Elem.Elem.C) {
 			return a
 		}
 		if u, ok := ast.Unparen(a).(*ast.UnaryExpr); ok && u.Op == token.AND {
 			if te := g.valueTypeExpr(u.X); te != nil {
-				if st, ok := ast.Unparen(te).(*ast.StarExpr); ok && g.isCharType(st.X) {
+				if st, ok := ast.Unparen(te).(*ast.StarExpr); ok && g.isCharType(st.X, cs) {
 					return a
 				}
 			}
@@ -367,35 +367,17 @@ func (g *gen) charPtrOutParam(c *ast.CallExpr, skip int) ast.Expr {
 	return nil
 }
 
-// charLike reports whether t is char, signed char or unsigned char (const or not).
-func charLike(t *ctype.Type) bool {
-	if t == nil || t.Kind != ctype.Builtin {
-		return false
-	}
-	switch t.Name {
-	case "char", "signed char", "unsigned char":
-		return true
-	}
-	return false
-}
-
-// isCharType reports whether the type expression te is C.char, C.schar or C.uchar.
-func (g *gen) isCharType(te ast.Expr) bool {
+// isCharType reports whether the type expression te is C.char, C.schar or C.uchar (for the wide
+// characters, C.wchar_t).
+func (g *gen) isCharType(te ast.Expr, cs charSet) bool {
 	sel, ok := ast.Unparen(te).(*ast.SelectorExpr)
-	if !ok || !g.isC(sel.X) {
-		return false
-	}
-	switch sel.Sel.Name {
-	case "char", "schar", "uchar":
-		return true
-	}
-	return false
+	return ok && g.isC(sel.X) && slices.Contains(cs.c, sel.Sel.Name)
 }
 
 // methodKeepsCharPtr reports whether the call c is a method of a class of the program (not the
 // library's) that has a data member that is a char pointer: a setter such as set(const char*) is
 // then likely to store the pointer, and nothing in its declaration says otherwise.
-func (g *gen) methodKeepsCharPtr(c *ast.CallExpr) (string, bool) {
+func (g *gen) methodKeepsCharPtr(c *ast.CallExpr, cs charSet) (string, bool) {
 	sel, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
 	if !ok {
 		return "", false
@@ -419,7 +401,7 @@ func (g *gen) methodKeepsCharPtr(c *ast.CallExpr) (string, bool) {
 		return "", false
 	}
 	for _, f := range rec.Fields {
-		if ft := f.Type.T; ft != nil && ft.Kind == ctype.Pointer && charLike(ft.Elem) {
+		if ft := f.Type.T; ft != nil && ft.Kind == ctype.Pointer && cs.has(ft.Elem) {
 			return "the class has a char pointer member, " + f.Name, true
 		}
 	}
@@ -428,3 +410,16 @@ func (g *gen) methodKeepsCharPtr(c *ast.CallExpr) (string, bool) {
 
 // inStdScope reports whether the namespace scope is std or inside it.
 func inStdScope(scope string) bool { return scope == "std" || strings.HasPrefix(scope, "std::") }
+
+// methodArrays returns which parameters of the method are written as arrays, or nil when the
+// method's parameters are not all known.
+func methodArrays(m *ftype.MethodInfo) []bool {
+	if len(m.Params) != len(m.Sig.C.Params) {
+		return nil
+	}
+	out := make([]bool, len(m.Params))
+	for i, p := range m.Params {
+		out[i] = p.Array
+	}
+	return out
+}

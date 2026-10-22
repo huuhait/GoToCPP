@@ -393,6 +393,9 @@ func (v Value) Compat(target string) Verdict {
 			if types.AssignableTo(v.Type, tt) || types.ConvertibleTo(v.Type, tt) {
 				return Yes
 			}
+			if pointerToVoidOut(v.Type, tt) {
+				return Yes // the argument adaptation of a void** parameter (lower: voidout)
+			}
 			return No
 		}
 	case Array:
@@ -401,6 +404,24 @@ func (v Value) Compat(target string) Verdict {
 		}
 	}
 	return Unknown
+}
+
+// pointerToVoidOut reports whether from is a pointer to a pointer and to is *unsafe.Pointer: the
+// shape that the lowering adapts for a `void **` parameter (&p of a variable p of a pointer type).
+func pointerToVoidOut(from, to types.Type) bool {
+	outer, ok := from.Underlying().(*types.Pointer)
+	if !ok {
+		return false
+	}
+	if _, ok := outer.Elem().Underlying().(*types.Pointer); !ok {
+		return false
+	}
+	target, ok := to.Underlying().(*types.Pointer)
+	if !ok {
+		return false
+	}
+	basic, ok := target.Elem().Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.UnsafePointer
 }
 
 // nullConstant reports whether the value is a null pointer constant: an integer constant

@@ -49,5 +49,8 @@ On a Windows host with MinGW-w64 (MSYS2: `mingw-w64-x86_64-glfw`), `gocpp build 
   OpenGL libraries (on Linux `pkg-config glfw3` and `link GL` in an `if linux { ... }` block,
   [spec](../../docs/spec/modules.md#c-and-c-libraries-cxx-recipes)).
 - `imgui_demo.cpp` is in the recipe because the checkbox calls `ImGui.ShowDemoWindow`.
-- Out-parameters of the widgets are C values: `var speed C.float` and `&speed`, `var showDemo bool` and `&showDemo`,
-  `&clear[0]` for the color array.
+- The program is written for typed interop (ADR-130), so it needs clang++ (the default mode) and `-interop=opaque` stops at the first adapted call with the C++ compiler's own error. Out-parameters of the widgets are
+  Go values: `speed := float32(0.5)` and `&speed` (`C.float` is `float32`), `var showDemo bool` and `&showDemo`, `&clear[0]` for the
+  color array, and `var width, height int` for `glfwGetFramebufferSize(window, &width, &height)` (a Go `int` is 64 bits and the
+  parameter an `int*`: the compiler passes a temporary `int` and copies it back). `Text` is printf-like: a Go string goes as
+  an argument, `Text("%s", s)`; `Text(s)` is an error.

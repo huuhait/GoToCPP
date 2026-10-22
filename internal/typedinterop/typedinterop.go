@@ -220,6 +220,7 @@ func probeKinds(ctx context.Context, cxx build.CXX, dir string, flags, includes 
 func declConfig(rep *Report, opts Options) probe.DeclConfig {
 	dc := opts.DeclLimits
 	dc.Includes, dc.StringToCStr = rep.Includes, opts.StringToCStr
+	dc.AddrFuncs = probe.AddrFuncNames(rep.Set, rep.Kinds)
 	return dc
 }
 

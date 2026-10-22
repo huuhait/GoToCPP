@@ -57,7 +57,7 @@ func sigs(t *testing.T, scope string, texts ...string) []calleeSig {
 		if err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
-		out = append(out, calleeSig{ty, scope})
+		out = append(out, calleeSig{t: ty, scope: scope})
 	}
 	return out
 }
@@ -136,13 +136,13 @@ func TestKeepsPointer(t *testing.T) {
 	}
 	// The functions whose result points into a string argument, each by name.
 	for _, f := range []string{"strstr", "strchr", "strrchr", "strpbrk", "strcasestr", "index", "rindex", "basename",
-		"dirname", "memchr", "memmem", "strchrnul", "strptime"} {
+		"dirname", "memchr", "memmem", "strchrnul", "strptime", "wcschr", "wcsrchr", "wcsstr", "wcspbrk", "wmemchr"} {
 		if !aliasFuncs[f] {
 			t.Errorf("%s returns a pointer into its argument", f)
 		}
 	}
-	if len(aliasFuncs) != 13 {
-		t.Errorf("aliasFuncs has %d names, the test knows 13", len(aliasFuncs))
+	if len(aliasFuncs) != 18 {
+		t.Errorf("aliasFuncs has %d names, the test knows 18", len(aliasFuncs))
 	}
 }
 

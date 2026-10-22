@@ -38,10 +38,10 @@ func main() {
 	imgui_impl_glfw.ImGui_ImplGlfw_InitForOpenGL(window, true)
 	imgui_impl_opengl3.ImGui_ImplOpenGL3_Init("#version 130")
 
-	var speed C.float = 0.5
+	speed := float32(0.5)
 	var showDemo bool
 	var clicks int
-	var clear [3]C.float = [3]C.float{0.10, 0.12, 0.16}
+	clear := [3]float32{0.10, 0.12, 0.16}
 
 	for glfw3.glfwWindowShouldClose(window) == 0 {
 		glfw3.glfwPollEvents()
@@ -58,14 +58,14 @@ func main() {
 			clicks++
 		}
 		imgui.ImGui.SameLine()
-		imgui.ImGui.Text(C.cstr(fmt.Sprintf("clicked %d times", clicks)))
+		imgui.ImGui.Text("%s", fmt.Sprintf("clicked %d times", clicks))
 		imgui.ImGui.End()
 		if showDemo {
 			imgui.ImGui.ShowDemoWindow(&showDemo)
 		}
 
 		imgui.ImGui.Render()
-		var width, height C.int
+		var width, height int
 		glfw3.glfwGetFramebufferSize(window, &width, &height)
 		gl.glViewport(0, 0, width, height)
 		gl.glClearColor(clear[0], clear[1], clear[2], 1)

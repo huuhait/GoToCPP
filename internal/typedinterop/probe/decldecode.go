@@ -12,11 +12,15 @@ import (
 // dnode is the part of a node of clang's JSON dump that the declaration reader
 // uses.
 type dnode struct {
-	ID                 string `json:"id"`
-	Kind               string `json:"kind"`
-	Name               string `json:"name"`
-	IsImplicit         bool   `json:"isImplicit"`
-	Loc                *dloc  `json:"loc"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	IsImplicit bool   `json:"isImplicit"`
+	Loc        *dloc  `json:"loc"`
+	Range      *struct {
+		Begin dloc `json:"begin"`
+		End   dloc `json:"end"`
+	} `json:"range"`
 	TagUsed            string `json:"tagUsed"`
 	CompleteDefinition bool   `json:"completeDefinition"`
 	Type               *struct {
@@ -60,14 +64,23 @@ type dnode struct {
 		} `json:"type"`
 	} `json:"target"`
 	Inner []dnode `json:"inner"`
+
+	// The text of a ParmVarDecl's type as written (annotateParams): the source from the start of
+	// the parameter to its name.
+	typeText  string
+	typeKnown bool
 }
 
 // dloc is the location of a node in clang's JSON dump: the file is named in it, or in the places
 // that a macro expansion spells and expands it.
 type dloc struct {
 	File         string `json:"file"`
+	Offset       *int   `json:"offset"`
+	TokLen       int    `json:"tokLen"`
 	SpellingLoc  *dloc  `json:"spellingLoc"`
 	ExpansionLoc *dloc  `json:"expansionLoc"`
+
+	inFile string // the file of the place, when it is not named (annotateParams)
 }
 
 // files returns the names of the files that the location mentions.
@@ -522,7 +535,9 @@ func methodOf(c *dnode, e *env, access Access, template bool) Method {
 		p := &c.Inner[i]
 		switch p.Kind {
 		case "ParmVarDecl":
-			m.Params = append(m.Params, Param{Name: p.Name, Default: p.Init != ""})
+			m.Params = append(m.Params, Param{
+				Name: p.Name, Default: p.Init != "", Array: p.spelledAsArray(),
+			})
 		case "OverrideAttr":
 			m.Override = true
 		case "FinalAttr":

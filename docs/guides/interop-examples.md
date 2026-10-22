@@ -234,6 +234,42 @@ that is also a namespace (`textutil`) makes its C++ namespace a package. The rul
 sources, `//gocpp:cflags` and the build are in the [interop guide](../spec/interop.md) and in
 [cookbook recipe 9](../spec/interop-cookbook.md#9-write-a-c-helper-next-to-your-gp-file).
 
+## Typed mode: fewer conversions
+
+The programs above are written so that they also build in opaque mode (a machine without clang++, or `-interop=opaque`),
+where you write `C.cstr(s)` and `C.int(n)` because gocpp does not know the parameter types. In typed mode (the default when
+clang++ is installed) clang tells gocpp the exact type of every parameter, and the
+compiler writes the conversions whose meaning is certain
+([the table](../spec/interop.md#argument-adaptations-typed-interop), [ADR-130](../adr/130-argument-adaptations-are-one-table-over-the-parameter-type-and-the-go-argument.md)).
+The two Dear ImGui demos ([demos/imgui](../../demos/imgui/README.md), [demos/imgui-dx11](../../demos/imgui-dx11/README.md))
+are written this way and need no flag:
+
+<!-- illustration: a fragment, not a program -->
+```go
+// A COM call that fills a pointer: &backBuffer for a void**, no unsafe.Pointer and no conversion afterwards.
+var backBuffer *d3d11.ID3D11Texture2D
+swapChain.GetBuffer(0, d3d11.IID_ID3D11Texture2D, &backBuffer)
+
+// A Windows API call with text: a Go string for an LPCWSTR.
+hwnd := windows.CreateWindowExW(0, className, "gocpp + Dear ImGui", windows.WS_OVERLAPPEDWINDOW, ...)
+
+// An out-parameter: a Go int for an int* (a temporary int, copied back after the call).
+var width, height int
+glfw3.glfwGetFramebufferSize(window, &width, &height)
+
+// C.float is float32: no C.float(...) at the boundary.
+speed := float32(0.5)
+imgui.ImGui.SliderFloat("speed", &speed, 0, 1)
+
+// A printf-like function takes the string as an argument; Text(s) is an error (the format-string bug).
+imgui.ImGui.Text("%s", fmt.Sprintf("clicked %d times", clicks))
+```
+
+What stays yours: the pointer that a C library **keeps** (the window class name in a `WNDCLASSEXW` is a `C.WString`, because
+the temporary of a call dies when the call returns), a `char*` that the callee writes (`C.CString` and `C.free`), and a
+conversion that would lose a value (`C.int(n)` for an `int` that is not in range, `C.ulong` for a variable that a `unsigned long*`
+parameter fills).
+
 ## Try it
 
 ```sh

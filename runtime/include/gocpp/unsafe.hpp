@@ -77,6 +77,11 @@ enum class unsafe_what { slice_len, slice_nil, string_len, string_nil };
 // misaligned ends the program with Go's checkptr fatal error (in runtime/src/unsafe.cpp).
 [[noreturn]] void misaligned() noexcept;
 
+// arg_overflow is the panic of an adapted argument (typed interop, ADR-130): the Go variable
+// `name` holds `value`, which does not fit the C type `ctype` of the pointer parameter that
+// the call passes a temporary for. In runtime/src/unsafe.cpp.
+[[noreturn]] void arg_overflow(const char* name, const char* value, const char* ctype);
+
 // unsafe_length is the length n of unsafe.Slice(p, n) or unsafe.String(p, n) for elements of
 // elem bytes, with the checks of runtime.unsafeslice and unsafestring: a negative length (an
 // unsigned one too big for int64 counts as negative), a nil p with a length above 0, and a

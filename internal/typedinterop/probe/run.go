@@ -65,6 +65,8 @@ type Config struct {
 	// pch is the precompiled header of the library block that a run loads (pch.go); the Runner
 	// sets it for one run and no key reads it.
 	pch *pchRef
+	// warnings keeps the compiler's warnings: the run of the format checks (decls.go) reads them.
+	warnings bool
 }
 
 // FindClang returns clang++ for the probes: the program in GOCPP_CLANG when
@@ -307,7 +309,7 @@ func effMaxJSON(cfg Config) int64 {
 // KeyVersion is the version of the cache key and of what the cache holds. Raise it when
 // the probe files, the readers of the compiler's output or the meaning of a result
 // change: every older entry is then a miss.
-const KeyVersion = "gocpp-probe-v4"
+const KeyVersion = "gocpp-probe-v5"
 
 // keyVersion is KeyVersion; a test changes it to see that it is in the key.
 var keyVersion = KeyVersion
@@ -643,6 +645,9 @@ func runDumpOnce(ctx context.Context, cfg Config, text, filter string, fn func(R
 	args, err := interop.ProbeCompilerArgs(cfg.CXX, mode, cfg.Dir, cfg.Flags, depPath, srcPath)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.warnings {
+		args = slices.DeleteFunc(args, func(a string) bool { return a == "-w" })
 	}
 	if cfg.pch != nil {
 		args = withPCHArgs(args, cfg.pch.path)
