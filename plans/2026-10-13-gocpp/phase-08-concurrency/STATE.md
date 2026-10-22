@@ -1,8 +1,8 @@
 # Phase 08: Concurrency · STATE
 
-**Status:** `[~]` all steps 8.1-8.15 merged; open only the exit criterion "concurrency suite green under TSan": `tests/race` (78 programs, 8.12) has not been run since it merged. Mark the phase done when it has.
+**Status:** `[x]` done (2026-10-22 audit: steps 8.1-8.15 merged; the TSan exit criterion is met: `GOCPP_RACE_COMPILERS=all go test -run '^TestRace$' ./tests` on dev 81c0d4e1 gives 247 PASS, 0 FAIL, 0 SKIP (g++ and clang++, the 85 files of tests/race). Open lows are in TODO.md)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-22
 
 ## Steps
 
@@ -36,7 +36,7 @@
 ## Exit criteria
 
 - [x] `workers` example passes on GCC and Clang
-- [ ] Concurrency suite green under TSan (harness fails on any TSan warning)
+- [x] Concurrency suite green under TSan (harness fails on any TSan warning) (done 2026-10-22: `GOCPP_RACE_COMPILERS=all go test -run '^TestRace$' ./tests`: 247 PASS with g++ and clang++; the tests of 8.9 fail on any TSan warning)
 - [x] 10k simultaneous goroutines OK; deep recursion prints `fatal error: stack overflow`
 - [x] Deadlock messages (incl. `Goexit`) + exit code match Go
 - [x] Self-contained `test/chan` programs match Go output

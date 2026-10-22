@@ -1,8 +1,8 @@
 # Phase 06: Packages, Modules & Build System · STATE
 
-**Status:** `[~]` in progress (6.1-6.14 merged and ticked; the clangd check is automated; `gp::lazy<T>` and lazy c-archive/c-shared init stay deferred, see the 6.4 note; Phase 6 exit lines: see below)
+**Status:** `[x]` done (2026-10-22 audit: 6.1-6.14 merged and ticked, every exit line met; the clangd check is automated; `gp::lazy<T>` and lazy c-archive/c-shared init are built (adf26aae, 6.4/6.14, ADR-093: the old "deferred" text was stale). What stays open are lows in TODO.md, "Build, modules, packaging": runtime cache folder with `"` or non-ASCII characters, `GOCPP_OFFLINE` rules, `export compdb -o dir/`, `build -n`)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-22
 
 ## Steps
 

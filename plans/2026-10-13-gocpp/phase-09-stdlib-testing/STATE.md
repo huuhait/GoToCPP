@@ -1,8 +1,8 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1-9.12 and 9.7a merged; open: 9.13 and remaining exit criteria)
+**Status:** `[~]` in progress (9.1-9.12 and 9.7a merged; audit 2026-10-22: what remains is exactly (1) 9.13 final acceptance, platform/archive validation and your explicit release approval, (2) your call that "tier 1 is complete" (the numeric part of that criterion is met: 98.2 % of selected, 90.8 % of all test functions), (3) packages that are not ported and that tier 1 does not need: `os/exec`, `os/signal`, `net/*`, `crypto/*`, `text/template`, `encoding/csv`, `compress/*` (TODO.md "Stdlib"))
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-20
+**Last updated:** 2026-10-22
 
 ## Steps
 

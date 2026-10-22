@@ -2,7 +2,7 @@
 
 **Status:** `[~]` in progress (15.1-15.3, 15.5, 15.7a, 15.8-15.11, 15.13-15.15 and 15.17 merged; 15.6, 15.7b and the bounded 15.4/15.7c evaluations merged; production ownership and module adoption deferred; remaining implementation/release steps and exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-20
+**Last updated:** 2026-10-22
 
 ## Steps
 
@@ -43,7 +43,7 @@
 ## Exit criteria (v1.0)
 
 - [ ] Benchmarks published; goals (geomean ≤ Go, nothing > 2× slower) evaluated; no unexplained regression > 5 %
-- [ ] ≥ 90 % of applicable Go `test/` run-tests pass
+- [~] ≥ 90 % of applicable Go `test/` run-tests pass (met numerically at the last baseline: 1941 of 2131 = 91.1 %, g++ at the default build mode, docs/conformance/go-test.md; open: a clang++ and an `-asan` campaign, and a re-baseline after the owner steps merged)
 - [ ] 24 h fuzzing clean; ≥ 1M random differential programs, all mismatches triaged; targeted generators ASan-clean
 - [ ] CI green on Linux x86-64, Linux arm64, Windows x86-64 (Wine + real-Windows checklist)
 - [ ] Installable via `go install`, release binary, `nix run` (also on NixOS); docs site live

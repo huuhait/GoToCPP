@@ -42,9 +42,9 @@
 - [x] **Phase 03:** Core language → [STATE](phase-03-core-language/STATE.md) · ends with **M2**
 - [x] **Phase 04:** C/C++ interop (opaque) → [STATE](phase-04-cpp-interop/STATE.md) · ends with **M3**
 - [x] **Phase 05:** Interfaces, embedding, errors, panic/recover → [STATE](phase-05-interfaces-errors/STATE.md)
-- [~] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
+- [x] **Phase 06:** Packages, modules & build system → [STATE](phase-06-packages-build/STATE.md) · ends with **M4**
 - [x] **Phase 07:** Generics → [STATE](phase-07-generics/STATE.md)
-- [~] **Phase 08:** Concurrency → [STATE](phase-08-concurrency/STATE.md) · ends with **M5**
+- [x] **Phase 08:** Concurrency → [STATE](phase-08-concurrency/STATE.md) · ends with **M5**
 - [~] **Phase 09:** Stdlib & `gocpp test` → [STATE](phase-09-stdlib-testing/STATE.md) · ends with **M6 (v0.1)**
 - [~] **Phase 10:** Beyond Go: `!` (must) & macros → [STATE](phase-10-must-and-macros/STATE.md)
 - [~] **Phase 11:** Fast language server (gopls speed) → [STATE](phase-11-language-server/STATE.md) · v0 starts after Phase 01 · ends with **M7**
@@ -62,8 +62,8 @@
 | [x] | **L0** editor v0 (early track) | diagnostics, hover, go-to-definition, completion, `gocpp fmt` in VS Code | ~8.5 weeks (2 weeks after M1) | 8–10 |
 | [x] | **M2** real non-interop programs | `structs`, `wordfreq-core`, `closures` + 150 run tests | ~15 weeks | 14–18 |
 | [x] | **M3** any C/C++ header usable | `sqlite`, `raylib`/`sdl`, `cpp-std`, `mixed-sources` | ~20 weeks | 19–24 |
-| [ ] | **M4** real multi-package projects | `multi-pkg`, no-op rebuild < 200 ms; first `hello.exe` under Wine | ~29.5 weeks | 28–36 |
-| [ ] | **M5** Go-style concurrency | `workers`, TSan-clean suite | ~37.5 weeks | 35–46 |
+| [x] | **M4** real multi-package projects | `multi-pkg`, no-op rebuild < 200 ms; first `hello.exe` (checked on the real Windows PC, not Wine, by order of 2026-10-20) | ~29.5 weeks | 28–36 |
+| [x] | **M5** Go-style concurrency | `workers`, TSan-clean suite (`TestRace`, 247 PASS with both compilers, audit 2026-10-22) | ~37.5 weeks | 35–46 |
 | [ ] | **M6** v0.1 usable (Linux) | tier-1 stdlib + `flag`/`regexp`, `gocpp test`, `wc`, `grep-lite` | ~45.5 weeks | 42–56 |
 | [ ] | **M7** Go-plus features + fast editor | `must-errors`, `macros`; all LSP speed budgets met | ~57 weeks | 52–71 |
 | [ ] | **M8** Windows works | Phase 14 exit criteria (`win32` example, suites under Wine and on real Windows) | ~71.5 weeks | 64–91 |

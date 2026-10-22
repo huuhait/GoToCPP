@@ -2,16 +2,17 @@
 
 **Status:** `[~]` in progress (14.1, 14.3, 14.4 merged; 14.2 partly (driver on a Windows host); 14.1 merged 2026-10-20; verified on a real Windows 11 PC over ssh) (the runtime is portable from Phase 02; Windows test builds start in Phase 06)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-19
+**Last updated:** 2026-10-22
 
 ## Steps
 
 - [x] 14.1 Windows OS layer in the runtime (console UTF-8, UTF-16 args/env, threads, stack-overflow handler, `_exit`, stack traces) + unit tests under Wine
 - [x] 14.2 Build driver: MinGW-w64 detection + the pinned llvm-mingw download on a Windows host (Phase 06 §2.10), `.exe`/`.dll` + import libs + `dllexport`, `-static` linking, response files, spaces/drive letters, cache location, CRLF
-- [x] 14.3 Standard library for Windows (merged 2026-10-19; ADR-076: Go's own _windows files over four natives)
+- [~] 14.3 Standard library for Windows (merged 2026-10-19; ADR-076: Go's own _windows files over four natives; `os/exec` and `os/signal` are not built, see the last sub-item)
   - [x] `portstd` with `GOOS=windows`
   - [x] native `internal/syscall/windows` on `<windows.h>` (design differs: four natives under Go's own syscall layer, ADR-076)
-  - [ ] `os`, `path/filepath`, `time`, `os/exec`, `os/signal` + tests
+  - [x] `os`, `path/filepath`, `time` + tests (done: 472bc359; `gocpp test` links on Windows since 1cb543a8)
+  - [ ] `os/exec`, `os/signal` + tests: not ported on ANY platform (`package os/exec is not available yet (Phase 09)`; docs/guides/windows.md:290)
 - [x] 14.4 Windows interop: `WIN32_LEAN_AND_MEAN`/`NOMINMAX`/`UNICODE` defaults, macro collisions, `C.wstr`/`C.GoStringW`, Windows header zoo + SDL2/raylib/sqlite3/zlib for MinGW-w64 (merged 2026-10-19; ADR-082)
 - [x] 14.5 Language server + VS Code on Windows (paths, URIs, file watching, case-insensitive names) + Phase 11 budgets on Windows
 - [x] 14.6 Debugging (gdb/lldb, VS Code launch template) + typed-interop probes with the Windows target (merged 2026-10-20, ADR-116; real PC: TestWindowsDebug 9/9, typed `<windows.h>` run, native typed check with the downloaded llvm-mingw; lldb/lldb-dap and a VS Code launch on Windows not tried)

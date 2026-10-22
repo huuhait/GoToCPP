@@ -2,7 +2,7 @@
 
 **Status:** `[~]` in progress (12.1-12.12 and bounded 12.13a header/namespace completion merged; safe PCH/prefetch part of 12.14 integrated; member completion, header navigation, cold-performance and remaining exit criteria are open)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-20
+**Last updated:** 2026-10-22
 
 ## Steps
 
@@ -36,7 +36,7 @@
   - [x] 12.13b2 Background member completion for proven original variable bindings; clean review and focused manager checks, explicit partial status and compiler-free requests
   - [x] 12.13c1 Proven foreign-variable type hover from completed background facts; no new synchronous probing (clean second-round review, focused manager checks)
   - [x] 12.13c2 Richer named API/member hover and go-to-definition into headers (declaration, header doc comment and location from completed background facts; ADR-122)
-  - [ ] C/C++ budget row (< 2 s, background) + slow-clang test; Phase 11 budgets still met
+  - [x] C/C++ budget row (< 2 s, background) + slow-clang test (done: 3aa700f1, 12.13d, ADR-126; `tools/cppdata`, `probe/limiter.go`); the all-project Phase 11 budget revalidation stays with 11.14 (Phase 11 exit criteria)
 - [~] 12.14 Cold typed-probing improvements (ADR-117)
   - [x] Safe expression/function PCH and overlapping dependency discovery: whole-net round-4 review clean; manager focused and combined LSP/probe checks passed
   - [x] Type dumps retain the full preamble; the unsound smaller-preamble optimization and stale approval cache were removed
@@ -45,12 +45,12 @@
 
 ## Exit criteria
 
-- [ ] Phase 04 suite + header zoo green in typed and opaque modes
+- [ ] Phase 04 suite + header zoo green in typed and opaque modes (your manual check: 12.12 covers a check-only sweep of 287 programs and `TestCorpusTyped`; TODO.md "Needs your decision")
 - [x] E1 and E2 work with stock go/types (12.12)
 - [x] ≥ 30 early-error tests; no typed-mode error on programs that compile in opaque mode (77 diagnostics; 287-program sweep, 0 typed errors)
 - [x] Warm overhead < 50 ms (met: 0-30 ms); cold probing criterion reworded per ADR-121 (0.47-1.56 s typed minus opaque; accepted by the user 2026-10-21; floors measured in ADR-121)
 - [x] `bindgen` output reviewed for raylib, sqlite3, SDL (docs/guides/bindgen-review.md, ADR-120, TestBindgenRaylib/SQLite3/SDL2)
-- [ ] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang; Phase 11 budgets hold
+- [~] Editor: `raylib.`/`std.` completion works; C/C++ data < 2 s; no request waits on clang (these three: 12.13a-e, ADR-126, 3aa700f1); open: the Phase 11 budgets on every reference project (see Phase 11 exit criteria)
 
 ## Decisions / notes
 
