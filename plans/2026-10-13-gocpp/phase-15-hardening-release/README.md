@@ -202,10 +202,12 @@ regenerated with the matching gocpp version, and `cpp-lib` headers are versioned
 ### 2.8 After 1.0 (each becomes an ADR when chosen)
 
 The MSVC ABI on Windows (`clang-cl`, for C++ libraries built with Visual Studio) · Windows arm64 ·
-WebAssembly via emscripten · an optional tracing GC for cycle-heavy programs ·
-`-fno-exceptions` embedded mode (panic = abort) · C++20 module output · `net/http` through a C++
-library wrapper · self-hosting (compiling the gocpp compiler with gocpp once the stdlib can carry
-`go/*`). (A goroutine scheduler is deliberately *not* on this list: `go` stays an OS thread.)
+WebAssembly via emscripten · an optional tracing GC for cycle-heavy programs (Phase 16 now plans
+a collector for Go packages only; gp code stays on reference counting) · `-fno-exceptions`
+embedded mode (panic = abort) · C++20 module output · `net/http` through a C++ library wrapper
+(Phase 16 plans Go's own `net/http` on its GC engine instead) · self-hosting (compiling the gocpp
+compiler with gocpp once the stdlib can carry `go/*`). (A goroutine scheduler is deliberately
+*not* on this list: `go` stays an OS thread.)
 The proposals written for step 15.17 are in [§2.9](#29-post-10-roadmap).
 
 ### 2.9 Post-1.0 roadmap
@@ -226,6 +228,10 @@ where they are estimates.
 | [108](../../../docs/adr/108-typed-interop-becomes-the-default-when-three-measurements-pass-and-the-clang-policy-is-a-matrix.md) | Typed interop default, clang policy | flip to `auto` after a clang matrix, cold probing and Windows probes pass |
 | [109](../../../docs/adr/109-after-1-0-the-pipeline-and-arm64-come-first-macos-needs-a-machine-and-a-checksum-database-needs-an-ecosystem.md) | Platforms, release pipeline, module trust, debugger | Q9 and the pipeline, arm64, macOS only with a Mac maintainer, sumdb when modules exist |
 | [110](../../../docs/adr/110-the-go-language-version-moves-once-a-year-and-the-v1-promise-names-what-it-covers.md) | Go version policy, what the v1 promise covers | one Go version, moved yearly; the promise lists covered and uncovered surfaces |
+
+Phase 16 (planned 2026-10-21, reviewed 2026-10-22) changes the ground under several of these:
+Go packages run on a second engine with a collector, and gp programs get Go's own `net/http` and
+TLS through it. Its step 16.2 lists what changes in ADR-103, 106, 107, 109 and 110.
 
 Candidates that were looked at and not written as ADRs: a goroutine scheduler as its own direction
 (ADR-104 covers why not), self-hosting, WebAssembly and `-fno-exceptions` mode (no evidence in the

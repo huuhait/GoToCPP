@@ -193,7 +193,8 @@ func main!() { // ! on main: an error is printed and the program exits 1
 - Import any C/C++ header and use it with no glue code. Compile `.c`/`.cpp` files that live
   next to `.gp` files.
 - Readable C++ output. `#line` directives make gdb/lldb and compiler errors point at `.gp` lines.
-- Native speed, no garbage collector, deterministic cleanup (reference counting).
+- Native speed, no garbage collector in gp code, deterministic cleanup (reference counting).
+  Go packages imported after v1.0 run on a collector of their own (Phase 16).
 - Go-like safety by default: bounds checks, nil checks and division checks panic like Go
   instead of crashing randomly (can be turned off for speed).
 - One tool: `gocpp build | run | test | fmt | emit | check`.
@@ -205,7 +206,8 @@ func main!() { // ! on main: an error is printed and the program exits 1
 
 **Non-goals (for v1)**
 - 100% Go compatibility. Existing Go code and Go modules are not expected to build unchanged.
-  (After v1.0, Phase 16 plans exactly that for Go modules, on a second engine.)
+  (After v1.0, Phase 16 plans that for pure-Go modules, on a second engine; cgo, assembly
+  without a pure-Go fallback and some crossings, such as most channels, stay out.)
 - A garbage collector, full `reflect` (only a subset for `fmt`/`json`/`sort`, see Phase 09) or `plugin`.
   (Phase 16 adds a collector for Go packages only; gp code stays on reference counting.)
 - Doing the C++ compiler's job (optimization and machine code stay with clang/gcc).
@@ -356,7 +358,7 @@ probing, formatting, and Go output details the runtime must copy exactly.
 | 13 | [Tooling](phase-13-tooling/README.md) | C++ errors in gocpp terms, debugger printers, `vet`, `doc` | |
 | 14 | [Windows](phase-14-windows/README.md) | Everything works on Windows: runtime, build, stdlib, `<windows.h>`, editor, debugger | **M8: Windows works** |
 | 15 | [Hardening & release](phase-15-hardening-release/README.md) | Speed, fuzzing, docs, packaging | **M9: v1.0** |
-| 16 | [Dual engine](phase-16-dual-engine/README.md) | Go modules from gp code: `.go` packages translated for a second engine with Go's layout and a garbage collector (bdwgc), next to gp's reference counting; values converted at the boundary. Planned, starts when you decide | **M10: Go libraries pass their own tests** · **M11: `net/http`, TLS and gin on Linux and Windows** |
+| 16 | [Dual engine](phase-16-dual-engine/README.md) | Go modules from gp code: `.go` packages translated for a second engine with Go's layout and a garbage collector (bdwgc), next to gp's reference counting; values converted at the boundary. Planned, starts when you decide | **M10: pure-Go libraries pass their own tests** · **M11: `net/http`, TLS, the netpoller and gin on Linux and Windows** |
 
 **What each phase needs.** The phase number is the recommended order for one person. The
 table shows the real dependencies, so you can see what may move or overlap:
@@ -376,7 +378,7 @@ table shows the real dependencies, so you can see what may move or overlap:
 | 13 Tooling | 02, 04, 10, 12 | |
 | 14 Windows | 06, 08, 09 (11–13 for the editor and tool parts) | Windows test builds already run from Phase 06 on |
 | 15 Hardening & release | everything | |
-| 16 Dual engine | 15 (after v1.0); builds on 06, 07, 08, 09, 14, 15.2 (escape analysis), 15.14 (MVS) | planned only; it starts when you decide |
+| 16 Dual engine | 15 (after v1.0); builds on 05, 06, 07, 08, 09, 11, 13, 14, 15.2 (escape analysis), 15.10 (Go's `test/` programs), 15.14 (MVS) | planned only; it starts when you decide |
 
 Short version: `00 → 01 → … → 09 → 10 → 11 → 12 → 13 → 14 → 15`,
 with the language server's v0 starting after 01, and 16 after v1.0. The audit made 03–09 a strict chain (each phase
@@ -418,8 +420,10 @@ gocpp/                       (this repo: /home/huuhait/GoToCPP)
 │   ├── diff/                Go's internal/diff (for gocpp fmt -d)
 │   └── version/             version string and the last finished phase (test gating)
 ├── runtime/                 C++20 runtime: include/gocpp/*.hpp, src/*.cpp, src/os/{linux,windows}
+│   └── third_party/bdwgc/   the GC engine's collector, vendored (Phase 16)
 ├── stdlib/                  gocpp standard packages (.gp + native .cpp)
-├── tools/                   portstd (copies Go's stdlib, Phase 09), example-output generator
+├── gostd/                   Go's standard library on the GC engine: runtime, natives, overlays (Phase 16)
+├── tools/                   portstd (copies Go's stdlib, Phase 09), gostdcheck (Phase 16), example-output generator
 ├── tests/                   run/, errors/, golden/, interop/, diff/ (differential vs Go)
 ├── examples/                the 19 target programs (hello, fizzbuzz, …, sqlite, raylib, win32)
 ├── spikes/                  throwaway experiments behind the plan's claims (2026-10-13)
