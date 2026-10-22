@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/huuhait/gocpp/internal/fsretry"
@@ -280,6 +282,50 @@ func compilerDied(ce *CompileError) bool {
 		}
 	}
 	return false
+}
+
+// outsideKill is what gcc and clang print when a program they started (cc1plus, collect2, ld, ...) was ended by
+// a signal that stops: the text of strsignal for SIGKILL (the out-of-memory killer), SIGTERM, SIGHUP, SIGINT and
+// SIGXCPU (a CPU time limit). gcc: "g++: fatal error: Killed signal terminated program cc1plus"; clang:
+// "clang: error: unable to execute command: Terminated" (and "linker command failed due to signal"). Only a line of
+// the driver counts: it starts with the program name and a colon, with no file and line (a diagnostic of the program
+// is "file:3:5: error: ..."), and the echo of a source line in a diagnostic starts with a line number and a bar, so
+// a source that holds the same words cannot hide its own error. A crash
+// ("Segmentation fault", "Aborted", "internal compiler error") is not in it.
+var outsideKill = regexp.MustCompile(`(?m)^[^\s:]+: (?:fatal )?error: (?:(Killed|Terminated|Hangup|Interrupt|CPU time limit exceeded) signal terminated program \S+\s*$|unable to execute command: (Killed|Terminated|Hangup|Interrupt|CPU time limit exceeded)\s*$)`)
+
+// positionError is a diagnostic of the program with a file, a line and a column. A kill prints none for the unit that
+// was killed, and a compile error of the program always does, so the output of a failure that has one is shown as the
+// program's error, whatever else it holds (a string with a newline in it can print a line that looks like the driver's).
+var positionError = regexp.MustCompile(`(?m)^(.+?):(\d+):(\d+): (?:fatal )?error: `)
+
+// EndedFromOutside reports whether the compiler or the linker failed because a process outside it sent a signal
+// that stops (a kill, a time limit, a session that ended, the out-of-memory killer's SIGKILL), and which
+// ("killed", "terminated", ...). Either the driver (g++, clang++) itself died of the signal, or a program it
+// started did and the driver said so in its output (outsideKill). A crash of the compiler is not such a signal: that is
+// the compiler's bug, and the build says "internal error". compilerDied is broader (it takes the crashes too).
+func (e *CompileError) EndedFromOutside() (string, bool) {
+	var exit *exec.ExitError
+	if errors.As(e.Err, &exit) {
+		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			switch sig := ws.Signal(); sig {
+			case syscall.SIGKILL, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT:
+				return sig.String(), true
+			}
+			return "", false
+		}
+	}
+	if positionError.Match(e.Output) {
+		return "", false
+	}
+	if m := outsideKill.FindSubmatch(e.Output); m != nil {
+		for _, g := range m[1:] {
+			if len(g) > 0 {
+				return strings.ToLower(string(g)), true
+			}
+		}
+	}
+	return "", false
 }
 
 // startPCH starts building the precompiled header for the runtime in rtDir, unless it exists

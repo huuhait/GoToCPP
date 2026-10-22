@@ -210,12 +210,24 @@ Compile times (the compile section of runtime.md; seconds, with the prebuilt run
 rebuild runs the C++ compiler and, for `release`, the LTO link on the changed unit, which is much slower than Go's compile and link
 of a small change (`generics100` 16 to 60 times); no-op builds (nothing changed) are faster than Go's.
 
-**gocpp builds are not reliable when several run at once in one cache.** The runner builds `-jobs 4` programs at a time in
-one cache directory (as `make -j` or the language server would): 4 of the 324 gocpp program builds of the first run failed at random,
-and succeeded when repeated alone: `internal error: generated C++ did not compile`, `did not link`, and
-`gocpp build: stat .../gocpp-clang++-release: no such file or directory` (twice). The runner therefore tries a failed gocpp build
-once more (`-build-retries`, default 1) and names it in the report ("Builds that needed a second try"). The cause is in
-gocpp's cache or build-directory handling, not in the benchmarks; it is for the manager to schedule.
+**Builds that failed at random in the first run (not reproduced, cause not found).** The runner builds `-jobs 4` programs at a
+time in one cache directory (as `make -j` or the language server would): 4 of the 324 gocpp program builds of the first run
+failed and succeeded when repeated alone: `internal error: generated C++ did not compile`, `did not link`, and
+`gocpp build: stat .../gocpp-clang++-release: no such file or directory` (twice; the program of that build is named after the
+folder, so this is most likely the program file in the gocpp work folder, which was gone when gocpp moved it; the path is elided here and a build folder of the runner with that name is not excluded). The run is gone, and
+nothing says that the four failed at the same time. Since then, 3,840 builds of small programs (both compilers, the default
+build, `-release` and `-asan`, cold and warm caches, 96 at a time), 1,062 builds of the benchmark programs (`gobench run
+-smoke`, 48 at a time) and 1,000 builds of `tools/buildstress` (a tiny, trimmed object cache, caches replaced while builds ran)
+did not fail once, so the cache, the runtime library, the precompiled header and the folders of generated files are not
+shown to be the cause. The most likely cause is a removal of the work folders in `TMPDIR` from outside gocpp (a cleaner of the
+temporary folder, a script that ends the compilers): `tools/buildstress -wipe-every` makes the same messages with the build of
+that day (27 of 150 builds failed). The two `stat` failures are not explained by a removal at a random time, which hits a
+compile or a link (seconds) far more often than the tens of milliseconds between the end of the link and the move of the
+program; they point to something that is correlated with the end of the link. Nothing in `tools/gobench` removes a build
+folder between two phases (each program and implementation has its own folder, and `-build-retries` builds it again one
+after the other). gocpp now makes the build again when its work folder is removed, also in that time between the link and the
+move of a program (docs/spec/build.md, "A work folder that is removed"), and the runner still tries a failed gocpp build once
+more (`-build-retries`, default 1) and names it in the report ("Builds that needed a second try").
 
 These are findings only: nothing was optimized in step 15.1.
 

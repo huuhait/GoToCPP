@@ -44,6 +44,67 @@ func TestCompilerDied(t *testing.T) {
 	}
 }
 
+func TestEndedFromOutside(t *testing.T) {
+	for _, c := range []struct {
+		out  string
+		want string // "" for a failure that is not an outside kill
+	}{
+		{"g++: fatal error: Killed signal terminated program cc1plus\ncompilation terminated.", "killed"},
+		{"g++: fatal error: Terminated signal terminated program collect2\ncompilation terminated.", "terminated"},
+		{"g++: fatal error: Hangup signal terminated program cc1plus", "hangup"},
+		{"g++: fatal error: Interrupt signal terminated program cc1plus", "interrupt"},
+		{"g++: fatal error: CPU time limit exceeded signal terminated program cc1plus", "cpu time limit exceeded"},
+		{"clang++: error: unable to execute command: Killed\nclang++: error: linker command failed due to signal (use -v to see invocation)", "killed"},
+		{"clang++: error: unable to execute command: Terminated\nclang++: error: assembler command failed due to signal", "terminated"},
+		// The driver is named as it was started: a versioned or cross compiler, a Windows program, CRLF lines.
+		{"g++-13: fatal error: Killed signal terminated program cc1plus\ncompilation terminated.", "killed"},
+		{"x86_64-w64-mingw32-g++.exe: fatal error: Terminated signal terminated program cc1plus.exe\r\ncompilation terminated.\r\n", "terminated"},
+		{"/usr/bin/clang++-21: error: unable to execute command: Killed\r\nclang++: error: linker command failed due to signal", "killed"},
+		{"a.cpp:1:1: warning: unused\nclang: error: unable to execute command: Terminated", "terminated"},
+		// The same words inside the program's own diagnostics are the program's error, not a kill: the echo of a
+		// source line (a number and a bar before it), a #error or static_assert message, a string at the start of
+		// a line of a raw string (the echo has its bar too), and a diagnostic with a file and a line.
+		{"a.cpp:3:46: error: expected ';' after top level declarator\n    3 | const char* msg = \"g++: fatal error: Killed signal terminated program cc1plus\" nonsense_token;\n      |                                              ^", ""},
+		{"  12 |   const char* msg = \"g++: fatal error: Killed signal terminated program cc1plus\";", ""},
+		{"a.cpp:2:2: error: #error \"g++: fatal error: Killed signal terminated program cc1plus\"\n    2 | #error \"g++: fatal error: Killed signal terminated program cc1plus\"", ""},
+		{"a.cpp:4:15: error: static assertion failed: clang++: error: unable to execute command: Terminated", ""},
+		{"a.cpp:5:1: error: unknown type name 'x'\n    5 | g++: fatal error: Killed signal terminated program cc1plus\n      | ^", ""},
+		{"a.cpp:6: error: Killed signal terminated program cc1plus", ""},
+		// A file named like the driver's line: the diagnostic starts with the words and goes on with a position.
+		{"g++: fatal error: Killed signal terminated program cc1plus.cpp:3:5: error: expected ';'\n    3 | int x\n      |      ^", ""},
+		{"g++: fatal error: Killed signal terminated program cc1plus.cpp:3:5: error: expected ';'", ""},
+		// A message with a newline in it (static_assert) prints a line that is the driver's text, next to the real error.
+		{"a.cpp:1:1: error: static assertion failed: x\ng++: fatal error: Killed signal terminated program cc1plus\n    1 | static_assert(false, \"x\\ng++: fatal error: Killed signal terminated program cc1plus\");", ""},
+		{"a.cpp:1:15: error: static assertion failed: x\nclang++: error: unable to execute command: Terminated\n", ""},
+		// The words with more after the program (not the driver's line, which ends with the program's name).
+		{"g++: fatal error: Killed signal terminated program cc1plus and more words", ""},
+		// The compiler's own crashes are the compiler's bug.
+		{"g++: internal compiler error: Segmentation fault signal terminated program cc1plus\nPlease submit a full bug report", ""},
+		{"g++: internal compiler error: Aborted signal terminated program cc1plus", ""},
+		{"clang++: error: unable to execute command: Segmentation fault (core dumped)\nclang++: error: clang frontend command failed due to signal\nPLEASE submit a bug report to", ""},
+		{"clang++: error: unable to execute command: Aborted", ""},
+		{"p.cpp:3:1: error: expected ';' after expression", ""},
+		{"", ""},
+	} {
+		got, ok := (&CompileError{Output: []byte(c.out)}).EndedFromOutside()
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("EndedFromOutside(%q) = %q, %v, want %q", c.out, got, ok, c.want)
+		}
+	}
+	// The driver itself ended by a signal, whatever it printed. Not SEGV (see TestCompilerDied).
+	if runtime.GOOS != "windows" {
+		err := exec.Command("sh", "-c", "kill -TERM $$").Run()
+		if got, ok := (&CompileError{Err: err}).EndedFromOutside(); !ok || got != "terminated" {
+			t.Errorf("EndedFromOutside(%v) = %q, %v for a driver ended by SIGTERM", err, got, ok)
+		}
+	}
+	if err := exec.Command("sh", "-c", "exit 1").Run(); err != nil {
+		if got, ok := (&CompileError{Err: err}).EndedFromOutside(); ok {
+			t.Errorf("EndedFromOutside(%v) = %q for an exit status", err, got)
+		}
+	}
+}
+
 func TestPrecompiledHeaderCompilerDies(t *testing.T) {
 	// A compiler that dies with the precompiled header (an ICE: g++ crashes on a .gch that is
 	// damaged, as happened when two builds wrote one) must not fail the build: the program

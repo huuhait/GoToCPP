@@ -56,13 +56,28 @@ counts, and builds again, three more times at most; then it stops with the messa
 deleting it. It is never reported as an internal error of the C++ (`generated C++ did not compile`), and a work
 folder that is there is never taken for a lost one.
 
+A compiler or a linker that something outside gocpp ends with a signal that stops is not an error of the program and
+not a bug in gocpp. Two forms are recognized: the driver (`g++`, `clang++`) dies of SIGKILL, SIGTERM, SIGHUP or SIGINT, or
+a program it started (`cc1plus`, `collect2`, `ld`, the assembler) does and the driver says so: `Killed signal terminated
+program cc1plus` (g++; also `Terminated`, `Hangup`, `Interrupt`, `CPU time limit exceeded`) or `unable to execute command:
+Killed` (clang++). Only a line of the driver counts (it starts with the program's name, `g++: fatal error: ...`, `clang++: error: ...`): the same words in a
+diagnostic of the program, in the echo of its source line or in a `#error`, are the program's own error, and so is any output that has a diagnostic with a file, a line and a column. That is what the out-of-memory killer (SIGKILL), a `pkill`, a time limit and a session that ended do. The
+build says `the C++ compiler or linker was ended by the signal "killed" while it was compiling the generated C++: something
+outside gocpp stopped it ... build again` and exits with status 1, with no work folder kept. A compiler that crashes
+(`Segmentation fault`, `Aborted`, `internal compiler error`, `PLEASE submit a bug report`) is still `internal error`, status 2.
+
 `GOCPP_WORKLOST=fail` turns the self-healing off: the build stops at once with status 4 and the message, so that a
 real bug of gocpp (a path that deletes what it should not) is not hidden behind a second try. The tests and
 campaigns of the repository (`tests/`, `gocpp test` of the standard library's runner, `tools/gobench`,
 `tools/difftest`, the fuzz campaigns, `tools/buildstress` without its cleaner) set it; users keep the default.
 
 A removal in the milliseconds between the check of the program after the link and the start of the program
-(`gocpp run`) or its move to `-o` (`gocpp build`) is not seen and not retried. `tools/buildstress`
+(`gocpp run`) or its move to `-o` (`gocpp build`) is seen by the start or the move itself: when it fails and the
+program is not in its work folder any more, the build is made again in the same way (and with
+`GOCPP_WORKLOST=fail` it is the same error, status 4); a move that fails with the program there (a file in the way of
+`-o`) is the error of the move. `gocpp test`, `gocpp debug` and the library modes do not look: a program or library that
+is gone in that time is still an error there. The limit of three more tries is for each stage (the link, and the move or
+start), so a build that is hit at the worst place every time builds at most 16 times before it stops. `tools/buildstress`
 ([tests/README.md](../../tests/README.md#concurrent-builds)) makes all of this happen on purpose.
 
 ## The build is up to date

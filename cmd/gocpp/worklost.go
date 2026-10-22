@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/huuhait/gocpp/internal/build"
 )
 
 // The work folder of a build is a new folder in the temporary folder (TMPDIR) that the compilers
@@ -27,7 +30,15 @@ import (
 // The repository's own tests and campaigns must not hide a real bug behind this: GOCPP_WORKLOST=fail
 // makes a lost work folder an error (status exitWorkLost, no new try), and they set it. Users keep
 // the self-healing default. A removal in the milliseconds between the check of the program after the
-// link and the start of the program (gocpp run) or the move of it (gocpp build) is not seen.
+// link and the start of the program (gocpp run) or the move of it (gocpp build) is seen by the start or the
+// move itself (programGone, rebuildLost). gocpp test, gocpp debug and the library modes (installLibrary)
+// do not look: a removal in that time is still an error there.
+//
+// The limit maxWorkAttempts counts for each stage: the link inside one compile (rebuildLost in compile),
+// and the move or start after it (rebuildLost in build and run). A build that loses its folder at the
+// worst place every time can therefore build up to (maxWorkAttempts+1)*(maxWorkAttempts+1) times, 16,
+// before it stops with the message; it is bounded, and a folder that is removed that often is not a
+// chance event.
 
 var workSentinels = [...]string{".gocpp-work", "gocpp-work"}
 
@@ -43,6 +54,51 @@ func workLostFails() bool { return os.Getenv("GOCPP_WORKLOST") == "fail" }
 // "after"; attempt 0 is the first one) with the work folder: the tests remove the folder there, as
 // a cleaner would. Only the tests set it.
 var testHookLink func(phase string, attempt int, work string)
+
+// testHookProgram, if set, is called by gocpp build and gocpp run with the number of the attempt (0 is
+// the first) and the program, after the build returned it and before it is moved to -o or started: the
+// last window in which a removal of the program is not seen by the check after the link. The tests
+// remove the program there. Only the tests set it.
+var testHookProgram func(attempt int, p *program)
+
+// programGone reports whether the program that a build returned is not in its work folder any more.
+// The check after the link (workLost) cannot close the time until the program is moved or started, so
+// the move and the start look at the failure they got: a program that is gone is a work folder that
+// something else removed, and the build is made again (rebuildLost), as for a removal during the link.
+func programGone(p *program) bool {
+	_, err := os.Stat(p.exe)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// rebuildLost decides what a build does when its program was removed after the link (programGone) for
+// the attempt-th time (1 is the first): it returns the exit status and true when the build must stop,
+// and false when it goes on, with the notice printed (the caller then builds the program again). The
+// messages are those of a removal during the link.
+func (d *driver) rebuildLost(work string, attempt int) (code int, stop bool) {
+	if workLostFails() {
+		fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran: another process or a cleanup of the temporary folder %s deleted it (GOCPP_WORKLOST=fail: not building again)\n",
+			d.name, work, filepath.Dir(work))
+		return exitWorkLost, true
+	}
+	if attempt > maxWorkAttempts {
+		fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed %d times while the build ran: another process or a cleanup of the temporary folder %s keeps deleting it\n",
+			d.name, work, attempt, filepath.Dir(work))
+		return exitErrors, true
+	}
+	fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran (another process or a cleanup of the temporary folder deleted it; GOCPP_WORKLOST=fail makes this an error): building again\n", d.name, work)
+	return 0, false
+}
+
+// forgetBuild makes the driver ready for another compile of the same program after the work folder
+// was removed: the counts and the record are those of the compile that works.
+func (d *driver) forgetBuild() {
+	d.removeWork()
+	d.stats.Reset()
+	d.counts.load, d.counts.check, d.counts.emit, d.counts.write = 0, 0, 0, 0
+	if d.stamp != nil {
+		d.stamp.rec = &build.Record{}
+	}
+}
 
 // makeWorkFolder makes the work folder of a build: an absolute path in TMPDIR (made first if even
 // TMPDIR is gone, as it is for a session that was shut down), with the markers in it.

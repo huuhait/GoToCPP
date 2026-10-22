@@ -600,6 +600,10 @@ type driver struct {
 	// message about the work folder comes once, after the last (buildFailed, compileFailed).
 	moreFailures bool
 
+	// endedShown says that compilerEnded printed its message: several units can fail the same way
+	// in one build, and the message is the same for all of them.
+	endedShown bool
+
 	// lastShown and lastShownPkg are the errors that compileFailed printed last, and their package.
 	lastShown    []string
 	lastShownPkg string
@@ -1305,17 +1309,9 @@ func (d *driver) compile(patterns []string) (*program, int) {
 		// the compilers ran in it: a temporary-file cleaner, another tool that clears TMPDIR. No
 		// failure of the program or of gocpp: the build is made again in a work folder of the
 		// same name, a few times at most.
-		if workLostFails() {
-			fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran: another process or a cleanup of the temporary folder %s deleted it (GOCPP_WORKLOST=fail: not building again)\n",
-				d.name, work, filepath.Dir(work))
-			return nil, exitWorkLost
+		if code, stop := d.rebuildLost(work, attempt); stop {
+			return nil, code
 		}
-		if attempt > maxWorkAttempts {
-			fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed %d times while the build ran: another process or a cleanup of the temporary folder %s keeps deleting it\n",
-				d.name, work, attempt, filepath.Dir(work))
-			return nil, exitErrors
-		}
-		fmt.Fprintf(d.stderr, "gocpp %s: the work folder %s was removed while the build ran (another process or a cleanup of the temporary folder deleted it; GOCPP_WORKLOST=fail makes this an error): building again\n", d.name, work)
 		if err := restoreWork(work); err != nil {
 			fmt.Fprintf(d.stderr, "gocpp %s: %v\n", d.name, err)
 			return nil, exitErrors
@@ -1398,6 +1394,12 @@ func (d *driver) reportFailure(set *buildSet, err error, env build.EnvFlags, wor
 			pkg = set.linkPackage()
 		}
 	}
+	if errors.As(err, &ce) {
+		if sig, ok := ce.EndedFromOutside(); ok {
+			d.compilerEnded(ce, sig)
+			return exitErrors, kept
+		}
+	}
 	if errors.As(err, &ce) && ce.Lib != nil {
 		d.libFailed(pkg, ce)
 		return exitErrors, kept
@@ -1471,6 +1473,22 @@ func (d *driver) removeWork() {
 // maxShownErrors is how many of the compiler's errors an internal error
 // shows: like go build, which shows 10 errors per package.
 const maxShownErrors = 10
+
+// compilerEnded prints the failure of a compile or link whose compiler was ended by a signal from
+// outside (CompileError.EndedFromOutside): no error of the program and no bug in gocpp, so no "internal error", no
+// work folder kept, and a message that says what to look for.
+func (d *driver) compilerEnded(e *build.CompileError, sig string) {
+	if d.endedShown {
+		return
+	}
+	d.endedShown = true
+	verb, what := "compiling", e.What
+	if e.Link {
+		verb, what = "linking", "the program"
+	}
+	fmt.Fprintf(d.stderr, "gocpp %s: the C++ compiler or linker was ended by the signal %q while it was %s %s: something outside gocpp stopped it (a kill, a time limit, a session that ended, or the out-of-memory killer). This is no error of the program and no bug in gocpp; build again\n",
+		d.name, sig, verb, what)
+}
 
 // cxxError matches the first line of an error of gcc or clang:
 // "file:line:col: error: message", or "fatal error:".
@@ -1622,16 +1640,39 @@ func (d *driver) build(patterns []string) int {
 		return code
 	}
 	defer d.removeWork()
+	for attempt := 1; ; attempt++ {
+		if testHookProgram != nil {
+			testHookProgram(attempt-1, p)
+		}
+		code, lost := d.install(p)
+		if !lost {
+			return code
+		}
+		// The program was removed after the link, in the time until it was moved: something else
+		// removed the work folder (worklost.go), and the build is made again.
+		if code, stop := d.rebuildLost(p.work, attempt); stop {
+			return code
+		}
+		d.forgetBuild()
+		if p, code = d.compile(patterns); p == nil {
+			return code
+		}
+	}
+}
+
+// install puts the program p of gocpp build in its place: the library, or the program moved to -o.
+// lost is true when the program was not in the work folder any more (nothing was written).
+func (d *driver) install(p *program) (code int, lost bool) {
 	if d.flags.extra.dryRun {
-		return 0 // -n: nothing was run, and there is no program to move
+		return 0, false // -n: nothing was run, and there is no program to move
 	}
 	if d.lib != nil {
 		built, code := d.installLibrary(p, d.flags.output)
 		if code != 0 {
-			return code
+			return code, false
 		}
 		d.saveStamp(built)
-		return 0
+		return 0, false
 	}
 	out := d.outputPath(p.final)
 	if d.flags.x {
@@ -1642,11 +1683,14 @@ func (d *driver) build(patterns []string) int {
 		err = build.MoveFile(p.exe, out)
 	}
 	if err != nil {
+		if programGone(p) {
+			return 0, true
+		}
 		fmt.Fprintf(d.stderr, "gocpp build: %v\n", err)
-		return exitErrors
+		return exitErrors, false
 	}
 	d.saveStamp(out)
-	return 0
+	return 0, false
 }
 
 // isDir reports whether name is a folder.
@@ -1699,7 +1743,25 @@ func (d *driver) run(patterns, args []string) int {
 	if sig := d.interrupted(); sig != nil {
 		return stopStatus(sig) // a signal came after the build
 	}
-	cmd, err := build.Start(d.ctx, newCmd) // again after ETXTBSY, like go run
+	start := func(attempt int) (*exec.Cmd, error) {
+		if testHookProgram != nil {
+			testHookProgram(attempt, p)
+		}
+		return build.Start(d.ctx, newCmd) // again after ETXTBSY, like go run
+	}
+	cmd, err := start(0)
+	for attempt := 1; err != nil && programGone(p) && d.interrupted() == nil; attempt++ {
+		// The program was removed after the link, in the time until it was started: something else
+		// removed the work folder (worklost.go), and the build is made again.
+		if code, stop := d.rebuildLost(p.work, attempt); stop {
+			return code
+		}
+		d.forgetBuild()
+		if p, code = d.compile(patterns); p == nil {
+			return code
+		}
+		cmd, err = start(attempt)
+	}
 	if err != nil {
 		if sig := d.interrupted(); sig != nil {
 			return stopStatus(sig)
