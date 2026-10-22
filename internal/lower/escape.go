@@ -794,6 +794,8 @@ func boxReasonText(r boxReason) string {
 		return "a closure captures a C/C++ object"
 	case boxDefer:
 		return "a deferred call holds a C/C++ object or its address"
+	case boxCEscape:
+		return "its address leaves the function (a package variable, memory the caller keeps, a result or a send)"
 	}
 	return "boxed"
 }

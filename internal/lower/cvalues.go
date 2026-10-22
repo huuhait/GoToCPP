@@ -290,6 +290,12 @@ func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
 			}
 			return fg.addr(e) // &[]C.int{1}: a gocpp literal in a new block (addr.go)
 		}
+		if owner := fg.escapedMember(e); owner != nil {
+			return fg.ownedMemberAddr(e, owner) // &w.in.b stored where it outlives the call (cbox.go)
+		}
+		if fg.escapedAddr(e) {
+			return fg.ownedLocalAddr(e) // &x stored in a package variable: the pointer owns x's box (cbox.go)
+		}
 		switch ast.Unparen(e.X).(type) {
 		case *ast.SelectorExpr, *ast.IndexExpr:
 			if owned, _ := ownedPath(fg.g.info, e.X); owned {

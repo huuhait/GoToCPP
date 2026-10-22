@@ -394,25 +394,29 @@ func TestVetBoundary(t *testing.T) {
 
 import "<cstdio>"
 
-var saved *cstdio.FILE
+type holder struct{ p *cstdio.FILE }
 
-func f(n int64) {
-	var fp cstdio.FILE
-	saved = &fp
+func f(n int64, h *holder) {
+	var list []*cstdio.FILE
+	for i := 0; i < 1; i++ {
+		var fp cstdio.FILE
+		list = append(list, &fp)
+	}
+	_ = list
 	cstdio.puts(C.cstr("a\x00b"))
 	cstdio.printf("%d\n", C.int(n))
 }
 
-func main() { f(1) }
+func main() { f(1, &holder{}) }
 `
 	code, _, errOut := vetIn(t, map[string]string{"main.gp": src}, ".")
 	if code != 1 {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
 	for _, want := range []string{
-		"./main.gp:9:10: &fp takes the address of the C/C++ variable fp and stores it in the package variable saved",
-		"./main.gp:10:14: the string given to C.cstr has a NUL byte",
-		"./main.gp:11:24: C.int(n) narrows int64 (64 bits) to C.int (32 bits)",
+		"./main.gp:11:23: &fp takes the address of the C/C++ variable fp and stores it in list, which is declared outside the block of fp",
+		"./main.gp:14:14: the string given to C.cstr has a NUL byte",
+		"./main.gp:15:24: C.int(n) narrows int64 (64 bits) to C.int (32 bits)",
 	} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)

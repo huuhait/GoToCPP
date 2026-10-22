@@ -28,9 +28,11 @@ import (
 // functions with a defer: the catch clause, defer.go).
 
 // awareBody reports whether the body of a function or func literal calls recover itself (not
-// in a func literal inside it, which has its own body): the function is aware. A deferred
-// `defer recover()` doesn't count: Go's recover does nothing there (the builtin is the deferred
-// call, not a function that a deferred function calls).
+// in a func literal inside it, which has its own body): the function is aware. A `defer recover()`
+// counts too, because Go's rule is about the function that the deferred recover runs for: the
+// recover runs when that function ends, and it stops the panic exactly when that function is
+// itself a deferred call that a panic runs (deferredCall passes the ticket into the lambda that
+// stores it); in a function that a panic did not call, it does nothing.
 func (g *gen) awareBody(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
@@ -55,14 +57,6 @@ func (g *gen) awareBody(body *ast.BlockStmt) bool {
 					}
 				}
 				return false
-			}
-		case *ast.DeferStmt:
-			// The deferred call itself is no recover of its function's; its arguments are
-			// evaluated now, so a recover() there counts.
-			if id, ok := ast.Unparen(n.Call.Fun).(*ast.Ident); ok {
-				if b, ok := g.info.Uses[id].(*types.Builtin); ok && b.Name() == "recover" {
-					return false
-				}
 			}
 		case *ast.CallExpr:
 			if id, ok := ast.Unparen(n.Fun).(*ast.Ident); ok {

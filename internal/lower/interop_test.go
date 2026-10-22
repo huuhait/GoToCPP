@@ -3,6 +3,7 @@ package lower
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/constant"
 	"go/parser"
 	"go/token"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/check"
@@ -1695,6 +1697,1375 @@ func TestCConstTypeLLP64(t *testing.T) {
 		g := &gen{pkg: &check.Package{Load: &load.Package{GOOS: tt.goos}}}
 		if got, ok := g.cConstType(tt.name); !ok || got != tt.want {
 			t.Errorf("%s: C.%s has range %v (ok %v), want %v", tt.goos, tt.name, got, ok, tt.want)
+		}
+	}
+}
+
+// TestCAddrOwnership checks which C/C++ locals are boxed for the address that is stored in a
+// package variable (cbox.go: addrEscapes, ADR-139): the address of the variable, of a member, of a
+// member of a member, of an element of a C array, of a member of a gocpp struct, and through a
+// local alias of package data; and which stay on the stack with a raw C++ address (an address that
+// only goes to a call, to a local pointer, or to a type switch).
+// A variable whose type gocpp does not know (a C/C++ type it cannot read) may be a pointer, so it
+// counts as a reference variable for the ownership analysis; a known scalar or struct does not.
+func TestRefType(t *testing.T) {
+	for name, tc := range map[string]struct {
+		typ  types.Type
+		want bool
+	}{
+		"pointer":  {types.NewPointer(types.Typ[types.Int]), true},
+		"slice":    {types.NewSlice(types.Typ[types.Int]), true},
+		"map":      {types.NewMap(types.Typ[types.String], types.Typ[types.Int]), true},
+		"unknown":  {types.Typ[types.Invalid], true},
+		"no type":  {nil, true},
+		"int":      {types.Typ[types.Int], false},
+		"string":   {types.Typ[types.String], false},
+		"struct":   {types.NewStruct(nil, nil), false},
+		"channel":  {types.NewChan(types.SendRecv, types.Typ[types.Int]), false},
+		"function": {types.NewSignatureType(nil, nil, nil, nil, nil, false), false},
+	} {
+		if got := refType(tc.typ); got != tc.want {
+			t.Errorf("refType(%s) = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// One big class: a cursor reused over many locals, and a chain of aliases. The analysis runs once per
+// class, not once per variable of it (it took minutes at 5,000 variables when it ran once per
+// variable), so this takes a fraction of a second; the bound is generous.
+func TestCAddrBigClass(t *testing.T) {
+	const n = 2000
+	var sb strings.Builder
+	sb.WriteString("package main\n\nimport \"<lib.h>\"\n\nvar g *lib.rec\n\nfunc use(p *lib.rec) { g = p }\n\n")
+	sb.WriteString("func cursor() {\n\tvar cur *lib.rec\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&sb, "\tvar x%d lib.rec\n\tcur = &x%d\n\tg = cur\n", i, i)
+	}
+	sb.WriteString("}\n\nfunc chain() {\n\tvar q *lib.rec\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&sb, "\tvar y%d lib.rec\n\tp%d := &y%d\n\tq = p%d\n\tg = q\n", i, i, i, i)
+	}
+	sb.WriteString("}\n\nfunc main() {}\n")
+	fset, pkg, _ := checkInterop(t, sb.String())
+	start := time.Now()
+	f, err := Package(fset, pkg, fakeInterop(pkg, map[string]interop.Kind{"rec": interop.Type}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 8*raceSlowdown*time.Second {
+		t.Errorf("lowering %d locals in one class took %v", n, took)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, v := range []string{"x0", "x1999", "y0", "y1999"} {
+		if !strings.Contains(cpp, "gp::ptr<::rec> "+v+" = ") {
+			t.Errorf("%s is not boxed", v)
+		}
+	}
+}
+
+// mayHoldPointers is true for every type that can carry an address: a value of any other type
+// that is computed from &x does not keep x (ADR-139). A type that gocpp does not know counts as
+// one that can.
+func TestMayHoldPointers(t *testing.T) {
+	ptr := types.NewPointer(types.Typ[types.Int])
+	named := types.NewNamed(types.NewTypeName(token.NoPos, nil, "Named", nil), types.NewStruct(nil, nil), nil)
+	namedPtr := types.NewNamed(types.NewTypeName(token.NoPos, nil, "NamedPtr", nil), ptr, nil)
+	withPtr := types.NewStruct([]*types.Var{
+		types.NewField(token.NoPos, nil, "n", types.Typ[types.Int], false),
+		types.NewField(token.NoPos, nil, "p", ptr, false),
+	}, nil)
+	ints := types.NewStruct([]*types.Var{
+		types.NewField(token.NoPos, nil, "n", types.Typ[types.Int], false),
+		types.NewField(token.NoPos, nil, "s", types.Typ[types.String], false),
+	}, nil)
+	tparam := types.NewTypeParam(types.NewTypeName(token.NoPos, nil, "T", nil), types.NewInterfaceType(nil, nil))
+	for name, tc := range map[string]struct {
+		typ  types.Type
+		want bool
+	}{
+		"int":                 {types.Typ[types.Int], false},
+		"int8":                {types.Typ[types.Int8], false},
+		"uint64":              {types.Typ[types.Uint64], false},
+		"uintptr":             {types.Typ[types.Uintptr], false},
+		"float64":             {types.Typ[types.Float64], false},
+		"complex128":          {types.Typ[types.Complex128], false},
+		"string":              {types.Typ[types.String], false},
+		"bool":                {types.Typ[types.Bool], false},
+		"unsafe.Pointer":      {types.Typ[types.UnsafePointer], true},
+		"unknown":             {types.Typ[types.Invalid], true},
+		"no type":             {nil, true},
+		"pointer":             {ptr, true},
+		"slice of int":        {types.NewSlice(types.Typ[types.Int]), true},
+		"map":                 {types.NewMap(types.Typ[types.String], types.Typ[types.Int]), true},
+		"channel":             {types.NewChan(types.SendRecv, types.Typ[types.Int]), true},
+		"func":                {types.NewSignatureType(nil, nil, nil, nil, nil, false), true},
+		"interface":           {types.NewInterfaceType(nil, nil), true},
+		"error":               {types.Universe.Lookup("error").Type(), true},
+		"array of int":        {types.NewArray(types.Typ[types.Int], 4), false},
+		"array of pointer":    {types.NewArray(ptr, 4), true},
+		"struct of numbers":   {ints, false},
+		"struct with pointer": {withPtr, true},
+		"empty named struct":  {named, false},
+		"named pointer":       {namedPtr, true},
+		"type parameter":      {tparam, true},
+		"tuple":               {types.NewTuple(types.NewVar(token.NoPos, nil, "a", types.Typ[types.Int])), true},
+	} {
+		if got := mayHoldPointers(tc.typ, 0); got != tc.want {
+			t.Errorf("mayHoldPointers(%s) = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// A function with hundreds of range-over-func loops and of function literals, each with a C local whose
+// address is stored: the analysis of the function is made once and shared by the lambdas inside it
+// (it was made again for each of them: quadratic, 8 to 15 times slower than without the rule at 1,000
+// loops). The output is the same as without the sharing.
+func manyBodiesSource(loops, lits int) string {
+	var sb strings.Builder
+	sb.WriteString("package main\n\nimport \"<lib.h>\"\n\nvar g *lib.rec\n\nfunc use(p *lib.rec) { g = p }\n\nfunc cleanup() {}\n\n")
+	sb.WriteString("func seq(n int) func(yield func(int) bool) {\n\treturn func(yield func(int) bool) {\n\t\tfor i := 0; i < n; i++ {\n\t\t\tif !yield(i) {\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}\n}\n\n")
+	sb.WriteString("func loops() int {\n\tdefer cleanup()\n\tvar cur *lib.rec\n")
+	for i := 0; i < loops; i++ {
+		fmt.Fprintf(&sb, "\tfor i := range seq(2) {\n\t\tvar x%d lib.rec\n\t\tx%d.n = int32(i)\n\t\tcur = &x%d\n\t}\n", i, i, i)
+	}
+	sb.WriteString("\tuse(cur)\n\treturn int(cur.n)\n}\n\nfunc lits() int {\n\tvar cur *lib.rec\n")
+	for i := 0; i < lits; i++ {
+		fmt.Fprintf(&sb, "\tf%d := func() {\n\t\tdefer cleanup()\n\t\tvar y%d lib.rec\n\t\tcur = &y%d\n\t}\n\tf%d()\n", i, i, i, i)
+	}
+	sb.WriteString("\tuse(cur)\n\treturn int(cur.n)\n}\n\nfunc main() {}\n")
+	return sb.String()
+}
+
+func lowerManyBodies(t *testing.T, loops, lits int) (string, time.Duration) {
+	t.Helper()
+	fset, pkg, _ := checkInterop(t, manyBodiesSource(loops, lits))
+	start := time.Now()
+	f, err := Package(fset, pkg, fakeInterop(pkg, map[string]interop.Kind{"rec": interop.Type}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	took := time.Since(start)
+	return string(cppir.Print(f, "")), took
+}
+
+func TestCAddrManyBodies(t *testing.T) {
+	runs := addrStoresRuns.Load()
+	cpp, took := lowerManyBodies(t, 1000, 3000)
+	// the 6 functions of the source: the analysis of each (and the one that boxing makes of its own) is
+	// made once; the 1000 loop bodies and 3000 literals inside them use the one of their function
+	if n := addrStoresRuns.Load() - runs; n > 12 {
+		t.Errorf("the analysis was made %d times for 6 functions with 1000 loops and 3000 literals", n)
+	}
+	if took > 3*raceSlowdown*time.Second {
+		t.Errorf("lowering 1000 loops and 3000 literals took %v", took)
+	}
+	for _, v := range []string{"x0", "x999", "y0", "y2999"} {
+		if !strings.Contains(cpp, "gp::ptr<::rec> "+v+" = ") {
+			t.Errorf("%s is not boxed", v)
+		}
+	}
+	t.Run("the same output as without sharing", func(t *testing.T) {
+		shared, _ := lowerManyBodies(t, 40, 40)
+		addrShareOff = true
+		defer func() { addrShareOff = false }()
+		alone, _ := lowerManyBodies(t, 40, 40)
+		lines := regexp.MustCompile(`(?m)^\s*#line .*\n`) // (they name the temporary folder of the test)
+		shared, alone = lines.ReplaceAllString(shared, ""), lines.ReplaceAllString(alone, "")
+		if shared != alone {
+			t.Errorf("the output differs when every body analyses the function on its own")
+		}
+	})
+}
+
+// holderPairsSource is n pairs of a local object that holds a variable (q := &x; ho.p = q) in one loop: two
+// classes keep the same &x, and the analysis must box x whichever it visits first (map order).
+func holderPairsSource(n int) string {
+	var sb strings.Builder
+	sb.WriteString("\nfunc holderPairs() int {\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&sb, "\tvar ho%d Holder\n", i)
+	}
+	sb.WriteString("\tfor i := 0; i < 2; i++ {\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&sb, "\t\tvar px%d lib.rec\n\t\tq%d := &px%d\n\t\tho%d.p = q%d\n\t\t_ = q%d\n", i, i, i, i, i, i)
+	}
+	sb.WriteString("\t}\n\treturn int(ho0.p.n)\n}\n")
+	return sb.String()
+}
+
+// Many holders of the same addresses (2,000 variables each hold the 50 loop locals that cur was set to)
+// and many literals: an address that many classes hold is processed once for the function, not once
+// for each class and each function inside it.
+func TestCAddrManyHolders(t *testing.T) {
+	const holders, locals, lits = 2000, 50, 8000
+	var sb strings.Builder
+	sb.WriteString("package main\n\nimport \"<lib.h>\"\n\ntype H struct{ p *lib.rec }\n\nvar g *lib.rec\n\nfunc use(p *lib.rec) { g = p }\n\nfunc main() {\n\tvar cur *lib.rec\n")
+	for i := 0; i < holders; i++ {
+		fmt.Fprintf(&sb, "\tvar h%d H\n", i)
+	}
+	sb.WriteString("\tfor i := 0; i < 50; i++ {\n")
+	for i := 0; i < locals; i++ {
+		fmt.Fprintf(&sb, "\t\tvar x%d lib.rec\n\t\tcur = &x%d\n", i, i)
+	}
+	for i := 0; i < holders; i++ {
+		fmt.Fprintf(&sb, "\t\th%d.p = cur\n", i)
+	}
+	sb.WriteString("\t}\n")
+	for i := 0; i < lits; i++ {
+		sb.WriteString("\tfunc() {}()\n")
+	}
+	for i := 0; i < holders; i++ {
+		fmt.Fprintf(&sb, "\tuse(h%d.p)\n", i)
+	}
+	sb.WriteString("}\n")
+	fset, pkg, _ := checkInterop(t, sb.String())
+	listed := outlivingListed.Load()
+	start := time.Now()
+	f, err := Package(fset, pkg, fakeInterop(pkg, map[string]interop.Kind{"rec": interop.Type}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 3*raceSlowdown*time.Second {
+		t.Errorf("lowering %d holders of %d addresses and %d literals took %v", holders, locals, lits, took)
+	}
+	// each address is listed once for each analysis of main (a few), not once for each of the holders
+	if n := outlivingListed.Load() - listed; n > 4*locals {
+		t.Errorf("the outliving pass listed %d addresses for %d locals (%d holders)", n, locals, holders)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, v := range []string{"x0", "x49"} {
+		if !strings.Contains(cpp, "gp::ptr<::rec> "+v+" = ") {
+			t.Errorf("%s is not boxed", v)
+		}
+	}
+}
+
+func TestCAddrOwnership(t *testing.T) {
+	src := `package main
+
+import (
+	"unsafe"
+
+	"<lib.h>"
+)
+
+type Holder struct {
+	p    *lib.rec
+	next *Holder
+}
+
+type Gen struct {
+	in  lib.rec
+	cnt int
+}
+
+var g *lib.rec
+var gi *C.int
+var gh Holder
+var gs []*lib.rec
+var gup unsafe.Pointer
+
+func use(p *lib.rec) {}
+
+func stored() {
+	var a lib.rec
+	g = &a
+}
+
+func member() {
+	var b lib.rec
+	gi = &b.n
+}
+
+func nested() {
+	var c lib.rec
+	gi = &c.in.n
+}
+
+func element() {
+	var d lib.rec
+	gi = &d.vals[1]
+}
+
+func goStruct() {
+	e := Gen{}
+	gi = &e.in.n
+}
+
+func aliased() {
+	var f lib.rec
+	q := &gh
+	q.p = &f
+}
+
+func appended() {
+	var h lib.rec
+	gs = append(gs, &h)
+}
+
+func viaLocal() {
+	var j lib.rec
+	p := &j
+	g = p
+}
+
+func callOnly() {
+	var k lib.rec
+	use(&k)
+}
+
+func localPointer() {
+	var l lib.rec
+	p := &l
+	use(p)
+}
+
+func typeSwitch() {
+	var m lib.rec
+	var x any = &m
+	switch v := x.(type) {
+	case *lib.rec:
+		use(v)
+	}
+}
+
+type Wrap struct{ in lib.rec }
+
+var gany any = &Holder{}
+var ghs = []*Holder{{}}
+var gm = map[string]*Holder{}
+var gch = make(chan *Holder, 1)
+var gholder = &Holder{}
+
+func getHolder() *Holder { return gholder }
+
+func rangeVar() {
+	var r1 lib.rec
+	for _, h := range ghs {
+		h.p = &r1
+	}
+}
+
+func commaOk() {
+	var r2 lib.rec
+	h, ok := gm["k"]
+	if ok {
+		h.p = &r2
+	}
+}
+
+func assertion() {
+	var r3 lib.rec
+	h := gany.(*Holder)
+	h.p = &r3
+}
+
+func sliceExpr() {
+	var r4 lib.rec
+	s := gs[:]
+	s[0] = &r4
+}
+
+func structHolds() {
+	var r5 lib.rec
+	s := struct{ h *Holder }{gholder}
+	s.h.p = &r5
+}
+
+func closureParam() {
+	var r6 lib.rec
+	func(h *Holder) { h.p = &r6 }(gholder)
+}
+
+func receive() {
+	var r7 lib.rec
+	h := <-gch
+	h.p = &r7
+}
+
+func param(h *Holder) {
+	var r8 lib.rec
+	h.p = &r8
+}
+
+func viaCall() {
+	var r9 lib.rec
+	h := getHolder()
+	h.p = &r9
+}
+
+func returned() []*lib.rec {
+	var res []*lib.rec
+	var r10 lib.rec
+	res = append(res, &r10)
+	return res
+}
+
+func (w *Wrap) receiver() {
+	gi = &w.in.n
+}
+
+func (w *Wrap) receiverCopy() {
+	c := w
+	gi = &c.in.n
+}
+
+func goPointer(pp *Gen) {
+	gi = &pp.in.n
+}
+
+var gsend chan *lib.rec = make(chan *lib.rec, 1)
+
+func sent() {
+	var r12 lib.rec
+	gsend <- &r12
+}
+
+func namedResult() (h Holder) {
+	var r13 lib.rec
+	h.p = &r13
+	return
+}
+
+func viaAlias() {
+	var r11 lib.rec
+	h := gholder
+	k := h
+	k.p = &r11
+}
+
+func slicePart() {
+	sl := make([]lib.rec, 2)
+	gi = &sl[1].n
+}
+
+func madeLiteral() {
+	var s1 lib.rec
+	h := &Holder{}
+	h.p = &s1
+	use(h.p)
+}
+
+func madeNew() {
+	var s2 lib.rec
+	h := new(Holder)
+	h.p = &s2
+	use(h.p)
+}
+
+func madeLocal() {
+	var s3 lib.rec
+	var hv Holder
+	h := &hv
+	h.p = &s3
+	use(h.p)
+}
+
+func madeSlice() {
+	var s4 lib.rec
+	s := make([]*lib.rec, 1)
+	s[0] = &s4
+	use(s[0])
+}
+
+var gcap []*lib.rec
+var gint *int
+var gdone = make(chan bool)
+
+func chain2() {
+	var c2 lib.rec
+	p1, p2 := &Holder{}, &Holder{}
+	gholder = p2
+	p2.next = p1
+	p1.p = &c2
+}
+
+func chain3() {
+	var c3 lib.rec
+	p1, p2, p3 := &Holder{}, &Holder{}, &Holder{}
+	gholder = p3
+	p3.next = p2
+	p2.next = p1
+	p1.p = &c3
+}
+
+func aliasLeaves() {
+	var c4 lib.rec
+	p := &Holder{}
+	q := p
+	q.p = &c4
+	gholder = p
+}
+
+func aliasReturned() *Holder {
+	var c5 lib.rec
+	p := &Holder{}
+	q := p
+	q.p = &c5
+	return p
+}
+
+func addressOfObject() {
+	var c6 lib.rec
+	var h Holder
+	p := &h
+	p.p = &c6
+	gholder = &h
+}
+
+func sliceAlias() {
+	var c7 lib.rec
+	s := make([]*lib.rec, 1)
+	t := s
+	t[0] = &c7
+	gs = s
+}
+
+func fill(pp **Holder) { *pp = gholder }
+
+func fillAddr() {
+	var c8 lib.rec
+	var p *Holder
+	fill(&p)
+	p.p = &c8
+}
+
+func copyPackage() {
+	var c9 lib.rec
+	copy(gs, []*lib.rec{&c9})
+}
+
+func copyLocal() {
+	var c10 lib.rec
+	d := make([]*lib.rec, 1)
+	copy(d, []*lib.rec{&c10})
+	gs = d
+}
+
+func appendCapacity() {
+	var c11 lib.rec
+	s := append(gcap, nil)
+	s[0] = &c11
+}
+
+func goArgument() {
+	var c12 lib.rec
+	p := &Holder{}
+	p.p = &c12
+	go func(h *Holder) { use(h.p) }(p)
+}
+
+func goCapture() {
+	var c13 lib.rec
+	p := &Holder{}
+	p.p = &c13
+	go func() { use(p.p) }()
+}
+
+func fillSlice(pp *[]*lib.rec) { *pp = gs }
+
+func addrOfSlice() {
+	var c14 lib.rec
+	s := make([]*lib.rec, 1)
+	fillSlice(&s)
+	s[0] = &c14
+}
+
+func rangeLocal() {
+	var c15 lib.rec
+	local := []*Holder{gholder}
+	for _, h := range local {
+		h.p = &c15
+	}
+}
+
+func funcLitArgument() {
+	var c16 lib.rec
+	p := &Holder{}
+	p.p = &c16
+	func(h *Holder) { gholder = h }(p)
+}
+
+func appendDiscarded() {
+	var c17 lib.rec
+	s := append(gcap, &c17)
+	_ = s
+}
+
+func sliceOfSlice() {
+	var c18 lib.rec
+	s := make([]*lib.rec, 1)
+	t := s[:]
+	t[0] = &c18
+	gs = s
+}
+
+func sliceOfArray() {
+	var c19 lib.rec
+	var arr [2]*lib.rec
+	t := arr[:]
+	t[0] = &c19
+	gs = arr[:]
+}
+
+func rangeThenStore() {
+	var l5 lib.rec
+	local := make([]*lib.rec, 1)
+	for _, e := range local {
+		use(e)
+	}
+	local[0] = &l5
+	use(local[0])
+}
+
+func sliceOfSliceLocal() {
+	var l6 lib.rec
+	s := make([]*lib.rec, 1)
+	t := s[:]
+	t[0] = &l6
+	use(t[0])
+}
+
+func sliceOfArrayLocal() {
+	var l7 lib.rec
+	var arr [2]*lib.rec
+	t := arr[:]
+	t[0] = &l7
+	use(t[0])
+}
+
+type Holders []Holder
+
+var gholders2 Holders
+
+func (p *Holders) Fill() { *p = gholders2 }
+
+func implicitAddress() {
+	var c20 lib.rec
+	s := make(Holders, 1)
+	s.Fill()
+	s[0].p = &c20
+}
+
+func chainLocal() {
+	var l1 lib.rec
+	p1, p2 := &Holder{}, &Holder{}
+	p2.next = p1
+	p1.p = &l1
+	use(p2.next.p)
+}
+
+func aliasLocal() {
+	var l2 lib.rec
+	p := &Holder{}
+	q := p
+	q.p = &l2
+	use(p.p)
+}
+
+func copyLocalOnly() {
+	var l3 lib.rec
+	d := make([]*lib.rec, 1)
+	copy(d, []*lib.rec{&l3})
+	use(d[0])
+}
+
+func goOwnLocal() {
+	go func() {
+		var l4 lib.rec
+		use(&l4)
+	}()
+}
+
+func wholeField(pp *Gen) {
+	g = &pp.in
+}
+
+func goField(pp *Gen) {
+	gint = &pp.cnt
+}
+
+func useHolder(h Holder) {}
+
+func goNamedAddress() {
+	var o1 lib.rec
+	go use(&o1)
+}
+
+func goNamedPointer() {
+	var o2 lib.rec
+	p := &o2
+	go use(p)
+}
+
+func goNamedHolder() {
+	var o3 lib.rec
+	h := Holder{p: &o3}
+	go useHolder(h)
+}
+
+func goNamedResult() {
+	var o11 lib.rec
+	go fillRec(&o11)
+}
+
+func paramAlias(param *Holder) {
+	var o4 lib.rec
+	q := param
+	q.p = &o4
+}
+
+func depthTwo() {
+	var o5 lib.rec
+	p := &Holder{}
+	p.next = &gh
+	p.next.p = &o5
+}
+
+func mapParam(m map[string]*Holder) {
+	var o6 lib.rec
+	m["a"] = &Holder{p: &o6}
+}
+
+func starParam(h *Holder) {
+	var o7 lib.rec
+	*h = Holder{p: &o7}
+}
+
+func fillRec(p *lib.rec) int32 { return 1 }
+
+func geti(p *C.int) int32 { return 1 }
+
+func resultOfCall() int {
+	var v1 lib.rec
+	return int(fillRec(&v1))
+}
+
+func resultPlusOne() int {
+	var v2 C.int
+	return int(geti(&v2)) + 1
+}
+
+func resultOfLocalPointer() int {
+	var v3 lib.rec
+	p := &v3
+	return int(fillRec(p))
+}
+
+func resultOfLoad() int {
+	var v4 C.int
+	p := &v4
+	return int(*p)
+}
+
+func resultsOfStatus() (int, int) {
+	var v5 lib.rec
+	rc := fillRec(&v5)
+	use(nil)
+	return int(rc), int(v5.n)
+}
+
+func outlivesAppend() int {
+	var list []*lib.rec
+	for i := 0; i < 2; i++ {
+		var o8 lib.rec
+		list = append(list, &o8)
+	}
+	return int(list[0].n)
+}
+
+func outlivesPointer() int {
+	var p *lib.rec
+	for i := 0; i < 2; i++ {
+		var o9 lib.rec
+		p = &o9
+	}
+	return int(p.n)
+}
+
+func outlivesHolder() int {
+	var h Holder
+	for i := 0; i < 2; i++ {
+		var o10 lib.rec
+		h.p = &o10
+	}
+	return int(h.p.n)
+}
+
+func insideBlock() int {
+	t := 0
+	for i := 0; i < 2; i++ {
+		var l8 lib.rec
+		var list []*lib.rec
+		list = append(list, &l8)
+		t += int(list[0].n)
+	}
+	return t
+}
+
+// (the frame of a function with a defer statement holds the local to the end: addrHeld)
+func outlivesWithDefer() int {
+	defer use(nil)
+	var p *lib.rec
+	for i := 0; i < 2; i++ {
+		var l10 lib.rec
+		p = &l10
+	}
+	return int(p.n)
+}
+
+func sameBlock() int {
+	var l9 lib.rec
+	p := &l9
+	return int(p.n)
+}
+
+func cleanup() {}
+
+func closureDeferVar() int {
+	var cur *lib.rec
+	f := func() {
+		defer cleanup()
+		var o12 lib.rec
+		cur = &o12
+	}
+	f()
+	return int(cur.n)
+}
+
+func closureDeferStruct() int {
+	var h Holder
+	f := func() {
+		defer cleanup()
+		var o13 lib.rec
+		h.p = &o13
+	}
+	f()
+	return int(h.p.n)
+}
+
+func closureDeferAppend() int {
+	var list []*lib.rec
+	add := func() {
+		defer cleanup()
+		var o14 lib.rec
+		list = append(list, &o14)
+	}
+	add()
+	add()
+	return int(list[0].n)
+}
+
+func closureDeferBlock() int {
+	var cur *lib.rec
+	f := func() {
+		defer cleanup()
+		for i := 0; i < 2; i++ {
+			var o15 lib.rec
+			cur = &o15
+		}
+	}
+	f()
+	return int(cur.n)
+}
+
+func closureInClosureDefer() int {
+	var cur *lib.rec
+	f := func() {
+		defer cleanup()
+		g := func() {
+			defer cleanup()
+			var o16 lib.rec
+			cur = &o16
+		}
+		g()
+	}
+	f()
+	return int(cur.n)
+}
+
+func goClosureDefer() int {
+	var cur *lib.rec
+	done := make(chan bool)
+	go func() {
+		defer cleanup()
+		var o17 lib.rec
+		cur = &o17
+		done <- true
+	}()
+	<-done
+	return int(cur.n)
+}
+
+func seq(n int) func(yield func(int) bool) {
+	return func(yield func(int) bool) {
+		for i := 0; i < n; i++ {
+			if !yield(i) {
+				return
+			}
+		}
+	}
+}
+
+func rangeFuncDefer() int {
+	defer cleanup()
+	var cur *lib.rec
+	for range seq(2) {
+		var o18 lib.rec
+		cur = &o18
+	}
+	return int(cur.n)
+}
+
+func rangeFuncInLoopDefer() int {
+	defer cleanup()
+	var cur *lib.rec
+	for j := 0; j < 2; j++ {
+		for range seq(2) {
+			var o19 lib.rec
+			cur = &o19
+		}
+	}
+	return int(cur.n)
+}
+
+func rangeFuncNoDefer() int {
+	var cur *lib.rec
+	for range seq(2) {
+		var o20 lib.rec
+		cur = &o20
+	}
+	return int(cur.n)
+}
+
+func declDeferRangeSlice() int {
+	defer cleanup()
+	var cur *lib.rec
+	for range []int{1, 2} {
+		var o25 lib.rec
+		cur = &o25
+	}
+	return int(cur.n)
+}
+
+func twoRangeFuncLoops() int {
+	defer cleanup()
+	n := 0
+	for i := range seq(2) {
+		n += i
+	}
+	var cur *lib.rec
+	for range seq(2) {
+		var o26 lib.rec
+		cur = &o26
+	}
+	return int(cur.n) + n
+}
+
+// (the locals before and after a range-over-func loop are not in its body: the frame holds them)
+func declDeferAroundRangeFunc() int {
+	defer cleanup()
+	n := 0
+	var cur *lib.rec
+	{
+		var o27 lib.rec
+		cur = &o27
+	}
+	for i := range seq(2) {
+		n += i
+	}
+	{
+		var o28 lib.rec
+		cur = &o28
+	}
+	return int(cur.n) + n
+}
+
+var gfn func()
+
+// the local of a literal that leaves is the literal's own: its address stays inside
+func litLocalLeaves() {
+	f := func() {
+		var l13 lib.rec
+		use(&l13)
+	}
+	gfn = f
+}
+
+func ifaceLeak() {
+	var o21 lib.rec
+	var i any = &o21
+	gany = i
+}
+
+func ifaceReturn() any {
+	var o22 lib.rec
+	var i any = &o22
+	return i
+}
+
+func unsafeLeak() {
+	var o23 lib.rec
+	up := unsafe.Pointer(&o23)
+	gup = up
+}
+
+func unsafeReturn() unsafe.Pointer {
+	var o24 lib.rec
+	up := unsafe.Pointer(&o24)
+	return up
+}
+
+type Lits struct{ a, b func() }
+
+var glits Lits
+
+func mkLits(a, b func()) Lits { return Lits{a, b} }
+
+// two literals in one statement: the locals of both are their own
+func twoLiterals() {
+	glits = mkLits(func() {}, func() {
+		var l14 lib.rec
+		p := &l14
+		use(p)
+	})
+}
+
+// The package-level initializers: gp_var_init lowers all of them with one funcGen, and a literal in the
+// second, third ... initializer is analysed with its own initializer.
+var pinit1 func() int = func() int { return 1 }
+
+var pinit2 func() *lib.rec = func() *lib.rec {
+	var o29 lib.rec
+	p := &o29
+	return p
+}
+
+var pinit3 func() *lib.rec = func() *lib.rec {
+	var o30 lib.rec
+	p := &o30
+	return p
+}
+
+var (
+	pinit4 func() int = func() int { return 2 }
+	pinit5 func() *lib.rec = func() *lib.rec {
+		var o31 lib.rec
+		p := &o31
+		return p
+	}
+	pinit6 func() int = func() int {
+		var o32 lib.rec
+		g = &o32
+		return 0
+	}
+	pinit7 Lits = Lits{a: func() {
+		var l15 lib.rec
+		use(&l15)
+	}, b: func() {
+		var o34 lib.rec
+		gs = append(gs, &o34)
+	}}
+)
+
+// a literal that stores its own local into a holder of the function that reads it afterwards
+func litStoresOuter() *lib.rec {
+	var h Holder
+	func() {
+		var o40 lib.rec
+		h.p = &o40
+	}()
+	return h.p
+}
+
+// three levels: xc into c, c into b, b into a
+func litNest3() *lib.rec {
+	var a *lib.rec
+	func() {
+		var b *lib.rec
+		func() {
+			var c *lib.rec
+			func() {
+				var o41 lib.rec
+				c = &o41
+			}()
+			b = c
+		}()
+		a = b
+	}()
+	return a
+}
+
+// a holder copied inside a literal into a package variable
+func litCopiesHolder() {
+	var o42 lib.rec
+	var h1, h2 Holder
+	h1.p = &o42
+	func() { h2 = h1 }()
+	g = h2.p
+}
+
+// a deferred literal that stores the address of the enclosing function's local
+func deferredLitStore() {
+	var o43 lib.rec
+	defer func() { g = &o43 }()
+}
+
+// a literal kept in a variable and called twice
+func litCalledTwice() *lib.rec {
+	var cur *lib.rec
+	set := func() {
+		var o44 lib.rec
+		cur = &o44
+	}
+	set()
+	set()
+	return cur
+}
+
+// the holder is only read in the function (nothing leaves it): the literal's local still outlives the literal
+func litHolderRead() int {
+	var h Holder
+	var x lib.rec
+	var a Holder
+	a.p = &x
+	func() {
+		var o47 lib.rec
+		h.p = &o47
+		_ = a
+	}()
+	return int(h.p.n) + int(a.p.n)
+}
+
+func litVarRead() int {
+	var cur *lib.rec
+	set := func() {
+		var o48 lib.rec
+		cur = &o48
+	}
+	set()
+	return int(cur.n)
+}
+
+func litNest3Read() int {
+	var a *lib.rec
+	func() {
+		var b *lib.rec
+		func() {
+			var c *lib.rec
+			func() {
+				var o49 lib.rec
+				c = &o49
+			}()
+			b = c
+		}()
+		a = b
+	}()
+	return int(a.n)
+}
+
+// the literal takes the address of the enclosing function's local and stores it where the function reads it
+func litTakesOuter() *lib.rec {
+	var o50 lib.rec
+	var cur *lib.rec
+	func() {
+		cur = &o50
+	}()
+	return cur
+}
+
+func litTakesOuterGo() {
+	var o51 lib.rec
+	var cur *lib.rec
+	f := func() { cur = &o51 }
+	f()
+	go func() { g = cur }()
+}
+
+func genericKeep[T any](v T) *lib.rec {
+	var o45 lib.rec
+	var cur *lib.rec
+	func() {
+		cur = &o45
+	}()
+	return cur
+}
+
+func genericClosure[T any](v T) *lib.rec {
+	var cur *lib.rec
+	func() {
+		var o46 lib.rec
+		cur = &o46
+	}()
+	return cur
+}
+
+func genericUser() {
+	genericKeep[int](1)
+	genericKeep[string]("a")
+	genericKeep[float64](1)
+	genericClosure[int](1)
+	genericClosure[string]("a")
+	genericClosure[float64](1)
+}
+
+func main() {}
+`
+	src += holderPairsSource(24)
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{"rec": interop.Type}
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	body := func(name string) string {
+		loc := regexp.MustCompile(`(?m)^\S.*\b(?:\w+::)?` + name + `\(.*\) \{$`).FindStringIndex(cpp)
+		if loc == nil {
+			t.Fatalf("no function %s in the C++:\n%s", name, cpp)
+		}
+		end := strings.Index(cpp[loc[0]:], "\n}\n")
+		return cpp[loc[0] : loc[0]+end]
+	}
+	// The address of the variable is an owning gp::cptr of its box (or, for a part, an aliasing one
+	// that shares the box): `gp::cptr<::rec>(v)`, with v declared as a box.
+	for name, v := range map[string]string{
+		"stored": "a", "aliased": "f", "appended": "h", "viaLocal": "j",
+		"rangeVar": "r1", "commaOk": "r2", "assertion": "r3", "sliceExpr": "r4", "structHolds": "r5",
+		"closureParam": "r6", "receive": "r7", "param": "r8", "viaCall": "r9", "returned": "r10",
+		"viaAlias": "r11", "sent": "r12", "namedResult": "r13",
+		"chain2": "c2", "chain3": "c3", "aliasLeaves": "c4", "aliasReturned": "c5", "addressOfObject": "c6",
+		"sliceAlias": "c7", "fillAddr": "c8", "copyPackage": "c9", "copyLocal": "c10", "appendCapacity": "c11",
+		"goArgument": "c12", "goCapture": "c13", "addrOfSlice": "c14", "rangeLocal": "c15", "funcLitArgument": "c16", "appendDiscarded": "c17", "implicitAddress": "c20", "sliceOfSlice": "c18", "sliceOfArray": "c19",
+		"goNamedAddress": "o1", "goNamedPointer": "o2", "goNamedHolder": "o3", "goNamedResult": "o11", "paramAlias": "o4",
+		"depthTwo": "o5", "mapParam": "o6", "starParam": "o7",
+		"outlivesAppend": "o8", "outlivesPointer": "o9", "outlivesHolder": "o10",
+		"closureDeferVar": "o12", "closureDeferStruct": "o13", "closureDeferAppend": "o14", "closureDeferBlock": "o15",
+		"closureInClosureDefer": "o16", "goClosureDefer": "o17", "rangeFuncDefer": "o18", "rangeFuncInLoopDefer": "o19",
+		"litStoresOuter": "o40", "litNest3": "o41", "litCopiesHolder": "o42", "deferredLitStore": "o43", "litCalledTwice": "o44",
+		"litHolderRead": "o47", "litVarRead": "o48", "litNest3Read": "o49",
+		"litTakesOuter": "o50", "litTakesOuterGo": "o51",
+		"rangeFuncNoDefer": "o20", "twoRangeFuncLoops": "o26", "ifaceLeak": "o21", "ifaceReturn": "o22", "unsafeLeak": "o23", "unsafeReturn": "o24",
+	} {
+		t.Run("owned "+name, func(t *testing.T) {
+			text := body(name)
+			if !strings.Contains(text, "gp::ptr<::rec> "+v+" = ") || !strings.Contains(text, "gp::cptr<::rec>("+v+")") {
+				t.Errorf("the stored address of %s in %s is not an owning gp::cptr of its box:\n%s", v, name, text)
+			}
+		})
+	}
+	for name, v := range map[string]string{"member": "b", "nested": "c", "element": "d", "goStruct": "e"} {
+		t.Run("owned part "+name, func(t *testing.T) {
+			text := body(name)
+			if !strings.Contains(text, "gp::cptr<") || !strings.Contains(text, "("+v+", &") {
+				t.Errorf("the address of a part of %s in %s is not an aliasing gp::cptr that shares its box:\n%s", v, name, text)
+			}
+		})
+	}
+	for name, want := range map[string]string{"receiver": "(w, &", "receiverCopy": "(c, &", "goPointer": "(pp, &"} {
+		t.Run("owned member "+name, func(t *testing.T) {
+			text := body(name)
+			if !strings.Contains(text, "gp::cptr<") || !strings.Contains(text, want) {
+				t.Errorf("the member address in %s is not an aliasing gp::cptr that shares %q:\n%s", name, want, text)
+			}
+		})
+	}
+	for name, local := range map[string]string{
+		"callOnly": "k", "localPointer": "l", "typeSwitch": "m",
+		"madeLiteral": "s1", "madeNew": "s2", "madeLocal": "s3", "madeSlice": "s4",
+		"chainLocal": "l1", "aliasLocal": "l2", "copyLocalOnly": "l3", "goOwnLocal": "l4",
+		"rangeThenStore": "l5", "sliceOfSliceLocal": "l6", "sliceOfArrayLocal": "l7",
+		"resultOfCall": "v1", "resultOfLocalPointer": "v3", "resultsOfStatus": "v5",
+		"insideBlock": "l8", "sameBlock": "l9", "twoLiterals": "l14", "litLocalLeaves": "l13",
+	} {
+		t.Run("raw "+name, func(t *testing.T) {
+			text := body(name)
+			if !strings.Contains(text, "::rec "+local+"{};") {
+				t.Errorf("%s is not a local of the C++ stack in %s:\n%s", local, name, text)
+			}
+		})
+	}
+	// the frame of a function declaration with a defer holds the local to the end (gp_hold), so the
+	// address stays a plain one; the body of a range over a slice is no function of its own
+	for name, vs := range map[string][]string{
+		"outlivesWithDefer": {"l10"}, "declDeferRangeSlice": {"o25"}, "declDeferAroundRangeFunc": {"o27", "o28"},
+	} {
+		t.Run("outlives with defer "+name, func(t *testing.T) {
+			text := body(name)
+			for _, v := range vs {
+				if !strings.Contains(text, "gp_hold("+v+")") || strings.Contains(text, "gp::cptr<::rec>("+v+")") {
+					t.Errorf("%s is not held by the frame alone:\n%s", v, text)
+				}
+			}
+		})
+	}
+	t.Run("package initializers", func(t *testing.T) {
+		text := body("gp_var_init")
+		for _, v := range []string{"o29", "o30", "o31", "o32", "o34"} {
+			if !strings.Contains(text, "gp::ptr<::rec> "+v+" = ") || !strings.Contains(text, "gp::cptr<::rec>("+v+")") {
+				t.Errorf("%s of a package-level initializer is not an owning gp::cptr of its box:\n%s", v, text)
+			}
+		}
+		if !strings.Contains(text, "::rec l15{};") {
+			t.Errorf("l15 of a package-level literal is not a local of the C++ stack:\n%s", text)
+		}
+	})
+	t.Run("generic instances", func(t *testing.T) {
+		for _, v := range []string{"o45", "o46"} {
+			if n := strings.Count(cpp, "gp::ptr<::rec> "+v+" = "); n != 3 {
+				t.Errorf("%s is boxed in %d of the 3 instances (int, string, float64)", v, n)
+			}
+		}
+	})
+	t.Run("two holders of one address", func(t *testing.T) {
+		text := body("holderPairs")
+		for i := 0; i < 24; i++ {
+			v := fmt.Sprintf("px%d", i)
+			if !strings.Contains(text, "gp::ptr<::rec> "+v+" = ") {
+				t.Errorf("%s is not boxed:\n%s", v, text)
+			}
+		}
+	})
+	// the same for a C scalar (an opaque value): the address that only goes to a call, or is read
+	// back, keeps the local on the stack
+	for name, decl := range map[string]string{"resultPlusOne": "int v2{};", "resultOfLoad": "int v4{};"} {
+		t.Run("raw scalar "+name, func(t *testing.T) {
+			if text := body(name); !strings.Contains(text, decl) {
+				t.Errorf("%s is not a local of the C++ stack in %s:\n%s", decl, name, text)
+			}
+		})
+	}
+	// A step through a slice or a Go pointer leaves the variable's own storage: the variable is not
+	// boxed for the address of a member of what it points to. (&sl[i].f of a slice's element is
+	// documented as not covered: the pointer is raw.)
+	t.Run("a C field of a Go struct is no member of a C object", func(t *testing.T) {
+		// (the ordinary address of a field shares the owner; the member rule is for what has no
+		// selection: a member of a C/C++ type)
+		text := body("wholeField")
+		if !strings.Contains(text, "gp::cptr<") || strings.Contains(text, "decltype") {
+			t.Errorf("the address of a C field of a Go struct is not the ordinary owning pointer:\n%s", text)
+		}
+	})
+	t.Run("a Go field of a pointer is no C member", func(t *testing.T) {
+		if text := body("goField"); strings.Contains(text, "gp::cptr<") || strings.Contains(text, "decltype") {
+			t.Errorf("the address of a Go field is wrapped as the address of a C/C++ member:\n%s", text)
+		}
+	})
+	for _, name := range []string{"slicePart", "goPointer"} {
+		t.Run("variable not boxed "+name, func(t *testing.T) {
+			text := body(name)
+			if strings.Contains(text, "gp::ptr<gp::slice") || strings.Contains(text, "gp::ptr<gp::ptr<Gen>>") {
+				t.Errorf("a variable of %s is boxed for the address of what it points to:\n%s", name, text)
+			}
+		})
+	}
+	for name, want := range map[string]string{
+		"member":   "(b, &gp::deref((*b)).n)", // shares b's box
+		"element":  "(d, &",
+		"goStruct": "(e, &",
+	} {
+		if text := body(name); !strings.Contains(text, want) {
+			t.Errorf("%s: no %q in\n%s", name, want, text)
 		}
 	}
 }

@@ -65,6 +65,7 @@ const (
 	boxShared                        // a closure captures it, and it is larger than 128 bytes
 	boxCObject                       // a closure captures a C/C++ object (cbox.go)
 	boxDefer                         // a deferred call uses a C/C++ object, or its address is taken in a function with defers (cbox.go)
+	boxCEscape                       // the address of a C/C++ object leaves the function: stored in a package variable, through a pointer the function did not make, in a result, sent (cbox.go: addrEscapes)
 
 	// boxStack is not a box: the variable stays on the C++ stack because the escape analysis
 	// (escape.go) proved that none of the pointers to it outlives it. It keeps its entry in the
@@ -109,6 +110,8 @@ func (r boxReason) String() string {
 		return "captured C/C++ object"
 	case boxDefer:
 		return "deferred call on a C/C++ object"
+	case boxCEscape:
+		return "address leaves the function (package variable, caller memory, result or send)"
 	case boxStack:
 		return "address does not escape"
 	case boxRefCaptured:
@@ -295,8 +298,13 @@ func boxedVarsFull(info *tinfo, fn ast.Node, withLocal bool) *boxResult {
 		}
 		return true
 	})
-	for v := range addrHeld(info, fn) {
+	addr := newAddrAnalysis(info, fn)
+	for v := range addr.heldLocals() {
 		b.mark(v, boxDefer) // its frame holds the box (cbox.go)
+	}
+	escaped, _ := addr.escaping()
+	for v := range escaped {
+		b.mark(v, boxCEscape) // the pointer that is kept owns the box (cbox.go)
 	}
 	// A local closure must not move a large formerly boxed capture onto a fixed-size C++ stack.
 	// Reserve its storage before address-taken locals, in source order so the result is stable.

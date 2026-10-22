@@ -73,8 +73,8 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Runtime
 
-- [ ] `recover`: a function F with `recover()` AND `defer recover()` that is itself the deferred call of a panic must recover it. Repro: `func F(skip bool){ defer recover(); if !skip { recover() } }`, then `defer F(true); panic("x")`: real Go prints `outer <nil>`, gocpp prints `outer x` (was L221).
-- [ ] `&cvar` stored in a package variable dangles silently. Repro: `var gp *C.int; func set(){ var n C.int = 5; gp = &n }` then `*gp` prints garbage (21847). Needs an escape check for stores of `&cvar` into package variables (was L225).
+- [ ] `&cvar` still dangles silently where the address is kept by something the compiler cannot see (ADR-139): a call that keeps its argument (`register(&x)`, `cb(&x)`, the yield of a range-over-func, `slices.Insert`/`maps.Copy` with C types), an address a C/C++ function keeps, a raw pointer member of a C struct that leaves, `&sl[1].a`. Over-retention (safe): `&n.next.v`, an unconverted C scalar result (`return lib.fill(&st)`).
+- [ ] ADR-139 follow-ups: `gocpp vet` `cpplocal` now reports only what the compiler already boxes (plus `return &x`), so it is informational (the new interop files sit in `knownFindings` per whole file, a per-line expectation is tighter); `mayHoldPointers` on a C struct is decided only by emission (no unit pin); `escTop` and the `top == nil` case in `stores()` are dead defensive code.
 - [ ] The 8 MiB main stack overflows at about 100,000 pointer-recursive frames (Go: 1 GB). Repro: a 100000-node linked list and `1 + length(n.next)` gives `fatal error: stack overflow`. Same root cause: `reflect.DeepEqual` of a 20000-node list, `io/fs.Glob` over ~6000 separators, regexp `x{1,1000}y{1,1000}` under ASan, `io/fs` TestCVE202230630 (was L282, L238, L303, L276, L257).
 - [ ] `make([]struct{}, math.MaxInt)` panics (Go allocates nothing); `slices.Grow([]int{1}, math.MaxInt)` says `makeslice: len out of range` (Go: `growslice: len out of range`) (was L265, L269).
 - [ ] `runtime.Callers(1, pcs)` returns 1 (Go: 3), no `runtime.main`/`runtime.goexit` frames; `ReadMemStats` leaves `Mallocs`, `Frees` and the pause fields at 0 (`TotalAlloc`, `NumGC`, `NumForcedGC` are done, 08.synclows) (was L244).
@@ -110,7 +110,6 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Compiler (check, lower, cppgen, generics, interop)
 
-- [ ] Struct field of an anonymous interface type: `type W struct{ mu interface{ Lock() } }; var w W` gives `internal error: generated C++ did not compile (field has incomplete type gp_anon_...)`; it compiles when a value is assigned into such a field elsewhere (was L246).
 - [ ] Generic types declared inside function bodies are a gate error (`generic types declared inside functions are not supported in gocpp`); gc accepts them (was L275).
 - [ ] Range over a generic iterator instantiated with C++ type arguments fails (`for s := range Seq(v)` with `v []std.string`: `package variables of C/C++ values without a type`); `func Wrap[T any, S ~[]T](xs S)` with a C++ element: `no matching function ... couldn't infer template argument 'T'` (was L236, L246).
 - [ ] `type Chars [1]C.char; var a Chars; a[0] = 100`: `internal error: expression has no type: a[0]` from internal/check/opaque.go (was L212).
@@ -131,7 +130,6 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] Phase 01/02 docs: README §2.1/§2.5 and ADR-002 say `gp_as[T]` (now `gp_cgoh.As[T]`); Phase 02 README file table lacks `ops.go`; `docs/CONTRIBUTING.md:61` does not list `tools/stubgen`; `docs/adr/README.md` does not describe dated amendments (was L67, L71, L75, L81).
 - [ ] One rule for "is this C" in the gates: `embedsOpaque` (internal/check/gatewalk.go:754) sees only this package's C type names, so a struct embedding `lib.T` (with `type T C.Foo`) misses the promoted-member gate (live only below gate phase 12; `version.Phase` is 5) (was L72).
 - [ ] A probe's compiler that exits non-zero with cut output hides the truncation (internal/interop/nsprobe.go:970 "Known limit"): own the pipe and retry for every exit status (was L82).
-- [ ] Parenthesized callee `(g)(1)` works, but no test contains it; the 5.4 interface-with-method-named-like-a-type fix has no run test (`type I interface{ Item() Item }`) (was L74, L226).
 - [ ] HRESULT (ADR-137): `gocpp vet` has no dropped-HRESULT analyzer; the editor has no HResults hook (silent on 18 of 20 misuse shapes); `check` and `build` disagree for an `error` argument to a C numeric function and for the full generic form `Gen[hresult.NTSTATUS]{...}`.
 - [ ] HRESULT (ADR-137): NTSTATUS is not a second row of the result table; an HRESULT through a function pointer or `std::function` stays raw; `%d` and `%#v` of the error show `{}`.
 - [ ] Map literals next to a C key (ADR-137): an unused variable inside a skipped value may go unreported (`CheckExpr` reports the first error per skipped value); an elided literal of a C/C++ type is refused; an anonymous Go struct with a C field is refused (elided) and fails in the build (full form).
@@ -180,7 +178,7 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Docs and tests
 
-- [ ] Add run tests: `(g)(1)` / `(fmt.Println)(1)`; `type I interface{ Item() Item }`; 6.2 fixture with `a b.gp` and `a$b.gp`; tests D02 and D08 of the 9.6 degraded wait (see Stdlib); `tests/run/flag_closure_cycle.gp` with `// lsan: cycle` (was L74, L226, L227, L291, L292).
+- [ ] Add run tests: 6.2 fixture with `a b.gp` and `a$b.gp`; tests D02 and D08 of the 9.6 degraded wait (see Stdlib); `tests/run/flag_closure_cycle.gp` with `// lsan: cycle` (was L74, L226, L227, L291, L292).
 - [ ] `docs/conformance/go-test.md` is stale (needs `gotest report -md` after a full run); 9.10 `stdlib-tests.md` numbers (was L292).
 - [ ] 9.3: UBSan was not run on the reflect tests (only ASan) (was L233).
 

@@ -107,8 +107,13 @@ var knownFindings = map[string]bool{
 	"c_constant_precision.gp narrowing": true, // C.int(big) with an int64 and C.char(b) with a uint16: they show the cut
 	"float_conversions.gp narrowing":    true, // C.float(x) with a float64: it shows the rounding
 	"cgo_helpers.gp cstr":               true, // C.CString("a\x00b"): it shows that the NUL ends the C string
-	"defer_hold_order.gp cpplocal":      true, // saved = &c, a package variable that only a deferred call reads
 	"umacro_lazy.gp unusedlazy":         true, // macro Never: a lazy argument that is never evaluated, as the test shows
+
+	// A store of &y into a variable of the enclosing function or block: the compiler boxes y when the
+	// variable leaves (ADR-139), and the analyzer does not follow that (cpplocal reports the store).
+	"cvar_addr_generics.gp cpplocal":         true,
+	"cvar_addr_literals.gp cpplocal":         true,
+	"cvar_addr_package_literals.gp cpplocal": true,
 }
 
 // TestOpaqueCorpus runs every analyzer over the programs that use C/C++

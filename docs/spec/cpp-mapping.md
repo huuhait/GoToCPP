@@ -1453,7 +1453,10 @@ int64_t load(int64_t n) {
   by its code: a func literal that contains `recover` is made as `gp::func<Sig>(gp::aware(lambda))`,
   a function of the package that does as `gp::func_of_aware<&f>()`, and a method value of an aware
   or an interface method as `gp::aware(lambda)`. A normal call of an aware function finds no
-  ticket, so its `recover()` returns nil, as in Go; `defer recover()` does nothing, as in Go. When
+  ticket, so its `recover()` returns nil, as in Go. A `defer recover()` is a lambda that calls
+  `gp::recover(gp_dc)` with the function's own ticket when the function ends: it stops the panic only
+  when that function is itself the deferred call that a panic runs (and does nothing otherwise, as
+  in Go). When
   the call that recovered the panic returns, `gp_run` drops the panic, runs the other deferred
   calls as for a normal return, and the function returns normally, with the named results as its
   deferred calls left them (a result that was never set is its zero value). A panic that is

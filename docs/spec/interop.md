@@ -1408,14 +1408,75 @@ name := rec.name[:]                     // a C array member, sliced: a []C.char 
     [closures and defers](#cc-objects-in-closures-and-defer) (a local of the function's own block
     is held until after the last deferred call; an inner-block or loop local only when its address
     is stored outside the block);
-  - every other pointer to a local is the program's to keep valid: `g = &x`, `h.p = &x` and
-    `p := &x; return p` compile, and dangle after `x`'s block ends (ASan finds it). A C function
-    must not keep `&x` after that either (a callback's user data, `sqlite3_bind_text` with
-    `SQLITE_STATIC`).
-    `gocpp vet` (analyzer `cpplocal`) reports the stores of `&x` that outlive `x` which it can see in
-    one function: a package variable, a field or element reached through a pointer parameter, a variable
-    declared outside the block (in a function without `defer`), a channel the function does not own,
-    and a result.
+  - the address of a local that **leaves the function's own objects** keeps `x` alive, as Go's
+    pointer does: `x` is boxed and the stored value is a `gp::cptr` that owns the box (an aliasing
+    pointer for the address of a part, `&x.f`, `&x.in.a`, `&x.arr[i]`, also a C member of a gocpp
+    struct), so the object is destroyed when the last pointer is dropped, not at the end of the
+    block (tests `tests/interop/cvar_addr_package_var.gp`, `cvar_addr_through_pointers.gp` and
+    `cvar_addr_flows.gp`; ADR-139). The pointer converts to the raw `T*` for C as any gocpp pointer
+    does (borrowed). The address **leaves** when it is stored in, or reaches by any chain of
+    assignments in any statement order:
+    - a package variable (`g = &x`, `g.f = &x`, `gs = append(gs, &x)`, `m[k] = &x`) or a member of a
+      C/C++ package;
+    - a selector, index or `*` of a pointer, slice or map variable or parameter that is **not provably
+      an object of this function** (`h.p = &x` with `h` a parameter, a receiver, a range variable, a
+      value of a call or a map lookup, a type assertion, a channel receive, a slice of package data,
+      a copy of one of those, a pointer whose own address is taken: `fill(&p)`, or a slice or map
+      variable that a pointer-receiver method is called on);
+    - a result, a `return` of a value that holds it (`return Holder{p: &x}`, `p := &x; return p`,
+      `res = append(res, &x); return res`), a channel send, and a `go` statement (its arguments and the
+      variables its function literal captures; the own locals of a function literal in a value that is stored, sent,
+      returned or started stay local);
+    - the destination of `copy(dst, src)` or `append(dst, src...)` when `dst` is package data or a
+      slice the function did not make (the elements are written into its backing array);
+    - or an object that does leave: `p2.next = p1; ...; g = p2` boxes what `p1` holds, whichever of the
+      statements comes first, and two variables of one object are one (`q := p; q.p = &x; g = p`,
+      `p := &h; p.p = &x; g = &h`, `t := s; t[0] = &x; g = s`);
+    - a variable (or the object of one) that is **declared in a block that encloses the block of `x`**
+      holds it: `list = append(list, &x)`, `cur = &x`, `o.p = &x`, `arr[i] = &x`, `m[k] = &x` or
+      `h.p = &x` in a loop, an `if` or a `switch`, with the variable declared before it, also through
+      an alias (`q := &x; cur = q`) and from a function literal (the pointer outlives `x`'s block, so
+      it would dangle). In a **function declaration** with a `defer` statement of its own the frame
+      holds such a local until the function ends (above), and nothing is boxed; that does not apply to a
+      **function literal** with a `defer` of its own (the variable may be declared outside it and outlive
+      the call) or to the **body of a range-over-func statement** (a lambda that ends before the function
+      does, and the frame does not hold what it declares): there `x` is boxed.
+
+    A value that cannot hold a pointer (an `int`, a `string`, a `bool`) carries no address: `return
+    int(fill(&st))`, `n := int(geti(&x)) + 1`, `return int(*p)` with `p := &x`, and `rc := fill(&st);
+    return int(rc), int(st.b)` box nothing. (A C/C++ scalar that is not converted, `return lib.fill(&st)`
+    or `rc := lib.fill(&st); return rc`, is still taken to hold a pointer, because the lowering does not
+    know the C type there: `st` is boxed, which is over-retention only.)
+
+    A pointer, slice or map is **provably local** when it is declared in the function with `:=` or
+    `var` and is set only from `&local`, `new`, `make`, a composite literal, `nil`, an `append` to
+    such a value, or another variable of its class (the variables that may refer to the same object),
+    and its own address is never taken: a store through it stays inside the function (`h := &Holder{};
+    h.p = &x; use(h.p)`). A local struct or array value is its own object. The rule may box a local
+    that Go would not keep alive (over-retention: the object lives until the last copy of the pointer is
+    dropped, which costs one heap box), and never leaves a listed store raw. `return &x` itself is an
+    error of the build. An address that only goes to a call (`use(&x)`), to a plain local variable of
+    the same block, or to a provably local object of the same block, a value that holds no pointer
+    computed from it, and the binding of a type switch, stay raw C++ addresses and nothing is boxed
+    for them;
+  - **still silent, so still dangling after `x`'s block ends** (ASan finds it): a call that keeps what it
+    is given in memory that outlives the call, because the lowering does not follow a value into a
+    call. That is a Go function or method that stores its parameter (`register(&x)` with `func
+    register(p *T) { global = p }`, `s.Push(&x)`, also with a pointer that holds `&x`: `register(p)`),
+    a function value that keeps its argument (`cb(&x)`, the `yield` of a range-over-func), and a
+    standard function that writes into its argument (`slices.Insert(gptrs, 0, &x)`); an address that a C
+    function keeps (a callback's user data, `sqlite3_bind_text` with `SQLITE_STATIC`), and an address
+    stored in a raw pointer member of a C/C++ struct or class that leaves (`h.p = &x; g = h` with
+    `struct HP { int* p; }`: the member is a C++ raw pointer and owns nothing, so the box dies with the
+    function); and the address of a C member of an element of a gocpp slice (`gi = &sl[1].a` with `sl` a
+    `[]lib.T` or `[]*lib.T`), a raw pointer into the element that dangles when the slice is dropped
+    (not about a local: the same on dev; `&sl[1]` itself is owned). A step through a C pointer *field*
+    in the path of a member address (`g = &n.next.v` with `next` a C pointer) is not told from a value
+    member in the opaque mode, so `n` is boxed for it: over-retention only, never a dangling address.
+    `gocpp vet` (analyzer `cpplocal`) reports what it can see in one function and what the compiler does
+    not keep: `return &x`, and a store of `&x` into a local variable or channel declared outside the
+    block of `x` (in a function without `defer`; the compiler boxes `x` for these now, so the report
+    is a harmless one);
 
   `&lib.global` is the address of a C/C++ global, which lives as long as the program.
 - **Pointers that own what they point to.** A `*T` of a C/C++ type that gocpp code declares (a

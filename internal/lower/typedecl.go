@@ -250,11 +250,19 @@ func (g *gen) addStruct(t types.Type, name, goName string) *structInfo {
 }
 
 // anonStructsIn adds the structs of the anonymous struct types in t: t itself, or the types
-// that it is made of (an element, a pointer's target, a field, ...).
+// that it is made of (an element, a pointer's target, a field, ...), and the structs of the
+// unnamed interface types in them.
 func (g *gen) anonStructsIn(t types.Type) {
 	switch t := types.Unalias(t).(type) {
 	case *types.Struct:
 		g.anonStruct(t)
+	case *types.Interface:
+		// An unnamed interface type is a shared struct of its own (ifaces.go), and a struct that
+		// holds it by value needs it complete: it is made now, not when a function first uses it
+		// (a struct{ mu interface{ Lock() } } that no function assigns into).
+		if !isAnyType(t) && t.IsMethodSet() {
+			g.ifaceOf(t, token.NoPos)
+		}
 	case *types.Pointer:
 		g.anonStructsIn(t.Elem())
 	case *types.Slice:

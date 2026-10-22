@@ -256,7 +256,7 @@ func (fg *funcGen) lambda(fl *ast.FuncLit) *cppir.Lambda {
 	fg.names.openScope()    // the lambda's parameters, results and outermost declarations
 	f := &funcInfo{
 		sig: sig, ftype: fl.Type, body: fl.Body, pos: fl.Pos(), top: fg.top, names: fg.names,
-		boxed: fg.boxed, esc: fg.fn.escOf(),
+		boxed: fg.boxed, esc: fg.fn.escOf(), addr: fg.addrAnalysis(),
 	}
 	f.signature(g)
 	lam := &cppir.Lambda{

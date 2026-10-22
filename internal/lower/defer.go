@@ -418,13 +418,7 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 		push = fg.pushCall(pushName("gp_push", fg.deferKind(c)), args...) // gp_push_aware: recover.go
 	case fg.isBuiltin(c, "recover"):
 		how = howRecover
-		// defer recover() does nothing: recover is the deferred call itself, not called by one
-		// (recover.go), and it has no arguments.
-		auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
-		push = fg.pushCall("gp_push_call", &cppir.Lambda{
-			Params: []cppir.Param{{Type: auto, Pack: true}},
-			Body:   &cppir.Block{Inline: true},
-		})
+		push = fg.pushCall("gp_push_call", fg.deferRecoverLambda(pos, spawn))
 	case fg.g.opaqueCallee(c):
 		how = howOpaque
 		push = fg.deferThunk(c) // a member of a C/C++ object, or a C++ callable (cbox.go)
@@ -440,6 +434,32 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 	}
 	fg.noteDeferred(pos, spawn, how) // why.go
 	fg.add(withPre(p, pre, &cppir.ExprStmt{Pos: p, X: push}))
+}
+
+// deferRecoverLambda returns the lambda that stores `defer recover()`. In Go the recover runs when
+// the function that contains the statement ends, and it stops a panic only when that function
+// was itself called by a panic's defer machinery: the function took the ticket at its start
+// (recover.go), and the lambda copies it, so recover(gp_dc) finds out when the lambda runs. A
+// `go recover()`, or a function that has no ticket (the body of a range over a func), stores a
+// lambda that does nothing.
+func (fg *funcGen) deferRecoverLambda(pos token.Pos, spawn bool) *cppir.Lambda {
+	if !spawn && fg.fn != nil && !fg.inRFBody() && fg.g.awareBody(fg.fn.body) {
+		fg.g.noteRecover(pos) // why.go
+		return &cppir.Lambda{
+			Captures: []cppir.Capture{{Name: deferCtxName}},
+			Body: &cppir.Block{
+				Inline: true,
+				Stmts: []cppir.Stmt{
+					&cppir.ExprStmt{X: call("gp::recover", cxxName(deferCtxName))},
+				},
+			},
+		}
+	}
+	auto := &cppir.Ref{Elem: typeName("auto"), RValue: true}
+	return &cppir.Lambda{
+		Params: []cppir.Param{{Type: auto, Pack: true}},
+		Body:   &cppir.Block{Inline: true},
+	}
 }
 
 // deferredFunc returns the function of the program that the deferred call c calls with a

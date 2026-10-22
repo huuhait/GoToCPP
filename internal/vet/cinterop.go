@@ -131,20 +131,27 @@ func walkStack(root ast.Node, f func(n ast.Node, stack []ast.Node) bool) {
 // cpplocalAnalyzer finds the address of a C/C++ local variable that is kept beyond the variable.
 //
 // &x of a C/C++ value is a raw C++ address (docs/spec/interop.md, "&x of a C/C++ value"): the
-// variable ends with its block, not when nothing points to it any more as in Go. `return &x` is an
-// error of the build; the other ways to keep the address compile and dangle:
+// variable ends with its block, not when nothing points to it any more as in Go. The compiler
+// boxes x, and the stored pointer owns the box, when the address leaves the function's own
+// objects: a store into a package variable, through a pointer, slice or map that the function did
+// not make (a parameter, a range variable, a value of a call, a map lookup ...), into a result,
+// a channel send, or an address that is returned inside a value (return T{p: &x}, p := &x; return
+// p, res = append(res, &x); return res). Those are safe and not reported. `return &x` itself is an
+// error of the build, and is reported. What compiles and dangles:
 //
-//	g = &x          h.p = &x       (g a package variable, h a pointer parameter)
-//	out[i] = &x     list = append(list, &x)   (the target is declared outside the block of x)
-//	ch <- &x        p := &x; return p        return T{p: &x}
+//	list = append(list, &x)   out[i] = &x   p = &x   h.p = &x
+//	(the target is a local variable declared outside the block of x, in a function without defer)
+//	ch <- &x                  (a channel declared outside the block of x)
 //
 // The analyzer reports each &x (or &x.f, &x[i] of an array) of a local variable that is declared
 // with a C/C++ type (var x C.T, x := C.T{...}, a parameter x C.T) when its value is stored in one
-// of those places. It does not follow the address through calls, fields of local structs or
-// goroutines, so a function that stores the pointer it was given is not found.
+// of those places. It does not follow the address through calls (register(&x) with a function that
+// keeps its argument in a package variable is not found, and the compiler does not box x for it
+// either), or goroutines. It also reports a store that the compiler boxes later, when the outer
+// variable is itself returned or sent on: it does not follow that.
 var cpplocalAnalyzer = &analysis.Analyzer{
 	Name:             "cpplocal",
-	Doc:              "report the address of a C/C++ local variable that is stored where it outlives the variable (a package variable, a pointer parameter, an outer variable, a channel, a result)",
+	Doc:              "report the address of a C/C++ local variable that is stored where it outlives the variable and the compiler does not keep it alive (return &x, a local variable or channel declared outside the block of the variable)",
 	RunDespiteErrors: true,
 	Run:              runCppLocal,
 }
@@ -243,27 +250,13 @@ func cppLocalFunc(pass *analysis.Pass, ci *cinfo, typ *ast.FuncType, recv *ast.F
 		return
 	}
 
-	cf := &cppFunc{info: info, params: params, results: results, assigned: make(map[types.Object]int), returned: make(map[types.Object]bool)}
+	cf := &cppFunc{info: info, params: params, results: results}
 	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
+		switch n.(type) {
 		case *ast.FuncLit:
 			return false
 		case *ast.DeferStmt:
 			cf.hasDefer = true
-		case *ast.AssignStmt:
-			if n.Tok != token.DEFINE {
-				for _, l := range n.Lhs {
-					if id, ok := ast.Unparen(l).(*ast.Ident); ok {
-						cf.assigned[info.Uses[id]]++
-					}
-				}
-			}
-		case *ast.ReturnStmt:
-			for _, r := range n.Results {
-				if id, ok := ast.Unparen(r).(*ast.Ident); ok {
-					cf.returned[info.Uses[id]] = true
-				}
-			}
 		}
 		return true
 	})
@@ -319,11 +312,9 @@ func cLocalRoot(info *types.Info, e ast.Expr, locals map[types.Object]bool) type
 
 // A cppFunc is what the rules need of the function that holds an &x.
 type cppFunc struct {
-	info     *types.Info
-	params   map[types.Object]bool // parameters, receiver and named results
-	results  map[types.Object]bool // the named results
-	assigned map[types.Object]int  // how often a local variable is assigned after its declaration
-	returned map[types.Object]bool // local variables that a return statement returns by name
+	info    *types.Info
+	params  map[types.Object]bool // parameters, receiver and named results
+	results map[types.Object]bool // the named results
 	// hasDefer: the function has a defer statement of its own. gocpp then holds a C/C++ local whose
 	// address is stored in a variable declared outside its block until the function ends
 	// (docs/spec/interop.md, "C/C++ objects in closures and defer"), so that store is safe.
@@ -337,6 +328,7 @@ func (c *cppFunc) keptWhere(x types.Object, un *ast.UnaryExpr, stack []ast.Node)
 	// Climb through the expressions that carry the address along.
 	var child ast.Node = un
 	i := len(stack) - 1
+	carried := false // the address is inside a literal, an append or another & (not the bare &x)
 climb:
 	for ; i >= 0; i-- {
 		switch p := stack[i].(type) {
@@ -345,12 +337,14 @@ climb:
 			if p.Value != child {
 				return ""
 			}
+			carried = true
 		case *ast.CompositeLit:
-			// an element of the literal
+			carried = true // an element of the literal
 		case *ast.UnaryExpr:
 			if p.Op != token.AND {
 				return ""
 			}
+			carried = true
 		case *ast.CallExpr:
 			id, ok := ast.Unparen(p.Fun).(*ast.Ident)
 			if !ok || id.Name != "append" {
@@ -359,6 +353,7 @@ climb:
 			if _, ok := info.Uses[id].(*types.Builtin); !ok {
 				return ""
 			}
+			carried = true
 		default:
 			break climb
 		}
@@ -369,16 +364,16 @@ climb:
 	}
 	switch p := stack[i].(type) {
 	case *ast.ReturnStmt:
-		return "returns it"
+		if !carried {
+			return "returns it" // (the build refuses it; inside a value that is returned, the local is boxed)
+		}
 	case *ast.SendStmt:
 		if p.Value == child {
 			if v := rootVar(info, p.Chan); v != nil {
-				switch {
-				case isPackageVar(v):
-					return "sends it on the channel " + v.Name() + ", a package variable"
-				case c.params[v]:
-					return "sends it on the channel " + v.Name() + ", which the caller keeps"
-				case outlives(v, x) && !c.hasDefer:
+				// (a channel that is a package variable or a parameter outlives the block, and the
+				// compiler boxes x: only a channel declared outside the block of x in this function
+				// is kept by the analysis)
+				if !isPackageVar(v) && !c.params[v] && outlives(v, x) && !c.hasDefer {
 					return "sends it on " + v.Name() + ", which is declared outside the block of " + x.Name()
 				}
 			}
@@ -438,56 +433,25 @@ func (c *cppFunc) keptByTarget(x types.Object, target ast.Expr, define bool) str
 		}
 		switch {
 		case isPackageVar(v):
-			return "stores it in the package variable " + v.Name()
-		case !define && c.results[v] && c.assigned[v] == 1: // assigned again, it may not hold the address at the return
-			return "stores it in the result " + v.Name() + ", which the function returns"
+			return "" // the compiler boxes x and the stored pointer owns the box (cbox.go: addrEscapes)
+		case c.results[v]:
+			return "" // returned, so the compiler boxes x and the pointer owns the box
 		case !define && outlives(v, x) && !c.hasDefer:
 			return "stores it in " + v.Name() + ", which is declared outside the block of " + x.Name()
-		case define && c.returned[v] && c.assigned[v] == 0:
-			return "returns it through " + v.Name()
 		}
 		return ""
 	}
 	// h.p, out[i], *p: the target is part of the variable at its root.
-	deref := false
-	for root := target; ; {
-		switch t := ast.Unparen(root).(type) {
-		case *ast.SelectorExpr:
-			if tv, ok := info.Types[t.X]; ok && tv.Type != nil {
-				if _, isPtr := tv.Type.Underlying().(*types.Pointer); isPtr {
-					deref = true
-				}
-			}
-			root = t.X
-			continue
-		case *ast.IndexExpr:
-			if tv, ok := info.Types[t.X]; ok && tv.Type != nil {
-				switch tv.Type.Underlying().(type) {
-				case *types.Slice, *types.Map, *types.Pointer:
-					deref = true
-				}
-			}
-			root = t.X
-			continue
-		case *ast.StarExpr:
-			deref = true
-			root = t.X
-			continue
-		}
-		break
-	}
 	v := rootVar(info, target)
 	switch {
 	case v == nil:
 		return ""
 	case isPackageVar(v):
-		return "stores it in " + types.ExprString(target) + " of the package variable " + v.Name()
-	case c.results[v]:
-		return "stores it in " + types.ExprString(target) + " of the result " + v.Name() + ", which the function returns"
+		return "" // owned by the stored pointer, as above
+	case c.results[v] || c.params[v]:
+		return "" // a result is returned and a parameter is the caller's: the compiler boxes x
 	case outlives(v, x) && !c.hasDefer:
 		return "stores it in " + types.ExprString(target) + ", which is declared outside the block of " + x.Name()
-	case c.params[v] && deref:
-		return "stores it through the parameter " + v.Name() + " (" + types.ExprString(target) + "), which the caller keeps"
 	}
 	return ""
 }

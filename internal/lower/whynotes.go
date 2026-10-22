@@ -99,6 +99,8 @@ func boxText(name string, r boxReason) string {
 		return name + " is boxed: a closure captures a C/C++ object, which the box keeps in place and alive"
 	case boxDefer:
 		return name + " is boxed: a deferred call holds a C/C++ object or its address, and the defer frame keeps the box"
+	case boxCEscape:
+		return name + " is boxed: the address of this C/C++ object leaves the function (a package variable, memory the caller keeps, a result or a send), and the gp::cptr that is kept owns the box"
 	}
 	return name + " is boxed"
 }
@@ -157,6 +159,8 @@ func (fg *funcGen) boxedWhy(v *types.Var) string {
 		return "a C/C++ object"
 	case boxDefer:
 		return "held by a defer frame"
+	case boxCEscape:
+		return "its address leaves the function (a package variable, memory the caller keeps, a result or a send)"
 	case boxStack:
 		return "on the stack"
 	case boxRefCaptured:
@@ -222,7 +226,7 @@ func (fg *funcGen) noteDeferred(pos token.Pos, spawn bool, how deferHow) {
 	}
 	text := map[deferHow]string{
 		howFunc:    "a function of the program, called with its arguments (gp_push)",
-		howRecover: "recover itself: it does nothing there, as in Go",
+		howRecover: "recover itself: a lambda that calls gp::recover(gp_dc) when the function ends, with the ticket the function took at its start (it stops a panic only if a panic's deferred call is this function, as in Go)",
 		howOpaque:  "a call on a C/C++ object, stored in a lambda that the frame keeps alive",
 		howValue:   "a func value: copied now, called later (gp_push_call)",
 		howLiteral: "a func literal: its lambda goes into the frame (gp_push_call), so the stack trace names it func1, func2...",

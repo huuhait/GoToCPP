@@ -151,6 +151,13 @@ type funcGen struct {
 	heldPtrs map[*types.Var]string
 	// addrHeld: the C/C++ locals whose box the frame holds (cbox.go: addrHeld, holdBox).
 	addrHeld map[*types.Var]bool
+	// escapes: the C/C++ locals whose address is stored in a package variable (cbox.go:
+	// addrEscapes), computed when first asked (escapedAddr).
+	escapes     map[*types.Var]bool
+	escapeExprs map[*ast.UnaryExpr]bool
+	escapesDone bool
+	escTop      ast.Node      // the top that escapes was made for
+	addrOwn     *addrAnalysis // the analysis of a funcGen without a funcInfo (addrAnalysis)
 	// retStmt is the return statement being lowered (returnMove).
 	retStmt *ast.ReturnStmt
 	// memberStores: the value of each assignment x.m = v into a member or element of a C/C++ object

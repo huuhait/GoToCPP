@@ -279,7 +279,7 @@ func (fg *funcGen) rfBody(s *ast.RangeStmt, loop *rfLoop, ysig *types.Signature,
 	g, rf := fg.g, fg.rf
 	f := &funcInfo{
 		sig: ysig, body: s.Body, pos: s.For, top: fg.top, names: fg.names, boxed: fg.boxed,
-		esc: fg.fn.escOf(),
+		esc: fg.fn.escOf(), addr: fg.addrAnalysis(),
 	}
 	lam := &cppir.Lambda{
 		Template: []cppir.Param{{Type: typeName("int"), Default: lit("0")}},

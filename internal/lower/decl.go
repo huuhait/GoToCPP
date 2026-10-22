@@ -41,6 +41,7 @@ type funcInfo struct {
 	boxed map[*types.Var]boxReason // the variables that live in a box (box.go)
 	args  []*types.Var             // the boxed parameters, in order
 	esc   *escapeInfo              // what the escape analysis kept on the stack (escape.go), or nil
+	addr  *addrAnalysis            // the address analysis of top (cbox.go), shared with the literals and bodies in it
 
 	defers *deferInfo // the single-exit shape of a function with defers (defer.go), or nil
 

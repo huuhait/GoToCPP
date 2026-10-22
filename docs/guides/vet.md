@@ -129,19 +129,31 @@ Of gocpp's own, about `!` and macros (they work on the programs with Phase 10 sy
 Of gocpp's own, at the C/C++ boundary (they look at the shape of the code, not at the C++ types,
 which `gocpp vet` does not probe):
 
-- **`cpplocal`**: `&x` of a C/C++ local variable, kept where it outlives the variable. `&x` of a
-  C/C++ value is a raw C++ address, and the variable ends with its block. `return &x` is an error
-  of the build; the other ways to keep the address compile and dangle. Reported: `g = &x` (a package
-  variable), `h.p = &x` or `out[i] = &x` through a parameter the caller keeps, `list = append(list, &x)`
-  or `p = &x` where the target is declared outside the block of `x`, `ch <- &x` on a channel that
-  the function does not own, `p := &x; return p`, and `return T{p: &x}`. `x` is a variable
-  declared with a C/C++ type (`var x C.T`, `x := C.T{...}`, a parameter `x C.T`, also through a
-  type name of the package for one: `type St = stat.struct_stat`) in the same function. Storing the
-  address in a named result is reported (the function returns it). Not reported: `&x` as an argument (a borrow for the call), a store in a local variable
-  or struct of the same block, and a store in an outer variable in a function that has a `defer`
-  statement (gocpp holds the local until the function ends then, see
-  [closures and defer](../spec/interop.md#cc-objects-in-closures-and-defer)). The analysis does
-  not follow the address into other functions.
+- **`cpplocal`**: `&x` of a C/C++ local variable, kept where it outlives the variable and the
+  compiler does not keep it alive. `&x` of a C/C++ value is a raw C++ address, and the variable ends
+  with its block. The compiler boxes `x`, and the stored pointer owns the box, when the address
+  leaves the function's own objects: a store into a package variable, through a pointer, slice
+  or map that the function did not make (`h.p = &x` with `h` a parameter, a range variable, a
+  value of a call, a map lookup ...), into a result, a `return` of a value that holds it
+  (`return T{p: &x}`, `p := &x; return p`), a channel send, a `go` statement, a `copy` or `append`
+  into package data, or an object that itself leaves (see [the spec](../spec/interop.md),
+  "`&x` of a C/C++ value", and ADR-139); those are safe and not reported. Reported: `return &x` (an
+  error of the build too), and `list = append(list, &x)`, `p = &x`, `out[i] = &x`, `h.p = &x` or
+  `ch <- &x` where the target is a local variable or channel declared outside the block of `x`, in a
+  function without a `defer` statement (gocpp holds the local until the function ends then). The
+  compiler boxes `x` for such a store too (a variable declared in a block that encloses `x`'s block
+  keeps the address past the block, ADR-139), so these reports and the ones where the outer
+  variable leaves the function later are harmless: they show where a pointer outlives the block of
+  its variable. `x` is a variable declared with a C/C++ type (`var x C.T`,
+  `x := C.T{...}`, a parameter `x C.T`, also through a type name of the package for one: `type St =
+  stat.struct_stat`) in the same function. **Not reported, and not kept alive by the compiler
+  either**: `&x`, or a value that holds it, given to a call that keeps it: a Go function or method that
+  stores its parameter in a package variable or in memory that the caller keeps (`register(&x)`,
+  `s.Push(&x)`), a function value (`cb(&x)`, the `yield` of a range-over-func), a standard function
+  that writes into its argument (`slices.Insert`), and a raw pointer member of a C/C++ struct that
+  leaves (`h.p = &x; g = h`, `struct HP { int* p; }`). The analysis does not follow the address into
+  calls. Not reported because it is a borrow: `&x` as an argument of a call that does not keep it, and
+  a store in a local variable or struct of the same block.
 - **`cstr`**: a `C.cstr` string that does not last as long as C needs it. `C.cstr(s)` is valid
   until the end of the statement. Reported: `C.cstr(s)` given to a function that keeps the pointer
   (the list of typed interop, `internal/lower/keeps.go`: `openlog`, `getopt`, raylib's `InitWindow`
@@ -206,9 +218,7 @@ The programs of `tests/run` for `!` and macros, `examples/must-errors` and the m
 `umacro_lazy.gp`, where the macro `Never` has a lazy parameter that it never calls, on purpose.
 The tests of
 the C/C++ boundary do some of what the analyzers say, on purpose: a conversion that cuts
-(`c_constant_precision.gp`, `float_conversions.gp`), a NUL byte in a C string (`cgo_helpers.gp`),
-and the address of a parameter in a package variable that only a deferred call reads
-(`defer_hold_order.gp`).
+(`c_constant_precision.gp`, `float_conversions.gp`) and a NUL byte in a C string (`cgo_helpers.gp`).
 
 ## Speed
 

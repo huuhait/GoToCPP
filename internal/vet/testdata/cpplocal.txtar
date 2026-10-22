@@ -15,41 +15,47 @@ var g *stat.struct_stat
 
 func toGlobal() {
 	var st stat.struct_stat
-	g = &st // want `&st takes the address of the C/C\+\+ variable st and stores it in the package variable g`
+	g = &st // (a package variable owns it: the compiler boxes st)
 }
 
 func toParam(h *Holder) {
 	var st stat.struct_stat
-	h.p = &st // want `&st takes the address of the C/C\+\+ variable st and stores it through the parameter h \(h.p\), which the caller keeps`
+	h.p = &st // (the caller's memory: the compiler boxes st and the stored pointer owns the box)
 }
 
 func toSlice(out []*stat.struct_stat) {
 	var st stat.struct_stat
-	out[0] = &st // want `stores it through the parameter out \(out\[0\]\)`
+	out[0] = &st // (boxed, as above)
 }
 
 var shared = make(chan *stat.struct_stat, 1)
 
 func toChannel(ch chan *stat.struct_stat) {
 	var st stat.struct_stat
-	shared <- &st // want `sends it on the channel shared, a package variable`
-	ch <- &st // want `sends it on the channel ch, which the caller keeps`
+	shared <- &st // (boxed: the receiver may be anywhere)
+	ch <- &st
 }
 
 func viaVariable() *stat.struct_stat {
 	var st stat.struct_stat
-	p := &st // want `returns it through p`
+	p := &st // (boxed: returned)
 	return p
+}
+
+// The one shape that the build refuses: the address as the result.
+func direct() *stat.struct_stat {
+	var st stat.struct_stat
+	return &st // want `&st takes the address of the C/C\+\+ variable st and returns it`
 }
 
 func inLiteral() Holder {
 	st := stat.struct_stat{}
-	return Holder{p: &st} // want `&st takes the address of the C/C\+\+ variable st and returns it`
+	return Holder{p: &st} // (boxed: inside a returned value)
 }
 
 func field() *Holder {
 	var st stat.struct_stat
-	return &Holder{p: &st.st_dev} // want `&st.st_dev takes the address of the C/C\+\+ variable st and returns it`
+	return &Holder{p: &st.st_dev}
 }
 
 func appended() {
@@ -62,12 +68,22 @@ func appended() {
 }
 
 func param(st stat.struct_stat) {
-	g = &st // want `stores it in the package variable g`
+	g = &st
+}
+
+// A parameter and a result are declared outside the block of the variable, and the compiler boxes it.
+func toParamInLoop(h *Holder) (r *stat.struct_stat) {
+	for i := 0; i < 2; i++ {
+		var st stat.struct_stat
+		h.p = &st
+		r = &st
+	}
+	return
 }
 
 func toParamChannel(ch chan *stat.struct_stat) {
 	st := stat.struct_stat{}
-	ch <- &st // want `sends it on the channel ch, which the caller keeps`
+	ch <- &st
 }
 
 func main() {
@@ -76,11 +92,13 @@ func main() {
 	toSlice(nil)
 	toChannel(nil)
 	viaVariable()
+	direct()
 	inLiteral()
 	field()
 	appended()
 	param(stat.struct_stat{})
 	toParamChannel(nil)
+	toParamInLoop(nil)
 }
 -- fine/main.gp --
 package main
@@ -193,7 +211,7 @@ func toOuterChannelWithDefer() {
 // A C array is a value; a slice of C values is a gocpp slice, with its own memory.
 func arrays() {
 	var arr [4]C.int
-	g2 = &arr[1] // want `&arr\[1\] takes the address of the C/C\+\+ variable arr and stores it in the package variable g2`
+	g2 = &arr[1]
 	sl := make([]C.int, 4)
 	g2 = &sl[1]
 	var declared []C.int
@@ -230,9 +248,9 @@ type Defined stat.struct_stat
 
 func aliases() {
 	var a St
-	g = &a // want `&a takes the address of the C/C\+\+ variable a and stores it in the package variable g`
+	g = &a
 	var d Defined
-	g3 = &d // want `stores it in the package variable g3`
+	g3 = &d
 }
 
 var g3 *Defined
@@ -240,7 +258,7 @@ var g3 *Defined
 // A named result that is assigned is returned.
 func namedResult() (p *stat.struct_stat) {
 	var st stat.struct_stat
-	p = &st // want `stores it in the result p, which the function returns`
+	p = &st // (boxed: the result is returned)
 	return
 }
 
@@ -253,7 +271,7 @@ func namedResultReset() (r *stat.struct_stat) {
 
 func namedResultField() (h Holder) {
 	var st stat.struct_stat
-	h.p = &st // want `stores it in h.p of the result h`
+	h.p = &st
 	return
 }
 
