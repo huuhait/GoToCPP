@@ -282,7 +282,9 @@ func (c *checkCommand) analyzePackage(prog *load.Program, p *check.Package, cros
 	if cross {
 		return ""
 	}
-	res := icheck.CheckReport(p, prog.Fset, rep, fam)
+	// GOCPP_TEST_NO_ADAPT_ERRORS lets a test see the refusals that the lowering makes on its own
+	// (the pass would report them first, with the same words, and the build would stop there).
+	res := icheck.CheckReportWithout(p, prog.Fset, rep, fam, os.Getenv("GOCPP_TEST_NO_ADAPT_ERRORS") != "")
 	for _, d := range res.Diags {
 		p.Errors.Add(d)
 	}

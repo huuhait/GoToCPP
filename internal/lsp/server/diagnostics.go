@@ -633,6 +633,20 @@ func (d *diagnostics) probed() {
 	d.recheck(dirs)
 }
 
+// adapted is Config.OnAdapt: the argument adaptation diagnostics of the package in dir are ready (or
+// changed). The package itself is not stale, so the run is a plain one: it publishes what changed.
+// Only a package that is open is diagnosed.
+func (d *diagnostics) adapted(dir string) {
+	// (From the snapshot's documents, not from d.pkgs: an analysis can end before the first publish
+	// of the package has recorded it.)
+	snap, release := d.s.session.Snapshot()
+	open := openDirs(snap)[dir]
+	release()
+	if open {
+		d.schedule(dir, 0)
+	}
+}
+
 // recheck checks the packages of the folders dirs again in a new snapshot
 // (Session.Recheck: their handles and those of their importers are new,
 // nothing is read again) and diagnoses them.
@@ -727,6 +741,14 @@ func diagnose(
 	var all []diag.Diagnostic
 	for _, l := range []*diag.List{pkg.Program.Errors, pkg.Check.Errors} {
 		all = append(all, l.Diagnostics()...)
+	}
+	// The refusals of the argument adaptations, when the analysis of this very package is done
+	// (cache/adaptindex.go): never waited for, none when not ready. A focused package is not the
+	// one that was analyzed, so it has none.
+	if only == "" {
+		if adapted, ok := snap.AdaptDiagnostics(pkg); ok {
+			all = append(all, adapted...)
+		}
 	}
 	for _, x := range all {
 		if x.Pos.Filename == "" {

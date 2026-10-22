@@ -183,8 +183,7 @@ type gen struct {
 	cConsts  map[ast.Expr]bool
 	cFuncs   map[ast.Expr]bool // func values that go to C/C++ places: callbacks (ccallback.go)
 	elided   map[*ast.CompositeLit]ast.Expr
-	holders  map[*types.Var]bool     // the variables that hold a C.cstr holder (cstrings.go)
-	wideVars map[*types.Var]bool     // the holders among them that hold a C.wstr holder (cstrings.go)
+	holders  *check.Holders          // the variables that hold a C.cstr holder (cstrings.go)
 	tconv    map[ast.Expr]cppir.Type // the conversions of typed mode (typed.go: noteTypedConv)
 	parents  map[ast.Node]ast.Node   // the parent of each syntax node (typedargs.go: parentOf)
 

@@ -102,6 +102,7 @@ type Stats struct {
 	Compiled int // probes that compiled
 	Failed   int // probes that failed
 	Sites    int // uses checked (of the compiled and the failed ones)
+	Adapt    int // refusals of the argument adaptations (adapt.go)
 }
 
 // Errors returns the number of errors (not warnings) in the result.
@@ -155,28 +156,33 @@ func Check(ctx context.Context, p *check.Package, fset *token.FileSet, opts Opti
 // Options.Decls (the probe, the declarations and the mapped values). fam is the
 // family of the compiler that builds the program.
 func CheckReport(p *check.Package, fset *token.FileSet, rep *typedinterop.Report, fam build.Family) *Result {
+	return CheckReportWithout(p, fset, rep, fam, false)
+}
+
+// CheckReportWithout is CheckReport that leaves the argument adaptation refusals out when
+// withoutAdaptations is set. Only a test uses it (GOCPP_TEST_NO_ADAPT_ERRORS in `gocpp build`), to
+// see the refusals that the lowering makes on its own, which the pass would otherwise report first.
+func CheckReportWithout(p *check.Package, fset *token.FileSet, rep *typedinterop.Report,
+	fam build.Family, withoutAdaptations bool) *Result {
 	res := &Result{Report: rep}
-	switch {
-	case rep == nil || rep.Table == nil || rep.Set == nil:
-		res.Skipped = "no probe results"
-		return res
-	case rep.Mapper == nil || len(rep.Values) != len(rep.Table.Results):
-		res.Skipped = "the declarations were not extracted"
-		return res
-	case len(rep.IncludeErrors) > 0:
-		res.Skipped = fmt.Sprintf("a header cannot be included (%s): the compiler decides", rep.IncludeErrors[0].Msg)
-		return res
-	case len(rep.Table.HeaderErrors) > 0:
-		d := rep.Table.HeaderErrors[0]
-		res.Skipped = fmt.Sprintf("a header has an error (%s: %s): the compiler decides", d.File, d.Msg)
+	if res.Skipped = skipReason(rep); res.Skipped != "" {
 		return res
 	}
 	c := &checker{p: p, fset: fset, rep: rep, warn: fam == build.GCC, res: res, lines: map[string][]string{}}
 	c.ix = buildIndex(p, fset)
 	c.hdrs = headerNames(rep.Set)
 	c.run()
-	sort.SliceStable(res.Diags, func(i, j int) bool {
-		a, b := res.Diags[i].Pos, res.Diags[j].Pos
+	if !withoutAdaptations {
+		c.adaptations()
+	}
+	sortDiags(res.Diags)
+	return res
+}
+
+// sortDiags puts the diagnostics in source order.
+func sortDiags(diags []diag.Diagnostic) {
+	sort.SliceStable(diags, func(i, j int) bool {
+		a, b := diags[i].Pos, diags[j].Pos
 		if a.Filename != b.Filename {
 			return a.Filename < b.Filename
 		}
@@ -185,7 +191,23 @@ func CheckReport(p *check.Package, fset *token.FileSet, rep *typedinterop.Report
 		}
 		return a.Column < b.Column
 	})
-	return res
+}
+
+// skipReason returns why the report cannot be checked, or "". The checks need the probe results,
+// the extracted declarations, and headers that compile.
+func skipReason(rep *typedinterop.Report) string {
+	switch {
+	case rep == nil || rep.Table == nil || rep.Set == nil:
+		return "no probe results"
+	case rep.Mapper == nil || len(rep.Values) != len(rep.Table.Results):
+		return "the declarations were not extracted"
+	case len(rep.IncludeErrors) > 0:
+		return fmt.Sprintf("a header cannot be included (%s): the compiler decides", rep.IncludeErrors[0].Msg)
+	case len(rep.Table.HeaderErrors) > 0:
+		d := rep.Table.HeaderErrors[0]
+		return fmt.Sprintf("a header has an error (%s: %s): the compiler decides", d.File, d.Msg)
+	}
+	return ""
 }
 
 // headerNames maps the first name of each C path of a header package to the

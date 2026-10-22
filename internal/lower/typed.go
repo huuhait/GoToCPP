@@ -8,6 +8,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/typedinterop"
+	"github.com/huuhait/gocpp/internal/typedinterop/adapt"
 	"github.com/huuhait/gocpp/internal/typedinterop/ctype"
 	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
 	"github.com/huuhait/gocpp/internal/typedinterop/probe"
@@ -77,23 +78,11 @@ func (g *gen) tvalOf(e ast.Expr) *tval {
 	if !g.typedOn() {
 		return nil
 	}
-	t := g.interop.typed
-	ref := t.rep.Set.RefOf(e)
-	if ref == nil {
-		if p, ok := e.(*ast.ParenExpr); ok {
-			return g.tvalOf(p.X)
-		}
+	v, res := g.interop.typed.rep.Typed(e)
+	if v == nil {
 		return nil
 	}
-	r := t.rep.Table.Result(ref.ID)
-	if r == nil || !r.OK || r.Recovered != "" || ref.ID >= len(t.rep.Values) {
-		return nil
-	}
-	v := t.rep.Values[ref.ID]
-	if v.Kind == ftype.Opaque || v.C == nil {
-		return nil
-	}
-	return &tval{Value: v, ref: r}
+	return &tval{Value: *v, ref: res}
 }
 
 // cTypeOf returns the C++ type of the typed value without its reference, or nil.
@@ -158,10 +147,10 @@ func (g *gen) typedMember(sel *ast.SelectorExpr, x cppir.Expr) cppir.Expr {
 // class of (collect/members.go). The C++ of the object is the path of the embedded fields
 // (fieldSteps), so its type is that of the field, not sel.X's.
 func (g *gen) memberObject(sel *ast.SelectorExpr) ast.Expr {
-	if g.typedOn() && g.pkg.PromotedPath(sel) != nil && g.interop.typed.rep.Set.RefOf(sel.Sel) != nil {
-		return sel.Sel
+	if !g.typedOn() {
+		return sel.X
 	}
-	return sel.X
+	return g.interop.typed.rep.MemberObject(g.pkg, sel)
 }
 
 // arrowMember reports whether the member access sel on the class value v is x->name: the compiler
@@ -337,7 +326,7 @@ func (fg *funcGen) typedIndexKey(y *ast.IndexExpr, cx cppir.Expr) cppir.Expr {
 	if !ok {
 		return cx
 	}
-	if c := sigConvs(sigs, 1); c[0] == convStdString {
+	if c := adapt.SigConvs(sigs, 1); c[0] == adapt.ConvStdString {
 		return &cppir.Call{Fun: cxxName("::std::string"), Args: []cppir.Expr{cx}}
 	}
 	return cx

@@ -1140,7 +1140,7 @@ Source: [Phase 04 §2.6](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/READM
 
 In typed mode (the default when clang++ is installed) gocpp knows the exact type of every parameter of a C/C++ function, because
 clang says it, so it writes the conversion that C++ would refuse where the meaning is certain from the two types
-alone. All of them are rows of **one table** (`internal/lower/typedadapt.go`, [ADR-130](../adr/130-argument-adaptations-are-one-table-over-the-parameter-type-and-the-go-argument.md)):
+alone. All of them are rows of **one table** (`internal/typedinterop/adapt`, written by `internal/lower/typedadapt.go`, [ADR-130](../adr/130-argument-adaptations-are-one-table-over-the-parameter-type-and-the-go-argument.md)):
 the class of the Go argument, the parameter type that clang reports, and what is written.
 
 | Go argument | Parameter | Written | Since |
@@ -1218,8 +1218,12 @@ main.gp:14:30: cannot use 200 (untyped int constant) as C.char value in argument
 
 Opaque mode (a machine without clang++, or `-interop=opaque`) does none of this: the same call is the C++ compiler's own error at the `.gp` line, as before
 (`cannot convert 'const char*' to 'const wchar_t*'`, `invalid conversion from 'int' to 'Mode'`). It is unchanged by the
-adaptations. (`gocpp check -interop=typed` does not report the shapes that the lowering adapts, as it did before
-for the string rows.)
+adaptations. `gocpp check`, `gocpp vet` and the editor report the arguments that the table refuses, with the words and the
+place of the build ([ADR-134](../adr/134-the-argument-adaptation-errors-are-decided-by-one-package-that-the-lowering-the-checker-and-the-editor-use.md)):
+a constant outside the parameter's range, an enum constant outside its values, a runtime string at a format place, a
+string a function keeps, an address that cannot be converted. They are errors with either C++ compiler. The editor has them
+when its background analysis of the package ends, not at the first keystroke. A package that declares a generic function or type is
+not adapted and not checked for them; the shapes that the table does not adapt are the C++ compiler's error at build time.
 
 ### The C number types are Go's
 

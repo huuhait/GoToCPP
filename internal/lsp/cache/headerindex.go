@@ -115,6 +115,7 @@ func newHeaderIndexer(cfg Config) *headerIndexer {
 
 // StopHeaderIndex cancels and joins C/C++ completion workers at protocol shutdown, before exit.
 func (p *Pipeline) StopHeaderIndex() {
+	p.adapt.close()
 	p.members.close()
 	p.headers.close()
 }

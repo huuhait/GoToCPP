@@ -267,6 +267,7 @@ func newServerOpts(logger *log.Logger, cfg cache.Config, clock debounce.Clock, o
 	}
 	s.diags = newDiagnostics(s, clock)
 	cfg.OnProbe = s.diags.probed
+	cfg.OnAdapt = s.diags.adapted
 	cfg.OnReadFailure = s.readFailed
 	if cfg.Trace == nil {
 		cfg.Trace = opts.Trace

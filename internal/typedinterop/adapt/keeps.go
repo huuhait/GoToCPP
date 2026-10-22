@@ -1,6 +1,12 @@
-package lower
+package adapt
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/huuhait/gocpp/internal/typedinterop/ctype"
+)
 
 // The "keeps the pointer" rules of typed interop (Phase 12 step 12.6, README §2.5, ADR-087).
 //
@@ -24,9 +30,9 @@ import "strings"
 //  1. an explicit list of functions of the C library and of the libraries of the zoo (keeperFuncs);
 //  2. the arguments that decide it (destructorArg, curl): a destructor that is not
 //     SQLITE_TRANSIENT, the libcurl option CURLOPT_POSTFIELDS;
-//  3. any other argument of the call that is the address of a char pointer (charPtrOutParam,
-//     typedargs.go): strtol(s, &end, 10), sqlite3_prepare_v2(db, sql, -1, &st, &tail), where the
-//     pointer that the function stores can point into the string;
+//  3. any other argument of the call that is the address of a char pointer (Arg.CharPtrAddr):
+//     strtol(s, &end, 10), sqlite3_prepare_v2(db, sql, -1, &st, &tail), where the pointer that
+//     the function stores can point into the string;
 //  4. conventions in the name (a name with static, borrow, nocopy, noalloc or unowned in it);
 //
 // and a function that is not covered (a C++ method or a function of the program's own that stores
@@ -82,10 +88,18 @@ func keeperConvention(name string) bool {
 	return false
 }
 
-// keepsPointer reports whether the call of the function name, whose argument number n is
+// LastName returns the last part of a qualified C++ name.
+func LastName(name string) string {
+	if j := strings.LastIndex(name, "::"); j >= 0 {
+		return name[j+2:]
+	}
+	return name
+}
+
+// KeepsPointer reports whether the call of the function name, whose argument number n is
 // text(n) as written, lets the callee keep the pointer of a string argument, and why.
-func keepsPointer(name string, nargs int, text func(n int) string) (string, bool) {
-	last := lastName(name)
+func KeepsPointer(name string, nargs int, text func(n int) string) (string, bool) {
+	last := LastName(name)
 	if why, ok := keeperFuncs[last]; ok {
 		return why, true
 	}
@@ -105,4 +119,58 @@ func keepsPointer(name string, nargs int, text func(n int) string) (string, bool
 		return "its name says that it keeps the pointer", true
 	}
 	return "", false
+}
+
+// A CharSet is the character types that a string argument converts to: the C++ builtin types of
+// the parameter and of the members of a class.
+type CharSet struct {
+	cpp []string
+}
+
+// NarrowChars are the characters of a const char* parameter; WideChars(name) the one of a wide
+// string (wchar_t, char16_t or char32_t).
+var NarrowChars = CharSet{cpp: []string{"char", "signed char", "unsigned char"}}
+
+// WideChars returns the character set of the wide character type name.
+func WideChars(name string) CharSet { return CharSet{cpp: []string{name}} }
+
+// Has reports whether t is one of the characters (const or not).
+func (cs CharSet) Has(t *ctype.Type) bool {
+	return t != nil && t.Kind == ctype.Builtin && slices.Contains(cs.cpp, t.Name)
+}
+
+// HasName reports whether the C++ builtin type name is one of the characters.
+func (cs CharSet) HasName(name string) bool { return slices.Contains(cs.cpp, name) }
+
+// Read-only views of the tables above for tools that must apply the same rules without lowering
+// anything (lower.KeeperFuncs, for gocpp vet's copy and the test that compares them). They are
+// copies: a caller can't change the tables.
+
+// IsAliasFunc reports whether the function with the last name name returns a pointer into its
+// string argument.
+func IsAliasFunc(name string) bool { return aliasFuncs[name] }
+
+// KeeperFuncs returns keeperFuncs.
+func KeeperFuncs() map[string]string { return maps.Clone(keeperFuncs) }
+
+// DestructorArgs returns destructorArg.
+func DestructorArgs() map[string]int { return maps.Clone(destructorArg) }
+
+// ConventionWords returns conventionWords.
+func ConventionWords() []string { return slices.Clone(conventionWords) }
+
+// CharTypeName returns the C++ name of the character type that cgo's name is (char, schar, uchar,
+// wchar_t: C.char is char, C.schar signed char), or "".
+func CharTypeName(cgoName string) string {
+	switch cgoName {
+	case "char":
+		return "char"
+	case "schar":
+		return "signed char"
+	case "uchar":
+		return "unsigned char"
+	case "wchar_t":
+		return "wchar_t"
+	}
+	return ""
 }

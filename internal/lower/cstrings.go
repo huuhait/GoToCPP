@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 
+	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/interop"
 )
@@ -92,92 +93,22 @@ func (g *gen) isCstrCall(e ast.Expr) bool {
 	return h == "cstr" || h == "wstr"
 }
 
-// holderVars returns the variables that hold a C.cstr holder: those declared from a call of
-// C.cstr without a type (name := C.cstr(s), var name = C.cstr(s)), or from another such
-// variable (h2 := h, a copy of the holder, which keeps its own bytes or the same static ones).
-func (g *gen) holderVars() map[*types.Var]bool {
-	if g.holders != nil {
-		return g.holders
-	}
-	g.holders = make(map[*types.Var]bool)
-	g.wideVars = make(map[*types.Var]bool)
-	type decl struct {
-		v     *types.Var
-		value ast.Expr
-	}
-	var decls []decl
-	add := func(names []ast.Expr, values []ast.Expr) {
-		if len(names) != len(values) {
-			return
-		}
-		for i, v := range values {
-			if id, ok := names[i].(*ast.Ident); ok {
-				if obj, ok := g.info.Defs[id].(*types.Var); ok {
-					decls = append(decls, decl{obj, v})
-				}
-			}
-		}
-	}
-	for _, f := range g.pkg.Load.Files {
-		ast.Inspect(f.AST, func(n ast.Node) bool {
-			switch s := n.(type) {
-			case *ast.AssignStmt:
-				if s.Tok == token.DEFINE {
-					add(s.Lhs, s.Rhs)
-				}
-			case *ast.ValueSpec:
-				if s.Type == nil {
-					names := make([]ast.Expr, len(s.Names))
-					for i, n := range s.Names {
-						names[i] = n
-					}
-					add(names, s.Values)
-				}
-			}
-			return true
-		})
-	}
-	// A copy of a copy too: until nothing changes.
-	for changed := true; changed; {
-		changed = false
-		for _, d := range decls {
-			if !g.holders[d.v] && g.isHolder(d.value) {
-				g.holders[d.v] = true
-				g.wideVars[d.v] = g.isWideHolder(d.value)
-				changed = true
-			}
-		}
+// holderSet returns the C.cstr holders of the package (check.Holders): the calls of C.cstr and the
+// variables declared from one. It is found on first use, from the type information as it is then.
+func (g *gen) holderSet() *check.Holders {
+	if g.holders == nil {
+		g.holders = check.FindHolders(g.pkg.Load.Files, g.info.Info, g.cgoHelper)
 	}
 	return g.holders
 }
 
 // isHolder reports whether e is a holder of C.cstr: a call of C.cstr, or a variable that holds
-// one (holderVars).
-func (g *gen) isHolder(e ast.Expr) bool {
-	if g.isCstrCall(e) {
-		return true
-	}
-	if id, ok := ast.Unparen(e).(*ast.Ident); ok {
-		if v, ok := g.info.Uses[id].(*types.Var); ok {
-			return g.holderVars()[v] // (while holderVars fills it, the map so far)
-		}
-	}
-	return false
-}
+// one (holderSet).
+func (g *gen) isHolder(e ast.Expr) bool { return g.holderSet().IsHolder(e) }
 
 // isWideHolder reports whether the holder e (see isHolder) is one of C.wstr: the wide string of the
 // W functions, whose retained form is C.WString.
-func (g *gen) isWideHolder(e ast.Expr) bool {
-	if c, ok := ast.Unparen(e).(*ast.CallExpr); ok {
-		return g.cgoHelper(c) == "wstr"
-	}
-	if id, ok := ast.Unparen(e).(*ast.Ident); ok {
-		if v, ok := g.info.Uses[id].(*types.Var); ok {
-			return g.wideVars[v]
-		}
-	}
-	return false
-}
+func (g *gen) isWideHolder(e ast.Expr) bool { return g.holderSet().IsWide(e) }
 
 // holderNames returns what the messages about the holder e call it: "C.cstr" or "C.wstr", and the
 // helper that makes the copy that C keeps: "C.CString" or "C.WString".

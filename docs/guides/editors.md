@@ -231,6 +231,23 @@ when the data has come, and typing without a pause cancels the work: ask again a
 `tools/cppdata` measures these times; the tables, the method and the gaps are in
 [ADR-126](../adr/126-time-to-c-cpp-editor-data-is-measured-and-its-independent-compiler-runs-go-together.md).
 
+**Errors of the automatic argument conversions.** A constant that does not fit the C++ parameter it
+is passed to (`take_char(200)` for a `char`), a text that is not a constant at the format place of a
+`printf`-like function, and the other refusals of the [argument adaptations](../spec/interop.md#argument-adaptations-typed-interop)
+are errors in the editor, at the argument and with the words of `gocpp check` and `gocpp build`
+([ADR-134](../adr/134-the-argument-adaptation-errors-are-decided-by-one-package-that-the-lowering-the-checker-and-the-editor-use.md)).
+They need what clang says about the parameters, so they come from a background analysis of the package,
+like the member facts: a package is shown at once without them, and the publish that has them follows
+when the analysis ends (2.7 s for the first one of a server with a small header and no probe cache, 0.5 s after
+an edit; the editor is told, and publishes again). A package whose analysis has not ended, that failed, or whose header does not compile has no such
+diagnostic, never a wrong one. An edit of the package makes the analysis run again, so the diagnostic
+disappears at the edit and comes back when the analysis of the new text ends (it does not move with the
+text). Where the program is not lowered with typed calls, nothing is reported: a package that declares
+a generic function or type is not covered (its calls are not adapted either, see the
+[interop spec](../spec/interop.md#argument-adaptations-typed-interop)), and a call that only the build can tell (a `&p` of a variable that has no written type and that the probe has no type for)
+is not looked at (the build still refuses it); and the calls that C++ itself refuses (an array parameter, the address of an element,
+overloads that disagree, a typed constant for an enum) stay the compiler's error at build.
+
 **Go to declaration, and definitions in the sources of the package.** `textDocument/declaration` is
 answered for every name that go to definition is. For a Go name the two are the same place (as in
 gopls). For a C/C++ name they differ when a header declares a function or a variable and a C or C++

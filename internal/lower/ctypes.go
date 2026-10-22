@@ -178,22 +178,7 @@ func (g *gen) cType(r cRef, e ast.Expr) cppir.Type {
 // isCType reports whether the type expression e is a C/C++ type (not a gocpp type with C/C++
 // parts): a C/C++ name, an instance of a C++ template, or a raw pointer to one. A pointer to it
 // is a raw C++ pointer.
-func (g *gen) isCType(e ast.Expr) bool {
-	switch x := ast.Unparen(e).(type) {
-	case *ast.StarExpr:
-		return g.isCType(x.X)
-	case *ast.SelectorExpr:
-		if g.isC(x.X) || g.cUse(x) != nil {
-			return true
-		}
-		return g.isCType(x.X)
-	case *ast.IndexExpr:
-		return g.isCType(x.X)
-	case *ast.IndexListExpr:
-		return g.isCType(x.X)
-	}
-	return false
-}
+func (g *gen) isCType(e ast.Expr) bool { return g.pkg.IsCTypeExpr(e) }
 
 // templateArg returns the C++ of a template argument of a C++ template: a type (gocpp or C/C++),
 // or a constant, as a C literal (cConstant), so that std.array[C.int, 4] is

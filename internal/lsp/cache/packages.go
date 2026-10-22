@@ -337,6 +337,7 @@ func (s *Snapshot) Package(ctx context.Context, dir string) (*Package, error) {
 	if err == nil {
 		s.scheduleHeaders(pkg)
 		s.scheduleMembers(pkg)
+		s.scheduleAdapt(pkg)
 	}
 	return pkg, err
 }

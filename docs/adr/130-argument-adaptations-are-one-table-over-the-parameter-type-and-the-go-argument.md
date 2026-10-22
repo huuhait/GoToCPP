@@ -162,7 +162,7 @@ from 'int' to 'Mode'`, `invalid user-defined conversion from 'gp::cgo::out_cptr<
 'long int*' to 'int*'`). The generated code in opaque mode is byte-identical to before for programs that do not use
 the type identity below. `tests/typed/adapt_*.gp` say `// opaque: reject`, and the harness checks that the opaque build fails.
 `gocpp check` in typed mode does not warn about the shapes that the lowering adapts (the checker's rules mirror the
-table: `adaptedArg` in `internal/typedinterop/icheck/messages.go`); in opaque mode it never had a view of them.
+table: `adaptedArg` in `internal/typedinterop/icheck/messages.go`), and reports the ones the table refuses (ADR-134); in opaque mode it never had a view of them.
 
 ### Overloads, templates, variadics
 
@@ -288,17 +288,11 @@ cannot use 200 (untyped int constant) as C.char value in argument to take_char (
 runtime error: the variable huge holds 1099511627776, which does not fit the C type int of the parameter it is passed to
 ```
 
-They are lowering errors, so they appear at `gocpp build` and `run`; `gocpp check` and the editor do not run the lowering and
-do not see them (the same as the 12.6 keeps errors). **This is an open gap**, in particular for the two that are plain
-language-level facts, a constant that does not fit (`numconst`, `enum` range) and the printf guard. `check` is deliberately
-non-lowering (it is the fast path of the editor). The cost of closing it, from reading the code: the decisions of the
-table live in `internal/lower` and depend on its `gen` state, so a mirror in `icheck` needs them extracted into a package of
-their own (about 1 day), an `icheck` pass over every call that asks the table per argument (about 1 day) and the editor
-tests (0.5 to 1 day): 2.5 to 3 days. Running the lowering inside `check` instead is about 1 day, but it makes `check`
-slower, shows lowering "unsupported" errors as check errors and ends the rule that `check` does not lower. Recommendation:
-mirror only the constant range and the printf guard. Until job 12.check lands, `gocpp check` reports a program clean that
-`gocpp build` rejects: a narrowing `&x`, an `&x` for an array parameter (the C++ error comes at the build), a keeps error, a
-printf format, a constant that does not fit. The checker's own messages for the adapted shapes are silenced (a probe of
+They are decided by `adapt.Decide` and reported by the lowering at `gocpp build` and `run`, and, since [ADR-134](134-the-argument-adaptation-errors-are-decided-by-one-package-that-the-lowering-the-checker-and-the-editor-use.md),
+by `gocpp check`, `gocpp vet` and the editor too, with the same words at the same place (this ADR first left that open as a gap, with an estimate of 2.5 to
+3 days: the decisions extracted into a package of their own, an `icheck` pass over every call, the editor tests; the
+estimate held). The refusals that are C++'s own errors (the address of an element, `&x` for an array parameter, overloads that
+disagree) stay the C++ compiler's. The checker's own messages for the adapted shapes are silenced (a probe of
 `&p` for a `void**` would say "cannot use &p (value of type **T) as *unsafe.Pointer"; the rule `adaptedArg` skips the
 shapes the table adapts). The language server shows clang's parameter type in hover and signature help as before (`const wchar_t*`
 for `LPCWSTR`): the adaptation is invisible there, which is the point. `gocpp vet`: see the numbers table; the design is a

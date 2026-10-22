@@ -1,15 +1,14 @@
 package lower
 
 import (
-	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
 	"go/types"
-	"math"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/interop"
+	"github.com/huuhait/gocpp/internal/typedinterop/adapt"
 )
 
 // Untyped constants at C targets follow Go's rules, as in cgo (Phase 04 step 4.9): an untyped
@@ -96,7 +95,7 @@ func (w *cWalk) cConstOK(e ast.Expr, tv types.TypeAndValue, parent ast.Node) boo
 	ts := g.srcText(te)
 	switch x := ast.Unparen(te).(type) {
 	case *ast.StarExpr:
-		g.userError(e.Pos(), "cannot use %s as %s value in %s", constDesc(g.srcText(e), tv, tv.Value), ts, t.context)
+		g.userError(e.Pos(), "cannot use %s as %s value in %s", adapt.ConstDesc(g.srcText(e), tv, tv.Value), ts, t.context)
 		return false
 	case *ast.SelectorExpr:
 		kind, ok := g.cConstType(x.Sel.Name)
@@ -104,7 +103,7 @@ func (w *cWalk) cConstOK(e ast.Expr, tv types.TypeAndValue, parent ast.Node) boo
 			return true
 		}
 		if why, ok := g.cRepresentable(e, tv, kind); !ok {
-			g.userError(e.Pos(), "cannot use %s as %s value in %s%s", constDesc(g.srcText(e), tv, tv.Value), ts, t.context, why)
+			g.userError(e.Pos(), "cannot use %s as %s value in %s%s", adapt.ConstDesc(g.srcText(e), tv, tv.Value), ts, t.context, why)
 			return false
 		}
 	}
@@ -142,9 +141,9 @@ func (g *gen) cOperandConstOK(e ast.Expr, tv types.TypeAndValue, other, x ast.Ex
 	case why == "":
 		return mismatched() // c + "x", c == true
 	case why == " (truncated)":
-		g.userError(e.Pos(), "%s truncated to %s", constDesc(g.srcText(e), tv, tv.Value), ts)
+		g.userError(e.Pos(), "%s truncated to %s", adapt.ConstDesc(g.srcText(e), tv, tv.Value), ts)
 	default:
-		g.userError(e.Pos(), "%s overflows %s", constDesc(g.srcText(e), tv, tv.Value), ts)
+		g.userError(e.Pos(), "%s overflows %s", adapt.ConstDesc(g.srcText(e), tv, tv.Value), ts)
 	}
 	return false
 }
@@ -167,7 +166,7 @@ func (g *gen) cConstConversion(e ast.Expr, tv types.TypeAndValue, parent ast.Nod
 // cRepresentable records a known numeric target when checking succeeds. Lowering uses it to
 // emit an exact integer, not a double rounded on the way to an integer (9007199254740993+0i).
 func (g *gen) cRepresentable(e ast.Expr, tv types.TypeAndValue, kind types.BasicKind) (string, bool) {
-	why, ok := representable(tv, kind)
+	why, ok := adapt.Representable(tv, kind)
 	if ok {
 		if g.cConstKinds == nil {
 			g.cConstKinds = make(map[ast.Expr]types.BasicKind)
@@ -195,80 +194,8 @@ func (g *gen) cConvConstOK(e ast.Expr, tv types.TypeAndValue, to string) bool {
 	if i := constant.ToInt(v); i.Kind() == constant.Int && types.Typ[kind].Info()&types.IsInteger != 0 {
 		v = i
 	}
-	g.userError(e.Pos(), "cannot convert %s to type %s", constDesc(g.srcText(e), tv, v), to)
+	g.userError(e.Pos(), "cannot convert %s to type %s", adapt.ConstDesc(g.srcText(e), tv, v), to)
 	return false
-}
-
-// representable reports whether the constant tv is representable in a value of the
-// basic type kind, and why not as go/types says it: " (overflows)" or " (truncated)" for a
-// number (truncated: a float or complex constant for an integer type, or a complex one with an
-// imaginary part), or "" for a constant of another kind (a string, a bool).
-func representable(tv types.TypeAndValue, kind types.BasicKind) (string, bool) {
-	v := tv.Value
-	src := underBasic(tv.Type)
-	info := types.Typ[kind].Info()
-	if info&types.IsBoolean != 0 {
-		return "", v.Kind() == constant.Bool // C.bool takes true and false
-	}
-	if src == nil || src.Info()&types.IsNumeric == 0 {
-		return "", false
-	}
-	why := " (overflows)"
-	if src.Info()&types.IsInteger == 0 && info&types.IsInteger != 0 {
-		why = " (truncated)"
-	}
-	if v.Kind() == constant.Complex {
-		if constant.Sign(constant.Imag(v)) != 0 {
-			return " (truncated)", false
-		}
-		v = constant.Real(v) // 1 + 0i
-	}
-	switch {
-	case info&types.IsInteger != 0:
-		i := constant.ToInt(v)
-		if i.Kind() != constant.Int {
-			return " (truncated)", false
-		}
-		size := map[types.BasicKind]uint{types.Int8: 8, types.Uint8: 8, types.Int16: 16, types.Uint16: 16,
-			types.Int32: 32, types.Uint32: 32, types.Int64: 64, types.Uint64: 64}[kind]
-		lo, hi := constant.MakeInt64(0), constant.Shift(constant.MakeInt64(1), token.SHL, size)
-		if info&types.IsUnsigned == 0 {
-			hi = constant.Shift(constant.MakeInt64(1), token.SHL, size-1)
-			lo = constant.UnaryOp(token.SUB, hi, 0)
-		}
-		if constant.Compare(i, token.LSS, lo) || constant.Compare(i, token.GEQ, hi) {
-			return why, false
-		}
-	default:
-		f := constant.ToFloat(v)
-		if f.Kind() != constant.Float && f.Kind() != constant.Int {
-			return why, false
-		}
-		if kind == types.Float32 {
-			if x, _ := constant.Float32Val(f); math.IsInf(float64(x), 0) {
-				return why, false
-			}
-		} else if x, _ := constant.Float64Val(f); math.IsInf(x, 0) {
-			return why, false
-		}
-	}
-	return "", true
-}
-
-// constDesc returns the untyped constant src (tv is its type, v its value) as go/types describes
-// an operand: 200 (untyped int constant), 1e300 (untyped float constant 1e+300).
-func constDesc(src string, tv types.TypeAndValue, v constant.Value) string {
-	if b := underBasic(tv.Type); b != nil && b.Info()&types.IsUntyped == 0 {
-		return fmt.Sprintf("%s (constant %s of type %s)", src, v.String(), tv.Type.String())
-	}
-	name := "untyped constant"
-	if b, ok := tv.Type.(*types.Basic); ok {
-		name = b.Name() + " constant" // untyped int
-	}
-	if s := v.String(); s != src {
-		name += " " + s
-	}
-	return fmt.Sprintf("%s (%s)", src, name)
 }
 
 // valueTypeExpr recovers only a type that gocpp declarations establish. go/types loses the

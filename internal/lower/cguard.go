@@ -1056,31 +1056,7 @@ func (g *gen) cKind(e ast.Expr) (string, string) {
 // C.std.vector and C.printf of the loader's rewrite or check's gp_cgoh.Cstr (the uses of header
 // packages and namespaces and the cgo helpers get their names back while it prints).
 func (g *gen) srcText(e ast.Expr) string {
-	g.cUse(nil) // the uses, by their selectors
-	var restore []func()
-	for sel, u := range g.cuses {
-		if e.Pos() <= sel.Pos() && sel.End() <= e.End() {
-			x := sel.X
-			sel.X = u.Ident
-			restore = append(restore, func() { sel.X = x })
-		}
-	}
-	ast.Inspect(e, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CallExpr); ok {
-			if name := g.cgoHelper(c); name != "" {
-				sel := ast.Unparen(c.Fun).(*ast.SelectorExpr)
-				x, s := sel.X, sel.Sel
-				sel.X, sel.Sel = &ast.Ident{NamePos: x.Pos(), Name: "C"}, &ast.Ident{NamePos: s.Pos(), Name: name}
-				restore = append(restore, func() { sel.X, sel.Sel = x, s })
-			}
-		}
-		return true
-	})
-	s := types.ExprString(e)
-	for _, r := range restore {
-		r()
-	}
-	return g.pkg.UserText(s) // (the names of gocpp/cgoh that check added: unsafe.Slice, a[1:2])
+	return g.pkg.SourceText(e)
 }
 
 // isCommaOKFlag reports whether e is the variable ok of v, ok := x.(T) (or var v, ok = x.(T)) with a

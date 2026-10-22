@@ -524,32 +524,50 @@ func AddrFuncNames(set *collect.Set, kinds map[string]interop.Kind) map[string]b
 	return addr
 }
 
+// FuncNameOf returns the qualified name of the function that the path p calls, as the declaration
+// queries have it (std::min, printf, oop::scale), and false when p is not a free function or an
+// overloaded function of a namespace (a type, a macro, a static member, cgo's own names), and
+// whether it is a function template (interop.ValueTemplate). kinds is the kind probe's answer
+// (Report.Kinds).
+func FuncNameOf(kinds map[string]interop.Kind, p *collect.Path) (name string, template, ok bool) {
+	return funcNameOf(&rend{kinds: kinds}, p)
+}
+
+func funcNameOf(r *rend, p *collect.Path) (name string, template, ok bool) {
+	if p == nil || p.Ns == "C" && len(p.Parts) == 0 {
+		return "", false, false
+	}
+	e := r.eff(p)
+	if e.Ns == "C" {
+		return "", false, false // cgo's own names (C.int, C.CString)
+	}
+	k, known := r.kind(e)
+	if !known || (k != interop.Value && k != interop.ValueTemplate) {
+		return "", false, false
+	}
+	// A static member function (std::thread::hardware_concurrency) is in its class's
+	// declaration, not in a namespace's overload set.
+	if n := len(e.Parts); n > 1 {
+		if pk, ok := r.prefixKind(e, n-1); !ok || pk != interop.Namespace {
+			return "", false, false
+		}
+	}
+	name = strings.Join(e.Parts, "::")
+	if e.Ns != "" {
+		name = strings.TrimPrefix(e.Ns, "::") + "::" + name
+	}
+	return name, k == interop.ValueTemplate, true
+}
+
 func funcNames(set *collect.Set, kinds map[string]interop.Kind) ([]string, map[string]bool) {
 	r := &rend{kinds: kinds}
 	seen := map[string]bool{}
 	addrOf := map[string]bool{}
 	var out []string
 	add := func(p *collect.Path, addr bool) {
-		if p == nil || p.Ns == "C" && len(p.Parts) == 0 {
+		name, _, ok := funcNameOf(r, p)
+		if !ok {
 			return
-		}
-		e := r.eff(p)
-		if e.Ns == "C" {
-			return // cgo's own names (C.int, C.CString)
-		}
-		if k, ok := r.kind(e); !ok || (k != interop.Value && k != interop.ValueTemplate) {
-			return
-		}
-		// A static member function (std::thread::hardware_concurrency) is in its class's
-		// declaration, not in a namespace's overload set.
-		if n := len(e.Parts); n > 1 {
-			if pk, ok := r.prefixKind(e, n-1); !ok || pk != interop.Namespace {
-				return
-			}
-		}
-		name := strings.Join(e.Parts, "::")
-		if e.Ns != "" {
-			name = strings.TrimPrefix(e.Ns, "::") + "::" + name
 		}
 		if !seen[name] {
 			seen[name] = true

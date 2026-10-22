@@ -274,6 +274,14 @@ type Package struct {
 	// to the files (gp_cgoh), for UserText.
 	hidden map[string]bool
 
+	// holders are the C.cstr holders of the package (Holders), found on first use.
+	holders     *Holders
+	holdersOnce sync.Once
+
+	// sourceUses are the loader's rewritten selectors (SourceText), found on first use.
+	sourceUses     map[*ast.SelectorExpr]*load.CppUse
+	sourceUsesOnce sync.Once
+
 	// slices maps the call gp_cgoh.SliceC(a, ...) that Check made of a slice
 	// expression of an opaque value (slicecalls.go) to that expression.
 	slices map[*ast.CallExpr]*ast.SliceExpr

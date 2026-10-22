@@ -71,7 +71,8 @@ func TestTypedCheckCorpus(t *testing.T) {
 		len(progs), checked, skipped)
 	if checked < 200 {
 		t.Errorf("only %d programs are checked in typed mode, the corpora have about 290 "+
-			"(a loader or a skip rule broke)", checked)
+			"(a loader or a skip rule broke; tests of a later phase than GOCPP_TEST_PHASE, "+
+			"%d here, are left out: run it with GOCPP_TEST_PHASE=12 or later)", checked, c.phase)
 	}
 	for _, p := range progs {
 		t.Run(strings.ReplaceAll(p.path, "/", "_"), func(t *testing.T) {

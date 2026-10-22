@@ -90,6 +90,11 @@ type Config struct {
 	// be checked again in a new snapshot (Session.Recheck).
 	OnProbe func()
 
+	// OnAdapt, if not nil, is called (on a goroutine of the pipeline) with the folder of a package
+	// whose argument adaptation diagnostics are ready or have changed (Snapshot.AdaptDiagnostics),
+	// so that the server publishes its diagnostics again. It must not block.
+	OnAdapt func(dir string)
+
 	// ReadFile, if not nil, reads the files of the disk (os.ReadFile otherwise; the tests use it to make a file busy).
 	ReadFile func(path string) ([]byte, error)
 
@@ -153,6 +158,7 @@ type Pipeline struct {
 	prober  *prober
 	headers *headerIndexer // optional background C/C++ completion names
 	members *memberIndexer // optional background receiver/member facts
+	adapt   *adaptIndexer  // optional background argument adaptation diagnostics (adaptindex.go)
 
 	// importSets keeps the decoded imports of the last check of each package
 	// (importset.go).
@@ -256,6 +262,7 @@ func NewPipeline(cfg Config) *Pipeline {
 	p.prober = newProber(find, probe, cfg.OnProbe)
 	p.headers = newHeaderIndexer(cfg)
 	p.members = newMemberIndexer(cfg)
+	p.adapt = newAdaptIndexer(cfg)
 	p.prober.rec = cfg.Trace
 	if cfg.PkgConfig != nil {
 		p.prober.pc = cfg.PkgConfig
@@ -272,6 +279,7 @@ func NewPipeline(cfg Config) *Pipeline {
 // work: their probe answers stay what they are, and their summaries are
 // not written to disk.
 func (p *Pipeline) Close() {
+	p.adapt.close()
 	p.members.close()
 	p.headers.close()
 	p.prober.close()
@@ -285,6 +293,7 @@ func (p *Pipeline) Close() {
 // disk: the answers of the namespace probe are checked again in the
 // background (Config.OnProbe says when one changed).
 func (p *Pipeline) HeadersChanged() {
+	p.adapt.refresh()
 	p.members.refresh()
 	p.headers.refresh()
 	p.prober.headersChanged()

@@ -25,13 +25,13 @@ import (
 // left to the C++ compiler), with the compiler's messages made up.
 
 type fab struct {
-	t    *testing.T
+	t    testing.TB
 	p    *check.Package
 	fset *token.FileSet
 	rep  *typedinterop.Report
 }
 
-func newFab(t *testing.T, src string) *fab {
+func newFab(t testing.TB, src string) *fab {
 	t.Helper()
 	p, fset := tsupport.CheckSource(t, src, nil)
 	if errs := p.Errors.Diagnostics(); len(errs) > 0 {
