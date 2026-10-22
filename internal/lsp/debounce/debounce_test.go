@@ -19,7 +19,7 @@ func checkGoroutines(t *testing.T) {
 	t.Helper()
 	before := runtime.NumGoroutine()
 	t.Cleanup(func() {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(time.Minute) // (only ends a hang)
 		for runtime.NumGoroutine() > before {
 			if time.Now().After(deadline) {
 				t.Errorf("%d goroutines at the start, %d at the end", before, runtime.NumGoroutine())
@@ -30,13 +30,13 @@ func checkGoroutines(t *testing.T) {
 	})
 }
 
-// stop stops d and fails if a run doesn't return in 10 s.
+// stop stops d and fails if a run doesn't return in a minute.
 func stop[K comparable](t *testing.T, d *Debouncer[K]) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if !d.Stop(ctx) {
-		t.Fatal("Stop: the runs didn't return in 10 s")
+		t.Fatal("Stop: the runs didn't return in a minute")
 	}
 }
 
@@ -60,13 +60,13 @@ func (r *recorder) get() []string {
 	return slices.Clone(r.runs)
 }
 
-// waitFor waits until cond holds, or fails after 10 s.
+// waitFor waits until cond holds, or fails after a minute.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatalf("%s: not in 10 s", what)
+			t.Fatalf("%s: not in a minute", what)
 		}
 		time.Sleep(100 * time.Microsecond)
 	}

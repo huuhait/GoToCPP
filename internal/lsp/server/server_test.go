@@ -209,8 +209,8 @@ func (c *client) read() protocol.Message {
 			c.t.Fatalf("reading from the server: %v", c.readErr)
 		}
 		return m
-	case <-time.After(10 * time.Second):
-		c.t.Fatal("no message from the server in 10 s")
+	case <-time.After(time.Minute):
+		c.t.Fatal("no message from the server in a minute")
 	}
 	return nil
 }
@@ -229,21 +229,21 @@ func (c *client) wait() int {
 			} else if c.readErr != io.EOF {
 				c.t.Errorf("the output ended with %v, want EOF", c.readErr)
 			}
-		case <-time.After(10 * time.Second):
-			c.t.Error("the output didn't end in 10 s")
+		case <-time.After(time.Minute):
+			c.t.Error("the output didn't end in a minute")
 		}
 		return code
-	case <-time.After(10 * time.Second):
-		c.t.Fatal("the server didn't stop in 10 s")
+	case <-time.After(time.Minute):
+		c.t.Fatal("the server didn't stop in a minute")
 	}
 	return -1
 }
 
 // nextPublish returns the next publish of the diagnostics of uri that it
-// has not returned yet, waiting up to 10 s for it.
+// has not returned yet, waiting up to a minute for it.
 func (c *client) nextPublish(uri protocol.DocumentURI) *publish {
 	c.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		c.pubMu.Lock()
 		for _, p := range c.publishes {
@@ -255,7 +255,7 @@ func (c *client) nextPublish(uri protocol.DocumentURI) *publish {
 		}
 		c.pubMu.Unlock()
 		if time.Now().After(deadline) {
-			c.t.Fatalf("no diagnostics of %s in 10 s", uri)
+			c.t.Fatalf("no diagnostics of %s in a minute", uri)
 		}
 		time.Sleep(200 * time.Microsecond)
 	}

@@ -744,7 +744,7 @@ func TestCompletionIndex(t *testing.T) {
 	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":1}]}`, c.uri("newpkg/newpkg.gp")))
 	// The request after the change gets the old index at once, and starts
 	// a new one; wait for it.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		items := c.complete("app/main.gp", inMain("\tnewpkg.|\n"))
 		if item(items, "Hello") != nil {

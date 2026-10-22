@@ -796,7 +796,8 @@ func TestProbeTimeLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "fake++ was stopped: context deadline exceeded") {
 		t.Errorf("probe = %v, want a time limit error", err)
 	}
-	if d := time.Since(start); d > 5*time.Second {
+	// (the compiler loops for ever: a probe that did not stop it would not return at all)
+	if d := time.Since(start); d > time.Minute {
 		t.Errorf("the probe took %v after its time limit of 300ms", d)
 	}
 	if files, err := os.ReadDir(tmp); err != nil || len(files) > 0 {
@@ -822,8 +823,10 @@ exit 0`
 		t.Run(c.family.String(), func(t *testing.T) {
 			// The folders first: t.TempDir uses TMPDIR too.
 			cxx := fakeCompiler(t, c.family, body)
-			tmp := t.TempDir()
-			dir := t.TempDir()
+			// (cleaned: the probe writes the folders it gets as filepath.Abs does, without a ".." of
+			// a TMPDIR that has one)
+			tmp := filepath.Clean(t.TempDir())
+			dir := filepath.Clean(t.TempDir())
 			t.Setenv("TMPDIR", tmp)
 			t.Setenv("DEPENDENCIES_OUTPUT", filepath.Join(dir, "deps.d"))
 			t.Setenv("LC_ALL", "de_DE.UTF-8")

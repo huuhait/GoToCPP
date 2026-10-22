@@ -28,7 +28,7 @@ func headerSignal(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("header worker did not signal")
 	}
 }
@@ -200,7 +200,7 @@ func TestHeaderIndexRealPackageRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no index result")
 	}
 	world.p.headers.wg.Wait()
@@ -218,7 +218,7 @@ func TestHeaderIndexRealPackageRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("header watcher did not refresh the index")
 	}
 	world.p.headers.wg.Wait()

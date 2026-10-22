@@ -80,7 +80,7 @@ func checkGoroutines(t *testing.T) {
 	t.Helper()
 	before := runtime.NumGoroutine()
 	t.Cleanup(func() {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for {
 			n := runtime.NumGoroutine()
 			if n <= before {
@@ -307,8 +307,8 @@ func (p *peer) read() *Response {
 			p.t.Fatalf("got %+v, want a response", m)
 		}
 		return r
-	case <-time.After(10 * time.Second):
-		p.t.Fatal("no message in 10 s")
+	case <-time.After(time.Minute):
+		p.t.Fatal("no message in a minute")
 	}
 	return nil
 }
@@ -329,8 +329,8 @@ func (p *peer) end() ([]*Response, error) {
 			}
 		}
 		return late, err
-	case <-time.After(10 * time.Second):
-		p.t.Fatal("Serve didn't end in 10 s")
+	case <-time.After(time.Minute):
+		p.t.Fatal("Serve didn't end in a minute")
 	}
 	return nil, nil
 }
@@ -686,7 +686,7 @@ func TestOnEnd(t *testing.T) {
 // waitInFlight waits until c has n requests in flight.
 func waitInFlight(t *testing.T, c *Conn, n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for c.InFlight() != n {
 		if time.Now().After(deadline) {
 			t.Fatalf("%d requests in flight, want %d", c.InFlight(), n)
@@ -716,8 +716,8 @@ func TestRequest(t *testing.T) {
 			if !ok || req.ID == nil || *req.ID != want || req.Method != "client/registerCapability" || string(req.Params) != fmt.Sprintf(`{"n":%d}`, i) {
 				t.Fatalf("got %+v, want request %v", m, want)
 			}
-		case <-time.After(10 * time.Second):
-			t.Fatal("no request in 10 s")
+		case <-time.After(time.Minute):
+			t.Fatal("no request in a minute")
 		}
 	}
 	p.send(`{"jsonrpc":"2.0","id":"gocpp-1","result":null}`)

@@ -133,7 +133,7 @@ func TestPromiseCancel(t *testing.T) {
 	<-errc
 	select {
 	case <-cctx.Done():
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the computation was not cancelled after every Get gave up")
 	}
 	waitFor(t, q.idle)
@@ -169,10 +169,10 @@ func waiters[V any](p *Promise[V]) int {
 	return p.run.waiters
 }
 
-// waitFor waits until cond holds, for at most 5 seconds.
+// waitFor waits until cond holds; the minute only ends a hang.
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); !cond(); {
+	for deadline := time.Now().Add(time.Minute); !cond(); {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out")
 		}

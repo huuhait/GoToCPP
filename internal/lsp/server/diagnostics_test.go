@@ -412,7 +412,7 @@ func TestDiagnosticsProbeWindow(t *testing.T) {
 	})
 	c.open("main.gp", src)
 	for {
-		p := c.next("main.gp") // fails after 10 s
+		p := c.next("main.gp") // fails after a minute
 		if got := format(p); got == "5:7-5:11 error: undefined: stdd\n" {
 			break
 		} else if got != "" {
@@ -463,7 +463,7 @@ func TestDiagnosticsDebounce(t *testing.T) {
 	// due waits until the server has made n timers, then lets d pass.
 	due := func(n int, d time.Duration) {
 		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for clock.Timers() < n {
 			if time.Now().After(deadline) {
 				t.Fatalf("%d timers, want %d", clock.Timers(), n)
@@ -518,7 +518,7 @@ func TestDiagnosticsQuickCheckRunsAtOnce(t *testing.T) {
 	c.call("initialize", initParams)
 	due := func(n int, d time.Duration) {
 		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for clock.Timers() < n {
 			if time.Now().After(deadline) {
 				t.Fatalf("%d timers, want %d", clock.Timers(), n)
@@ -702,7 +702,7 @@ func TestDiagnosticsSameAsCheck(t *testing.T) {
 
 		c.open(name, string(src))
 		m := protocol.NewMapper(string(src))
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for {
 			p := c.next(name)
 			var got []string

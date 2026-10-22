@@ -17,13 +17,15 @@ import (
 // loaded machine: os/exec's Wait returns ErrWaitDelay. That is not a failed compile.
 
 // holdsOutput is the line of a fake compiler that starts a process that keeps the output open
-// for 20 seconds after the compiler exited (the test's lowered WaitDelay is much shorter, and
-// the tests that run in a few seconds are bounded by 10; the callers kill the process, and the
-// cleanup of script kills what is left). It writes the process's pid to $0.holder.
-const holdsOutput = "sleep 20 &\necho $! >> \"$0.holder\"\n"
+// for 3 minutes after the compiler exited (the test's lowered WaitDelay is much shorter, and
+// the tests are bounded by holderBound, which is shorter than the holder and still long enough
+// for a real compile on a loaded machine; the callers kill the process, and the cleanup of
+// script kills what is left). It writes the process's pid to $0.holder.
+const holdsOutput = "sleep 180 &\necho $! >> \"$0.holder\"\n"
 
-// holderBound is how long a test may take that waits for a process that holds the output.
-const holderBound = 10 * time.Second
+// holderBound is how long a test may take that waits for a process that holds the output: a
+// run that waited for the holder would take the holder's 180 seconds.
+const holderBound = 100 * time.Second
 
 // setWaitDelays sets waitDelay and retryWaitDelay for the rest of the test.
 func setWaitDelays(t *testing.T, delay, retry time.Duration) {

@@ -37,7 +37,8 @@ import (
 // FAKE_SYS (the compiler's own include folder, for -v), FAKE_SLEEP (seconds of a probe run), FAKE_DI (hang, cut, long or noenter: what the -dI run does wrong),
 // FAKE_HELPER (a line number that the notes of an error point at), FAKE_BIG (print dump for ever), FAKE_BARRIER
 // (a file: the compile waits for the first -E -dI run to create it). FAKE_DI_BLOCKED is written after
-// the includes output is flushed; the run then waits for FAKE_DI_RELEASE or cancellation.
+// the includes output is flushed; the run then waits for FAKE_DI_RELEASE or cancellation. FAKE_DI_HUNG
+// (a file) gets a line when a FAKE_DI=hang run has printed its lines and waits for the time limit.
 func fakeCompiler(args []string) int {
 	var dep, src string
 	mode, verbose, mg, di := "run", false, false, false
@@ -188,6 +189,13 @@ func fakeCompiler(args []string) int {
 	case "hang": // a compiler that is stopped at the time limit, after whole lines
 		if di {
 			dout.Flush()
+			if hung := os.Getenv("FAKE_DI_HUNG"); hung != "" {
+				// (tells the test that the lines are out and the run waits for its limit)
+				if f, err := os.OpenFile(hung, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+					f.WriteString("hung\n")
+					f.Close()
+				}
+			}
 			time.Sleep(time.Minute)
 		}
 	case "cut": // an output that ends in the middle of a line
@@ -412,6 +420,46 @@ func newFake(t *testing.T) *fake {
 	t.Setenv("FAKE_HDR_TYPE", "")
 	t.Setenv("GOCPP_PROBE_BATCH", "100000")
 	return f
+}
+
+// limitEndsWhenHung makes the time limit of an auxiliary compiler run end when a FAKE_DI=hang run
+// reports (FAKE_DI_HUNG) that it printed its lines and waits, not after a wall-clock time that a
+// loaded machine or the race detector can exceed before the compiler printed anything. A run that
+// does not hang is not limited (a minute only stops a test that is stuck).
+func limitEndsWhenHung(t *testing.T) {
+	t.Helper()
+	hung := filepath.Join(t.TempDir(), "hung")
+	t.Setenv("FAKE_DI_HUNG", hung)
+	restore := auxRunContext
+	t.Cleanup(func() { auxRunContext = restore })
+	auxRunContext = func(ctx context.Context, cfg Config) (context.Context, context.CancelFunc) {
+		limited, cancel := context.WithTimeout(ctx, time.Minute)
+		seen := hungSize(hung)
+		go func() {
+			ticker := time.NewTicker(2 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-limited.Done():
+					return
+				case <-ticker.C:
+					if hungSize(hung) > seen {
+						cancel()
+						return
+					}
+				}
+			}
+		}()
+		return limited, cancel
+	}
+}
+
+func hungSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }
 
 func (f *fake) cfg() Config {

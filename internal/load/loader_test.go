@@ -71,7 +71,8 @@ func goStd(path string) bool {
 // folder, and their contents) into a new temporary folder and returns it.
 func writeTree(t *testing.T, files map[string]string) string {
 	t.Helper()
-	root := t.TempDir()
+	// (a TMPDIR with ".." is written without it in the messages, as the loader cleans the folder)
+	root := filepath.Clean(t.TempDir())
 	for name, src := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

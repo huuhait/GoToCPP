@@ -101,7 +101,7 @@ func startArgv(t *testing.T, dir string, env []string, argv []string) (cmd *exec
 	return cmd, bufio.NewReader(pipe), stderr, tmp
 }
 
-// waitExit waits up to 10 seconds for cmd to exit and returns its exit
+// waitExit waits up to a minute (it only ends a hang) for cmd to exit and returns its exit
 // status.
 func waitExit(t *testing.T, cmd *exec.Cmd, stdout *bufio.Reader) int {
 	t.Helper()
@@ -112,8 +112,8 @@ func waitExit(t *testing.T, cmd *exec.Cmd, stdout *bufio.Reader) int {
 	}()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("gocpp didn't exit within 10 seconds after the signal")
+	case <-time.After(time.Minute):
+		t.Fatal("gocpp didn't exit within a minute after the signal")
 	}
 	return cmd.ProcessState.ExitCode()
 }
@@ -240,7 +240,7 @@ func TestSignalWhileBuilding(t *testing.T) {
 	}
 	checkNoWork(t, tmp)
 	// The compiler is gone (a zombie that nobody reaped counts as gone).
-	for stop := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for stop := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		err := syscall.Kill(pid, 0)
 		stat, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 		if err != nil || bytes.Contains(stat, []byte(") Z ")) {

@@ -103,7 +103,7 @@ func TestProbeKillsTheProcessGroup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !waitFor(time.Second, func() bool { return !alive(pid) }) {
+			if !waitFor(time.Minute, func() bool { return !alive(pid) }) { // (the bound only ends a hang)
 				st := state(pid)
 				syscall.Kill(pid, syscall.SIGKILL)
 				t.Errorf("the compiler's child %d still runs after the probe returned (state %s)", pid, st)

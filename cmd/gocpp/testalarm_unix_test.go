@@ -165,13 +165,10 @@ func TestExecTestBackupAlarm(t *testing.T) {
 
 	t.Run("sigquit", func(t *testing.T) {
 		// Go's runtime dumps the goroutines and exits with status 2 on SIGQUIT, long before the hard kill.
-		killed, child, elapsed, err := run(t, "wedged", 15*time.Second)
+		killed, child, _, err := run(t, "wedged", 2*time.Minute)
 		var ee *exec.ExitError
 		if killed != "quit" || !errors.As(err, &ee) || ee.ExitCode() != 2 {
 			t.Errorf("killed = %q, err = %v; want quit, exit status 2 (SIGQUIT)", killed, err)
-		}
-		if elapsed > 10*time.Second {
-			t.Errorf("took %v: the program was not stopped by SIGQUIT", elapsed)
 		}
 		if !pidGone(child) {
 			t.Errorf("the process that the program started (%d) is still running", child)

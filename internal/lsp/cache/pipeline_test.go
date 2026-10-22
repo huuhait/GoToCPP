@@ -459,7 +459,7 @@ func TestImportCycle(t *testing.T) {
 			if !strings.Contains(errs, "import cycle not allowed") {
 				t.Errorf("%s: errors:\n%s", dir, errs)
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("deadlock")
 		}
 	}

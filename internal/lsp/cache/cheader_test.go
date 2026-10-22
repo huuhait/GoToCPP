@@ -109,10 +109,16 @@ func TestCHeaderOffHotPath(t *testing.T) {
 	<-changes // the compiler was found
 	pr.wait()
 
-	start := time.Now()
-	pkg := w.pkg(".")
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("the first check took %v", d)
+	// The first check does not wait for the C header check: that check is held by ch until
+	// the test lets it go below. It runs in a goroutine, so a check that waited for the held
+	// one fails with a message after a minute (a hang guard, not a speed bound).
+	checked := make(chan *Package, 1)
+	go func() { checked <- w.pkg(".") }()
+	var pkg *Package
+	select {
+	case pkg = <-checked:
+	case <-time.After(time.Minute):
+		t.Fatal("the first check waited for the held C header check")
 	}
 	if !pkg.Provisional() || w.errs(pkg) != "" || pkg.Check.ExternC[`"./c.h"`] {
 		t.Fatalf("first check: provisional %v, ExternC %v, errors:\n%s", pkg.Provisional(), pkg.Check.ExternC, w.errs(pkg))

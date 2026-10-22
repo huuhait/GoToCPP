@@ -61,7 +61,7 @@ func memberWorld(t *testing.T, source string) (*world, *Package, *Snapshot, func
 // waitMemberDecls waits for the second step of the analysis: its facts replace the published ones.
 func waitMemberDecls(t *testing.T, snap *Snapshot, pkg *Package, object *types.Var, name string) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if _, ok := snap.ForeignMemberDeclarations(pkg, object, name); ok {
 			return

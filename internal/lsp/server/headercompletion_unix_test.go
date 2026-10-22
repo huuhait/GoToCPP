@@ -22,7 +22,7 @@ func waitIndexMarker(t *testing.T, path string) []byte {
 	t.Helper()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.NewTimer(5 * time.Second)
+	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 	for {
 		if text, err := os.ReadFile(path); err == nil && len(text) > 0 {

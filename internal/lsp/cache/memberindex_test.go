@@ -27,7 +27,7 @@ func fakeMemberIndexer(t *testing.T) *memberIndexer {
 
 func waitMemberEntry(t *testing.T, ix *memberIndexer, key string) *memberFacts {
 	t.Helper()
-	return waitMemberEntryWithin(t, ix, key, 5*time.Second)
+	return waitMemberEntryWithin(t, ix, key, time.Minute)
 }
 
 // waitMemberEntryWithin is waitMemberEntry for tests whose compiler waits for another run: a

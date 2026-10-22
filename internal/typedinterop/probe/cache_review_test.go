@@ -363,8 +363,8 @@ func TestCacheIncludeInfoQuestion(t *testing.T) {
 				t.Setenv("FAKE_DI", bad)
 				f.header(t, "lib.hpp", "#include \"inner.hpp\"\n")
 				f.header(t, "inner.hpp", "// inner\n")
+				limitEndsWhenHung(t)
 				cfg := f.cfg()
-				cfg.Timeout = 2 * time.Second
 				read := []string{filepath.Join(f.inc, "lib.hpp"), filepath.Join(f.inc, "inner.hpp")}
 				info := new(Runner).includeInfo(context.Background(), cfg, "#include \"lib.hpp\"\n", read, false, "")
 				if info.complete != (bad == "") {
@@ -387,8 +387,11 @@ func TestCacheIncludeInfoQuestion(t *testing.T) {
 				// The probe still works, with the conservative answer.
 				names := []string{"f0"}
 				tab, err := new(Runner).Probe(context.Background(), cfg, fnSet(names...), libGC(names...))
-				if err != nil || !tab.Results[0].OK || !slices.Contains(tab.Deps, filepath.Join(f.inc, "inner.hpp")) {
-					t.Errorf("%q: %v %+v %v", bad, err, tab.Results[0], tab.Deps)
+				if err != nil {
+					t.Fatalf("%q: %v", bad, err)
+				}
+				if !tab.Results[0].OK || !slices.Contains(tab.Deps, filepath.Join(f.inc, "inner.hpp")) {
+					t.Errorf("%q: %+v %v", bad, tab.Results[0], tab.Deps)
 				}
 			})
 		}

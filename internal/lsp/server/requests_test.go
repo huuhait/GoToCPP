@@ -18,7 +18,7 @@ func checkGoroutines(t *testing.T) {
 	t.Helper()
 	before := runtime.NumGoroutine()
 	t.Cleanup(func() {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for {
 			n := runtime.NumGoroutine()
 			if n <= before {
@@ -99,10 +99,10 @@ func (m *testMethods) setup(s *Server) {
 // settled waits until the server holds no request any more: one live
 // snapshot (the current one) and no stale request. A Work lets go of its
 // snapshot after it returns, which may be after its answer (a cancelled
-// request is answered at once), so the test polls, for up to 10 s.
+// request is answered at once), so the test polls, for up to a minute.
 func (c *client) settled() {
 	c.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		c.s.mu.Lock()
 		stale := len(c.s.stale)
@@ -112,20 +112,20 @@ func (c *client) settled() {
 			return
 		}
 		if time.Now().After(deadline) {
-			c.t.Fatalf("after 10 s: %d snapshots live (want 1), %d documents with stale requests (want 0)", live, stale)
+			c.t.Fatalf("after a minute: %d snapshots live (want 1), %d documents with stale requests (want 0)", live, stale)
 		}
 		time.Sleep(100 * time.Microsecond)
 	}
 }
 
-// wait returns the next value of ch, or fails after 10 s.
+// wait returns the next value of ch, or fails after a minute.
 func wait[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	select {
 	case v := <-ch:
 		return v
-	case <-time.After(10 * time.Second):
-		t.Fatal("nothing came in 10 s")
+	case <-time.After(time.Minute):
+		t.Fatal("nothing came in a minute")
 	}
 	var zero T
 	return zero

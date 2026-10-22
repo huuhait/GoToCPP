@@ -12,7 +12,7 @@ func waitNativeHover(t *testing.T, c *dclient, file, source, mark string) string
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(10 * time.Second)
+	deadline := time.NewTimer(time.Minute)
 	defer deadline.Stop()
 	for {
 		text, _ := c.hover(file, source, mark)

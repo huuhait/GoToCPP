@@ -108,7 +108,7 @@ func memoWorld(t *testing.T, main string) (*world, *sourceLog) {
 		"geo.cpp": memoAdd, "a0.cpp": "#include \"geo.h\"\n", "zlast.cpp": memoTail})
 	log := logSources(world)
 	world.open("main.gp", main)
-	if defs, ok := memoDefinitions(t, world, "add", 20*time.Second); !ok || len(defs) != 1 {
+	if defs, ok := memoDefinitions(t, world, "add", time.Minute); !ok || len(defs) != 1 {
 		t.Fatalf("add = %+v %v, want the definition", defs, ok)
 	}
 	if got := len(log.bySource()); got != 3 {
@@ -153,7 +153,7 @@ func TestSourceMemoServesAnEditOfTheGoFile(t *testing.T) {
 	before := snapshotID(world)
 	log.reset()
 	world.edit("main.gp", memoMain+"\nfunc extra() int { return 2 }\n")
-	defs, ok := memoDefinitions(t, world, "add", 20*time.Second)
+	defs, ok := memoDefinitions(t, world, "add", time.Minute)
 	if !ok || len(defs) != 1 || defs[0].Line != 1 {
 		t.Fatalf("add after the edit = %+v %v, want the definition", defs, ok)
 	}
@@ -169,7 +169,7 @@ func TestSourceMemoAsksOnlyTheNewNames(t *testing.T) {
 	world, log := memoWorld(t, memoMain)
 	log.reset()
 	world.edit("main.gp", memoMainTail)
-	defs, ok := memoDefinitions(t, world, "tail", 20*time.Second)
+	defs, ok := memoDefinitions(t, world, "tail", time.Minute)
 	if !ok || len(defs) != 1 || filepath.Base(defs[0].File) != "zlast.cpp" {
 		t.Fatalf("tail = %+v %v, want the definition in zlast.cpp", defs, ok)
 	}
@@ -184,7 +184,7 @@ func TestSourceMemoAsksOnlyTheNewNames(t *testing.T) {
 	// and back: the names that were asked are not asked again
 	log.reset()
 	world.edit("main.gp", memoMain)
-	if defs, ok := memoDefinitions(t, world, "add", 20*time.Second); !ok || len(defs) != 1 {
+	if defs, ok := memoDefinitions(t, world, "add", time.Minute); !ok || len(defs) != 1 {
 		t.Fatalf("add = %+v %v", defs, ok)
 	}
 	if got := log.bySource(); len(got) != 0 {
@@ -202,7 +202,7 @@ func TestSourceMemoRevalidatesOnlyAChangedSource(t *testing.T) {
 	writeInWorld(t, world, "geo.cpp", edited)
 	world.p.HeadersChanged()
 	var line int
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
 		defs, _ := memoDefinitions(t, world, "add", time.Second)
 		if len(defs) == 1 && defs[0].Line == 3 {
 			line = 3
@@ -227,7 +227,7 @@ func TestSourceMemoIsDroppedWhenAHeaderChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	world.p.HeadersChanged()
-	for deadline := time.Now().Add(20 * time.Second); len(log.bySource()) < 3; {
+	for deadline := time.Now().Add(time.Minute); len(log.bySource()) < 3; {
 		if time.Now().After(deadline) {
 			t.Fatalf("after a header edit the sources asked = %v, want all three", log.bySource())
 		}
@@ -264,12 +264,12 @@ func TestSourceMemoIsNotKeptOfAFileThatWasWrittenDuringTheRun(t *testing.T) {
 		return got, err
 	}
 	world.open("main.gp", memoMain)
-	if defs, ok := memoDefinitions(t, world, "add", 20*time.Second); !ok || len(defs) != 1 {
+	if defs, ok := memoDefinitions(t, world, "add", time.Minute); !ok || len(defs) != 1 {
 		t.Fatalf("add = %+v %v", defs, ok)
 	}
 	log.reset()
 	world.edit("main.gp", memoMain+"\nfunc extra() int { return 2 }\n")
-	if defs, ok := memoDefinitions(t, world, "add", 20*time.Second); !ok || len(defs) != 1 {
+	if defs, ok := memoDefinitions(t, world, "add", time.Minute); !ok || len(defs) != 1 {
 		t.Fatalf("add = %+v %v", defs, ok)
 	}
 	got := log.bySource()

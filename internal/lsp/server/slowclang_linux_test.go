@@ -208,7 +208,7 @@ func (g *slowClang) release() {
 // reaches.
 func (g *slowClang) waitRuns(n int) []int {
 	g.t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if pids := g.runs(); len(pids) >= n {
 			return pids
@@ -223,7 +223,7 @@ func (g *slowClang) waitRuns(n int) []int {
 // waitGone waits until the process is not running (a zombie counts as gone).
 func (g *slowClang) waitGone(pid int) {
 	g.t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for slices.Contains(g.processes(), pid) {
 		if time.Now().After(deadline) {
 			g.t.Fatalf("compiler process %d is still running", pid)
@@ -255,7 +255,7 @@ func (g *slowClang) waitAnyGone() int {
 // gap is bounded; it is the state, not its duration, that the tests rely on.
 func (g *slowClang) stillBlocked(what string) {
 	g.t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if _, err := os.Stat(filepath.Join(g.dir, "open")); err == nil {
 			g.t.Fatalf("%s: the gate is open", what)

@@ -57,7 +57,7 @@ func (w *adaptWorld) waitReady() {
 	w.t.Helper()
 	select {
 	case <-w.ready:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		w.t.Fatal("OnAdapt was not called")
 	}
 }
@@ -113,7 +113,7 @@ func TestAdaptDiagnosticsOfAnUndecidedAnalysisAreNeverReady(t *testing.T) {
 		return nil, false, nil
 	})
 	pkg := w.pkg(".")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for w.runs.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
@@ -249,7 +249,7 @@ func TestAdaptCloseStopsARunningAnalysis(t *testing.T) {
 	go func() { w.p.Close(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("Close waits for the analysis")
 	}
 }

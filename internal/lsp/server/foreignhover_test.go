@@ -68,7 +68,7 @@ func startForeignHover(t *testing.T, init string) *dclient {
 // waitHover polls the hover at mark until it contains want.
 func waitHover(t *testing.T, c *dclient, source, mark, want string) string {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		text, _ := c.hover("main.gp", source, mark)
 		if strings.Contains(text, want) {
@@ -84,7 +84,7 @@ func waitHover(t *testing.T, c *dclient, source, mark, want string) string {
 // waitDefinitions polls the definition at mark until it has an answer.
 func waitDefinitions(t *testing.T, c *dclient, source, mark string) []string {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if got := c.definitions("textDocument/definition", "main.gp", source, mark); len(got) > 0 {
 			return got
@@ -244,7 +244,7 @@ func TestForeignAnswersFollowTheHeaders(t *testing.T) {
 	c.notify("workspace/didChangeWatchedFiles",
 		fmt.Sprintf(`{"changes":[{"uri":%q,"type":2}]}`, c.uri("api.hpp")))
 	want := []string{"api.hpp:5:5-5:8 add", "api.hpp:6:5-6:8 add"}
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		got := c.definitions("textDocument/definition", "main.gp", foreignHoverSource, "_ = api.ad|d(1, 2)")
 		if slices.Equal(got, want) {

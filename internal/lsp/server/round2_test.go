@@ -88,7 +88,7 @@ func TestExpansionsTouchLoop(t *testing.T) {
 	marker := filepath.Join(filepath.Dir(filepath.Dir(path)), expandMarker)
 	old := time.Now().Add(-72 * time.Hour)
 	os.Chtimes(marker, old, old)
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(time.Minute)
 	for time.Now().Before(end) {
 		if fi, err := os.Stat(marker); err == nil && time.Since(fi.ModTime()) < time.Hour {
 			x.close()

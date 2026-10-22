@@ -461,12 +461,28 @@ func TestCanonDeadFolder(t *testing.T) {
 		return nil, nil
 	})()
 	defer SetTimes(0, 20*time.Millisecond)()
+	// The lister is blocked until the end of the test, so a Canon that waited for it would never
+	// return: it is run in a goroutine, and the minute only turns that hang into a message.
+	done := make(chan string, 1)
 	start := time.Now()
-	if got := Windows.Canon(`\\dead\share\a\b.gp`); got != `\\dead\share\a\b.gp` {
-		t.Errorf("Canon = %q", got)
+	go func() { done <- Windows.Canon(`\\dead\share\a\b.gp`) }()
+	select {
+	case got := <-done:
+		if got != `\\dead\share\a\b.gp` {
+			t.Errorf("Canon = %q", got)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("Canon waited for the lister that does not answer")
 	}
-	if time.Since(start) > 2*time.Second {
-		t.Errorf("Canon took %v", time.Since(start))
+	select {
+	case <-block:
+		t.Fatal("the lister was let go before Canon returned")
+	default: // Canon gave the folder up while the lister was still blocked
+	}
+	// The limit of this test is 20 ms and the default 5 s: a Canon that returned only after the
+	// default did not use the time that was set (4 s is far from both, so load does not matter).
+	if d := time.Since(start); d > 4*time.Second {
+		t.Errorf("Canon returned after %v: the listing time limit of 20 ms was not used", d)
 	}
 	n := calls.Load()
 	for i := 0; i < 5; i++ {
@@ -528,7 +544,7 @@ func TestCanonShortNameUnchanged(t *testing.T) {
 		if got != `C:\a~b\x.gp` {
 			t.Errorf("Canon = %q", got)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("Canon does not end")
 	}
 }

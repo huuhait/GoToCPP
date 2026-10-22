@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
@@ -204,8 +203,8 @@ func TestComputeEditsCapped(t *testing.T) {
 			}
 		}
 	}
-	// A big file whose every line changes, with a done context: the
-	// diff stops at once, and the edits are right.
+	// A big file whose every line changes, with a done context: the diff
+	// stops at once, and the edits are right.
 	var before, after strings.Builder
 	for i := range 20000 {
 		fmt.Fprintf(&before, "line %d\n", i)
@@ -213,13 +212,37 @@ func TestComputeEditsCapped(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	start := time.Now()
 	edits := computeEdits(ctx, protocol.NewMapper(before.String()), after.String())
-	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("the diff took %v after the context was done", d)
-	}
 	if got := applyEdits(t, before.String(), edits); got != after.String() {
 		t.Errorf("the edits are wrong")
+	}
+}
+
+// TestCommonLinesStopsWhenTheContextIsDone counts the work of the differ (no clock): a done
+// context ends it after the first check, a context that is not done lets it run to the cost cap.
+func TestCommonLinesStopsWhenTheContextIsDone(t *testing.T) {
+	const lines = 20000
+	a := make([]int, lines)
+	b := make([]int, lines)
+	for i := range lines {
+		a[i] = i
+		b[i] = lines + i // no line in common: the diff walks until the cap
+	}
+	workUsed := func(ctx context.Context) int {
+		size := 2*((len(a)+len(b)+1)/2) + 2
+		d := &differ{ctx: ctx, a: a, b: b, v1: make([]int, size), v2: make([]int, size), left: maxDiffWork}
+		d.compare(0, len(a), 0, len(b))
+		return maxDiffWork - d.left
+	}
+	if work := workUsed(context.Background()); work < maxDiffWork {
+		t.Fatalf("a live context used %d steps of %d: the input does not exercise the cap", work, maxDiffWork)
+	}
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	// The context is looked at every 64 rounds; a round costs 2*round+2 steps.
+	const firstCheck = 64 * (2*64 + 2)
+	if work := workUsed(done); work > firstCheck {
+		t.Errorf("a done context used %d steps, want at most %d", work, firstCheck)
 	}
 }
 

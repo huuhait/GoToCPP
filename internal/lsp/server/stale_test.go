@@ -79,7 +79,7 @@ func startStale(t *testing.T, files map[string]string) (*refClient, *Server) {
 func viewIs(t *testing.T, s *Server, c *refClient, name, text string) {
 	t.Helper()
 	fv := s.views.file(c.uri(name))
-	end := time.Now().Add(20 * time.Second)
+	end := time.Now().Add(time.Minute)
 	for time.Now().Before(end) {
 		fv.mu.Lock()
 		ok := fv.last != nil && string(fv.last.text) == text
@@ -190,7 +190,7 @@ func TestStaleRefresh(t *testing.T) {
 	close(hold)
 	// the requests of the server: they come with the end of the build
 	seen := map[string]bool{}
-	deadline := time.After(20 * time.Second)
+	deadline := time.After(time.Minute)
 	for !(seen["workspace/semanticTokens/refresh"] && seen["workspace/inlayHint/refresh"]) {
 		select {
 		case m := <-c.msgs:
@@ -261,7 +261,10 @@ func TestHoverBlankedBodyUsesCurrentPartial(t *testing.T) {
 				c.change(rel, i+2, current)
 				c.call(GocppStats, "{}")
 				snap, free = s.session.Snapshot()
-				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+				// The repaired view is held until the end of the test, so a hover that waits for it
+				// never ends by itself: the limit only turns that hang into a failure, and no
+				// answer depends on how fast the machine is.
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				p := protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: c.uri(rel)},
 					Position:     at(t, current, "_ = va|lue;"),

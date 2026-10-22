@@ -86,7 +86,7 @@ func startGeo(t *testing.T, init string) *dclient {
 // waitLocation polls the request at mark until it has a location in the file with that name.
 func waitLocation(t *testing.T, c *dclient, method, mark, base string) protocol.Location {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		locs := c.locationsAt(method, "main.gp", geoMain, mark)
 		for _, loc := range locs {
@@ -343,7 +343,7 @@ func startProject(t *testing.T, init, main string, files map[string]string) *dcl
 // waitLine polls the request at mark until its location in the file base is at the line.
 func waitLine(t *testing.T, c *dclient, main, method, mark, base string, line uint32) {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	var last []protocol.Location
 	for {
 		last = c.locationsAt(method, "main.gp", main, mark)

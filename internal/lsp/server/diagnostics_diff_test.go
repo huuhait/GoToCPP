@@ -134,7 +134,7 @@ func diffEdit(rng *rand.Rand, name, orig, text string) string {
 // diagnostics.
 func (c *dclient) firstPublishAt(name string, version int) string {
 	c.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		c.pubMu.Lock()
 		for _, p := range c.publishes {
@@ -146,7 +146,7 @@ func (c *dclient) firstPublishAt(name string, version int) string {
 		}
 		c.pubMu.Unlock()
 		if time.Now().After(deadline) {
-			c.t.Fatalf("no diagnostics of %s at version %d in 10 s", name, version)
+			c.t.Fatalf("no diagnostics of %s at version %d in a minute", name, version)
 		}
 		time.Sleep(200 * time.Microsecond)
 	}
@@ -168,10 +168,10 @@ func (c *dclient) lastPublish(name string) string {
 // untilIdle waits until the diagnostics of the server have nothing waiting or running.
 func (s *Server) untilIdle(t testing.TB) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for s.diags.deb.Busy() {
 		if time.Now().After(deadline) {
-			t.Fatal("the diagnostics were busy for 10 s")
+			t.Fatal("the diagnostics were busy for a minute")
 		}
 		time.Sleep(200 * time.Microsecond)
 	}
