@@ -138,12 +138,14 @@ type collector struct {
 	op   *check.Opaque
 	set  *Set
 
-	uses    map[*ast.SelectorExpr]*load.CppUse
-	decls   map[types.Object]*varDecl
-	defRefs map[types.Object]*Ref
-	inDef   map[types.Object]bool
-	skip    map[ast.Node]bool // nodes that make no reference and are not entered (keys of literals, ...)
-	noRef   map[ast.Node]bool // nodes that make no reference (check's gp_cgoh.As[T]) but whose parts do
+	uses      map[*ast.SelectorExpr]*load.CppUse
+	decls     map[types.Object]*varDecl
+	defRefs   map[types.Object]*Ref
+	inDef     map[types.Object]bool
+	defIdents map[types.Object]*ast.Ident // the identifier that declares each object (nameAt)
+	depth     int                         // nesting of conv, typeIR and goValue (see enter)
+	skip      map[ast.Node]bool           // nodes that make no reference and are not entered (keys of literals, ...)
+	noRef     map[ast.Node]bool           // nodes that make no reference (check's gp_cgoh.As[T]) but whose parts do
 
 	// The context of the walk.
 	stack []ast.Node
@@ -310,6 +312,9 @@ func (c *collector) visit(e ast.Expr) bool {
 		// T(x) of a C/C++ value: its result has a Go type, but whether C++ allows
 		// the conversion is a question for clang.
 		if cv := c.p.Conversion(call); cv != nil && cv.Kind == check.AsCall {
+			if c.p.IsErrorConversion(call) {
+				return true // error(f()) of an HRESULT call (ADR-137): the call is the reference
+			}
 			c.register(e, c.checkRewrite(call), "")
 			return true
 		}
@@ -344,15 +349,35 @@ func (c *collector) text(e ast.Expr) string {
 	return helperNames.Replace(types.ExprString(e))
 }
 
+// maxRefNodes is the number of nodes of the source expression of a reference beyond which it is too
+// large (the key of one with this many nodes is longer than maxKey). The nodes of a chain (a + b + c +
+// ...) are all registered, each with the whole chain below it: making the key of each from its leaves
+// costs the cube of the length of the chain, so the key of a large expression is not made.
+const maxRefNodes = 1000
+
+// keyOf returns the key of the reference of x, the IR of the source expression e: x.String(), or, for an
+// expression of more than maxRefNodes nodes, a key that tells where it is (large is then true).
+func (c *collector) keyOf(e ast.Expr, x Expr) (key string, large bool) {
+	n := 0
+	ast.Inspect(e, func(ast.Node) bool {
+		n++
+		return n <= maxRefNodes
+	})
+	if n > maxRefNodes {
+		return "toolarge@" + c.fset.Position(e.Pos()).String() + "+" + strconv.Itoa(int(e.End()-e.Pos())), true
+	}
+	return x.String(), false
+}
+
 // register makes (or finds) the reference with the expression x, and adds the
 // use at e.
 func (c *collector) register(e ast.Expr, x Expr, written string) *Ref {
-	key := x.String()
+	key, large := c.keyOf(e, x)
 	r := c.set.byKey[key]
 	if r == nil {
 		r = &Ref{Kind: kindOf(x), Key: key, Expr: x, Written: written}
 		r.Incomplete = incompleteOf(x)
-		if len(key) > maxKey && r.Incomplete == "" {
+		if (large || len(key) > maxKey) && r.Incomplete == "" {
 			r.Incomplete = "expression too large"
 		}
 		c.set.byKey[key] = r
@@ -760,12 +785,16 @@ func (c *collector) defRefForExpr(obj types.Object, x Expr) *Ref {
 
 // nameAt returns the identifier that declares obj, or nil.
 func (c *collector) nameAt(obj types.Object) *ast.Ident {
-	for id, o := range c.info.Defs {
-		if o == obj {
-			return id
+	if c.defIdents == nil {
+		// (one pass over Defs for all the variables: a pass for each was quadratic in the size of the package)
+		c.defIdents = make(map[types.Object]*ast.Ident, len(c.info.Defs))
+		for id, o := range c.info.Defs {
+			if prev := c.defIdents[o]; o != nil && (prev == nil || id.Pos() < prev.Pos()) {
+				c.defIdents[o] = id
+			}
 		}
 	}
-	return nil
+	return c.defIdents[obj]
 }
 
 // declType returns the type of the local variable whose reference is def: the
@@ -779,8 +808,28 @@ func (c *collector) declType(def *Ref) Expr {
 
 // ---------------------------------------------------------------- IR
 
+// maxIRDepth is the nesting of conv, typeIR and goValue that the collector goes into: code that does
+// not type (an undefined type name, a package that is not imported) can send the three round in a
+// circle, and a circle must end in Unknown, not in a stack overflow.
+const maxIRDepth = 5000
+
+// (conv and goValue both count a level for each level of the source, so a source nested 2000 to 2500 levels deep reaches the
+// limit, and its part below is Unknown.)
+
+// enter counts one more level of nesting, and reports false when there are too many; leave undoes it.
+func (c *collector) enter() bool {
+	c.depth++
+	return c.depth <= maxIRDepth
+}
+
+func (c *collector) leave() { c.depth-- }
+
 // conv returns the C++ pieces of the expression e.
 func (c *collector) conv(e ast.Expr) Expr {
+	defer c.leave()
+	if !c.enter() {
+		return &Unknown{Why: "expression nested too deep"}
+	}
 	if e == nil {
 		return &Unknown{Why: "missing expression"}
 	}
@@ -870,6 +919,9 @@ func (c *collector) checkRewrite(x *ast.CallExpr) Expr {
 		case check.Compare:
 			return c.conv(cv.Arg())
 		case check.AsCall, check.UnusedStmt, check.Deferred:
+			if c.p.IsErrorConversion(x) {
+				return c.conv(cv.Arg())
+			}
 			return &Call{Fun: c.typeIR(cv.Type), Args: []Expr{c.conv(cv.Arg())}}
 		}
 	}
@@ -960,6 +1012,10 @@ func (c *collector) convArg(e ast.Expr) Expr {
 
 // typeIR returns the pieces of the type expression e.
 func (c *collector) typeIR(e ast.Expr) Expr {
+	defer c.leave()
+	if !c.enter() {
+		return &Unknown{Why: "type nested too deep"}
+	}
 	if tv, ok := c.info.Types[e]; ok && tv.IsType() && tv.Type != nil && complete(tv.Type) {
 		return c.goType(tv.Type)
 	}
@@ -1041,6 +1097,10 @@ func isUnknown(e Expr) bool {
 // goValue returns the pieces of an expression that is not opaque: a
 // constant is a C literal, anything else a value of its Go type.
 func (c *collector) goValue(e ast.Expr) Expr {
+	defer c.leave()
+	if !c.enter() {
+		return &Unknown{Why: "expression nested too deep"}
+	}
 	tv, ok := c.info.Types[e]
 	if !ok {
 		return &Unknown{Why: "no type for " + types.ExprString(e)}
@@ -1051,6 +1111,10 @@ func (c *collector) goValue(e ast.Expr) Expr {
 	case tv.IsNil():
 		return &Lit{Text: "nullptr"}
 	case tv.IsType():
+		// (A type that is not complete has no C++ type here: typeIR would come back to conv, to goValue.)
+		if tv.Type == nil || !complete(tv.Type) {
+			return &Unknown{Why: "no complete type for " + types.ExprString(e)}
+		}
 		return c.typeIR(e)
 	case tv.IsBuiltin() || tv.IsVoid():
 		return &Unknown{Why: "builtin " + types.ExprString(e)}

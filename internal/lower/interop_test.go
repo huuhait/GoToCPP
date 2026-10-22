@@ -915,6 +915,8 @@ func TestCUserErrors(t *testing.T) {
 		{"h := C.cstr(\"x\"); h2 := h; var h3 = h2; _ = lib.FILE{a: h3}", "h3 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		{"h := C.cstr(\"x\"); h2 := h; _ = lib.FILE{h2}", "h2 (C.cstr holder) cannot be stored in a composite literal: its C string could outlive the holder; use C.CString and C.free for a retained C string"},
 		// Untyped constants at C targets: Go's rules (cconsts.go).
+		// An error does not convert to a C type (ADR-137): no "convert it" hint, C.long(err) is not it.
+		{"var e error; var n C.long = e; _ = n", "cannot use e (variable of type error) as C.long value in variable declaration"},
 		{"var c C.char = 200; _ = c", "cannot use 200 (untyped int constant) as C.char value in variable declaration (overflows)"},
 		{"var c C.uchar; c = -1; _ = c", "cannot use -1 (untyped int constant) as C.uchar value in assignment (overflows)"},
 		{"var i C.int = 2.5; _ = i", "cannot use 2.5 (untyped float constant) as C.int value in variable declaration (truncated)"},

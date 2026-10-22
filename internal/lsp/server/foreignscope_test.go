@@ -80,3 +80,47 @@ func TestDeclarationNoteTellsOverloadsFromOtherDeclarations(t *testing.T) {
 		})
 	}
 }
+
+func TestHResultNoteForAFunctionThatReturnsHRESULT(t *testing.T) {
+	for _, c := range []struct {
+		name, signature string
+		want            bool
+	}{
+		{"function", "HRESULT D3D11CreateDevice(int flags)", true},
+		{"method", "virtual HRESULT STDMETHODCALLTYPE Present(UINT sync, UINT flags) = 0", true},
+		{"number", "LRESULT WndProc(HWND hwnd, UINT message)", false},
+		{"a parameter", "void Report(HRESULT code)", false},
+		{"a longer name", "int HRESULT_FROM_WIN32(int error)", false},
+		{"a pointer", "HRESULT* Find(int key)", false},
+		{"a reference", "const HRESULT& Last()", false},
+		{"inline", "inline HRESULT Reset()", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			kind := "function"
+			note := hresultNote([]probe.Declaration{{Kind: kind, Signature: c.signature}})
+			if (note != "") != c.want {
+				t.Errorf("note for %q = %q, want a note: %v", c.signature, note, c.want)
+			}
+		})
+	}
+}
+
+func TestHResultNoteIsLeftOutForOtherKinds(t *testing.T) {
+	if note := hresultNote([]probe.Declaration{{Kind: "type", Signature: "typedef long HRESULT"}}); note != "" {
+		t.Errorf("a typedef has the note: %q", note)
+	}
+}
+
+// applyDeclarations is what the hover shows: the note must be part of its text.
+func TestHoverOfAFunctionThatReturnsHRESULTHasTheNote(t *testing.T) {
+	h := &hoverResult{}
+	applyDeclarations(h, "Present", []probe.Declaration{{Kind: "function", Signature: "HRESULT Present(int sync)", File: "/inc/d.h", Line: 3}})
+	if !strings.Contains(h.text, "returns an `error`") {
+		t.Errorf("the hover has no note about the error: %q", h.text)
+	}
+	h = &hoverResult{}
+	applyDeclarations(h, "Count", []probe.Declaration{{Kind: "function", Signature: "int Count(int sync)", File: "/inc/d.h", Line: 3}})
+	if strings.Contains(h.text, "returns an `error`") {
+		t.Errorf("the hover of a function that does not return an HRESULT has the note: %q", h.text)
+	}
+}

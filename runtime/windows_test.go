@@ -404,6 +404,7 @@ var winUnitPrograms = []prog{
 	{src: "test/iface_test.cpp", weight: 7},
 	{src: "test/ifaceconv_test.cpp", weight: 4},
 	{src: "test/errors_test.cpp", weight: 4},
+	{src: "test/hresult_test.cpp", weight: 3},
 	{src: "test/goroutine_test.cpp", weight: 3},
 	{src: "test/chan_test.cpp", weight: 4},
 	{src: "test/select_test.cpp", weight: 4},

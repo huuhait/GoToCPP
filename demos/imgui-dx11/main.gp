@@ -39,11 +39,15 @@ var (
 	target    *d3d11.ID3D11RenderTargetView
 )
 
-func createTarget() {
+// A Direct3D call that returns an HRESULT is an error in the program: nil for S_OK and the other
+// success codes, else an error that says the code (HRESULT 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)).
+func createTarget() error {
 	var backBuffer *d3d11.ID3D11Texture2D
-	swapChain.GetBuffer(0, d3d11.IID_ID3D11Texture2D, &backBuffer)
-	device.CreateRenderTargetView(backBuffer, nil, &target)
-	backBuffer.Release()
+	if err := swapChain.GetBuffer(0, d3d11.IID_ID3D11Texture2D, &backBuffer); err != nil {
+		return err
+	}
+	defer backBuffer.Release()
+	return device.CreateRenderTargetView(backBuffer, nil, &target)
 }
 
 func releaseTarget() {
@@ -65,13 +69,16 @@ func createDevice(hwnd windows.HWND) bool {
 
 	levels := [2]d3d11.D3D_FEATURE_LEVEL{d3d11.D3D_FEATURE_LEVEL_11_0, d3d11.D3D_FEATURE_LEVEL_10_0}
 	var got d3d11.D3D_FEATURE_LEVEL
-	hr := d3d11.D3D11CreateDeviceAndSwapChain(nil, d3d11.D3D_DRIVER_TYPE_HARDWARE, nil, 0, &levels[0], 2,
+	err := d3d11.D3D11CreateDeviceAndSwapChain(nil, d3d11.D3D_DRIVER_TYPE_HARDWARE, nil, 0, &levels[0], 2,
 		d3d11.D3D11_SDK_VERSION, &desc, &swapChain, &device, &got, &context)
-	if hr != 0 {
-		fmt.Printf("D3D11CreateDeviceAndSwapChain failed: 0x%x\n", uint32(hr))
+	if err != nil {
+		fmt.Println("D3D11CreateDeviceAndSwapChain failed:", err)
 		return false
 	}
-	createTarget()
+	if err := createTarget(); err != nil {
+		fmt.Println("the render target failed:", err)
+		return false
+	}
 	return true
 }
 
@@ -85,9 +92,14 @@ func wndProc(hwnd windows.HWND, msg windows.UINT, wparam windows.WPARAM, lparam 
 	case windows.WM_SIZE:
 		if device != nil && wparam != windows.SIZE_MINIMIZED {
 			releaseTarget()
-			swapChain.ResizeBuffers(0, windows.UINT(lparam&0xffff), windows.UINT((lparam>>16)&0xffff),
+			err := swapChain.ResizeBuffers(0, windows.UINT(lparam&0xffff), windows.UINT((lparam>>16)&0xffff),
 				d3d11.DXGI_FORMAT_UNKNOWN, 0)
-			createTarget()
+			if err == nil {
+				err = createTarget()
+			}
+			if err != nil {
+				fmt.Println("resizing failed:", err)
+			}
 		}
 		return 0
 	case windows.WM_DESTROY:
@@ -157,8 +169,9 @@ func main() {
 
 		// A window that is covered or minimized has nothing to show: Present then returns at once
 		// (DXGI_STATUS_OCCLUDED) instead of waiting for the screen, and the loop would use a whole
-		// core. Sleep until a test Present says the window is visible again.
-		if occluded && swapChain.Present(0, d3d11.DXGI_PRESENT_TEST) == d3d11.DXGI_STATUS_OCCLUDED {
+		// core. Sleep until a test Present says the window is visible again. DXGI_STATUS_OCCLUDED
+		// is a success code, so Present gives nil for it: int32(call) takes the HRESULT itself.
+		if occluded && int32(swapChain.Present(0, d3d11.DXGI_PRESENT_TEST)) == int32(d3d11.DXGI_STATUS_OCCLUDED) {
 			windows.Sleep(10)
 			continue
 		}
@@ -194,7 +207,12 @@ func main() {
 		context.OMSetRenderTargets(1, &target, nil)
 		context.ClearRenderTargetView(target, &clear[0])
 		imgui_impl_dx11.ImGui_ImplDX11_RenderDrawData(imgui.ImGui.GetDrawData())
-		occluded = swapChain.Present(1, 0) == d3d11.DXGI_STATUS_OCCLUDED
+		code := int32(swapChain.Present(1, 0))
+		occluded = code == int32(d3d11.DXGI_STATUS_OCCLUDED)
+		if code < 0 {
+			fmt.Printf("Present failed: HRESULT 0x%08X\n", uint32(code))
+			break
+		}
 		frames++
 
 		// Present(1, 0) waits for the screen's refresh. A display driver that does not (a remote

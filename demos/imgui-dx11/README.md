@@ -55,10 +55,14 @@ task with `/it`). Closing the window ends the program, which prints `window clos
 - Typed interop is the default when a clang++ is found, and it builds this demo without a flag. Its probes read `<windows.h>`,
   `<d3d11.h>`, `<dxgi.h>` and the ImGui headers: about 14 s more on a first build with an empty probe cache (the machine was
   loaded), 0.3 to 0.4 s more on a build with a warm one. `-interop=opaque` (or `GOCPP_INTEROP=opaque`) skips the probes; the
-  program is the same.
+  program is not the same: in opaque mode an `HRESULT` is the number the C++ function returns, and this demo uses it as an `error`.
 - `GetBuffer` wants a `void**`: typed mode takes `&backBuffer` of a `*d3d11.ID3D11Texture2D` variable and stores the pointer in it
   when the call returns. `CreateWindowExW` takes the title as a Go string (a wide copy that lives until the end of the statement).
   The window class name stays a `C.WString`, because `WNDCLASSEXW` keeps the pointer.
+- A call of a Direct3D or DXGI function that returns an `HRESULT` is an `error` in the program ([ADR-137](../../docs/adr/137-hresult-results-are-go-errors-by-one-row-of-a-result-table.md)):
+  `nil` when the code is not negative, else an error that says it (`HRESULT 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)`), and
+  `errors.As` finds the code (`HResult() int32`). `Present` is the exception the demo needs: `DXGI_STATUS_OCCLUDED` is a success
+  code, so the demo takes the code itself with `int32(swapChain.Present(1, 0))`.
 - A covered or minimized window: `Present` returns at once with `DXGI_STATUS_OCCLUDED` instead of waiting for the
   screen, so the loop sleeps (10 ms) until a test `Present` says the window is visible again. Measured on the PC
   with the window minimized: 18.3 CPU seconds in 10 s before, 0.02 after. With the window visible both use about 1 s

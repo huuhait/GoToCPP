@@ -144,6 +144,12 @@ type Config struct {
 	// has a selector it cannot decide. nil is opaque mode: the first pass stands.
 	CppMembers CppMembers
 
+	// HResults, if not nil, makes the calls that return an HRESULT Go errors in the program
+	// (hresults.go, ADR-137): typed interop says which calls they are, and Check wraps each in
+	// error(...) before it is done with the package, so that go/types gives it the type error. nil
+	// is opaque mode: the call is a C/C++ value, as it is.
+	HResults HResultCalls
+
 	// SkipOpaque leaves out the opaque pass (findOpaque) and the check of the
 	// expressions that go/types skips (checkSkipped) for a package that has no C
 	// or C++ in it or in the packages it imports, directly or not (Dep.HasC is
@@ -224,6 +230,11 @@ type Package struct {
 	// (Config.SkipOpaque): the last check recorded no error but unused imports
 	// and variables, and nothing in the package or its imports is C.
 	typesClean bool
+
+	// hresultCalls are the calls that Config.HResults made errors, hresultVars the variables that hold
+	// one (hresults.go).
+	hresultCalls map[*ast.CallExpr]bool
+	hresultVars  map[types.Object]bool
 
 	// Focused says that the function bodies of the files other than Config.Focus were left out.
 	Focused bool
@@ -499,8 +510,24 @@ func Check(prog *load.Program, cfg Config) *Result {
 				perrs = append(slices.Clone(perrs), cerrs...)
 			}
 			focused := cfg.Focus != "" && stripOtherBodies(lp, cfg.Focus)
+			var hresults func(*Package) []*ast.CallExpr
+			if cfg.HResults != nil && c && !depsFailed && !lp.Std {
+				hresults = func(p *Package) []*ast.CallExpr {
+					// The hook reads what Check sets on the package when it is done (the flags of the probes).
+					p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
+					p.Opaque = provisionalOpaque(prog.Fset, p)
+					ctx := cfg.Context
+					if ctx == nil {
+						ctx = context.Background()
+					}
+					calls, err := cfg.HResults(ctx, prog.Fset, p)
+					if err != nil {
+					}
+					return calls
+				}
+			}
 			p = checkPackageConsts(prog.Fset, lp, checked, cgoh, c && !depsFailed, perrs, cfg.NoDerivedBodies, cs, cfg.SkipOpaque && !c,
-				cfg.AllowBodyless)
+				cfg.AllowBodyless, hresults)
 			p.Focused = focused
 			p.Consts = cs.uses()
 			p.Flags, p.ProbeFlags, p.ExternC = flagsOf[lp].flags, flagsOf[lp].probe, flagsOf[lp].externC
@@ -613,14 +640,15 @@ func hasHardErrors(l *diag.List) bool {
 // first (after the load warnings).
 func checkPackage(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
 	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool) *Package {
-	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil, false, false)
+	return checkPackageConsts(fset, lp, checked, cgoh, convert, probeErrs, noDerived, nil, false, false, nil)
 }
 
 // checkPackageConsts is checkPackage for a package whose C/C++ constants were put into the tree
 // (cs: constsubst.go): a substitution in a place that Go allows a variable in (a case, a shift
 // count) that go/types rejects is taken back, and the package is checked again.
 func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load.Package]*types.Package,
-	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst, noOpaque bool, allowBodyless bool) *Package {
+	cgoh *types.Package, convert bool, probeErrs []diag.Diagnostic, noDerived bool, cs *constSubst, noOpaque bool, allowBodyless bool,
+	hresults func(*Package) []*ast.CallExpr) *Package {
 	cv := newConverter(fset, lp, cgoh)
 	cv.consts = cs
 	cv.allowBodyless = allowBodyless
@@ -641,6 +669,14 @@ func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load
 	p, errs := checkFiles(fset, lp, checked, cv, probeErrs, convert)
 	p.checks = 1
 	for cs.revert(p.Errors) {
+		checks := p.checks + 1
+		p, errs = checkFiles(fset, lp, checked, cv, probeErrs, convert)
+		p.checks = checks
+	}
+	if hresults != nil && cv.wrapHResults(hresults(p)) {
+		// The calls that return an HRESULT are errors (hresults.go), before any rewrite: the rewrites
+		// of the uses of a value that go/types has no type for (a slice, a comparison, a conversion)
+		// would otherwise be made for the variable that holds the error.
 		checks := p.checks + 1
 		p, errs = checkFiles(fset, lp, checked, cv, probeErrs, convert)
 		p.checks = checks
@@ -700,6 +736,7 @@ func checkPackageConsts(fset *token.FileSet, lp *load.Package, checked map[*load
 	} else if mp != nil {
 		p.MustPartial = mp.partialInfo(p.Info)
 	}
+	cv.hintHResults(p)
 	if len(cv.names) > 0 {
 		p.setConversions(findConversions(lp, p.Info))
 		p.slices = findSlices(lp, p.Info)
@@ -1141,7 +1178,11 @@ func (c *collector) flush(used, falseError func(err types.Error) bool) {
 			c.list.Collect(f.err)
 		}
 	}
+	typeErrors := !c.onlyUnused()
 	for _, err := range c.argErrors {
+		if typeErrors && isElidedCError(err.Msg) {
+			continue // a type that go/types left invalid because of its own error is no C/C++ type (mapvalue.go)
+		}
 		c.list.Collect(err)
 	}
 	c.found, c.argErrors = nil, nil

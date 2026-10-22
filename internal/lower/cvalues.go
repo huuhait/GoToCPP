@@ -477,6 +477,9 @@ func (fg *funcGen) asConversion(c *ast.CallExpr, conv *check.Conversion) cppir.E
 	if x, ok := fg.cUnsafeConversion(c, to); ok {
 		return x // unsafe.Pointer(p), (*byte)(p) of a C void* (cunsafe.go)
 	}
+	if x, ok := fg.hresultError(c, to); ok {
+		return x // error(f()) of a call that returns an HRESULT (ADR-137)
+	}
 	if isInterface(to) {
 		// any(x) of a C/C++ value: the interface holds it as it is (iconv.go).
 		return fg.g.toInterface(types.Typ[types.Invalid], to, fg.expr(c.Args[0]), c.Pos())

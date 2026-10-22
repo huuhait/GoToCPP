@@ -256,7 +256,7 @@ func TestHooksCross(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		other = "linux"
 	}
-	_, members := Hooks(HookOptions{GOOS: other})
+	_, members, _ := Hooks(HookOptions{GOOS: other})
 	std := &check.Package{Load: pkgWith(false, "<vector>")}
 	own := &check.Package{Load: pkgWith(false, "<vector>", "./lib.hpp")}
 	if a, err := members(context.Background(), own, qs); a != nil || err != nil {
@@ -265,7 +265,7 @@ func TestHooksCross(t *testing.T) {
 	if _, err := members(context.Background(), std, qs); !errors.Is(err, ErrNoClang) {
 		t.Errorf("a cross build with C++ library headers asks the compiler: %v, want ErrNoClang", err)
 	}
-	_, here := Hooks(HookOptions{})
+	_, here, _ := Hooks(HookOptions{})
 	for _, p := range []*check.Package{std, own} {
 		if _, err := here(context.Background(), p, qs); !errors.Is(err, ErrNoClang) {
 			t.Errorf("a build for this machine asks the compiler: %v, want ErrNoClang", err)

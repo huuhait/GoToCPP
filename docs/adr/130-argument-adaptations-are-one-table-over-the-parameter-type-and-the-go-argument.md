@@ -316,10 +316,9 @@ warning at an implicit narrowing and sign change at a call, and none is built.
 
 ## Later (not in this ADR)
 
-- **HRESULT to `error`.** A COM call returns an `HRESULT`; `if hr != 0` is the idiom. My view: a result row of the table
-  (`HRESULT` to `error`) is the next job, but the type is `LONG`, which is a typedef in the header, and the safe rule needs
-  the typedef name from the declaration (clang gives it as `Alias`); `SUCCEEDED(hr)` and `FAILED(hr)` are macros. Do it with
-  the `!` error operator once the result adaptations have their own table.
+- **HRESULT to `error`.** Done in [ADR-137](137-hresult-results-are-go-errors-by-one-row-of-a-result-table.md): a result table
+  beside this one, with the typedef name from the declaration as the rule. (It was: a COM call returns an `HRESULT`; `if hr != 0`
+  is the idiom, and the type is `LONG`, a typedef in the header.)
 - **A `const char*` result to `string`.** `C.GoString(p)` copies; an adaptation would copy silently, and a function that returns
   a pointer to static or to freed memory makes the copy a bug the user cannot see. A policy question for the user, not a
   type-only decision.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -177,7 +178,7 @@ func applyDeclarations(h *hoverResult, name string, decls []probe.Declaration) {
 	}
 	h.signature = strings.Join(signatures, "\n")
 	h.signatureLanguage = "cpp"
-	h.text = declarationNote(name, decls)
+	h.text = joinParas(declarationNote(name, decls), hresultNote(decls))
 	h.doc = ""
 	if doc := declarationDocs(decls); doc != "" {
 		h.text = joinParas(h.text, doc)
@@ -199,6 +200,29 @@ func declarationNote(name string, decls []probe.Declaration) string {
 		what = "declarations (overloads)"
 	}
 	return fmt.Sprintf("C/C++ `%s` has %d %s, at %s.", name, len(decls), what, strings.Join(places, ", "))
+}
+
+// hresultWord is the typedef that typed interop makes Go's error (ADR-137), as a word of the text of
+// a declaration.
+// It is the result of the head of a signature: only qualifiers before it, a name after it (not a
+// pointer or a reference to one: HRESULT* f()).
+var hresultWord = regexp.MustCompile(`^\s*(?:(?:static|virtual|inline|extern|constexpr|friend)\s+)*HRESULT\s+[A-Za-z_~]`)
+
+// hresultNote says that a call of the function is an error in the program when a declaration
+// writes HRESULT for the result: the words before the first parenthesis of a signature are the
+// result, the qualifiers and the name, and a parameter of that type is after it.
+func hresultNote(decls []probe.Declaration) string {
+	for _, d := range decls {
+		if d.Kind != "function" && d.Kind != "method" {
+			continue
+		}
+		head, _, _ := strings.Cut(d.Signature, "(")
+		if hresultWord.MatchString(head) {
+			return "In typed mode a call returns an `error`: `nil` when the HRESULT is not negative, " +
+				"`int32(call)` is the code itself."
+		}
+	}
+	return ""
 }
 
 // overloaded reports whether the declarations are all functions (or function templates).

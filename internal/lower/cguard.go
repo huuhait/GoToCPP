@@ -962,6 +962,11 @@ func (w *cWalk) gocppTargetOK(e ast.Expr, parent ast.Node) bool {
 	}
 	if te != nil {
 		ts = g.srcText(te)
+	}
+	switch {
+	case types.Identical(tv.Type, errorType):
+		// (no hint: an error does not convert to a C type, so C.long(err) is not the way out)
+	case te != nil:
 		if _, ok := ast.Unparen(te).(*ast.StarExpr); ok {
 			hint = ": convert it, (" + ts + ")(" + g.srcText(e) + ")"
 		} else {

@@ -13,7 +13,7 @@ import (
 // change the AST (the language server calls it while other requests read the same tree).
 func (p *Package) SourceText(e ast.Expr) string {
 	p.sourceUsesOnce.Do(p.collectSourceUses)
-	return p.UserText(types.ExprString(p.restoreNames(e)))
+	return p.UserText(sourceExprString(p.restoreNames(e)))
 }
 
 // collectSourceUses finds the selectors of the loader's rewrite, by the selector.
@@ -203,4 +203,17 @@ func (p *Package) DeclaredTypeExpr(e ast.Expr) ast.Expr {
 		return nil
 	}
 	return p.Opaque.TypeExpr(v.Origin())
+}
+
+// sourceExprString is types.ExprString, but an elided composite literal ({1, 2}, which has no type
+// expression) is {…}: go/types prints its missing Type as "(ast: <nil>)". (Only that node has the
+// text: a literal inside another prints as T{…}, and a string that holds the words is a string.)
+func sourceExprString(e ast.Expr) string {
+	if lit, ok := e.(*ast.CompositeLit); ok && lit.Type == nil {
+		if len(lit.Elts) == 0 {
+			return "{}"
+		}
+		return "{…}"
+	}
+	return types.ExprString(e)
 }

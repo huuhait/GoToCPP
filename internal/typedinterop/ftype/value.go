@@ -172,6 +172,13 @@ func (m *Mapper) NeedsMore() []probe.DeclQuery {
 				q.leaves(b.Type.T, rec.Scope, false)
 			}
 		}
+		// The typedef of an HRESULT result (adapt.RowHResult): the call of a method that the probe
+		// could not type (an argument the argument table adapts) is an error by the declaration.
+		for _, meth := range rec.Methods {
+			if meth.Access == probe.Public && returnsHResult(meth.Sig.T) {
+				q.leaves(meth.Sig.T.Elem, rec.Scope, false)
+			}
+		}
 	}
 	for _, name := range sortedFuncs(m.decls) {
 		fs := m.decls.Funcs[name]
@@ -185,6 +192,14 @@ func (m *Mapper) NeedsMore() []probe.DeclQuery {
 		}
 	}
 	return q.list()
+}
+
+// returnsHResult reports whether the function type t is written with the result type HRESULT.
+func returnsHResult(t *ctype.Type) bool {
+	if t == nil || t.Kind != ctype.Func || t.Elem == nil || t.Elem.Kind != ctype.Named {
+		return false
+	}
+	return t.Elem.QualName() == "HRESULT"
 }
 
 // inStd reports whether a scope is the standard library's: the types in its
@@ -328,6 +343,18 @@ func (v Value) Compat(target string) Verdict {
 		return Unknown
 	}
 	if v.Kind == Opaque {
+		return Unknown
+	}
+	if target == "error" {
+		// A number is not an error (ADR-137: only the call of a function that returns an HRESULT is).
+		switch v.Kind {
+		case Void, Enum, Array:
+			return No
+		case Scalar:
+			if !v.nullConstant() {
+				return No
+			}
+		}
 		return Unknown
 	}
 	class := goClass(target)

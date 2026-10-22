@@ -3,10 +3,13 @@ package typedinterop
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/token"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/load"
+	"github.com/huuhait/gocpp/internal/typedinterop/ftype"
 	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
@@ -211,29 +214,43 @@ type HookOptions struct {
 	Runner *probe.Runner
 }
 
-// Hooks returns the two hooks that make a check.Config typed: Constants (gap E1, step 12.8) and
-// CppMembers (gap E2, step 12.9). The language server (step 12.13) and the command line driver
-// both take their hooks from here. For a target other than this machine, the hooks answer only
-// for packages whose headers are all the C++ standard library's (their types are the same on
-// both systems; other headers are the host's, not the target's); windows/amd64 is probed like this
-// machine's own target (ProbesTarget). Without clang++ the hooks
-// answer nothing and check goes on in opaque mode.
-func Hooks(o HookOptions) (check.ConstFunc, check.CppMembers) {
+// Hooks returns the hooks that make a check.Config typed: Constants (gap E1, step 12.8), CppMembers
+// (gap E2, step 12.9) and HResults (the calls that return an HRESULT are errors, ADR-137). The
+// command line driver (gocpp check and build) takes its hooks from here; the language server uses none
+// of them (its typed answers come from the background indexes of internal/lsp/cache, and its check has no
+// HResults hook, ADR-137). For a
+// target other than this machine, the hooks answer only for packages whose headers are all the C++
+// standard library's (their types are the same on both systems; other headers are the host's, not the
+// target's); windows/amd64 is probed like this machine's own target (ProbesTarget). Without clang++
+// the hooks answer nothing and check goes on in opaque mode.
+func Hooks(o HookOptions) (check.ConstFunc, check.CppMembers, check.HResultCalls) {
 	rn := o.Runner
 	if rn == nil {
 		rn = new(probe.Runner)
 	}
 	consts := Constants(Options{Runner: rn})
 	members := MembersHook(Options{Runner: rn, GOOS: o.GOOS, GOARCH: o.GOARCH})
+	// The options of the analysis that the build runs after the check (cmd/gocpp analyzePackage), so
+	// that the probes of the HResults hook are cache hits there.
+	analysis := Options{Decls: true, StringToCStr: true, Target: ftype.LP64, Runner: rn, GOOS: o.GOOS, GOARCH: o.GOARCH}
+	if o.GOOS == "windows" {
+		analysis.Target = ftype.LLP64
+	}
+	hresults := HResultsHook(analysis)
 	if ProbesTarget(o.GOOS, o.GOARCH) {
-		return consts, members
+		return consts, members, hresults
 	}
 	return consts, func(ctx context.Context, p *check.Package, qs []check.MemberQuery) ([]check.MemberAnswer, error) {
-		if !StdHeadersOnly(p) {
-			return nil, nil
+			if !StdHeadersOnly(p) {
+				return nil, nil
+			}
+			return members(ctx, p, qs)
+		}, func(ctx context.Context, fset *token.FileSet, p *check.Package) ([]*ast.CallExpr, error) {
+			if !StdHeadersOnly(p) {
+				return nil, nil
+			}
+			return hresults(ctx, fset, p)
 		}
-		return members(ctx, p, qs)
-	}
 }
 
 // StdHeadersOnly reports whether every header that the package p imports is a header of the C++

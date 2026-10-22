@@ -27,8 +27,9 @@ import (
 //   - skipSlice: an index of a slice expression of such a value,
 //     lib.CB[1:n] (it stops at the value);
 //   - skipMapValue: the value of an element of a map literal whose key
-//     type is a named type over a C/C++ type, map[Handle]int{1: n} (it
-//     stops at the key, which it can't assign);
+//     type is a named type over a C/C++ type, map[Handle]int{1: n}, or
+//     whose key is a C/C++ value, map[any]int{cv: 1} (it stops at the
+//     key, which it can't assign);
 //   - skipRange: a target of a range that assigns, for k, v = range c, when
 //     c is opaque, or a gocpp container of C/C++ values for the value
 //     (var arr [3]C.int): go/types has no type for the key or the value
@@ -206,6 +207,11 @@ func (op *opaquePass) skippedFromC(sk *skipped) bool {
 		lit := sk.near.(*ast.CompositeLit)
 		return op.opaqueExpr(lit) || op.litTypeFromC(lit)
 	case skipMapValue:
+		// The key is a C/C++ value (map[error]string{e: "x"} with e the result of an HRESULT function,
+		// map[any]int{cv: 1}): go/types can't assign it, and goes on with the next element.
+		if key := op.mapKey[sk.root]; key != nil && op.opaqueExpr(key) {
+			return true
+		}
 		if t := op.info.Types[sk.near].Type; t != nil {
 			m, _ := t.Underlying().(*types.Map)
 			return m != nil && op.namedOverC(m.Key())
@@ -280,6 +286,7 @@ func (op *opaquePass) litTypeFromC(lit *ast.CompositeLit) bool {
 func checkSkipped(fset *token.FileSet, pkg *types.Package, files []*ast.File, info *types.Info,
 	report func(pos token.Pos, err error), used *argUses) {
 	op := newOpaquePass(pkg, info, files)
+	mv := &mapValues{fset: fset, pkg: pkg, info: info, op: op, report: report}
 	// The dot imports of each file, for the names in its roots.
 	dots := make(map[*token.File]map[*types.Package]*types.PkgName, len(files))
 	for _, f := range files {
@@ -300,6 +307,18 @@ func checkSkipped(fset *token.FileSet, pkg *types.Package, files []*ast.File, in
 		case *ast.Ident:
 			if sk.kind == skipKey {
 				markKeyName(u, pkg, r)
+				continue
+			}
+		}
+		if sk.kind == skipMapValue {
+			if mv.check(sk.root, sk.near) {
+				mv.nested(sk.root)
+				mv.flush()
+				u.mark(sk.root)
+				continue
+			}
+			if lit, ok := sk.root.(*ast.CompositeLit); ok && lit.Type == nil {
+				u.mark(sk.root) // an elided literal that can't be typed stays opaque
 				continue
 			}
 		}

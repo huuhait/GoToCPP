@@ -240,3 +240,25 @@ func TestIsInternal(t *testing.T) {
 		}
 	}
 }
+
+// A number is not an error (ADR-137): only the call of a function that returns an HRESULT is, and check
+// has made that one an error already. A record may have a conversion; the rest is left to C++.
+func TestCompatToAnError(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		v    Value
+		want Verdict
+	}{
+		{"a number", Value{Mapped: Mapped{Kind: Scalar}}, No},
+		{"an enum", Value{Mapped: Mapped{Kind: Enum}}, No},
+		{"void", Value{Mapped: Mapped{Kind: Void}}, No},
+		{"an array", Value{Mapped: Mapped{Kind: Array}}, No},
+		{"a record", Value{Mapped: Mapped{Kind: Record}}, Unknown},
+		{"a pointer", Value{Mapped: Mapped{Kind: Pointer}}, Unknown},
+		{"not known", Value{Mapped: Mapped{Kind: Opaque}}, Unknown},
+	} {
+		if got := c.v.Compat("error"); got != c.want {
+			t.Errorf("%s to error: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}

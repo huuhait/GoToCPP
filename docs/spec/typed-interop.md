@@ -507,6 +507,7 @@ library's, except the build for windows/amd64, whose probes read the MinGW-w64 h
 | `lib.get(&p)`, `p` a `*lib.T`, a `void**` parameter | a C++ error | `gp::cgo::call_void_out(p, [&](void** gp_out0) -> decltype(auto) { return ::get(gp_out0); })` (ADR-130) |
 | `lib.mode(2)`, an enum parameter | a C++ error | `::mode(static_cast<::Mode>(2))` (ADR-130) |
 | `lib.take(f)`, `f` a Go float, an `int` parameter | C++'s conversion (undefined when out of range) | `::take(gp::cgo::as<int>(f))` (ADR-130) |
+| `hr := sc.ResizeBuffers(...)`, a result of the typedef `HRESULT` | the number | `auto hr = gp::hresult_error(sc->ResizeBuffers(...))`: `nil` when the code is not negative (ADR-137) |
 | `v.at(0) = 5`, `v.back()++`, `&v.at(0)` | an error of the lowering | accepted: a `T&` result is an lvalue |
 | `var n int = cstring.strlen(s)`, `cstring.strlen(s) + len(s)`, `var c C.int = n` | "mismatched types", "cannot use ... convert it" | `gp::cgo::as<int64_t>(::strlen(...))`, C++'s arithmetic, `gp::cgo::as<int>(n)` |
 
@@ -519,6 +520,17 @@ spec of the rows, what is not adapted and the lifetime rule is in [interop.md](i
 the printf-like functions come from a second compiler run over a generated call with a deliberately incomplete
 format (`probe.Overload.FormatKind`, `FormatParam`), whose warning says whether the parameter is a printf or a
 scanf format.
+
+**One result table (ADR-137).** The result of a call has its own table, `adapt.ResultTable`, with one row: the
+typedef named `HRESULT` (the type the declaration wrote, `probe.Result.Written`, over a signed `int` or `long`) is Go's
+`error`. It is applied **in the check**, not in the lowering alone: `check.Config.HResults` is a hook that analyses the
+package after its first check (before any rewrite) and returns the calls with that row, and the check wraps each in
+`error(call)` in the syntax tree and checks again, so go/types gives the call, and a variable declared from it, the type
+`error` and every use is Go's own (`typedinterop.HResultsHook`, `check/hresults.go`). A call the probe cannot type (an
+argument the argument table adapts) is typed from the declarations of the callee. A call that is a statement, deferred,
+spawned, `_ = f()`, or converted to a number is the C++ call as it is (`collect.KeepsHResult`). The lowering writes
+`gp::hresult_error(call)` for the conversion. There is no second probe round. The spec is
+[interop.md](interop.md#results-that-are-errors-typed-interop).
 
 **Which parameter takes a string.** For a call of a named function (or a method of a class), the overload sets
 of the declarations (`Result.Decls.Funcs`, `MembersOf`) are searched for the parameter at each place that

@@ -633,10 +633,18 @@ func (d *diagnostics) probed() {
 	d.recheck(dirs)
 }
 
+// hookAdapted is called after adapted has scheduled the diagnosis (tests wait for the end of a
+// background analysis with it).
+// (A pointer that is loaded atomically: the test sets it while the analysis of the server runs.)
+var hookAdapted atomic.Pointer[func(dir string)]
+
 // adapted is Config.OnAdapt: the argument adaptation diagnostics of the package in dir are ready (or
 // changed). The package itself is not stale, so the run is a plain one: it publishes what changed.
 // Only a package that is open is diagnosed.
 func (d *diagnostics) adapted(dir string) {
+	if hook := hookAdapted.Load(); hook != nil {
+		defer (*hook)(dir)
+	}
 	// (From the snapshot's documents, not from d.pkgs: an analysis can end before the first publish
 	// of the package has recorded it.)
 	snap, release := d.s.session.Snapshot()

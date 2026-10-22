@@ -1273,6 +1273,77 @@ there, because it is 64 bits and spells no C type; write `C.int` (now the same a
 The `gocpp vet` column is the design of ADR-130; the warnings for implicit narrowing at a call are **not built yet**
 (vet has no parameter types: only the explicit `C.int(n)` conversion is reported, by the `narrowing` analyzer).
 
+## Results that are errors (typed interop)
+
+A C/C++ function or method whose result type is the typedef `HRESULT` returns a Go `error` in typed mode
+([ADR-137](../adr/137-hresult-results-are-go-errors-by-one-row-of-a-result-table.md)). It is the one row of the **result table** (`internal/typedinterop/adapt/results.go`), which is
+separate from the argument table above and applies around the call.
+
+<!-- illustration: Windows only: not built here -->
+```go
+if err := swapChain.ResizeBuffers(0, w, h, d3d11.DXGI_FORMAT_UNKNOWN, 0); err != nil {
+	return err // HRESULT 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)
+}
+```
+
+- **`nil` is `SUCCEEDED(hr)`**: the code is not negative. `S_OK`, `S_FALSE` and success codes such as
+  `DXGI_STATUS_OCCLUDED` are `nil`. A negative code is an error whose text is `HRESULT 0x` and eight hexadecimal digits,
+  with the name of a well-known code (`E_FAIL`, `E_INVALIDARG`, `E_OUTOFMEMORY`, the `DXGI_ERROR_` and `D3D11_ERROR_`
+  codes) and `Win32 error N` for the codes of `HRESULT_FROM_WIN32`.
+- **The code stays reachable.** The error has the methods `Error() string` and `HResult() int32`, and its type has no
+  name in Go, so a program asks for the method: `var h interface{ HResult() int32 }; errors.As(err, &h)`. Two errors of the
+  same code are equal (`err == other`, `errors.Is`).
+- **The code of a success.** Take the HRESULT itself with a conversion to a number: `int32(sc.Present(1, 0))` or
+  `C.long(...)`. The call is then the C++ call as it is, and `int32(sc.Present(1, 0)) == int32(d3d11.DXGI_STATUS_OCCLUDED)`
+  tells a covered window from `S_OK`. A call that is a statement, or the operand of `defer` or `go`, drops the result as in
+  C++ and is not wrapped.
+- **Only the typedef named `HRESULT`.** The rule is on the type that the declaration wrote: exactly the name `HRESULT`
+  (written without a qualifier, no template arguments; a `typedef` of the name inside a namespace is not told from the global
+  one) for a signed `int` or `long`. `LRESULT`, `NTSTATUS`, `DWORD`, `BOOL` and a typedef of
+  `HRESULT` of your own stay the numbers that they are. `const HRESULT f()` is an `HRESULT`.
+- **Old code.** `hr := f(); if hr != 0` is now an error, with a line that says what to write instead:
+
+```
+main.gp:11:11: cannot convert 0 (untyped int constant) to type interface{Error() string}
+	the call returns an HRESULT, which is an error here (nil when the code is not negative): compare it with nil; the code is int32(call) on the call itself, or HResult() through errors.As
+```
+
+  It is an error with either C++ compiler (a gocpp rule, not clang's). `-interop=opaque` keeps the number: an HRESULT is
+  what the C++ function returns, and the program is not the same.
+- **A variable made from the call is an `error`, typed once.** The call is an `error` expression for the checker (it is
+  wrapped in `error(call)` before the check is done, ADR-137 (g)), so `hr := f()` is an `error` variable and every use is Go's
+  own: `hr.Error()` is a string (concatenation, `strings` functions, `hr.Error()[:4]`, `range hr.Error()`), `hr = nil`,
+  `append(errs, hr)` and `append(errs, f())`, a `map[error]string{hr: "dev"}` key, `errors.Is/As`, `log`, `panic`, `hr.(T)`,
+  `switch hr { case nil: }`, `fmt.Errorf("%w", hr)`, and Go errors are assigned to it (`hr = errors.New("x")`). What Go
+  refuses for an `error` is refused, with Go's words: `cannot use hr (variable of type error) as int32 value in assignment`,
+  `hr += 1`, `hr++`, `hr[0]`, `invalid case 0 in switch on hr`, `var n C.long = hr` (the same words from `gocpp check` and
+  `gocpp build`). The code of a variable is `errors.As` with `HResult()`; `int32(hr)` is refused. One call is the error or
+  the number, not both: `nil` hides `S_FALSE`, and the code of a success is `int32(call)` on the call.
+- **Not detected: a call through a function pointer held in a local variable** (`fn := lib.get_fn(); fn(1)`) and a call of
+  a `std::function<HRESULT(int)>`: they return the number, because the compiler's type of such a call has lost the typedef
+  name. Call the pointer where it is declared, or through a struct member or a global. A function that declares
+  `auto f() { return g(); }` is detected through `g`'s result, and a `typedef long HRESULT` inside a namespace is not told
+  from the global one.
+- **Cost.** A program with such a call is analysed once more before the check is done (the hook that tells which calls
+  return an `HRESULT`; its compiler runs are the ones the build asks for, so they are cache hits); a program without one
+  pays what it paid before. In generated C++ a successful call does not allocate: `gp::hresult_error(call)` is an inline
+  test that gives the nil interface, and a failure allocates one small box.
+- **A call that has an argument the probe cannot spell** (`&n` of a Go number variable, `&p` of a pointer variable for a
+  `void**` parameter, both adapted by the argument table) is typed from the callee's declarations: the result is the same
+  error, and `gocpp check` reports its misuse as for any other call.
+- **The editor** (`gocpp lsp`) shows no diagnostic for a valid program that uses these errors (also for map literals that
+  have the error as a key, with elided values), but it does not run the HResult checks at all (they need the call typed as
+  `error`): the misuse errors above and the hint are silent there and shown by `gocpp check` and `gocpp build`. Verified
+  silent: `hr += 1`, `hr++`, `hr[0]`, `hr + 1`, `hr != 0`, `if f() < 0`, `switch hr { case 0: }`, `hr = "x"`, `hr = 5`,
+  `var n int32 = hr`, `var n C.long = hr`, a number returned or passed where `error` is wanted, `map[string]int{hr: 1}`.
+  What does work there: a wrong-typed value in a map literal whose key is a C/C++ value, with Go's words (`map[error]string{hr: 5}`,
+  `map[any]int{cv: "x"}`), and the errors that do not depend on the type of the call (`declared and not used`).
+  A variable declared and not used inside a function literal in a map-literal value next to a C/C++ key may go unreported
+  when a false one (a variable that only a nested value of that literal uses) comes first in the same value; check has
+  only the first error of such a value.
+- **COM methods** are calls like any other: `swapChain.Present(...)` on a pointer to an interface is the virtual call, wrapped
+  the same way.
+
 ## Pointers, unsafe and slices at the boundary
 
 <!-- illustration: a fragment, not a program -->

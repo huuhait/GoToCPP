@@ -357,6 +357,7 @@ func (p *Package) UserText(text string) string {
 		text = unwrapCmp(text, name+"."+cmpName+"(")
 		text = unwrap(text, name+"."+valueName+"[", valueName)
 		text = unwrap(text, name+"."+unusedName+"[", unusedName)
+		text = unwrapErrorConversions(text, name)
 		text = unwrap(text, name+"."+asName+"[", asName)
 	}
 	return text

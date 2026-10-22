@@ -317,6 +317,12 @@ code page, gocpp gives the compiler the short name of the path ([Windows page](w
 ## What is not there yet
 
 - A function pointer that you get from `GetProcAddress` cannot be called from Go code, and there is no `NewCallback`; link to the function instead.
+- COM, results: a call of a function or method whose result is the typedef `HRESULT` is a Go `error` in typed mode (the default): `if err := swapChain.ResizeBuffers(...); err != nil`.
+  `nil` is any code that is not negative (`S_OK`, `S_FALSE`, `DXGI_STATUS_OCCLUDED`), else an error with the code in its text,
+  `HRESULT 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED)`, and `errors.As(err, &h)` with `h interface{ HResult() int32 }` gives the code. `int32(call)`
+  takes the number itself, which is how a success code is told from `S_OK`; `hr != 0` is an error now
+  ([ADR-137](../adr/137-hresult-results-are-go-errors-by-one-row-of-a-result-table.md), [the spec](../spec/interop.md#results-that-are-errors-typed-interop)). With `-interop=opaque` it is the number the C++ function returns.
+  A variable made from the call (`hr := call`) is an `error` everywhere, as in Go (`hr.Error()` is a string, `append(errs, hr)`, `hr = nil`, `map[error]string{hr: "x"}`, `errors.Is`, `panic`, `switch hr { case nil: }`); `int32(hr)` of it is refused, take the code from the call. The editor (`gocpp lsp`) shows no false error for such code, but it does not run the HResult checks at all: the misuse (`hr != 0`, `hr + 1`, `hr++`, `var n int32 = hr`, `hr = "x"`, `switch hr { case 0: }`, a number where `error` is wanted) is reported by `gocpp check` and `gocpp build` only. A call through a function pointer held in a local variable, or of a `std::function`, still returns the number.
 - COM: the interfaces are C++ classes in MinGW's headers. `dxgi.CreateDXGIFactory1(dxgi.IID_IDXGIFactory1, ...)` works (pass the IID without `&`, call
   `factory.Release()`), but the GUID constants live in libraries (`//gocpp:link dxgi dxguid`), and `__uuidof` has no gocpp form.
 - Typed interop (the default, `-interop=auto`; `typed` requires it, `opaque` turns it off) for the Windows target: its probes run a `clang++` for the target (the order is

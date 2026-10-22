@@ -275,3 +275,50 @@ func TestCacheVariantExpires(t *testing.T) {
 		t.Error("a header list of six days was not used")
 	}
 }
+
+// A Runner that has StableHeaders hashes a list of headers once (a command reads them once); one
+// that has not sees an edit at once (the language server's Runner: the user edits headers).
+func TestStableHeadersHashAListOnce(t *testing.T) {
+	dir := t.TempDir()
+	h := filepath.Join(dir, "a.h")
+	if err := os.WriteFile(h, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := []string{h}
+	stable, live := new(Runner), new(Runner)
+	stable.StableHeaders()
+	before := stable.depsHash(deps)
+	if before != live.depsHash(deps) || before != DepsHash(deps) {
+		t.Fatal("the hash of a list depends on the Runner")
+	}
+	if err := os.WriteFile(h, []byte("two!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := live.depsHash(deps); got == before {
+		t.Error("a Runner without StableHeaders did not see the edit")
+	}
+	if got := stable.depsHash(deps); got != before {
+		t.Error("a Runner with StableHeaders hashed the list again")
+	}
+}
+
+// Two lists of headers have two hashes, also for a Runner that remembers them.
+func TestStableHeadersTellTwoListsApart(t *testing.T) {
+	dir := t.TempDir()
+	var lists [][]string
+	for _, body := range []string{"one", "two"} {
+		h := filepath.Join(dir, body+".h")
+		if err := os.WriteFile(h, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		lists = append(lists, []string{h})
+	}
+	rn := new(Runner)
+	rn.StableHeaders()
+	if rn.depsHash(lists[0]) == rn.depsHash(lists[1]) {
+		t.Error("two different lists of headers have the same hash")
+	}
+	if rn.depsHash(lists[0]) != DepsHash(lists[0]) || rn.depsHash(lists[1]) != DepsHash(lists[1]) {
+		t.Error("the remembered hash is not the hash of the list")
+	}
+}

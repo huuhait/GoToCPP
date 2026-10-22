@@ -184,7 +184,7 @@ func (p *Package) rewriteNodes() (hidden, skipTypes map[ast.Node]bool) {
 // Check. Code that builds the text of a go/types message from the AST,
 // to match it, needs it.
 func (p *Package) exprString(e ast.Expr) string {
-	s := types.ExprString(e)
+	s := sourceExprString(e)
 	if len(p.Conversions) == 0 {
 		return s
 	}
@@ -236,6 +236,9 @@ const (
 	unusedName = "Unused"
 	valueName  = "Value"
 	cmpName    = "Cmp"
+	// errorTypeName is gocpp/cgoh.Error, Go's predeclared error whatever the program declares under that
+	// name (the wrapper of an HRESULT call writes it, hresults.go).
+	errorTypeName = "Error"
 )
 
 // unusedExpr is the go/types error code of an expression that is not used
@@ -262,6 +265,7 @@ func newCgohPackage() *types.Package {
 	cmp := types.NewSignatureType(nil, nil, nil, types.NewTuple(types.NewParam(token.NoPos, pkg, "x", anyType)),
 		types.NewTuple(types.NewParam(token.NoPos, pkg, "", types.Typ[types.Bool])), false)
 	pkg.Scope().Insert(types.NewFunc(token.NoPos, pkg, cmpName, cmp))
+	pkg.Scope().Insert(types.NewTypeName(token.NoPos, pkg, errorTypeName, types.Universe.Lookup("error").Type()))
 	addHelpers(pkg) // the cgo helpers (cgohelpers.go)
 	pkg.MarkComplete()
 	return pkg
@@ -387,6 +391,13 @@ type converter struct {
 
 	// noOpaque says that nothing in the package can be opaque (Config.SkipOpaque): no C in it or in its imports.
 	noOpaque bool
+
+	// hresults are the calls that Config.HResults wrapped in error(...) (hresults.go): the places of
+	// the wrappers, which are the original call nodes.
+	hresults map[*ast.CallExpr]bool
+
+	// userText maps the text of a wrapped call, as go/types prints it, to the user's (hresults.go).
+	userText map[string]string
 }
 
 // newConverter returns the converter of the package lp, with the hidden
@@ -854,7 +865,11 @@ func (cv *converter) fixMessage(msg string) string {
 		msg = unwrapCmp(msg, name+"."+cmpName+"(")
 		msg = unwrap(msg, name+"."+valueName+"[", valueName)
 		msg = unwrap(msg, name+"."+unusedName+"[", unusedName)
+		msg = unwrapErrorConversions(msg, name)
 		msg = unwrap(msg, name+"."+asName+"[", asName)
+	}
+	if cv.userText != nil {
+		msg = cv.userTexts(msg)
 	}
 	if strings.Contains(msg, "cannot take address of ") {
 		// The slice of a C array (&c.vals[0:1]) has go/types' invalid element type.

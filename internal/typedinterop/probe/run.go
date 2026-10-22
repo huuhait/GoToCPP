@@ -180,6 +180,39 @@ type Runner struct {
 	pchs      map[string]*pchState    // the precompiled headers of the library block, by key (pch.go)
 
 	prefetches map[string]*prefetch // the includes questions asked beside compiler runs, by config and text (includes.go)
+
+	stable   bool       // StableHeaders: the headers do not change while this Runner lives
+	depsMu   sync.Mutex // guards depsMemo
+	depsMemo map[string]string
+}
+
+// StableHeaders says that the headers do not change while this Runner lives (a command of the
+// command line: it reads them once, at the start), so that the hash of one list of headers is
+// made once for all the cache entries that have it, and in both analyses of a build (the check's
+// hook and the code generation's). A long-lived process (the language server) does not say it:
+// the user edits headers there.
+func (rn *Runner) StableHeaders() { rn.stable = true }
+
+// depsHash is DepsHash, made once per list of headers for a Runner that has StableHeaders.
+func (rn *Runner) depsHash(deps []string) string {
+	if !rn.stable {
+		return DepsHash(deps)
+	}
+	key := strings.Join(deps, "\x00")
+	rn.depsMu.Lock()
+	h, ok := rn.depsMemo[key]
+	rn.depsMu.Unlock()
+	if ok {
+		return h
+	}
+	h = DepsHash(deps)
+	rn.depsMu.Lock()
+	if rn.depsMemo == nil {
+		rn.depsMemo = make(map[string]string)
+	}
+	rn.depsMemo[key] = h
+	rn.depsMu.Unlock()
+	return h
 }
 
 // A flight is a compiler run that other callers of the same probe wait for.

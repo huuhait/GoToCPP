@@ -12,7 +12,6 @@ Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engin
 ## Now: jobs in progress (2026-10-22)
 
 - [~] Job 11.lspgap5 (branch job/11.lspgap5): LSP speed rows, every-row gopls wins; also the open 11.14 and 11.13 acceptance lines.
-- [~] Job 12.hresult (branch job/12.hresult): ADR-137, a call that returns `HRESULT` is a Go error in typed mode; review round 2 done, merge pending.
 - [~] Job dev.walltests (branch job/dev.walltests, 46 test files): wall-clock bounds in tests become counted work, event waits and one-minute hang limits. Covers `TestLSPProcess`, `TestProbeCancelStopsTheCompiler`, the 1-2 s bounds listed by the 12.racefix reviewer (probe cache_review_test.go `a_cut_answer_is_not_complete`, lsp/server stale_test.go, lsp/cache versions_test.go, lsp/server edits_test.go) and, by the manager's note, the tests that fail when TMPDIR contains `..` (`internal/interop` TestProbeCommand, `internal/load` TestLoadModule/TestTestFiles/TestNoFiles/TestTestOnlyExternal). Not audited by todo.audit.
 - [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
 - [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks. 12.14b (ADR-121) merged 2026-10-21: cold typed overhead 0.47-1.56 s; the < 0.5 s criterion was reworded (user accepted ADR-121 2026-10-21). Smaller preambles were withdrawn; cold first-run performance stays separate from a run that retains a precompiled header.
@@ -133,6 +132,11 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] One rule for "is this C" in the gates: `embedsOpaque` (internal/check/gatewalk.go:754) sees only this package's C type names, so a struct embedding `lib.T` (with `type T C.Foo`) misses the promoted-member gate (live only below gate phase 12; `version.Phase` is 5) (was L72).
 - [ ] A probe's compiler that exits non-zero with cut output hides the truncation (internal/interop/nsprobe.go:970 "Known limit"): own the pipe and retry for every exit status (was L82).
 - [ ] Parenthesized callee `(g)(1)` works, but no test contains it; the 5.4 interface-with-method-named-like-a-type fix has no run test (`type I interface{ Item() Item }`) (was L74, L226).
+- [ ] HRESULT (ADR-137): `gocpp vet` has no dropped-HRESULT analyzer; the editor has no HResults hook (silent on 18 of 20 misuse shapes); `check` and `build` disagree for an `error` argument to a C numeric function and for the full generic form `Gen[hresult.NTSTATUS]{...}`.
+- [ ] HRESULT (ADR-137): NTSTATUS is not a second row of the result table; an HRESULT through a function pointer or `std::function` stays raw; `%d` and `%#v` of the error show `{}`.
+- [ ] Map literals next to a C key (ADR-137): an unused variable inside a skipped value may go unreported (`CheckExpr` reports the first error per skipped value); an elided literal of a C/C++ type is refused; an anonymous Go struct with a C field is refused (elided) and fails in the build (full form).
+- [ ] Phase 04: `type D hresult.Surface` is refused at its declaration; named types over C types; a generic instantiated with a Go struct that has a C field says "C/C++ type argument" (`Box[W]`, also on dev).
+- [ ] ADR-137 test gaps: `maxRefNodes` (1000) boundary not pinned; `nameAt` tie-break (first match) not pinned; the two-type-argument generic message (`Pair[int, hresult.NTSTATUS]`) not tested; the `maxIRDepth` comment figure (2000-2500 levels) is unmeasured (2000 builds, 2400 timed out at 200 s); `internal/check/hresults.go:175` copies and sorts through `Diagnostics()` where `Any` would do.
 
 ### Build, modules, packaging
 

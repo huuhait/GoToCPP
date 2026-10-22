@@ -302,6 +302,8 @@ type opaquePass struct {
 	// litParent maps a composite literal whose type was left out to the
 	// literal it is an element (or a key) of.
 	litParent map[*ast.CompositeLit]*ast.CompositeLit
+	// mapKey maps the value of an element of a map literal to its key (skipMapValue).
+	mapKey map[ast.Expr]ast.Expr
 
 	// instIdents maps the name of a generic function in F[T] with a type argument from C/C++ to
 	// that instantiation: go/types records nothing for the name then (a call has the same in
@@ -366,6 +368,7 @@ func newOpaquePass(pkg *types.Package, info *types.Info, files []*ast.File) *opa
 		decls:      make(map[types.Object]decl, len(info.Defs)),
 		skip:       make(map[ast.Expr]bool, len(info.Defs)),
 		litParent:  make(map[*ast.CompositeLit]*ast.CompositeLit),
+		mapKey:     make(map[ast.Expr]ast.Expr),
 		instIdents: make(map[*ast.Ident]ast.Expr),
 		keyOf:      make(map[ast.Expr]*ast.CompositeLit),
 		blankFrom:  make(map[*ast.Ident][]ast.Expr),
@@ -561,6 +564,7 @@ func (op *opaquePass) collectLit(lit *ast.CompositeLit) {
 		op.keyOf[kv.Key] = lit
 		op.addSkipped(kv.Key, lit, skipKey)
 		if mapType != nil {
+			op.mapKey[kv.Value] = kv.Key
 			op.addUnrecorded(kv.Value, lit, skipMapValue)
 		}
 	}

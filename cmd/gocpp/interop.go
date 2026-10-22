@@ -166,7 +166,9 @@ func (c *checkCommand) prepareTyped(prog *load.Program) (int, bool) {
 	if c.verbose && dec.Note != "" {
 		fmt.Fprintln(c.stderr, dec.Note)
 	}
-	c.typed = &typedState{setting: set, dec: dec, runner: new(probe.Runner)}
+	rn := new(probe.Runner)
+	rn.StableHeaders() // a command reads the headers once: both analyses of a build share their hashes
+	c.typed = &typedState{setting: set, dec: dec, runner: rn}
 	return 0, true
 }
 
@@ -194,11 +196,14 @@ func (c *checkCommand) typedHooks(cfg *check.Config) {
 	if c.typed != nil {
 		rn = c.typed.runner
 	}
-	consts, members := typedinterop.Hooks(typedinterop.HookOptions{GOOS: c.goos, GOARCH: c.goarch, Runner: rn})
+	consts, members, hresults := typedinterop.Hooks(typedinterop.HookOptions{GOOS: c.goos, GOARCH: c.goarch, Runner: rn})
 	if c.typedOn() {
 		cfg.Constants = consts
 	}
 	cfg.CppMembers = members
+	if c.typedOn() {
+		cfg.HResults = hresults
+	}
 }
 
 // analyzeTyped runs the typed pipeline on the packages of the program that checked without

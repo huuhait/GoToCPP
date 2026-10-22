@@ -331,6 +331,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/iface_test.cpp", weight: 7},
 						{src: "test/ifaceconv_test.cpp", weight: 4},
 						{src: "test/errors_test.cpp", weight: 4},
+						{src: "test/hresult_test.cpp", weight: 3},
 						{src: "test/iter_test.cpp", weight: 3},
 						{src: "test/bytealg_test.cpp", weight: 4},
 						{src: "test/reflect_test.cpp", weight: 5},
@@ -409,6 +410,10 @@ func TestCXX(t *testing.T) {
 					t.Run("errors", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/errors_test.cpp"))
+					})
+					t.Run("hresult", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/hresult_test.cpp"))
 					})
 					t.Run("iter", func(t *testing.T) {
 						t.Parallel()

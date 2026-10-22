@@ -192,7 +192,34 @@ func (g *gen) result(f *ctype.Type, scope []string) string {
 	if f.Elem == nil || f.Elem.Kind == ctype.Builtin && f.Elem.Name == "void" {
 		return ""
 	}
+	if g.isHResult(f.Elem, scope) {
+		return "error" // a call of a function that returns an HRESULT is an error in the program (ADR-137)
+	}
 	return g.typeExpr(f.Elem, scope)
+}
+
+// isHResult reports whether t is the typedef HRESULT of the view: the name HRESULT, outside any
+// namespace, of a typedef that stands for int or long (LONG on Windows). It is the rule of
+// adapt.RowHResult, over the declarations of the header.
+func (g *gen) isHResult(t *ctype.Type, scope []string) bool {
+	if t.Kind != ctype.Named || t.QualName() != "HRESULT" {
+		return false
+	}
+	for hops := 0; hops < 8 && t.Kind == ctype.Named; hops++ {
+		d := g.lookup(t.QualName(), t.Global, scope)
+		if d == nil || d.kind != "typedef" {
+			return false
+		}
+		u, err := ctype.Parse(d.node.qual())
+		if err != nil {
+			return false
+		}
+		if u.Kind == ctype.Builtin {
+			return u.Name == "int" || u.Name == "long"
+		}
+		t = u
+	}
+	return false
 }
 
 // params writes the parameter list of a function type. Names are used when

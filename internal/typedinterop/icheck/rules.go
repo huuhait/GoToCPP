@@ -156,6 +156,12 @@ func (c *checker) checkTarget(r *collect.Ref, v ftype.Value, st collect.Site, in
 	if v.Kind == ftype.Void {
 		rel = append(rel, diag.Related{Msg: "the C++ function returns void"})
 	}
+	if st.Target == "error" {
+		// A number is not an error: gocpp's rule (ADR-137), an error for g++ as well.
+		rel = append(rel, diag.Related{Msg: "only a call of a function that returns an HRESULT is an error"})
+		c.res.Diags = append(c.res.Diags, diag.Diagnostic{Pos: c.pos(st), Msg: fmt.Sprintf(fmtCannotUse, text, what, st.Target, where), Related: rel})
+		return
+	}
 	c.report(c.pos(st), fmt.Sprintf(fmtCannotUse, text, what, st.Target, where), rel)
 }
 

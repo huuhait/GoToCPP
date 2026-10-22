@@ -285,6 +285,34 @@ func TestFalseErrors(t *testing.T) {
 		{"go typed inside C", "n, m := 1, 2\nvar h Handle\n_ = n + m == h", ""},
 		{"go next to C", "var h Handle\n_ = h + 1\nvar u unsafe.Pointer\n_ = u == 1",
 			"cannot convert 1 (untyped int constant) to type unsafe.Pointer"},
+
+		// The value next to a key that is a C/C++ value is skipped by go/types: it is checked against the
+		// element type of the map all the same (mapvalue.go), and an elided literal has the element type.
+		{"map value ok under C key", "s := 2\n_ = map[any]int{lib.CB: s, 1: 2}\n_ = map[Handle]string{1: \"a\"}", ""},
+		{"map elided literals under C key",
+			"_ = map[any]GoS{lib.CB: {1}}\n_ = map[any][]int{lib.CB: {1, 2}}\n_ = map[any]*GoS{lib.CB: {1}}\n" +
+				"_ = map[any]struct{}{lib.CB: {}}\n_ = map[any]map[string]int{lib.CB: {\"a\": 1}}\n" +
+				"_ = map[Handle][]GoS{1: {{1}, {2}}}", ""},
+		{"map value constant under C key", "_ = map[any]int{lib.CB: \"x\"}",
+			`cannot use "x" (untyped string constant) as int value in map literal`},
+		{"map value variable under C key", "s := \"a\"\n_ = map[any]int{lib.CB: s}",
+			"cannot use s (variable of type string) as int value in map literal"},
+		{"map value variable under named C key", "s := \"a\"\n_ = map[Handle]int{1: s}",
+			"cannot use s (variable of type string) as int value in map literal"},
+		{"map value overflow under C key", "_ = map[any]int8{lib.CB: 300}",
+			"cannot use 300 (untyped int constant) as int8 value in map literal (overflows)"},
+		{"map value truncated under C key", "_ = map[any]int{lib.CB: 2.5}",
+			"cannot use 2.5 (untyped float constant) as int value in map literal (truncated)"},
+		{"map value bool under C key", "_ = map[any]bool{lib.CB: 1}",
+			"cannot use 1 (untyped int constant) as bool value in map literal"},
+		{"map duplicate keys under C key", "_ = map[any]int{lib.CB: 1, 2: 3, 2: 4}",
+			"duplicate key 2 in map literal"},
+		{"map elided literal duplicate", "_ = map[any]map[string]int{lib.CB: {\"a\": 1, \"a\": 2}}",
+			`duplicate key "a" in map literal`},
+		{"map elided literal wrong field", "_ = map[any]GoS{lib.CB: {\"x\"}}",
+			`cannot use "x" (untyped string constant) as int value in struct literal`},
+		{"map elided pointer literal wrong field", "_ = map[any]*GoS{lib.CB: {\"x\"}}",
+			`cannot use "x" (untyped string constant) as int value in struct literal`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := falseErrorMessages(t, c.body); got != c.want {

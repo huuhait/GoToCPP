@@ -91,7 +91,7 @@ func (rn *Runner) findVariant(dir, name, kind string) *variant {
 	}
 	for i := range vf.Variants {
 		v := &vf.Variants[i]
-		if v.DepsHash != "" && variantFresh(v.Created) && DepsHash(v.Deps) == v.DepsHash {
+		if v.DepsHash != "" && variantFresh(v.Created) && rn.depsHash(v.Deps) == v.DepsHash {
 			return v
 		}
 	}
