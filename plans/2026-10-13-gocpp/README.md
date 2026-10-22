@@ -354,6 +354,7 @@ probing, formatting, and Go output details the runtime must copy exactly.
 | 13 | [Tooling](phase-13-tooling/README.md) | C++ errors in gocpp terms, debugger printers, `vet`, `doc` | |
 | 14 | [Windows](phase-14-windows/README.md) | Everything works on Windows: runtime, build, stdlib, `<windows.h>`, editor, debugger | **M8: Windows works** |
 | 15 | [Hardening & release](phase-15-hardening-release/README.md) | Speed, fuzzing, docs, packaging | **M9: v1.0** |
+| 16 | [Dual engine](phase-16-dual-engine/README.md) | Idea only: a GC engine for Go packages next to the current no-GC engine | none yet (after M9) |
 
 **What each phase needs.** The phase number is the recommended order for one person. The
 table shows the real dependencies, so you can see what may move or overlap:

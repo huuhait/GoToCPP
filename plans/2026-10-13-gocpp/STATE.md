@@ -46,6 +46,7 @@
 - [~] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
 - [~] **Phase 14:** Windows → [STATE](phase-14-windows/STATE.md) · ends with **M8**
 - [~] **Phase 15:** Optimization, hardening & release → [STATE](phase-15-hardening-release/STATE.md) · ends with **M9 (v1.0)**
+- [ ] **Phase 16:** Dual engine (idea, in discussion) → [STATE](phase-16-dual-engine/STATE.md)
 
 ## Milestones
 

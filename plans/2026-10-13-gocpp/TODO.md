@@ -139,7 +139,7 @@ back together after each round; workers report only at completion or a genuine b
 - [ ] `gocpp test -cover` via clang source-based coverage mapped through `#line`
 - [ ] Fuzzing in `testing` (`testing.F`)
 - [ ] `net/http` package wrapping a C++ HTTP library
-- [ ] Optional tracing-GC mode for cycle-heavy programs
+- [ ] Optional tracing-GC mode for cycle-heavy programs (grown into the Phase 16 idea: a GC engine for Go packages; in discussion, see phase-16-dual-engine/README.md)
 - [ ] WebAssembly target through emscripten
 - [ ] Self-hosting: compile the gocpp compiler with gocpp
 - [ ] Procedural macros: user code generators run at compile time (AST in, AST out), after v1.0
