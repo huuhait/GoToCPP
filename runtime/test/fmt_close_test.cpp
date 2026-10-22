@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -93,6 +94,52 @@ std::atomic<int> barrier_stage{0};
 void held_barrier() noexcept {
     barrier_stage.store(1);
     await(barrier_stage, 2);
+}
+
+// The process-wide barrier is prepared by gp::run_main, before any goroutine exists (the first
+// preparation of a process with several threads waits for an RCU grace period), and again, cheaply
+// and once, by the first Print of a thread and by a Close: the protocol must not depend on
+// run_main.
+void test_barrier_prepared() {
+    CHECK(tos::barrier_init_calls() >= 1); // run_main
+    auto run_in_thread = [](auto f) {
+        std::thread t(f);
+        t.join();
+    };
+    const std::pair<const char*, void (*)()> users[] = {
+        {"register_print_slot", [] { d::register_print_slot(); }},
+        {"defer_close(stdin)", [] { CHECK(!gp::fmt::defer_close(false, [] {})); }},
+        {"defer_close(stdout)", [] { CHECK(!gp::fmt::defer_close(true, [] {})); }},
+    };
+    for (const auto& [name, user] : users) {
+        d::forget_process_barrier();
+        unsigned long before = tos::barrier_init_calls();
+        run_in_thread(user);
+        if (tos::barrier_init_calls() != before + 1) {
+            std::fprintf(stderr, "%s did not prepare the barrier once\n", name);
+        }
+        CHECK(tos::barrier_init_calls() == before + 1);
+        run_in_thread(user); // prepared: no second call
+        CHECK(tos::barrier_init_calls() == before + 1);
+    }
+    d::stdout_gate.word.store(0);
+    d::stdin_gate.word.store(0);
+}
+
+// Where the system has no barrier, the first Print of a thread sets bit 0 of the gate before it
+// reads it, so that every Print takes the counted slow path.
+void test_barrier_missing() {
+    tos::set_barrier_init_failing(true);
+    d::forget_process_barrier();
+    d::stdout_gate.word.store(0);
+    std::thread t([] { d::register_print_slot(); });
+    t.join();
+    CHECK((d::stdout_gate.word.load() & 1) == 1);
+    tos::set_barrier_init_failing(false);
+    d::stdout_gate.word.store(0);
+    d::forget_process_barrier();
+    d::ensure_process_barrier();
+    CHECK((d::stdout_gate.word.load() & 1) == 0); // (Linux >= 4.14, Windows)
 }
 
 void test_barrier_ready() {
@@ -186,6 +233,8 @@ void test_slot_last() {
 }
 
 void run_tests() {
+    test_barrier_prepared();
+    test_barrier_missing();
     test_barrier_ready();
     test_counted_finishers();
     test_slot_last();

@@ -378,6 +378,9 @@ fault_hook set_fault_hook(fault_hook hook) noexcept;
 // FlushProcessWriteBuffers), so that a thread that only pairs its stores with a compiler barrier is
 // ordered against the caller's: the slow side of an asymmetric Dekker protocol (gp::fmt: the
 // in-flight Print calls of os.Stdout).
+// On Linux, the first process_barrier_init of a process that has other threads waits for an RCU
+// grace period (15 to 25 ms): run_main calls it before any goroutine exists, so that the first
+// Print does not pay it; later calls return at once.
 bool process_barrier_init() noexcept;
 void process_barrier() noexcept;
 
@@ -409,6 +412,12 @@ unsigned long barrier_calls() noexcept;
 // It lets the close tests hold that boundary while another thread finishes a Print.
 using barrier_hook = void (*)() noexcept;
 barrier_hook set_barrier_hook(barrier_hook hook) noexcept;
+
+// barrier_init_calls counts the calls of process_barrier_init (a test sees who prepares the
+// barrier), and set_barrier_init_failing makes it report that the system has no barrier (it does
+// not touch the system).
+unsigned long barrier_init_calls() noexcept;
+void set_barrier_init_failing(bool on) noexcept;
 
 // fd_write writes the bytes to fd and fd_close closes it.
 void fd_write(int fd, const char* data, std::size_t n) noexcept;

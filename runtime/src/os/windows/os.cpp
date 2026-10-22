@@ -512,8 +512,14 @@ void wait_slot_wait(wait_slot* s, std::int64_t timer_ns, std::int64_t spin_ns) n
     }
 }
 
+namespace {
+std::atomic<unsigned long> barrier_init_count{0};
+std::atomic<bool> barrier_init_failing{false};
+} // namespace
+
 bool process_barrier_init() noexcept {
-    return true;
+    barrier_init_count.fetch_add(1, std::memory_order_relaxed);
+    return !barrier_init_failing.load(std::memory_order_relaxed);
 }
 
 namespace {
@@ -537,6 +543,14 @@ unsigned long barrier_calls() noexcept {
 
 barrier_hook set_barrier_hook(barrier_hook hook) noexcept {
     return before_barrier.exchange(hook, std::memory_order_acq_rel);
+}
+
+unsigned long barrier_init_calls() noexcept {
+    return barrier_init_count.load(std::memory_order_relaxed);
+}
+
+void set_barrier_init_failing(bool on) noexcept {
+    barrier_init_failing.store(on, std::memory_order_relaxed);
 }
 
 int stdin_pipe(bool) noexcept {

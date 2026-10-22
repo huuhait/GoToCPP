@@ -979,6 +979,10 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     os::set_fault_hook(on_fault);
 #endif
     os::start();
+    // The barrier of fmt's Print/Close protocol is prepared here, while this is the only thread:
+    // on Linux the first call waits for an RCU grace period (15 to 25 ms) once other threads exist.
+    // fmt's ensure_process_barrier then finds it done.
+    os::process_barrier_init();
     if constexpr (race::mode) {
         // -race: every goroutine has a thread of its own, so that a report's "created at" is the
         // go statement of that goroutine and not of the first one that used the thread.

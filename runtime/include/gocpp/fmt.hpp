@@ -523,9 +523,10 @@ inline std::tuple<int64_t, gp::error> written(const std::string& s) {
 // Print), and Close sets bit 0, then makes all threads pass a memory barrier
 // (gp::os::process_barrier), then waits for the slots and the counter to drain: a Print either sees
 // bit 0 and takes the slow path, or Close sees its slot. Where the system has no such barrier, bit
-// 0 is set from the start and every Print takes the counted slow path. The calls that change the
-// variable are the lowering's: an assignment to os.Stdout, os.Stdin or os.Stderr is
-// gp::fmt::store_std, and File.Close of the original streams calls std_closing.
+// 0 is set at the first Print or Close (ensure_process_barrier) and every Print takes the counted
+// slow path. The calls that change the variable are the lowering's: an assignment to os.Stdout,
+// os.Stdin or os.Stderr is gp::fmt::store_std, and File.Close of the original streams calls
+// std_closing.
 struct std_gate {
     std::atomic<uint32_t> word{0};
 };
@@ -538,6 +539,10 @@ struct print_slot {
 };
 inline thread_local print_slot* tls_print_slot = nullptr;
 print_slot* register_print_slot();
+// ensure_process_barrier prepares the process-wide barrier (once); register_print_slot and
+// defer_close call it. forget_process_barrier makes the next call prepare again (tests only).
+void ensure_process_barrier();
+void forget_process_barrier() noexcept;
 
 // A Close of the original stream with prints (or scans) in flight does not close the descriptor:
 // the last one out does (finish_close), as with Go's descriptor reference counts.
@@ -545,10 +550,12 @@ print_slot* register_print_slot();
 // leaving during that barrier cannot miss it. The mutex protects the callback AND its readiness:
 // a last user must not claim the close until defer_close has finished the barrier. Only these cold
 // close paths lock it; the ordinary Print fast path still just tests flag.
+// close is a pointer to the callback (null: none), owned by whoever takes it: an object with a
+// destructor would register it at startup, and a runtime library member has no static initializer.
 struct pending_close {
     std::atomic<bool> flag{false};
     std::mutex mu;
-    gp::func<void()> close;
+    gp::func<void()>* close = nullptr;
 };
 extern pending_close pending_stdout;
 extern pending_close pending_stdin;

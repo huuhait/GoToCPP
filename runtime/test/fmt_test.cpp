@@ -596,14 +596,15 @@ void test_stdin() {
     }
 }
 
-// test_gate_start: with a process-wide barrier (membarrier(2), Linux >= 4.14) the gate starts open,
-// and a Print on the fast path leaves its thread's slot clear.
+// test_gate_start: with a process-wide barrier (membarrier(2), Linux >= 4.14) the gate stays open
+// (bit 0 clear) after the first Print, which is on the fast path and leaves its thread's slot
+// clear.
 void test_gate_start() {
     if (!gp::os::process_barrier_init()) {
         return; // every Print takes the counted slow path on this system
     }
-    CHECK((gp::fmt::detail::stdout_gate.word.load() & 1) == 0);
     fmt::Print(gp::string()); // writes nothing
+    CHECK((gp::fmt::detail::stdout_gate.word.load() & 1) == 0);
     CHECK(gp::fmt::detail::tls_print_slot != nullptr &&
           gp::fmt::detail::tls_print_slot->inflight.load() == 0);
 }

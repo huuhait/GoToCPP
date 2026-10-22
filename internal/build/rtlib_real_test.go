@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"debug/elf"
+	"debug/pe"
 	"errors"
 	"os"
 	"os/exec"
@@ -350,41 +351,106 @@ func TestPrecompiledHeaderKeyedByFlags(t *testing.T) {
 // that don't reference it (rtlib.go). The runtime's objects have none, except the two that
 // initialize only data of their own, which nothing can read without taking the object: math.o
 // (has_fma and has_sse41, read through those symbols by the inline math functions) and timer.o
-// (the timer heap, used only by the timer functions). A new initializer elsewhere fails here.
-var ownDataOnly = map[string]bool{"src_math.o": true, "src_timer.o": true}
+// (the timer heap, used only by the timer functions), and testing.o (the natives of package
+// testing: its alarm and running-test state is in an unnamed namespace, so only its own functions
+// read it, and the object is taken by those functions only). A new initializer elsewhere fails
+// here.
+// A global with a destructor counts: its registration is an initializer too. The checks cover the
+// natives of package testing (rtfiles.TestingSources) as well. The ELF objects of Linux and the
+// COFF objects of the MinGW-w64 compilers (when they are installed) are read.
+var ownDataOnly = map[string]bool{"src_math.o": true, "src_timer.o": true, "src_testing.o": true}
+
+// staticInitSections are the section name prefixes that hold start-up and exit code pointers: ELF
+// (.init_array, .ctors, .preinit_array, .fini_array, .dtors) and COFF (.ctors and .dtors of GCC,
+// .CRT$XC* and .CRT$XI* of Clang).
+var staticInitSections = []string{
+	".init_array", ".ctors", ".preinit_array", ".fini_array", ".dtors", ".CRT$XC", ".CRT$XI",
+}
 
 func TestRuntimeObjectsHaveNoStaticInit(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads ELF objects")
 	}
 	forEachCompiler(t, func(t *testing.T, cxx CXX) {
-		cache := t.TempDir()
-		b := &Builder{CXX: cxx, GOOS: runtime.GOOS, Work: t.TempDir(), Cache: cache}
-		dir, err := ExtractRuntime(cache)
-		if err != nil {
-			t.Fatal(err)
-		}
-		objs, err := b.cachedObjects(context.Background(), dir, rtfiles.Sources(b.GOOS), b.compileFlags())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, o := range objs {
-			f, err := elf.Open(o)
+		checkNoStaticInit(t, cxx, runtime.GOOS, func(path string) ([]string, error) {
+			f, err := elf.Open(path)
 			if err != nil {
-				t.Fatal(err)
+				return nil, err
 			}
-			if _, ok := ownDataOnly[filepath.Base(o)]; ok {
-				f.Close()
-				continue
-			}
+			defer f.Close()
+			var sections []string
 			for _, s := range f.Sections {
-				for _, bad := range []string{".init_array", ".ctors", ".preinit_array"} {
-					if strings.HasPrefix(s.Name, bad) && s.Size > 0 {
-						t.Errorf("%s has the section %s (%d bytes): a static initializer in a library member", filepath.Base(o), s.Name, s.Size)
-					}
+				if s.Size > 0 {
+					sections = append(sections, s.Name)
 				}
 			}
-			f.Close()
-		}
+			return sections, nil
+		})
 	})
+}
+
+// TestRuntimeObjectsHaveNoStaticInitWindows is the same for the Windows objects, compiled by the
+// MinGW-w64 cross compilers.
+func TestRuntimeObjectsHaveNoStaticInitWindows(t *testing.T) {
+	found := false
+	for _, name := range []string{"x86_64-w64-mingw32-g++", "x86_64-w64-mingw32-clang++"} {
+		cxx, err := LookCXX(context.Background(), name)
+		if err != nil {
+			continue
+		}
+		found = true
+		t.Run(name, func(t *testing.T) {
+			checkNoStaticInit(t, cxx, "windows", func(path string) ([]string, error) {
+				f, err := pe.Open(path)
+				if err != nil {
+					return nil, err
+				}
+				defer f.Close()
+				var sections []string
+				for _, s := range f.Sections {
+					if s.Size > 0 {
+						sections = append(sections, s.Name)
+					}
+				}
+				return sections, nil
+			})
+		})
+	}
+	if !found {
+		t.Skip("no MinGW-w64 compiler")
+	}
+}
+
+// checkNoStaticInit compiles the runtime of goos with cxx and fails for each object that has a
+// section of staticInitSections; sections lists the names of the non-empty sections of an object.
+func checkNoStaticInit(t *testing.T, cxx CXX, goos string, sections func(path string) ([]string, error)) {
+	t.Helper()
+	cache := t.TempDir()
+	b := &Builder{CXX: cxx, GOOS: goos, Work: t.TempDir(), Cache: cache}
+	dir, err := ExtractRuntime(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcs := slices.Concat(rtfiles.Sources(goos), rtfiles.TestingSources(goos))
+	objs, err := b.cachedObjects(context.Background(), dir, srcs, b.compileFlags())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
+		if ownDataOnly[filepath.Base(o)] {
+			continue
+		}
+		names, err := sections(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range names {
+			for _, bad := range staticInitSections {
+				if strings.HasPrefix(name, bad) {
+					t.Errorf("%s has the section %s: a static initializer in a library member",
+						filepath.Base(o), name)
+				}
+			}
+		}
+	}
 }

@@ -5,6 +5,7 @@
 #include <gocpp/rt.hpp>
 
 #include <atomic>
+#include <memory>
 #include <chrono>
 #include <mutex>
 #include <vector>
@@ -38,7 +39,14 @@ std_gate stdin_gate;
 namespace {
 std::atomic<print_slot*> slots_head{nullptr};
 std::mutex slots_mu;
-std::vector<print_slot*> free_slots; // slots of threads that ended
+
+// The slots of threads that ended. Made at the first use and never destroyed: a vector at namespace
+// scope would register its destructor at startup, which a library member must not do (rtlib.go,
+// TestRuntimeObjectsHaveNoStaticInit), and a thread may end after the static destructors ran.
+std::vector<print_slot*>& free_slots() {
+    static std::vector<print_slot*>* slots = new std::vector<print_slot*>;
+    return *slots;
+}
 
 // A thread's slot goes back to the free list when the thread ends.
 struct slot_owner {
@@ -47,29 +55,55 @@ struct slot_owner {
         if (slot != nullptr) {
             slot->inflight.store(0, std::memory_order_relaxed);
             std::lock_guard<std::mutex> g(slots_mu);
-            free_slots.push_back(slot);
+            free_slots().push_back(slot);
         }
     }
 };
 thread_local slot_owner my_slot_owner;
 
-// Where the system has no process-wide barrier, every Print takes the counted slow path.
-bool barrier_ok = [] {
-    if (!os::process_barrier_init()) {
-        stdout_gate.word.fetch_or(1, std::memory_order_relaxed);
-        return false;
-    }
-    return true;
-}();
+// Whether ensure_process_barrier has prepared the barrier (a plain atomic and a mutex: no static
+// initializer, no destructor to register).
+std::atomic<bool> barrier_prepared{false};
+std::mutex barrier_mu;
 } // namespace
 
+// ensure_process_barrier: prepares the process-wide barrier once, at the first use. It is not a
+// namespace-scope initializer: a library member with a static initializer is dropped from a
+// program that does not name one of its symbols (rtlib.go). Both users run before the barrier
+// matters: a thread's first Print registers its slot here before it reads the gate, and Close of
+// the original stream prepares the barrier before it makes it. Where the system has no
+// process-wide barrier, bit 0 of stdout_gate is set and every Print takes the counted slow path.
+// gp::run_main has called os::process_barrier_init before any goroutine exists (on Linux the
+// first call waits for an RCU grace period when other threads exist, which a Print must not pay),
+// so here the call is cheap; a hosted library (gp::lib::enter) pays it at its first Print.
+void ensure_process_barrier() {
+    if (barrier_prepared.load(std::memory_order_acquire)) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(barrier_mu);
+    if (barrier_prepared.load(std::memory_order_relaxed)) {
+        return;
+    }
+    if (!os::process_barrier_init()) {
+        stdout_gate.word.fetch_or(1, std::memory_order_relaxed);
+    }
+    barrier_prepared.store(true, std::memory_order_release);
+}
+
+// forget_process_barrier: for the tests only; the next ensure_process_barrier prepares again.
+void forget_process_barrier() noexcept {
+    barrier_prepared.store(false, std::memory_order_release);
+}
+
 print_slot* register_print_slot() {
+    ensure_process_barrier();
     print_slot* s = nullptr;
     {
         std::lock_guard<std::mutex> g(slots_mu);
-        if (!free_slots.empty()) {
-            s = free_slots.back();
-            free_slots.pop_back();
+        std::vector<print_slot*>& free = free_slots();
+        if (!free.empty()) {
+            s = free.back();
+            free.pop_back();
         }
     }
     if (s == nullptr) {
@@ -151,7 +185,7 @@ void finish_close(bool is_stdout) {
     if (!pc.flag.load(std::memory_order_acquire)) {
         return;
     }
-    gp::func<void()> f;
+    std::unique_ptr<gp::func<void()>> f;
     {
         // defer_close holds this through the process-wide barrier. In particular a slow Print
         // that drains the counter during that barrier must not close under an unobserved fast
@@ -159,12 +193,12 @@ void finish_close(bool is_stdout) {
         std::lock_guard<std::mutex> lock(pc.mu);
         full_fence();
         if (close_drained(is_stdout) && pc.flag.exchange(false, std::memory_order_seq_cst)) {
-            f = std::move(pc.close);
+            f.reset(pc.close);
             pc.close = nullptr;
         }
     }
-    if (f != nullptr) {
-        f();
+    if (f != nullptr && *f != nullptr) {
+        (*f)();
     }
 }
 
@@ -186,11 +220,13 @@ void std_closing(bool is_stdout) noexcept {
 // in finish_close. It may do so as soon as this function releases the lock, before its caller
 // resumes, so retaining the callback is not a synchronous-callback guarantee.
 bool defer_close(bool is_stdout, gp::func<void()> close) {
+    detail::ensure_process_barrier();
     detail::std_gate& g = is_stdout ? detail::stdout_gate : detail::stdin_gate;
     g.word.fetch_or(1, std::memory_order_seq_cst);
     detail::pending_close& pc = is_stdout ? detail::pending_stdout : detail::pending_stdin;
     std::lock_guard<std::mutex> lock(pc.mu);
-    pc.close = std::move(close);
+    delete pc.close;
+    pc.close = new gp::func<void()>(std::move(close));
     pc.flag.store(true, std::memory_order_seq_cst);
     if (is_stdout) {
         os::process_barrier(); // every thread's announcement of a Print is visible from here on
@@ -198,6 +234,7 @@ bool defer_close(bool is_stdout, gp::func<void()> close) {
         detail::full_fence();
     }
     if (detail::close_drained(is_stdout) && pc.flag.exchange(false, std::memory_order_seq_cst)) {
+        delete pc.close;
         pc.close = nullptr;
         return false; // nobody is inside a direct read or write: the caller closes at once
     }
