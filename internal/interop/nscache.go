@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // The cache of the probes keeps, per include set (compiler, folder, flags
@@ -240,7 +241,9 @@ func stateOf(path string) (fileState, time.Time, error) {
 		(*hook)(path)
 	}
 	fileReads.Add(1)
-	data, err := os.ReadFile(path)
+	// Not os.ReadFile: a file that became a named pipe since the last look would make it wait for a
+	// writer. It is an error here (the file can't be read), and the result is not kept.
+	data, err := load.ReadRegular(path)
 	if err != nil {
 		return fileState{}, time.Time{}, err
 	}

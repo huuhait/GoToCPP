@@ -164,6 +164,14 @@ func openFailed(name string, err error) error {
 	return err
 }
 
+// IsNotRegular reports whether err says that a file is not a regular file (a named pipe, a socket,
+// a device, a folder), like the errors of ReadRegular and OpenRegular. A file that cannot be
+// opened for another reason (it is not there, its permissions) is not one.
+func IsNotRegular(err error) bool {
+	var kind irregularError
+	return errors.As(err, &kind)
+}
+
 // irregularError says what kind of file a file that is not regular is.
 type irregularError fs.FileMode
 

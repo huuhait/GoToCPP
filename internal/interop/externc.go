@@ -3,9 +3,7 @@ package interop
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -135,7 +133,6 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 			return set.res, nil
 		}
 	}
-	c.cRuns.Add(1)
 
 	// The header's text, for the guard. It is read before the compiler
 	// runs, and the result is cached only when the file that the cache
@@ -148,14 +145,17 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 	path = filepath.Clean(path)
 	var res CHeader
 	text, err := load.ReadRegular(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		// A named pipe or a device would make the compiler wait for ever, and a header that can't
-		// be read fails the compile anyway.
-		return CHeader{}, fmt.Errorf("parse-as-C check: %w", err)
+	if load.IsNotRegular(err) {
+		// A named pipe or a device would make the compiler wait for ever, and a folder is no
+		// header. There is nothing to decide, and no error here: the probes report the file (they
+		// don't run the compiler on a pipe, and the compiler says "cannot find" for a folder), so
+		// that the import has one error. This is not cached: it is no answer about a header.
+		return CHeader{}, nil
 	}
 	exists := err == nil
 	res.Guard = cplusplusRx.Match(text)
 
+	c.cRuns.Add(1)
 	ok, deps, depsOK, missing, start, err := runCHeaderCheck(ctx, cc, dir, flags, include)
 	if err != nil {
 		return CHeader{}, err

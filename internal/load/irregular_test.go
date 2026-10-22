@@ -2,6 +2,7 @@ package load
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -139,6 +140,46 @@ func TestReadRegular(t *testing.T) {
 	}
 	if _, err := ReadRegular("/dev/zero"); err == nil && filepath.Separator == '/' {
 		t.Errorf("/dev/zero was read")
+	}
+}
+
+// TestIsNotRegular: the errors of a folder and a named pipe are "not regular" (also wrapped), the
+// errors of a missing file, a file without permission and no error are not.
+func TestIsNotRegular(t *testing.T) {
+	dir := t.TempDir()
+	pipe := filepath.Join(dir, "pipe")
+	if err := mkfifo(pipe); err != nil {
+		t.Skip(err)
+	}
+	_, folderErr := ReadRegular(dir)
+	_, pipeErr := ReadRegular(pipe)
+	_, missingErr := ReadRegular(filepath.Join(dir, "missing"))
+	locked := filepath.Join(dir, "locked")
+	if err := os.WriteFile(locked, []byte("text"), 0); err != nil {
+		t.Fatal(err)
+	}
+	_, lockedErr := ReadRegular(locked)
+	if lockedErr == nil {
+		lockedErr = errors.New("the file can be read without permission (root?)")
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"no error", nil, false},
+		{"folder", folderErr, true},
+		{"named pipe", pipeErr, true},
+		{"named pipe, wrapped", fmt.Errorf("check: %w", pipeErr), true},
+		{"missing file", missingErr, false},
+		{"file without permission", lockedErr, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsNotRegular(test.err); got != test.want {
+				t.Errorf("IsNotRegular(%v) = %v, want %v", test.err, got, test.want)
+			}
+		})
 	}
 }
 

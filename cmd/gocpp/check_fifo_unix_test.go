@@ -173,6 +173,27 @@ func TestHeaderNamedPipe(t *testing.T) {
 	}
 }
 
+// TestHeaderNamedPipeOneError: the named pipe is reported once at its import, not by the probe and
+// by the parse-as-C check both.
+func TestHeaderNamedPipeOneError(t *testing.T) {
+	for _, command := range []string{"check", "build"} {
+		t.Run(command, func(t *testing.T) {
+			dir, pipes := namedPipeProject(t, "pipe.h", "pipe")
+			main := "package main\n\nimport \"./pipe.h\"\n\nfunc main() {}\n"
+			if err := os.WriteFile(filepath.Join(dir, "main.gp"), []byte(main), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got := runGuarded(t, pipes, command, ".")
+			if got.code == 0 || strings.Count(got.stderr, "./main.gp:3:8:") != 1 {
+				t.Errorf("gocpp %s .: exit %d, stderr %q; want one error at the import", command, got.code, got.stderr)
+			}
+			if strings.Contains(got.stderr, "cannot check whether header") {
+				t.Errorf("gocpp %s .: stderr %q; want no parse-as-C error for a header that is no file", command, got.stderr)
+			}
+		})
+	}
+}
+
 // TestDocNamedPipeInADependency: the root of a required module is read like the main module.
 func TestDocNamedPipeInADependency(t *testing.T) {
 	dir, _ := namedPipeProject(t, "main.gp", "pipe")

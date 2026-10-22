@@ -598,6 +598,72 @@ $`)
 	})
 }
 
+// TestProbeUnreadableHeaderFolder checks a header in a folder that can't be
+// read: one error, the compiler's message, like a header without permission.
+func TestProbeUnreadableHeaderFolder(t *testing.T) {
+	t.Parallel()
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Parallel()
+		prog, root := loadTree(t, map[string]string{
+			"main.gp": "package main\n\nimport \"./sub/x.h\"\n\nvar v = std.vector[int]{}\n",
+			"sub/x.h": "#pragma once\n",
+		})
+		sub := filepath.Join(root, "sub")
+		if err := os.Chmod(sub, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(sub, 0o755) })
+		if _, err := os.Stat(filepath.Join(sub, "x.h")); err == nil {
+			t.Skip("the folder can be searched without permission (root?)")
+		}
+		got := errorText(t, prog, Check(prog, probeConfig(cxx, LastPhase)), root, true)
+		wantRx := regexp.MustCompile(`^# example\.com/m
+\./main\.gp:3:8: header "\./sub/x\.h" can't be read: (cannot open file ')?(\./)?sub/x\.h'?: Permission denied
+$`)
+		if !wantRx.MatchString(got) {
+			t.Errorf("errors:\n%s\nwant:\n%s", got, wantRx)
+		}
+	})
+}
+
+// TestProbeHeaderIsFolder checks a folder with the name of a header: one
+// error, the compiler's "cannot find".
+func TestProbeHeaderIsFolder(t *testing.T) {
+	t.Parallel()
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Parallel()
+		prog, root := loadTree(t, map[string]string{
+			"main.gp":      "package main\n\nimport \"./dir.h\"\n\nvar v = std.vector[int]{}\n",
+			"dir.h/in.txt": "not a header\n",
+		})
+		got := errorText(t, prog, Check(prog, probeConfig(cxx, LastPhase)), root, true)
+		want := "# example.com/m\n./main.gp:3:8: cannot find header \"./dir.h\"\n"
+		if got != want {
+			t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
+// TestProbeHeaderIsDanglingLink checks a link to a file that is not there:
+// one error, the compiler's "cannot find".
+func TestProbeHeaderIsDanglingLink(t *testing.T) {
+	t.Parallel()
+	forEachCompiler(t, func(t *testing.T, cxx build.CXX) {
+		t.Parallel()
+		prog, root := loadTree(t, map[string]string{
+			"main.gp": "package main\n\nimport \"./dangle.h\"\n\nvar v = std.vector[int]{}\n",
+		})
+		if err := os.Symlink("nowhere.h", filepath.Join(root, "dangle.h")); err != nil {
+			t.Skip(err)
+		}
+		got := errorText(t, prog, Check(prog, probeConfig(cxx, LastPhase)), root, true)
+		want := "# example.com/m\n./main.gp:3:8: cannot find header \"./dangle.h\"\n"
+		if got != want {
+			t.Errorf("errors:\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
 // TestProbeFlagDirectives checks that the probe gets the flags of a
 // package's //gocpp:cflags (in any of its files), then gocpp's language
 // flags, and that a package whose

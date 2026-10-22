@@ -261,6 +261,9 @@ Output:
   - `header "./bad.h" ends inside a declaration or a block that it doesn't close`: for example
     an `extern "C" {` without its `}`.
   - `header "./x.h" can't be read: <the compiler's message>`: for example no read permission.
+  - A local header that is not a file: a folder gives `cannot find header "./x.h"`, and a named
+    pipe, a socket or a device gives `cannot check the header imports: kind probe: open ...: not a
+    regular file: it is a named pipe` (no compiler waits for it).
   - `::std::filesystm is not a namespace of the imported headers`: a renamed namespace that the
     file's headers don't declare.
   - `cannot rename ::std::chrono: the file imports no header that could declare it`: a namespace
