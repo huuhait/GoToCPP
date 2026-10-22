@@ -47,6 +47,11 @@ func debugSections(t *testing.T, path string) (names []string, symtab bool) {
 	return names, symtab
 }
 
+// releaseStripLimit is the size that the -release -strip program stays under: it is 233,000 bytes
+// (225,000 with g++ before job 15.fmtsize's float digits, which cost 4 KB here), with room for a
+// compiler update.
+const releaseStripLimit = 300_000
+
 // fileSize returns the size of the file path.
 func fileSize(t *testing.T, path string) int64 {
 	t.Helper()
@@ -150,6 +155,9 @@ func TestBuildSizeModes(t *testing.T) {
 			if size[c.small]*c.factor > size[c.big] {
 				t.Errorf("%s is %d bytes and %s is %d: want it at most 1/%d of it", c.small, size[c.small], c.big, size[c.big], c.factor)
 			}
+		}
+		if size["release strip"] > releaseStripLimit {
+			t.Errorf("-release -strip is %d bytes, want at most %d", size["release strip"], releaseStripLimit)
 		}
 		if size["release strip"] >= size["release"] || size["release strip"] >= size["strip"] {
 			t.Errorf("sizes %v: -release -strip is not the smallest", size)

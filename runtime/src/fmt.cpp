@@ -5,6 +5,8 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
 
+#include "ftoa.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -14,7 +16,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -194,54 +195,9 @@ bool can_backquote(std::string_view s) noexcept {
 
 // --- strconv: floats ---
 
-// The decimal digits of a float, as strconv's decimalSlice: d[0:nd] with the decimal point
-// after dp digits (0.d * 10^dp). Zero has no digits and dp 0.
-struct decimal {
-    std::string d;
-    int dp = 0;
-};
-
-// digits_of: the digits of |v|, without trailing zeros: for n < 0 the shortest digits that read
-// back as v (a float32 when bits is 32), else v rounded to n significant digits.
-decimal digits_of(double v, int bits, int n) {
-    // d.ddd...e-ddd: the digits, the point, the exponent.
-    std::string buf(static_cast<std::size_t>(std::max(n, 0)) + 32, '\0');
-    char* b = buf.data();
-    char* e = b + buf.size();
-    std::to_chars_result r{};
-    if (n < 0) {
-        r = bits == 32 ? std::to_chars(b, e, std::fabs(static_cast<float>(v)),
-                                       std::chars_format::scientific)
-                       : std::to_chars(b, e, std::fabs(v), std::chars_format::scientific);
-    } else {
-        r = std::to_chars(b, e, std::fabs(v), std::chars_format::scientific, n - 1);
-    }
-    std::string_view s(b, static_cast<std::size_t>(r.ptr - b));
-    std::size_t epos = s.find('e');
-    decimal dec;
-    for (char c : s.substr(0, epos)) {
-        if (c != '.') {
-            dec.d += c;
-        }
-    }
-    std::string_view es = s.substr(epos + 1);
-    bool eneg = es.front() == '-';
-    es.remove_prefix(1); // the sign
-    int exp = 0;
-    std::from_chars(es.data(), es.data() + es.size(), exp);
-    if (eneg) {
-        exp = -exp;
-    }
-    while (!dec.d.empty() && dec.d.back() == '0') {
-        dec.d.pop_back();
-    }
-    dec.dp = dec.d.empty() ? 0 : exp + 1;
-    return dec;
-}
-
 // fmt_e is strconv's fmtE: [-]d.ddddde±dd.
-void fmt_e(std::string& out, bool neg, const decimal& d, int prec, char fmt) {
-    int nd = static_cast<int>(d.d.size());
+void fmt_e(std::string& out, bool neg, const float_digits& d, int prec, char fmt) {
+    int nd = d.nd;
     if (neg) {
         out += '-';
     }
@@ -251,7 +207,7 @@ void fmt_e(std::string& out, bool neg, const decimal& d, int prec, char fmt) {
         int i = 1;
         int m = std::min(nd, prec + 1);
         if (i < m) {
-            out.append(d.d, static_cast<std::size_t>(i), static_cast<std::size_t>(m - i));
+            out.append(d.d + i, static_cast<std::size_t>(m - i));
             i = m;
         }
         for (; i <= prec; i++) {
@@ -280,14 +236,14 @@ void fmt_e(std::string& out, bool neg, const decimal& d, int prec, char fmt) {
 }
 
 // fmt_f is strconv's fmtF: [-]ddd.ddddd.
-void fmt_f(std::string& out, bool neg, const decimal& d, int prec) {
-    int nd = static_cast<int>(d.d.size());
+void fmt_f(std::string& out, bool neg, const float_digits& d, int prec) {
+    int nd = d.nd;
     if (neg) {
         out += '-';
     }
     if (d.dp > 0) {
         int m = std::min(nd, d.dp);
-        out.append(d.d, 0, static_cast<std::size_t>(m));
+        out.append(d.d, static_cast<std::size_t>(m));
         for (; m < d.dp; m++) {
             out += '0';
         }
@@ -298,7 +254,7 @@ void fmt_f(std::string& out, bool neg, const decimal& d, int prec) {
         out += '.';
         for (int i = 0; i < prec; i++) {
             int j = d.dp + i;
-            out += 0 <= j && j < nd ? d.d[static_cast<std::size_t>(j)] : '0';
+            out += 0 <= j && j < nd ? d.d[j] : '0';
         }
     }
 }
@@ -403,71 +359,81 @@ void append_float(std::string& out, double v, char fmt, int prec, int bits) {
         return;
     }
     bool neg = std::signbit(v);
-    if (fmt == 'b' || fmt == 'x' || fmt == 'X') {
-        // The bits of the float: the mantissa with its implicit top bit, and the exponent.
-        uint64_t mant;
-        int exp;
-        int mantbits;
-        if (bits == 32) {
-            float f = static_cast<float>(v);
-            uint32_t b;
-            std::memcpy(&b, &f, 4);
-            mantbits = 23;
-            exp = static_cast<int>((b >> 23) & 0xFF);
-            mant = b & ((uint32_t(1) << 23) - 1);
-            if (exp == 0) {
-                exp++;
-            } else {
-                mant |= uint64_t(1) << 23;
-            }
-            exp += -127;
-        } else {
-            uint64_t b;
-            std::memcpy(&b, &v, 8);
-            mantbits = 52;
-            exp = static_cast<int>((b >> 52) & 0x7FF);
-            mant = b & ((uint64_t(1) << 52) - 1);
-            if (exp == 0) {
-                exp++;
-            } else {
-                mant |= uint64_t(1) << 52;
-            }
-            exp += -1023;
-        }
-        if (fmt == 'b') {
-            fmt_b(out, neg, mant, exp, mantbits);
-        } else {
-            fmt_x(out, prec, fmt, neg, mant, exp, mantbits);
-        }
+    const float_info& flt = bits == 32 ? float32_info : float64_info;
+
+    // The bits of the float: the mantissa with its implicit top bit, and the exponent.
+    uint64_t mant;
+    int exp;
+    if (bits == 32) {
+        float f = static_cast<float>(v);
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        exp = static_cast<int>((b >> 23) & 0xFF);
+        mant = b & ((uint32_t(1) << 23) - 1);
+    } else {
+        uint64_t b;
+        std::memcpy(&b, &v, 8);
+        exp = static_cast<int>((b >> 52) & 0x7FF);
+        mant = b & ((uint64_t(1) << 52) - 1);
+    }
+    if (exp == 0) {
+        // A denormal.
+        exp++;
+    } else {
+        mant |= uint64_t(1) << flt.mantbits;
+    }
+    exp += flt.bias;
+
+    // The easy binary and hexadecimal forms.
+    if (fmt == 'b') {
+        fmt_b(out, neg, mant, exp, flt.mantbits);
         return;
     }
+    if (fmt == 'x' || fmt == 'X') {
+        fmt_x(out, prec, fmt, neg, mant, exp, flt.mantbits);
+        return;
+    }
+
+    // The decimal digits, as strconv's genericFtoa picks them: Ryu for the shortest digits and
+    // for up to 18 fixed digits, multiprecision arithmetic for the rest (ftoa.hpp: or the
+    // same digits from std::to_chars).
+    float_digits d;
     bool shortest = prec < 0;
-    if (!shortest && (fmt == 'f' || fmt == 'e' || fmt == 'E')) {
-        // A precision: std::to_chars rounds the exact value correctly (ties to even), as
-        // strconv does, and writes the same forms (d.ddde+dd, at least two exponent digits).
-        std::string buf(static_cast<std::size_t>(330 + prec), '\0');
-        std::to_chars_result r = std::to_chars(
-            buf.data(), buf.data() + buf.size(), v,
-            fmt == 'f' ? std::chars_format::fixed : std::chars_format::scientific, prec);
-        for (char* c = buf.data(); c != r.ptr; c++) {
-            out += fmt == 'E' && *c == 'e' ? 'E' : *c;
-        }
-        return;
-    }
-    // 'g', 'G' and the shortest forms, from the digits.
-    int digs = prec;
-    if (!shortest && (fmt == 'g' || fmt == 'G') && digs == 0) {
-        digs = 1;
-    }
-    decimal d = digits_of(v, bits, shortest ? -1 : digs);
-    int nd = static_cast<int>(d.d.size());
     if (shortest) {
-        prec = fmt == 'e' || fmt == 'E' ? std::max(nd - 1, 0)
-               : fmt == 'f'             ? std::max(nd - d.dp, 0)
-                                        : nd;
-    } else if (fmt == 'g' || fmt == 'G') {
-        prec = digs;
+        if constexpr (own_ftoa) {
+            shortest_digits(d, mant, exp, flt);
+        } else {
+            shortest_digits_std(d, mant, exp, flt);
+        }
+        // The precision for the shortest representation.
+        switch (fmt) {
+        case 'e':
+        case 'E':
+            prec = std::max(d.nd - 1, 0);
+            break;
+        case 'f':
+            prec = std::max(d.nd - d.dp, 0);
+            break;
+        default:
+            prec = d.nd;
+            break;
+        }
+    } else {
+        if (fmt != 'f' && fmt != 'e' && fmt != 'E' && prec == 0) {
+            // %g with precision 0 rounds to one digit.
+            prec = 1;
+        }
+        if constexpr (own_ftoa) {
+            // A fixed number of digits (Ryu), but 'f' and more than 18 digits are exact.
+            int digits = fmt == 'e' || fmt == 'E' ? prec + 1 : prec;
+            if (fmt == 'f' || !fixed_digits(d, mant, exp, flt, digits)) {
+                exact_digits(d, mant, exp, flt, fmt, prec);
+            }
+        } else {
+            precision_digits_std(d, mant, exp, flt, fmt, prec);
+        }
     }
+    int nd = d.nd;
     if (fmt == 'e' || fmt == 'E') {
         fmt_e(out, neg, d, prec, fmt);
         return;
@@ -486,8 +452,8 @@ void append_float(std::string& out, double v, char fmt, int prec, int bits) {
     if (shortest) {
         eprec = 6;
     }
-    int exp = d.dp - 1;
-    if (exp < -4 || exp >= eprec) {
+    int dexp = d.dp - 1;
+    if (dexp < -4 || dexp >= eprec) {
         if (prec > nd) {
             prec = nd;
         }
@@ -549,12 +515,6 @@ void cxx_type_name(std::string& out, const std::type_info& t) {
     }
     std::string d = os::demangle(name);
     out += d.empty() ? name : d;
-}
-
-void stream_text(std::string& out, void (*put)(std::ostream&, const void*), const void* v) {
-    std::ostringstream os;
-    put(os, v);
-    out += std::move(os).str();
 }
 
 namespace {

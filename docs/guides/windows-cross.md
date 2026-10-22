@@ -57,7 +57,7 @@ with the dev shell's MinGW-w64, ran on a real Windows 11 PC as it was, and so di
 the downloaded llvm-mingw); the `.exe` runs on every Windows 10 or later.
 
 The `.exe` of a build without a flag is large (13 MB for a hello world: debug information and the symbol table). `-release -strip`
-makes it 1.4 MB: see [small programs](windows.md#small-programs).
+makes it 0.44 MB: see [small programs](windows.md#small-programs).
 
 On Linux, Wine is optional. With Wine installed:
 

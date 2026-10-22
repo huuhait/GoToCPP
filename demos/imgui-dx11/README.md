@@ -36,7 +36,7 @@ For a small one, add `-release -strip` (`-O2` with link-time optimization, no de
 gocpp build -release -strip -os windows -o imguidx11.exe .
 ```
 
-It is 3.3 MB (`-release` alone: 7.4 MB, `-strip` alone: 5.9 MB; measured, not run: the demo needs a display)
+It is 2.4 MB (`-release` alone: 7.4 MB, `-strip` alone: 5.9 MB; measured, not run: the demo needs a display)
 ([build flags](../../docs/spec/build.md#program-size)). Keep the default build to debug the demo.
 
 Copy `imguidx11.exe` to the PC and start it from a desktop

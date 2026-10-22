@@ -119,7 +119,7 @@ gocpp build hello.gp
 writes `prog.exe`; a name with an extension keeps it). The first build compiles gocpp's C++ runtime and
 caches it, which took 10 to 15 seconds on the test PC (16 threads); the next `gocpp run` of the same file took about a
 second. The `.exe` is about 13 MB (it is static and carries debug information) and starts on any Windows 10 or later.
-`gocpp build -release -strip hello.gp` makes it 1.4 MB ([small programs](#small-programs)).
+`gocpp build -release -strip hello.gp` makes it 0.44 MB ([small programs](#small-programs)).
 
 Writing `gocpp build -x` shows the commands. `gocpp emit hello.gp` prints the C++ that was
 generated, as on Linux.
@@ -136,9 +136,9 @@ gocpp build -release -strip hello.gp
 
 | `.exe` | no flag | `-strip` | `-release` | `-release -strip` |
 |---|---|---|---|---|
-| hello world | 13.3 MB | 2.0 MB | 3.4 MB | 1.4 MB |
+| hello world | 13.3 MB | 2.0 MB | 3.4 MB | 0.44 MB |
 | Dear ImGui with OpenGL ([`demos/imgui`](../../demos/imgui/README.md)) | 17.8 MB | 3.3 MB | 5.0 MB | 2.5 MB |
-| Dear ImGui with Direct3D 11 ([`demos/imgui-dx11`](../../demos/imgui-dx11/README.md)) | 63.4 MB | 5.9 MB | 7.4 MB | 3.3 MB |
+| Dear ImGui with Direct3D 11 ([`demos/imgui-dx11`](../../demos/imgui-dx11/README.md)) | 63.4 MB | 5.9 MB | 7.4 MB | 2.4 MB |
 
 (Cross-built on Linux with MinGW-w64 and g++ 15.3.) `-release` is `-O2` with link-time optimization and no debug
 information; the program is faster and a panic still prints the function names, without file and line. `-strip`

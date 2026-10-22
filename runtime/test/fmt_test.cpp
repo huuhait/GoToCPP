@@ -8,6 +8,7 @@
 // runs it like test/unit.cpp. It prints "ok: N checks" and exits 0, or prints each failed check
 // and exits 1.
 #include "threads_ended.hpp"
+#include "../src/ftoa.hpp"
 
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
@@ -16,8 +17,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -660,7 +664,233 @@ void test_close_defers() {
     }
 }
 
+// The digits of a float (src/ftoa.hpp): the runtime's own engine (a port of Go's Ryu code and
+// multiprecision decimals) and the one over std::to_chars give the same digits for the same
+// float, whichever of them fmt uses on this platform. The floats are the corners (zero, the
+// smallest denormal, the largest float, ties, the borders of the exponents) and a seeded run of
+// random bit patterns, short decimals and dyadic fractions, as float64 and as float32.
+struct float_bits {
+    uint64_t mant;
+    int exp;
+};
+
+// decode_float is genericFtoa's mantissa (with its implicit top bit) and exponent (with the bias
+// removed) of the positive float v, as a float32 when is32.
+float_bits decode_float(double v, bool is32) {
+    const auto& flt = is32 ? gp::fmt::detail::float32_info : gp::fmt::detail::float64_info;
+    uint64_t bits = 0;
+    if (is32) {
+        float f = static_cast<float>(v);
+        uint32_t bits32;
+        std::memcpy(&bits32, &f, sizeof bits32);
+        bits = bits32;
+    } else {
+        std::memcpy(&bits, &v, sizeof bits);
+    }
+    int exp = static_cast<int>(bits >> flt.mantbits) & ((1 << flt.expbits) - 1);
+    uint64_t mant = bits & ((uint64_t(1) << flt.mantbits) - 1);
+    if (exp == 0) {
+        exp++;
+    } else {
+        mant |= uint64_t(1) << flt.mantbits;
+    }
+    return {mant, exp + flt.bias};
+}
+
+// digits_text is "digits e dp", for comparing and for the report.
+std::string digits_text(const gp::fmt::detail::float_digits& d) {
+    return std::string(d.d, static_cast<std::size_t>(d.nd)) + "e" + std::to_string(d.dp);
+}
+
+// check_float_digits compares the two engines on the positive float v: the shortest digits, and
+// the digits of every verb and several precisions (fixed_digits where it applies, else
+// exact_digits).
+void check_float_digits(double v, bool is32) {
+    using namespace gp::fmt::detail;
+    if (is32 && !std::isfinite(static_cast<float>(v))) {
+        return; // too large for a float32
+    }
+    const float_info& flt = is32 ? float32_info : float64_info;
+    float_bits fb = decode_float(v, is32);
+    std::string what = std::string(is32 ? " of float32 " : " of float64 ") + std::to_string(v);
+    float_digits own;
+    float_digits ref;
+    shortest_digits(own, fb.mant, fb.exp, flt);
+    shortest_digits_std(ref, fb.mant, fb.exp, flt);
+    CHECK_EQ("shortest" + what + ": " + digits_text(own),
+             "shortest" + what + ": " + digits_text(ref));
+    for (char fmt : {'e', 'f', 'g'}) {
+        for (int prec : {0, 1, 2, 3, 6, 8, 9, 10, 15, 17, 18, 19, 25, 40, 100}) {
+            if (fmt == 'g' && prec == 0) {
+                continue; // the caller turns it into 1
+            }
+            std::string name = std::string("%.") + std::to_string(prec) + fmt + what + ": ";
+            precision_digits_std(ref, fb.mant, fb.exp, flt, fmt, prec);
+            int digits = fmt == 'e' ? prec + 1 : prec;
+            if (fmt != 'f' && fixed_digits(own, fb.mant, fb.exp, flt, digits)) {
+                CHECK_EQ("fixed " + name + digits_text(own), "fixed " + name + digits_text(ref));
+            }
+            exact_digits(own, fb.mant, fb.exp, flt, fmt, prec);
+            CHECK_EQ("exact " + name + digits_text(own), "exact " + name + digits_text(ref));
+        }
+    }
+}
+
+void test_float_digits() {
+    const double corners[] = {0.0,
+                              5e-324,
+                              2.2250738585072014e-308,
+                              2.225073858507201e-308,
+                              1.7976931348623157e308,
+                              0.1,
+                              0.5,
+                              1.0,
+                              1.5,
+                              2.5,
+                              3.5,
+                              4.35,
+                              0.125,
+                              0.30000000000000004,
+                              3.141592653589793,
+                              999999.5,
+                              0.9999995,
+                              9.5,
+                              99.5,
+                              1e15,
+                              1e21,
+                              1e22,
+                              1e23,
+                              123456789.0,
+                              9007199254740992.0,
+                              9007199254740993.0,
+                              16777216.0,
+                              8.41e21};
+    for (double v : corners) {
+        check_float_digits(v, false);
+        check_float_digits(v, true);
+    }
+    // The borders of the exponents and the neighbors of the powers of two.
+    for (int e = -1074; e <= 1023; e += 7) {
+        double p = std::ldexp(1.0, e);
+        check_float_digits(p, false);
+        check_float_digits(std::nextafter(p, 0.0), false);
+        check_float_digits(std::nextafter(p, INFINITY), false);
+    }
+    for (int e = -149; e <= 127; e += 3) {
+        check_float_digits(std::ldexp(1.0, e), true);
+    }
+    // A seeded run (a splitmix64 sequence: the same on every platform).
+    uint64_t state = 0x9E3779B97F4A7C15ULL;
+    auto next = [&state] {
+        state += 0x9E3779B97F4A7C15ULL;
+        uint64_t z = state;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        return z ^ (z >> 31);
+    };
+    for (int i = 0; i < 1500; i++) {
+        uint64_t u = next();
+        double v = 0.0;
+        switch (i % 5) {
+        case 0: // random bits
+            std::memcpy(&v, &u, sizeof v);
+            break;
+        case 1: // short decimals
+            v = static_cast<double>(u % 2000000) / 1000.0;
+            break;
+        case 2: // an integer over a power of two: ties and exact halves
+            v = static_cast<double>(u >> 11) * std::ldexp(1.0, -static_cast<int>(next() % 80));
+            break;
+        case 3: // a decimal scaled by a power of ten
+            v = static_cast<double>(u % 20000001) /
+                std::pow(10.0, static_cast<double>(next() % 12));
+            break;
+        default: // any magnitude
+            v = std::ldexp(static_cast<double>(u >> 12), static_cast<int>(next() % 2200) - 1100);
+            break;
+        }
+        if (!std::isfinite(v)) {
+            v = 1.5;
+        }
+        v = std::fabs(v);
+        check_float_digits(v, false);
+        auto f = static_cast<double>(static_cast<float>(v));
+        if (std::isfinite(f)) {
+            check_float_digits(f, true);
+        }
+    }
+}
+
+// The text of floats, as Go 1.25 prints them (fmt.Sprintf run by real Go): the verbs, the
+// precisions, the exponent forms, the ties to even, the float32 shortest form. This goes
+// through the engine of this platform.
+void test_float_text() {
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 0.1)), "0.1");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 100000.0)), "100000");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1e+21)), "1e+21");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1e-05)), "1e-05");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1.23456789e+08)), "1.23456789e+08");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 5e-324)), "5e-324");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1.7976931348623157e+308)), "1.7976931348623157e+308");
+    CHECK_EQ(str(fmt::Sprintf("%.0f"_gs, 0.5)), "0");
+    CHECK_EQ(str(fmt::Sprintf("%.0f"_gs, 1.5)), "2");
+    CHECK_EQ(str(fmt::Sprintf("%.0f"_gs, 2.5)), "2");
+    CHECK_EQ(str(fmt::Sprintf("%.0f"_gs, 3.5)), "4");
+    CHECK_EQ(str(fmt::Sprintf("%.2f"_gs, 2.675)), "2.67");
+    CHECK_EQ(str(fmt::Sprintf("%.2f"_gs, 1.005)), "1.00");
+    CHECK_EQ(str(fmt::Sprintf("%6.2f|"_gs, 3.14159)), "  3.14|");
+    CHECK_EQ(str(fmt::Sprintf("%-8.3f|"_gs, 2.0)), "2.000   |");
+    CHECK_EQ(str(fmt::Sprintf("%+.1f"_gs, 0.05)), "+0.1");
+    CHECK_EQ(str(fmt::Sprintf("%e"_gs, 123456.789)), "1.234568e+05");
+    CHECK_EQ(str(fmt::Sprintf("%E"_gs, 0.000123)), "1.230000E-04");
+    CHECK_EQ(str(fmt::Sprintf("%.3e"_gs, 5e-324)), "4.941e-324");
+    CHECK_EQ(str(fmt::Sprintf("%g"_gs, 1e+100)), "1e+100");
+    CHECK_EQ(str(fmt::Sprintf("%G"_gs, 1e-100)), "1E-100");
+    CHECK_EQ(str(fmt::Sprintf("%.3g"_gs, 1234.5678)), "1.23e+03");
+    CHECK_EQ(str(fmt::Sprintf("%.10g"_gs, 0.3333333333333333)), "0.3333333333");
+    CHECK_EQ(str(fmt::Sprintf("%.0g"_gs, 25.0)), "2e+01");
+    CHECK_EQ(str(fmt::Sprintf("%.20f"_gs, 0.1)), "0.10000000000000000555");
+    CHECK_EQ(str(fmt::Sprintf("%.25e"_gs, 0.3333333333333333)), "3.3333333333333331482961626e-01");
+    CHECK_EQ(str(fmt::Sprintf("%.0f"_gs, 1e+22)), "10000000000000000000000");
+    CHECK_EQ(str(fmt::Sprintf("%.3f"_gs, 0.0005)), "0.001");
+    CHECK_EQ(str(fmt::Sprintf("%.3f"_gs, 0.00049999)), "0.000");
+    CHECK_EQ(str(fmt::Sprintf("%b"_gs, 1.5)), "6755399441055744p-52");
+    CHECK_EQ(str(fmt::Sprintf("%x"_gs, 1.5)), "0x1.8p+00");
+    CHECK_EQ(str(fmt::Sprintf("%X"_gs, 255.5)), "0X1.FFP+07");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1e+23)), "1e+23");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 9.007199254740992e+15)), "9.007199254740992e+15");
+    CHECK_EQ(str(fmt::Sprintf("%.17g"_gs, 0.1)), "0.10000000000000001");
+    CHECK_EQ(str(fmt::Sprintf("%#g"_gs, 1.0)), "1.00000");
+    CHECK_EQ(str(fmt::Sprintf("%08.3f"_gs, -3.14159)), "-003.142");
+    CHECK_EQ(str(fmt::Sprintf("%.1e"_gs, 9.95)), "9.9e+00");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 0.1f)), "0.1");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1.6777216e+07f)), "1.6777216e+07");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 3.4028235e+38f)), "3.4028235e+38");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 1e-45f)), "1e-45");
+    CHECK_EQ(str(fmt::Sprintf("%e"_gs, 0.3f)), "3.000000e-01");
+    CHECK_EQ(str(fmt::Sprintf("%.2f"_gs, 2.675f)), "2.67");
+    CHECK_EQ(str(fmt::Sprintf("%.9g"_gs, 0.1f)), "0.100000001");
+    CHECK_EQ(str(fmt::Sprintf("%.20f"_gs, 0.1f)), "0.10000000149011611938");
+    CHECK_EQ(str(fmt::Sprintf("%v"_gs, 3.355443e+07f)), "3.355443e+07");
+    CHECK_EQ(str(fmt::Sprintf("%f"_gs, 123456.79f)), "123456.789062");
+    CHECK_EQ(str(fmt::Sprintf("%v %v"_gs, std::numeric_limits<double>::infinity(),
+                              -std::numeric_limits<double>::infinity())),
+             "+Inf -Inf");
+    // Long results: the largest float64, and the smallest with all of its digits (the exact
+    // value 4.9406564584124654...e-324 ends with 265625 after 1074 decimals).
+    std::string big = str(fmt::Sprintf("%f"_gs, 1.7976931348623157e308));
+    CHECK(big.size() == 316 && big.compare(0, 24, "179769313486231570814527") == 0);
+    std::string tiny = str(fmt::Sprintf("%.800f"_gs, 5e-324));
+    CHECK(tiny.size() == 802 && tiny.compare(2, 323, std::string(323, '0')) == 0 &&
+          tiny.compare(325, 16, "4940656458412465") == 0);
+    std::string tail = str(fmt::Sprintf("%.1100f"_gs, 5e-324));
+    CHECK(tail.size() == 1102 && tail.compare(1070, 6, "265625") == 0 &&
+          tail.find_first_not_of('0', 1076) == std::string::npos);
+}
+
 void run_tests() {
+    test_float_digits();
+    test_float_text();
     test_gate_start();
     test_close_defers();
     test_scan();

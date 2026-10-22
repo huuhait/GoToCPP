@@ -217,16 +217,20 @@ MinGW-w64 (the programs are `examples/hello`, `examples/sqlite`, and the Dear Im
 
 | program | no flag | `-strip` | `-release` | `-release -strip` |
 |---|---|---|---|---|
-| hello, linux | 5.6 MB | 585 KB | 375 KB | 224 KB |
+| hello, linux | 5.6 MB | 585 KB | 375 KB | 228 KB |
 | sqlite example, linux | 6.2 MB | 679 KB | 429 KB | 261 KB |
-| hello, windows | 13.3 MB | 2.0 MB | 3.4 MB | 1.4 MB |
+| hello, windows | 13.3 MB | 2.0 MB | 3.4 MB | 0.44 MB |
 | `demos/imgui` (OpenGL), windows | 17.8 MB | 3.3 MB | 5.0 MB | 2.5 MB |
-| `demos/imgui-dx11`, windows | 63.4 MB | 5.9 MB | 7.4 MB | 3.3 MB |
+| `demos/imgui-dx11`, windows | 63.4 MB | 5.9 MB | 7.4 MB | 2.4 MB |
 
 Where the bytes of the Windows hello world are (13.3 MB): 6.7 MB of `.debug_*` sections (5.0 MB of it `.debug_info`),
 4.6 MB of COFF symbols (the long mangled names are in the string table), and 2.0 MB of program (1.5 MB of code at `-O0`).
-The `-release -strip` file is 1.0 MB of code, 0.2 MB of read-only data and 0.12 MB of unwind tables; the code is
-libstdc++ and the runtime (libstdc++'s locale facets, `time_get` and `money_get`, are in it). On Linux the program links
+The `-release -strip` file is 0.44 MB; the code is libstdc++ and the runtime. The runtime formats floats with its own
+code (`runtime/src/ftoa.cpp`, a port of Go's `strconv`) and keeps its one `std::ostringstream` in its own object
+(`runtime/src/fmtstream.cpp`), so that no locale facet (`time_get`, `money_get`, about 0.75 MB) is linked into a program
+that does not print through a stream; `runtime/locale_test.go` and `tests/windows_size_test.go` guard both. Only the
+`-release -strip` column of the hello and Direct3D 11 rows was measured again after this change; the other columns
+and the OpenGL row are from before it. On Linux the program links
 libstdc++ and libc dynamically, so its file holds only the runtime and the program. Every link already uses
 `--gc-sections` with `-ffunction-sections -fdata-sections` (a program links only what it reaches), and a Windows
 program links statically (`-static`), so the `.exe` needs no DLLs.

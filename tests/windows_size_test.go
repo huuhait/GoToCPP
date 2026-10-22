@@ -19,6 +19,28 @@ import (
 // with GOCPP_WINDOWS_SSH=user@host, runs each program on the real PC (never Wine): they print the same,
 // and a panic ends them with status 2 and Go's header, with function names in the trace while the symbol
 // table is there. Without MinGW-w64 it skips; without GOCPP_WINDOWS_SSH it only reads the files.
+//
+// Job 15.fmtsize added two guards for what a small program is made of: -release -strip stays under
+// winReleaseStripLimit (a hello world is 0.44 MB; libstdc++'s locale facets and floating-point
+// to_chars, which one std::ostringstream and std::to_chars in the runtime pulled in, made it 1.4 MB),
+// and the symbol table of the -release program names none of that code.
+
+// winReleaseStripLimit is the size that the -release -strip program of winSizeProgram stays under.
+// It is 448,000 bytes (1.4 MB before job 15.fmtsize): the limit has a third of room, so that a
+// compiler update does not break it, and is far below the 1.4 MB of the locale machinery.
+const winReleaseStripLimit = 600_000
+
+// libstdcxxFragments are pieces of the mangled names of libstdc++'s locale and stream classes
+// (std::locale, ios_base, basic_ios, basic_ostream, basic_istream, basic_streambuf,
+// basic_ostringstream, time_get, money_get, num_get, num_put, ctype, codecvt, numpunct) and of
+// its floating-point std::to_chars (the double, float and long double overloads): none may be in
+// a hello world.
+var libstdcxxFragments = []string{
+	"St6locale", "St8ios_base", "St9basic_ios", "St13basic_ostream", "St13basic_istream",
+	"St15basic_streambuf", "19basic_ostringstream", "8time_get", "9money_get", "7num_put",
+	"7num_get", "St5ctype", "7codecvt", "8numpunct", "to_charsPcS_d", "to_charsPcS_f",
+	"to_charsPcS_e",
+}
 
 const winSizeProgram = `package main
 
@@ -93,7 +115,22 @@ func TestWindowsSizeModes(t *testing.T) {
 			}
 		}
 		symbols := len(f.COFFSymbols)
+		var names []string
+		for _, sym := range f.COFFSymbols {
+			if name, err := sym.FullName(f.StringTable); err == nil {
+				names = append(names, name)
+			}
+		}
 		f.Close()
+		if m.name == "release" {
+			for _, name := range names {
+				for _, frag := range libstdcxxFragments {
+					if strings.Contains(name, frag) {
+						t.Errorf("release: the program has the symbol %q: libstdc++'s locale and float code is back in every program (runtime/locale_test.go)", name)
+					}
+				}
+			}
+		}
 		if hasDebug != m.debug {
 			t.Errorf("%s: has debug information = %v, want %v", m.name, hasDebug, m.debug)
 		}
@@ -103,6 +140,10 @@ func TestWindowsSizeModes(t *testing.T) {
 	}
 	if size["strip"]*4 > size["default"] || size["release"]*2 > size["default"] || size["release-strip"] >= size["release"] || size["release-strip"] >= size["strip"] {
 		t.Errorf("sizes %v: each step should make the program smaller", size)
+	}
+
+	if size["release-strip"] > winReleaseStripLimit {
+		t.Errorf("-release -strip is %d bytes, want at most %d", size["release-strip"], winReleaseStripLimit)
 	}
 
 	host := windowsHost()
