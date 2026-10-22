@@ -89,6 +89,10 @@ overwrite (`io.gp` of the Phase 05 `errors`), or that would stay beside the port
 `unicode.gp` next to `tables.gp`), makes the tool refuse the package until you delete it, or pass `-force` (which overwrites the
 first and keeps the second with a warning). Never rely on `-force` for this: look at what the file holds first.
 
+A hand-written `.gp` file that stays beside a port because it is gocpp's own (`errors/wrapf.gp`) has an `own <package> <file.gp>` line
+in `tools/portstd/ports.txt`. `-check` (with Go's source and by hash) fails for a hand-written `.gp` file that has no such line, as
+the port itself refuses to write beside it, and for an own file that is not there.
+
 ## Replacing a stub or a hand-written package
 
 When a package that already exists in `stdlib/` becomes a port (`unicode`, `strings`, `io`, `errors`, ...), the port is only half of the change.

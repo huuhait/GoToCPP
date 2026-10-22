@@ -149,6 +149,9 @@ struct goroutine; // gocpp/goroutine.hpp
 // address to go_start). Nothing is appended for the main goroutine, a thread that no go statement
 // started, or a go statement in the runtime's own code (the function of an AfterFunc).
 void append_created_by(std::string& out, const goroutine* g);
+// The same from the two values of the record (a report that reads the record of a running
+// goroutine copies them first, in one place that the race detector does not watch).
+void append_created_by(std::string& out, const void* create_pc, uint64_t parent_id);
 
 // find_symbol returns the function of img that contains addr (an address in the file, before
 // relocation), or null when addr is before the first function or between two of them.
@@ -160,6 +163,26 @@ const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept;
 // and the stack of the running panic (and of its chain), found with run_marks. Without memory,
 // out keeps what it had.
 void fatal_trace(std::string& out) noexcept;
+
+// The traceback setting (Go's GOTRACEBACK and debug.SetTraceback; gocpp has no runtime frames to
+// add, so system and crash print what all prints, and crash ends with code 2 as a panic does).
+// traceback_level is 0 for none (a panic or a fatal error prints only its text: no "goroutine N
+// [running]:" and no trace), 1 for single, the default, and more for all, system, crash and the
+// numbers; traceback_all says whether a panic or a fatal error also prints the other goroutines
+// (all, system, crash, and any number but 0; a word that Go does not know is "all" with level 0).
+// set_traceback_level is debug.SetTraceback: the new level replaces the last one (also a lower
+// one), but the GOTRACEBACK variable is a floor: what it sets stays set. The timeout of a test
+// uses it.
+bool traceback_all() noexcept;
+int traceback_level() noexcept;
+void set_traceback_level(std::string_view level) noexcept;
+
+// append_other_goroutines appends the report of every goroutine but the caller's, as Go's
+// traceback all does: "goroutine N [reason]:", the stack and "created by", after a blank line. A
+// goroutine that is blocked in the runtime (a channel, a lock, a sleep, a select) gives its stack;
+// one that runs, or waits in code that is not the runtime's, is listed without one (a thread
+// cannot walk another's stack portably). The goroutines go on while the report is made.
+void append_other_goroutines(std::string& out) noexcept;
 
 // A run_mark is a call of defer_frame::gp_run (defer.cpp) that is running a deferred call. The
 // marks of a thread are a list, the innermost first (run_marks), each on its gp_run's stack:

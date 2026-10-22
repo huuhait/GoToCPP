@@ -34,6 +34,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 )
 
@@ -1705,6 +1706,9 @@ func startAlarm() int64 {
 		if !libAlarmWait(timeout) {
 			return
 		}
+
+		// As Go's testing does: the panic below prints every goroutine, not only this one.
+		debug.SetTraceback("all")
 		extra := ""
 		var list []string
 		for _, ln := range splitByte(libRunningList(), '\n') {

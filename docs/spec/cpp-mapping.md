@@ -2586,11 +2586,11 @@ Source: [Phase 08 §2.2 to §2.4](../../plans/2026-10-13-gocpp/phase-08-concurre
   | `GOMAXPROCS(n)`, `NumCPU()` | the value is remembered and used by nothing; the default is the CPUs the process may run on (`sched_getaffinity`), lowered by the cgroup CPU limit (rounded up, at least 2), overridden by `$GOMAXPROCS` |
   | `Goexit()` | `gp::goexit()`: deferred calls run, `recover()` returns nil, the goroutine ends; in `main` the program goes on until the other goroutines end, then `fatal error: no goroutines (main called runtime.Goexit) - deadlock!` |
   | `LockOSThread`, `UnlockOSThread`, `KeepAlive`, `GC`, `SetFinalizer` | nothing (a thread for each goroutine, reference counting) |
-  | `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack` | the program's symbol table and DWARF line table; names are Go's, files and lines those of the `.gp` source; `Stack(buf, true)` writes only the caller's stack |
+  | `Caller`, `Callers`, `CallersFrames`, `FuncForPC`, `Stack` | the program's symbol table and DWARF line table; names are Go's, files and lines those of the `.gp` source; `Stack(buf, true)` adds the other goroutines: the stack of one that is blocked or sleeping, only the header of one that runs |
   | `ReadMemStats` | the heap numbers from the allocator; the counters stay 0 |
   | `Error`, `PanicNilError`, `TypeAssertionError` | real Go types; the runtime's panics use the package's values once the package is loaded |
   | `Version()`, `GOOS`, `GOARCH` | `go1.25.14`, `linux`, `amd64` |
-  | `runtime/debug` | `Stack`, `PrintStack`, `FreeOSMemory` (`malloc_trim`), and `SetGCPercent`, `SetMemoryLimit`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault`, `SetTraceback` that keep their values |
+  | `runtime/debug` | `Stack`, `PrintStack`, `FreeOSMemory` (`malloc_trim`), and `SetGCPercent`, `SetMemoryLimit`, `SetMaxStack`, `SetMaxThreads`, `SetPanicOnFault` that keep their values, and `SetTraceback`, which sets the traceback level of a panic and of a fatal error, either way (`all`, `system`, `crash` and a number from 1 print every goroutine, `single` only the goroutine, `none` and `0` only the text; the `GOTRACEBACK` variable is the floor, as in Go). Differences: `crash` ends with exit code 2, not an abort (SIGABRT, 134); `wer` is a word that Go does not know on Linux (level 0 with all goroutines), and on Windows it is `crash`; a `fatal error:` prints one goroutine by default, where Go prints all of them for a throw |
 
 ## Generics (steps 7.1 to 7.3)
 

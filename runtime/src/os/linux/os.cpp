@@ -364,17 +364,26 @@ bool process_barrier_init() noexcept {
 namespace {
 std::atomic<unsigned long> barrier_count{0};
 std::atomic<testing::barrier_hook> before_barrier{nullptr};
+std::atomic<bool> barrier_failing{false};
 } // namespace
 
-void process_barrier() noexcept {
+bool process_barrier() noexcept {
     if (auto hook = before_barrier.load(std::memory_order_acquire)) {
         hook();
     }
 #ifdef SYS_membarrier
-    // MEMBARRIER_CMD_PRIVATE_EXPEDITED = 1 << 3
-    ::syscall(SYS_membarrier, 1 << 3, 0, 0);
-#endif
+    // MEMBARRIER_CMD_PRIVATE_EXPEDITED = 1 << 3. A test that makes the barrier fail gives the
+    // system call a command that it does not know (EINVAL), so the check of its result is what the
+    // test reaches, not a shortcut before it.
+    const bool failing = barrier_failing.load(std::memory_order_relaxed);
+    if (::syscall(SYS_membarrier, failing ? -1 : (1 << 3), 0, 0) != 0) {
+        return false;
+    }
     barrier_count.fetch_add(1, std::memory_order_release);
+    return true;
+#else
+    return false;
+#endif
 }
 
 namespace testing {
@@ -389,6 +398,10 @@ barrier_hook set_barrier_hook(barrier_hook hook) noexcept {
 
 unsigned long barrier_init_calls() noexcept {
     return barrier_init_count.load(std::memory_order_relaxed);
+}
+
+void set_barrier_failing(bool on) noexcept {
+    barrier_failing.store(on, std::memory_order_relaxed);
 }
 
 void set_barrier_init_failing(bool on) noexcept {

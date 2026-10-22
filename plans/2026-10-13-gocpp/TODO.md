@@ -89,6 +89,8 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] 8.12 race detector limits: `Found N` can differ from Go's, two unrelated senders on one channel are ordered for TSan, a finished goroutine's race is found only if fewer than 64 others finished, `gocpp test -race` is refused (was L262).
 - [ ] 8.13 lows: timer `Reset`/`Stop` race windows survive the tests; `test/chan` `doubleselect`, `sieve2`, `select2` do not run; stress tests need `// phase: 09`; big mode is not run under sanitizers (was L282).
 - [ ] 8.11 lows: no `, N minutes` suffix; a goroutine blocked in a child wait or blocking read counts as running; a foreign C++ thread is invisible to the detector; a fatal error in a goroutine prints only that goroutine (was L267).
+- [ ] `-race`: a mid-run `runtime.Stack(buf, true)` can hide a real race between the dumper and a goroutine that was in a short sleep when dumped (seen up to ~150 ms sleeps, not with 200 ms or more or a channel wait; both compilers); a panic dump is not affected; hiding the dump from the detector gives false races (tried; docs/guides/race.md).
+- [ ] 9.x/8.11 reflect and dump lows: `crash` exits 2 (Go 134); scalar `DeepEqual(ValueOf(1), ValueOf(1))` rows; the fatal-error default prints one goroutine; Windows `tb-*` cases are Linux only; failing-barrier note checked end to end only for the panic path (`Stack(all)` unit-covered); mutants that survive: lazy-init (idx, memo), `fence_removed` (unobservable), `forget_adopted` without the wait, two narrow-window edge orderings, the header `ignore_reads` (no test kills it); goroutine create/finish cost not proved zero (g++ 0.94, clang++ 1.00 paired, `-release` code unchanged).
 - [ ] 6.4/6.14 lows: surviving mutants (array variables not lazy, only the first lazy variable ensured); `lazy_boot` pinned by a golden only; a c-shared lib built `-asan` with a filled `std::vector` package var leaks across `dlclose`; `notePkgVar` still says "not constinit" for lazy variables (was L285).
 - [ ] 6.10 lows: cgo-parity gaps of ADR-043 "Known gaps"; `internal/libgen.Collect` has no direct unit test; the pin is released by a later exported call (was L245).
 - [ ] panic-perf lows: no unit test pins the panicking-goroutine count across the local-panic move; the lazy path is off under ASan; Windows on non-x86-64 keeps the old stack walk (was L278).
@@ -174,13 +176,12 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] 15.10 conformance: baseline 1941 of 2131 (91.1%, g++ default only: meets the 90% criterion numerically) needs clang++ and `-asan` campaigns and a re-baseline; `[bug]` clusters (multi-value call as arguments of `append`/`copy`/`delete`/`complex`, `[]MyByte` to string, `Sprintf(f())`), ~20 errorcheck wording differences (was L260).
 - [ ] 15.11 first full nightly never run (repo is on GitHub now, workflows exist); 15.12 workflows never run on GitHub (was L286, L41).
 - [ ] 14.7/14.8 Windows suites: full `make test-windows` never run; 14.2/14.4 lows need the Windows PC (was L283, L270, L300, L301).
-- [ ] 10.10/10.13 mutants and 9.9 lows carried (see AUDIT); `gocpp fmt` messages should say "can't be written on one line" / "move the comment out of the type" (was L78, L273, L296).
+- [ ] 10.10/10.13 mutants carried (see AUDIT); `gocpp fmt` messages should say "can't be written on one line" / "move the comment out of the type" (was L78, L273, L296).
 
 ### Docs and tests
 
 - [ ] Add run tests: 6.2 fixture with `a b.gp` and `a$b.gp`; tests D02 and D08 of the 9.6 degraded wait (see Stdlib); `tests/run/flag_closure_cycle.gp` with `// lsan: cycle` (was L74, L226, L227, L291, L292).
 - [ ] `docs/conformance/go-test.md` is stale (needs `gotest report -md` after a full run); 9.10 `stdlib-tests.md` numbers (was L292).
-- [ ] 9.3: UBSan was not run on the reflect tests (only ASan) (was L233).
 
 ### Needs your decision (user-gated)
 

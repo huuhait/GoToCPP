@@ -1,0 +1,3 @@
+cut-panic
+timeout
+want-re: (?s)^panic: test timed out after 1s\n.*goroutine 1 \[chan receive\]:.*goroutine \d+ \[chan receive\]:\n.*TestHang.*goroutine \d+ \[chan receive\]:\n.*TestHang.func1

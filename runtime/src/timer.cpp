@@ -469,9 +469,14 @@ void sleep(int64_t ns) {
     // timer thread is involved, and the goroutine is not counted as blocked. A permit that is older
     // than the call (an early unpark) wakes it too: it waits on, until the deadline.
     detail::goroutine& g = detail::this_goroutine();
+    // The reason a report of the goroutines shows ("goroutine 5 [sleep]:", Go's text). Not a block:
+    // the counts and the deadlock detector do not see it, but the report finds the reason and asks
+    // the sleeping thread for its stack.
+    g.set_reason("sleep");
     for (;;) {
         now = detail::mono_ns();
         if (now >= deadline) {
+            g.set_reason(nullptr);
             return;
         }
         g.park.gp_park_for(std::chrono::nanoseconds(deadline - now));

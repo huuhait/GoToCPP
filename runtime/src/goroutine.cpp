@@ -30,6 +30,7 @@ constinit std::atomic<uint64_t> counts{0};
 constinit std::atomic<bool> detector_on{false};
 constinit std::atomic<bool> foreign_seen{false};
 constinit std::atomic<bool> main_gone{false};
+constinit report_flags report_state;
 
 } // namespace sched
 
@@ -211,6 +212,56 @@ void pool_remove(worker* w) {
     idle_count--;
 }
 
+// The reports of all goroutines that are being made (sched::report_scope), and the protocol that
+// keeps the records alive while a report reads them.
+//
+// A goroutine that leaves the registry (stores null in its worker's cur) must not free its record
+// while a report may have read the pointer. Dekker's two sides:
+//
+//   goroutine:  cur = null;           barrier;  if (reporting != 0) lock reg_mu, unlock; delete g
+//   report:     reporting++;          barrier;  lock reg_mu; read cur; use the records; unlock
+//
+// With a barrier on both sides (a full fence, or a seq_cst exchange), either the goroutine sees
+// reporting != 0 and waits for the report's unlock before it frees the record, or the report sees
+// the null and never uses the record. Goroutines end often and reports almost never, so the
+// goroutine's barrier is the one that costs: where the system has a process-wide barrier
+// (barrier_end: membarrier(2) or FlushProcessWriteBuffers, prepared by run_main), the goroutine
+// pays only a compiler barrier and the report's process_barrier makes every running thread execute
+// the full barrier for it, as in the Print/Close protocol of fmt. That is the same guarantee: when
+// the system call returns, each thread has run a full barrier between its store and its load, or
+// has not yet reached the store, or has passed the load (and then sees reporting != 0, which
+// the report stored before the call). Without such a barrier the goroutine's store is a seq_cst
+// exchange. The report holds reg_mu while it reads, so a goroutine that sees reporting != 0 waits.
+// If process_barrier fails after the system had one, the goroutines that ended with the cheap store
+// cannot be ordered against the report (and later ones may have read barrier_end before): the
+// report reads no record, now and for ever (barrier_failed). The three words are on a line of their
+// own: the goroutine that ends reads two of them, and the lines around the counts are written by
+// every goroutine. (reporting and barrier_failed are in sched::report_state, on a line of their
+// own.)
+
+// The goroutine's side after it stored null in cur (see above).
+void wait_for_reports() {
+    if (sched::report_state.reporting.load(std::memory_order_seq_cst) != 0) {
+        race::no_sync ns;
+        std::lock_guard<std::mutex> lk(reg_mu);
+    }
+    // Under -race the lock above is hidden, so the edge is given by hand: everything that a report
+    // did to the records (the waiter that it posted to, for one) happens before the free that
+    // follows. (Always, not only after a wait: a report that ended before the load above ordered
+    // itself through reporting.) Real races of the program stay visible, unlike with an ignore.
+    race::acquire(&sched::report_state);
+}
+
+// leave_registry stores null in cur with the goroutine's barrier of the protocol above.
+void leave_registry(worker* w) {
+    if (sched::barrier_end.load(std::memory_order_relaxed)) {
+        w->cur.store(nullptr, std::memory_order_release);
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+    } else {
+        w->cur.exchange(nullptr, std::memory_order_seq_cst);
+    }
+}
+
 // run_goroutine runs the goroutine g on the calling thread (the worker w), to its end.
 void run_goroutine(worker* w, goroutine* g) {
     os::tls_set(g);
@@ -232,7 +283,8 @@ void run_goroutine(worker* w, goroutine* g) {
     // Out of the registry before the record goes. (The detector reads a record only when every live
     // goroutine is blocked, at one instant; this goroutine is running and counted, so it never
     // reads this one: no hand-shake, no fence here.)
-    w->cur.store(nullptr, std::memory_order_release);
+    leave_registry(w);
+    wait_for_reports();
     bool counted = g->counted;
     auto end_hook = g->end_hook;
     void* end_arg = g->end_arg;
@@ -405,7 +457,8 @@ void release_adopted(void* p) noexcept {
     }
     if (g->counted) {
         goroutine* me = g;
-        main_rec.compare_exchange_strong(me, nullptr, std::memory_order_acq_rel);
+        main_rec.compare_exchange_strong(me, nullptr, std::memory_order_seq_cst);
+        wait_for_reports();
         live_sub();
     }
     delete g;
@@ -448,7 +501,13 @@ void forget_adopted() noexcept {
         adopted = g->next_adopted;
         if (g->counted) {
             goroutine* me = g;
-            main_rec.compare_exchange_strong(me, nullptr, std::memory_order_acq_rel);
+            main_rec.compare_exchange_strong(me, nullptr, std::memory_order_seq_cst);
+            // A report that read main_rec before this may still be using the record. (Records of
+            // threads that no go statement started are in no registry: nothing reads them.) No test
+            // reaches this wait: forget_adopted runs when the process is leaving, with no thread
+            // left to report, so a test of it would have to end the process; the wait is the same
+            // call as in release_adopted.
+            wait_for_reports();
             live_sub();
         }
         delete g;
@@ -696,6 +755,45 @@ void collect(std::vector<goroutine*>& out) {
     }
     std::lock_guard<std::mutex> lk(reg_mu);
     race::no_sync ns;
+    for (worker* w = reg_head.load(std::memory_order_relaxed); w != nullptr;
+         w = w->reg_next.load(std::memory_order_relaxed)) {
+        if (goroutine* g = w->cur.load(std::memory_order_seq_cst); g != nullptr) {
+            out.push_back(g);
+        }
+    }
+}
+
+report_scope::report_scope() {
+    sched::report_state.reporting.fetch_add(1, std::memory_order_seq_cst);
+    if (barrier_end.load(std::memory_order_relaxed) &&
+        !report_state.barrier_failed.load(std::memory_order_relaxed) && !os::process_barrier()) {
+        report_state.barrier_failed.store(true, std::memory_order_seq_cst);
+    }
+    reg_mu.lock();
+}
+
+bool report_scope::usable() const noexcept {
+    return !report_state.barrier_failed.load(std::memory_order_seq_cst);
+}
+
+int reports_in_progress() noexcept {
+    return report_state.reporting.load(std::memory_order_seq_cst);
+}
+
+void forget_barrier_failure() noexcept {
+    report_state.barrier_failed.store(false, std::memory_order_seq_cst);
+}
+
+report_scope::~report_scope() {
+    race::release(&sched::report_state); // the other side is wait_for_reports
+    reg_mu.unlock();
+    sched::report_state.reporting.fetch_sub(1, std::memory_order_seq_cst);
+}
+
+void report_scope::collect_held(std::vector<goroutine*>& out) {
+    if (goroutine* m = main_rec.load(std::memory_order_seq_cst); m != nullptr) {
+        out.push_back(m);
+    }
     for (worker* w = reg_head.load(std::memory_order_relaxed); w != nullptr;
          w = w->reg_next.load(std::memory_order_relaxed)) {
         if (goroutine* g = w->cur.load(std::memory_order_seq_cst); g != nullptr) {

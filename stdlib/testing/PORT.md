@@ -33,7 +33,7 @@ new`, and a program that does not test must keep the system's (and ASan's), and 
 - Not ported: `T.Context`, `B.Context`, `T.Output` (`context`, `io`), `testing.Coverage`, `testing.CoverMode` (always
   ""), `testing.Cover`, the race detector hooks, `-test.json`, `-test.shuffle`, `-test.testlogfile`, the fuzzing
   engine (`-test.fuzz`, minimization, `F.Fuzz` with an argument that is not a function literal or a function
-  of the package: it is skipped), `T.Parallel`'s `AllocsPerRun` check, and the goroutine dump of a timeout.
+  of the package: it is skipped), and `T.Parallel`'s `AllocsPerRun` check. (The timeout sets `debug.SetTraceback("all")` before its panic, as Go's does: the runtime then prints the other goroutines; see docs/guides/testing.md for what a running goroutine shows.)
 - `F.Fuzz`: Go calls the fuzz function with `reflect`. `internal/gotest` rewrites `f.Fuzz(fn)` to
   `f.GocppFuzz(wrapper, zeros)` in the test files (`internal/gotest/fuzz.go`; `fuzz.gp` explains it).
 - `testing.AllocsPerRun`, `-benchmem`, `ReportAllocs`: C++ `operator new` calls and bytes while measuring, not Go's

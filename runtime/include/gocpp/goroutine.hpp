@@ -81,7 +81,7 @@ struct goroutine {
     // How many runtime.LockOSThread calls are active (the goroutine always has a thread of its own,
     // so this only shows in Go's reports: "goroutine 1 [chan receive, locked to thread]:"). The
     // main goroutine is locked while the package initializers run (run_main). Written by the
-    // goroutine itself.
+    // goroutine itself (atomically: a report of all goroutines reads it while the goroutine runs).
     int32_t locked = 0;
     // Where it came from, for Go's "created by main.main in goroutine 1": the creator's id (0 for
     // the main goroutine and for a thread that no go statement started) and the address after

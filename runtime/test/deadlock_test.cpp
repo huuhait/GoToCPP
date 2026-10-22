@@ -14,12 +14,15 @@
 // gp::num_blocked(), a wait has a limit of minutes (a hang is a failure, a slow machine is not).
 #include <gocpp/rt.hpp>
 #include <gocpp/os.hpp>
+#include <gocpp/runtimepkg.hpp>
 #include "../src/chan_core.hpp"
+#include "../src/sched.hpp"
 #include "threads_ended.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -518,6 +521,226 @@ void test_registry_race() {
     CHECK_EQ(reports.load(), 0);
 }
 
+// --- the report of the other goroutines (append_other_goroutines, GOTRACEBACK=all) ---
+
+// The report is made while goroutines start, end, park and lock their threads: the records it reads
+// must stay alive (the hand-shake of wait_for_reports; ASan finds a freed record, TSan a plain
+// read of a field that a goroutine writes). fast says that the goroutines pay no fence and the
+// report makes the process-wide barrier (barrier_end, set by run_main in a program).
+void test_dump_churn(bool fast) {
+    arm({});
+    bool had = gp::detail::sched::barrier_end.load();
+    gp::detail::sched::barrier_end = fast && gp::os::process_barrier_init();
+    std::atomic<bool> stop{false};
+    std::atomic<int> dumps{0};
+    std::atomic<int> bad{0};
+    chan hold = gp::make_chan<int64_t>(0);
+    group parked;
+    for (int i = 0; i < 8; i++) {
+        parked.go([hold] { gp::recv(hold); });
+    }
+    group looker;
+    looker.go([&] {
+        while (!stop.load()) {
+            std::string out;
+            gp::detail::append_other_goroutines(out);
+            if (out.find("goroutine ") == std::string::npos) {
+                bad++;
+            }
+            dumps++;
+        }
+    });
+    group g;
+    for (int t = 0; t < 4; t++) {
+        g.go([] {
+            for (int i = 0; i < 250; i++) {
+                chan c = gp::make_chan<int64_t>(1);
+                gp::go([c] { gp::send(c, int64_t(1)); });
+                gp::recv(c);
+                gp::runtime::lock_os_thread();
+                gp::runtime::unlock_os_thread();
+            }
+        });
+    }
+    CHECK(g.wait());
+    stop = true;
+    CHECK(looker.wait());
+    CHECK(dumps.load() > 0);
+    CHECK_EQ(bad.load(), 0);
+    gp::close(hold);
+    CHECK(parked.wait());
+    gp::detail::sched::barrier_end = had;
+}
+
+// A goroutine that counts as blocked but never serves a request: the report gives up after its
+// budget (a second) and goes on.
+void test_dump_unanswering() {
+    arm({});
+    std::mutex m;
+    std::condition_variable cv;
+    bool go_on = false;
+    group g;
+    std::atomic<bool> entered{false};
+    g.go([&] {
+        gp::detail::block_scope b("never answers");
+        entered = true;
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [&] { return go_on; });
+    });
+    CHECK(wait_for([&] { return entered.load(); }));
+    auto t0 = std::chrono::steady_clock::now();
+    std::string out;
+    gp::detail::append_other_goroutines(out);
+    auto took = std::chrono::steady_clock::now() - t0;
+    CHECK(out.find("[never answers]") != std::string::npos);
+    CHECK(took < 10s);
+    {
+        std::lock_guard<std::mutex> lk(m);
+        go_on = true;
+    }
+    cv.notify_all();
+    CHECK(g.wait());
+}
+
+// A goroutine that locked its thread says so in the report.
+void test_dump_locked() {
+    arm({});
+    chan never = gp::make_chan<int64_t>(0);
+    group g;
+    std::atomic<bool> locked{false};
+    g.go([&] {
+        gp::runtime::lock_os_thread();
+        locked = true;
+        gp::recv(never);
+        gp::runtime::unlock_os_thread();
+    });
+    CHECK(wait_for([&] { return locked.load() && gp::num_blocked() >= 1; }));
+    std::string out;
+    gp::detail::append_other_goroutines(out);
+    CHECK(out.find("[chan receive, locked to thread]:") != std::string::npos);
+    gp::close(never);
+    CHECK(g.wait());
+}
+
+// The hook of the barrier test runs just before the OS barrier: it records that the report had
+// already counted itself (exactly one report exists), which the protocol needs (goroutine: store
+// null, then look at reporting; report: count itself, then make the barrier).
+std::atomic<int> barrier_hook_calls{0};
+std::atomic<int> barrier_hook_counted{0};
+
+void barrier_hook() noexcept {
+    barrier_hook_calls++;
+    if (gp::detail::sched::reports_in_progress() == 1) {
+        barrier_hook_counted++;
+    }
+}
+
+// A report makes the process-wide barrier once, after it has counted itself; without the barrier
+// (barrier_end false) it makes none.
+void test_dump_barrier() {
+    arm({});
+    bool had = gp::detail::sched::barrier_end.load();
+    if (!gp::os::process_barrier_init()) {
+        return; // a system without one: the other path is what the churn test runs
+    }
+    auto old = gp::os::testing::set_barrier_hook(&barrier_hook);
+    gp::detail::sched::barrier_end = true;
+    barrier_hook_calls = 0;
+    barrier_hook_counted = 0;
+    auto before = gp::os::testing::barrier_calls();
+    std::string out;
+    gp::detail::append_other_goroutines(out);
+    CHECK_EQ(gp::os::testing::barrier_calls() - before, 1UL);
+    CHECK_EQ(barrier_hook_calls.load(), 1);
+    CHECK_EQ(barrier_hook_counted.load(), 1);
+    gp::detail::append_other_goroutines(out);
+    CHECK_EQ(gp::os::testing::barrier_calls() - before, 2UL);
+    gp::detail::sched::barrier_end = false;
+    gp::detail::append_other_goroutines(out);
+    CHECK_EQ(gp::os::testing::barrier_calls() - before, 2UL); // none: the goroutines paid
+    gp::os::testing::set_barrier_hook(old);
+    gp::detail::sched::barrier_end = had;
+}
+
+// A barrier that fails after the system had one: the report lists no goroutine (no record can be
+// read safely), nothing crashes, and the next reports are the same (a goroutine on its way out may
+// have used the cheap store).
+void test_dump_barrier_fails() {
+    arm({});
+    bool had = gp::detail::sched::barrier_end.load();
+    if (!gp::os::process_barrier_init()) {
+        return;
+    }
+    chan hold = gp::make_chan<int64_t>(0);
+    group g;
+    g.go([hold] { gp::recv(hold); });
+    CHECK(wait_for([] { return gp::num_blocked() >= 1; }));
+    gp::detail::sched::barrier_end = true;
+    gp::os::testing::set_barrier_failing(true);
+    std::string failed;
+    gp::detail::append_other_goroutines(failed);
+    const std::string note = "(other goroutines not shown: the process barrier failed)";
+    CHECK(failed.find("goroutine ") == std::string::npos);
+    CHECK(failed.find(note) != std::string::npos);
+    gp::os::testing::set_barrier_failing(false);
+    std::string later;
+    gp::detail::append_other_goroutines(later);
+    CHECK(later.find("goroutine ") == std::string::npos);
+    CHECK(later.find(note) != std::string::npos);
+    gp::detail::sched::forget_barrier_failure();
+    std::string again;
+    gp::detail::append_other_goroutines(again);
+    CHECK(again.find("[chan receive]:") != std::string::npos);
+    CHECK(again.find(note) == std::string::npos);
+    gp::close(hold);
+    CHECK(g.wait());
+    gp::detail::sched::barrier_end = had;
+}
+
+// The text after the header line of the block of the goroutine that the report lists first with
+// the given reason: "" when there is none.
+std::string block_of(const std::string& out, const std::string& reason) {
+    auto at = out.find("[" + reason + "]:\n");
+    if (at == std::string::npos) {
+        return "";
+    }
+    auto start = out.find('\n', at) + 1;
+    auto end = out.find("\n\n", start);
+    return out.substr(start, end == std::string::npos ? std::string::npos : end - start);
+}
+
+// A goroutine in time.Sleep is listed as "sleep" with its stack (a reason, not a block), and once
+// it is awake the reason is gone: it is "running" again.
+void test_dump_sleep() {
+    arm({});
+    std::atomic<bool> woke{false};
+    std::atomic<bool> finish{false};
+    group g;
+    g.go([&] {
+        gp::time::sleep(1'500'000'000);
+        woke = true;
+        while (!finish.load()) {
+            std::this_thread::yield();
+        }
+    });
+    std::string out;
+    CHECK(wait_for([&] {
+        out.clear();
+        gp::detail::append_other_goroutines(out);
+        return out.find("[sleep]:\n") != std::string::npos;
+    }));
+    std::string block = block_of(out, "sleep");
+    CHECK(!block.empty());
+    CHECK(block.rfind("created by", 0) != 0); // a stack comes before "created by"
+    CHECK(wait_for([&] { return woke.load(); }));
+    out.clear();
+    gp::detail::append_other_goroutines(out);
+    CHECK(out.find("[sleep]") == std::string::npos);
+    CHECK(out.find("[running]:\n") != std::string::npos);
+    finish = true;
+    CHECK(g.wait());
+}
+
 int callback_target(int x) {
     return x;
 }
@@ -614,6 +837,55 @@ void run_case(const std::string& name) {
             gp::exit(0);
         }).detach();
         gp::recv(never);
+    } else if (name == "tb-panic" || name == "tb-fatal" || name == "tb-sleep") {
+        // The traceback level of GOTRACEBACK (deadlock_test.go sets it): a goroutine that waits
+        // on a channel, and for tb-sleep one in time.Sleep, then the panic or the fatal error of
+        // this goroutine. The test goroutine waits until the others show the reason that the
+        // report is to print, with the same runtime.Stack(buf, true) a program would poll.
+        gp::go([never] { gp::recv(never); });
+        gp::go([] { gp::time::sleep(60'000'000'000); });
+        auto buf = gp::make_slice<uint8_t>(1 << 16);
+        auto deadline = std::chrono::steady_clock::now() + 30s;
+        for (;;) {
+            auto n = gp::runtime::stack(buf, true);
+            std::string_view text(reinterpret_cast<const char*>(buf.gp_data()),
+                                  static_cast<std::size_t>(n));
+            if (text.find("[chan receive]:") != std::string_view::npos &&
+                text.find("[sleep]:") != std::string_view::npos) {
+                break;
+            }
+            if (std::chrono::steady_clock::now() > deadline) {
+                say("the goroutines never showed their reasons\n");
+                gp::os::exit(4);
+            }
+            std::this_thread::sleep_for(1ms);
+        }
+        if (name == "tb-fatal") {
+            gp::detail::fatal("sync: unlock of unlocked mutex");
+        }
+        gp::panic("boom"_gs);
+    } else if (name == "noinit-dump" || name == "init-dump") {
+        // run_main prepares the process-wide barrier (main() makes that fail for noinit-dump): the
+        // goroutines then pay the fence themselves and the report makes no barrier, and the dump
+        // of the other goroutines works either way.
+        bool has_barrier = gp::detail::sched::barrier_end.load();
+        gp::go([never] { gp::recv(never); });
+        auto deadline = std::chrono::steady_clock::now() + 30s;
+        while (gp::num_blocked() < 1 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(1ms);
+        }
+        auto before = gp::os::testing::barrier_calls();
+        std::string text;
+        gp::detail::append_other_goroutines(text);
+        auto calls = gp::os::testing::barrier_calls() - before;
+        bool listed = text.find("[chan receive]:") != std::string::npos;
+        bool right = name == "noinit-dump"
+                         ? !has_barrier && calls == 0 && gp::os::testing::barrier_init_calls() >= 1
+                         : calls == (has_barrier ? 1UL : 0UL);
+        out(listed && right ? "ok\n"
+                            : "bad: has_barrier=" + std::to_string(has_barrier) +
+                                  " calls=" + std::to_string(calls) +
+                                  " listed=" + std::to_string(listed) + "\n" + text);
     } else if (name == "sleeping") {
         gp::go([out] {
             gp::time::sleep(100'000'000);
@@ -668,6 +940,13 @@ void run_unit_tests() {
     test_guards();
     test_no_false_positive();
     test_registry_race();
+    test_dump_churn(true);
+    test_dump_churn(false);
+    test_dump_unanswering();
+    test_dump_locked();
+    test_dump_barrier();
+    test_dump_barrier_fails();
+    test_dump_sleep();
     test_many_goroutines();
     test_nil_reasons(); // last: it leaves two goroutines asleep for ever
     gp::detail::set_deadlock_hook(nullptr);
@@ -693,11 +972,15 @@ void tests_main() {
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "noinit-dump") {
+        gp::os::testing::set_barrier_init_failing(true); // run_main's call fails: no barrier
+    }
     // A detector that does not report leaves a test asleep for ever: this thread (a plain
     // std::thread that never enters gocpp, so it is not a foreign thread for the detector) ends the
     // process, so that a failure is a failure, not a hang.
     std::thread([] {
-        std::this_thread::sleep_for(90s);
+        std::this_thread::sleep_for(
+            240s); // (the unit tests take about 30 s; a loaded machine, several times that)
         say("deadlock_test: timed out (a detector that did not report?)\n");
         gp::os::exit_now(97);
     }).detach();

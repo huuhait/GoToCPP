@@ -446,6 +446,10 @@ void test_maps() {
     CHECK(got != nullptr && rf::v_int(T(&gp::td_int), got) == 2);
     rf::v_setstring(T(&gp::td_string), k, gp::string::gp_copy("zz"));
     CHECK(rf::v_mapindex(mt, m, k) == nullptr);
+    CHECK(!rf::v_maphas(mt, m, k));
+    rf::v_setstring(T(&gp::td_string), k, gp::string::gp_copy("b"));
+    CHECK(rf::v_maphas(mt, m, k));
+    rf::v_setstring(T(&gp::td_string), k, gp::string::gp_copy("zz"));
     gp::ptr<void> snap = rf::v_mapsnap(mt, m);
     CHECK(rf::v_snaplen(mt, snap) == 2);
     int64_t sum = 0;
@@ -519,6 +523,9 @@ void test_foreign() {
     gp::any n = gp::to_iface_foreign<gp::any>(int32_t(7));
     auto [t, p] = rf::v_unpack(n);
     CHECK(rf::t_kind(t) == 5 && rf::v_int(t, p) == 7);
+    CHECK_STR(rf::t_string(t), "int32");
+    CHECK_STR(rf::t_cppname(t), "int");
+    CHECK_STR(rf::t_cppname(T(&gp::td_int)), "");
     gp::any d = gp::to_iface_foreign<gp::any>(2.5);
     auto [td, pd] = rf::v_unpack(d);
     CHECK(rf::t_kind(td) == 14 && rf::v_float(td, pd) == 2.5);

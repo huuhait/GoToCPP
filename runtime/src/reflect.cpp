@@ -689,6 +689,14 @@ gp::string t_string(std::uint64_t t) {
     return text(d->gp_name);
 }
 
+gp::string t_cppname(std::uint64_t t) {
+    const type_desc* d = D(t);
+    if (d->gp_kind == kind::Foreign) {
+        return text(d->gp_name);
+    }
+    return gp::string();
+}
+
 std::uint64_t t_size(std::uint64_t t) noexcept {
     return D(t)->gp_size;
 }
@@ -1353,6 +1361,10 @@ vptr v_mapindex(std::uint64_t t, const vptr& p, const vptr& kp) {
     vptr res = new_storage(e);
     assign(e, addr(res), f);
     return res;
+}
+
+bool v_maphas(std::uint64_t t, const vptr& p, const vptr& kp) {
+    return map_ops(D(t))->gp_find(addr(p), addr(kp)) != nullptr;
 }
 
 void v_mapset(std::uint64_t t, const vptr& p, const vptr& kp, const vptr& vp) {

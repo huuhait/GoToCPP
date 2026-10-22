@@ -39,6 +39,8 @@
 extern "C" {
 void AnnotateIgnoreSyncBegin(const char* file, int line);
 void AnnotateIgnoreSyncEnd(const char* file, int line);
+void AnnotateIgnoreReadsBegin(const char* file, int line);
+void AnnotateIgnoreReadsEnd(const char* file, int line);
 void __tsan_acquire(void* addr);
 void __tsan_release(void* addr);
 }
@@ -104,6 +106,30 @@ inline void release(const void* addr) noexcept {
     }
 }
 
+// ignore_reads is a scope in which TSan does not see the reads (atomic ones too) of the calling
+// thread. The report of all goroutines (runtime.Stack(buf, true), a panic with GOTRACEBACK=all)
+// reads the runtime's records of goroutines and threads, which their owners create, change and
+// free without an edge for the detector (the protocol of sched::report_scope orders them with a
+// lock that no_sync hides, and with a process-wide barrier): the reads are the runtime's own
+// bookkeeping, not data of the program, and they must not make the goroutines that they read
+// happen before the one that reports, or the other way, which an edge would. Only in the mode (the
+// unit tests of the runtime under TSan keep the detector's eyes on these reads).
+class ignore_reads {
+public:
+    ignore_reads() noexcept {
+        if constexpr (mode) {
+            AnnotateIgnoreReadsBegin(__FILE__, __LINE__);
+        }
+    }
+    ~ignore_reads() {
+        if constexpr (mode) {
+            AnnotateIgnoreReadsEnd(__FILE__, __LINE__);
+        }
+    }
+    ignore_reads(const ignore_reads&) = delete;
+    ignore_reads& operator=(const ignore_reads&) = delete;
+};
+
 class no_sync {
 public:
     no_sync() noexcept {
@@ -134,6 +160,14 @@ inline void finished_goroutine() noexcept {}
 inline void release_finished() noexcept {}
 inline void acquire(const void*) noexcept {}
 inline void release(const void*) noexcept {}
+
+class ignore_reads {
+public:
+    ignore_reads() noexcept {}
+    ~ignore_reads() {}
+    ignore_reads(const ignore_reads&) = delete;
+    ignore_reads& operator=(const ignore_reads&) = delete;
+};
 
 class no_sync {
 public:

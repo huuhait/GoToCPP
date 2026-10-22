@@ -525,14 +525,19 @@ bool process_barrier_init() noexcept {
 namespace {
 std::atomic<unsigned long> barrier_count{0};
 std::atomic<testing::barrier_hook> before_barrier{nullptr};
+std::atomic<bool> barrier_failing{false};
 } // namespace
 
-void process_barrier() noexcept {
+bool process_barrier() noexcept {
     if (auto hook = before_barrier.load(std::memory_order_acquire)) {
         hook();
     }
-    FlushProcessWriteBuffers();
+    if (barrier_failing.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    FlushProcessWriteBuffers(); // (no result: it does not fail)
     barrier_count.fetch_add(1, std::memory_order_release);
+    return true;
 }
 
 namespace testing {
@@ -547,6 +552,10 @@ barrier_hook set_barrier_hook(barrier_hook hook) noexcept {
 
 unsigned long barrier_init_calls() noexcept {
     return barrier_init_count.load(std::memory_order_relaxed);
+}
+
+void set_barrier_failing(bool on) noexcept {
+    barrier_failing.store(on, std::memory_order_relaxed);
 }
 
 void set_barrier_init_failing(bool on) noexcept {

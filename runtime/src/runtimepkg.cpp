@@ -204,12 +204,14 @@ int64_t num_cgo_call() noexcept {
 }
 
 void lock_os_thread() noexcept {
-    detail::this_goroutine().locked++; // only for the deadlock report: "locked to thread"
+    // Only for the reports: "locked to thread". A report of all goroutines reads it while the
+    // goroutine runs, so the writes are atomic (relaxed: nothing is ordered by the count).
+    __atomic_fetch_add(&detail::this_goroutine().locked, 1, __ATOMIC_RELAXED);
 }
 void unlock_os_thread() noexcept {
     detail::goroutine& g = detail::this_goroutine();
     if (g.locked > 0) {
-        g.locked--;
+        __atomic_fetch_sub(&g.locked, 1, __ATOMIC_RELAXED);
     }
 }
 
@@ -331,7 +333,7 @@ void funcs_unlock() noexcept {
     funcs_mu.unlock();
 }
 
-int64_t stack(gp::slice<uint8_t> buf, bool) {
+int64_t stack(gp::slice<uint8_t> buf, bool all_goroutines) {
     std::string out = "goroutine ";
     out += std::to_string(detail::goroutine_id());
     out += " [running]:\n";
@@ -345,6 +347,11 @@ int64_t stack(gp::slice<uint8_t> buf, bool) {
         complete = static_cast<std::size_t>(n) < size;
     }
     detail::append_trace(out, all.data(), all.size(), complete, detail::program_image());
+    if (all_goroutines) {
+        // Go's all=true: the other goroutines after this one's trace (a goroutine that is blocked
+        // in the runtime gives its stack, one that runs only its header).
+        detail::append_other_goroutines(out);
+    }
     auto n = std::min<std::size_t>(out.size(), static_cast<std::size_t>(buf.gp_len()));
     for (std::size_t i = 0; i < n; i++) {
         buf.gp_data()[i] = static_cast<uint8_t>(out[i]);
@@ -416,7 +423,9 @@ bool set_panic_on_fault(bool enabled) noexcept {
     return panic_on_fault.exchange(enabled, std::memory_order_acq_rel);
 }
 
-void set_traceback(const gp::string&) noexcept {}
+void set_traceback(const gp::string& level) noexcept {
+    detail::set_traceback_level(level.gp_view());
+}
 
 void free_os_memory() noexcept {
     os::trim_memory();

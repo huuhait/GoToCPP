@@ -624,11 +624,25 @@ func TestCheckMode(t *testing.T) {
 	if err := updateIndex(out, []*Result{r}); err != nil {
 		t.Fatal(err)
 	}
-	// A hand-written file without the header is allowed (a native .gp/.cpp of a shim).
-	os.WriteFile(filepath.Join(pkgDir(out, "fx/basic"), "native.gp"), []byte("package basic\n"), 0o644)
+	// A hand-written .cpp file is not the tool's business; a hand-written .gp file is allowed only
+	// when ports.txt lists it as own (the port itself refuses to write beside it).
 	os.WriteFile(filepath.Join(pkgDir(out, "fx/basic"), "native.cpp"), []byte("// hand\n"), 0o644)
-	if probs := append(checkPort(out, r), checkIndex(out, []*Result{r}, true)...); len(probs) != 0 {
+	own := []string{"native.gp"}
+	os.WriteFile(filepath.Join(pkgDir(out, "fx/basic"), "native.gp"), []byte("package basic\n"), 0o644)
+	if probs := append(checkPort(out, r, own), checkIndex(out, []*Result{r}, true)...); len(probs) != 0 {
 		t.Fatalf("clean tree: %v", probs)
+	}
+	// the same file, not listed as own: a stray
+	if probs := checkPort(out, r, nil); len(probs) != 1 || !strings.Contains(probs[0], "native.gp") || !strings.Contains(probs[0], "hand-written") {
+		t.Errorf("stray hand-written file: %v", probs)
+	}
+	// an own file that is not there
+	os.Remove(filepath.Join(pkgDir(out, "fx/basic"), "native.gp"))
+	if probs := checkPort(out, r, own); len(probs) != 1 || !strings.Contains(probs[0], "native.gp") || !strings.Contains(probs[0], "not there") {
+		t.Errorf("own file missing: %v", probs)
+	}
+	if probs := checkPort(out, r, nil); len(probs) != 0 {
+		t.Fatalf("tree without the stray: %v", probs)
 	}
 
 	a := filepath.Join(pkgDir(out, "fx/basic"), "a.gp")
@@ -636,18 +650,18 @@ func TestCheckMode(t *testing.T) {
 
 	// a hand edit
 	os.WriteFile(a, bytes.Replace(orig, []byte("return 1"), []byte("return 3"), 1), 0o644)
-	probs := checkPort(out, r)
+	probs := checkPort(out, r, nil)
 	if len(probs) != 1 || !strings.Contains(probs[0], "a.gp") || !strings.Contains(probs[0], "hand edit") || !strings.Contains(probs[0], "return 3") {
 		t.Errorf("hand edit: %v", probs)
 	}
 	// removing the header by hand does not hide the edit
 	os.WriteFile(a, bytes.TrimPrefix(orig, []byte(strings.SplitAfter(string(orig), "\n")[0])), 0o644)
-	if probs := checkPort(out, r); len(probs) != 1 {
+	if probs := checkPort(out, r, nil); len(probs) != 2 || !strings.Contains(probs[0], "hand edit") || !strings.Contains(probs[1], "hand-written") {
 		t.Errorf("header removed: %v", probs)
 	}
 	// a missing file
 	os.Remove(a)
-	if probs := checkPort(out, r); len(probs) != 1 || !strings.Contains(probs[0], "missing") {
+	if probs := checkPort(out, r, nil); len(probs) != 1 || !strings.Contains(probs[0], "missing") {
 		t.Errorf("missing: %v", probs)
 	}
 	os.WriteFile(a, orig, 0o644)
@@ -655,7 +669,7 @@ func TestCheckMode(t *testing.T) {
 	// a ported file that the port does not write
 	stale := filepath.Join(pkgDir(out, "fx/basic"), "stale.gp")
 	os.WriteFile(stale, []byte(headerLine(p.Cfg.Pin, "fx/basic", "stale.go")+"\n\npackage basic\n"), 0o644)
-	if probs := checkPort(out, r); len(probs) != 1 || !strings.Contains(probs[0], "stale.gp") || !strings.Contains(probs[0], "does not write it any more") {
+	if probs := checkPort(out, r, nil); len(probs) != 1 || !strings.Contains(probs[0], "stale.gp") || !strings.Contains(probs[0], "does not write it any more") {
 		t.Errorf("stale: %v", probs)
 	}
 	os.Remove(stale)
@@ -664,7 +678,7 @@ func TestCheckMode(t *testing.T) {
 	md := filepath.Join(pkgDir(out, "fx/basic"), "PORT.md")
 	mdOrig, _ := os.ReadFile(md)
 	os.WriteFile(md, append(mdOrig, "extra\n"...), 0o644)
-	if probs := checkPort(out, r); len(probs) != 1 || !strings.Contains(probs[0], "PORT.md") {
+	if probs := checkPort(out, r, nil); len(probs) != 1 || !strings.Contains(probs[0], "PORT.md") {
 		t.Errorf("PORT.md: %v", probs)
 	}
 	os.WriteFile(md, mdOrig, 0o644)
@@ -684,7 +698,7 @@ func TestCheckMode(t *testing.T) {
 		t.Errorf("a subset check must ignore other lines: %v", probs)
 	}
 	os.WriteFile(idx, idxOrig, 0o644)
-	if probs := append(checkPort(out, r), checkIndex(out, []*Result{r}, true)...); len(probs) != 0 {
+	if probs := append(checkPort(out, r, nil), checkIndex(out, []*Result{r}, true)...); len(probs) != 0 {
 		t.Errorf("restored tree: %v", probs)
 	}
 }
@@ -1220,6 +1234,27 @@ func TestCLIOwnFiles(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(mine); !strings.Contains(string(got), "gocpp's own") {
 		t.Error("the port must keep the own file")
+	}
+	// -check accepts the own file, with Go's source and by hash; it finds a stray hand-written file
+	// that is not listed, and an own file that is not there
+	for name, args := range map[string][]string{
+		"with the source": append(slices.Clone(flags), "-check", "fx/basic"),
+		"by hash":         append(emptyCache(t, flags), "-check", "fx/basic"),
+	} {
+		if code, _, stderr = runCLI(args...); code != 0 {
+			t.Errorf("-check %s with an own file: exit %d\n%s", name, code, stderr)
+		}
+		stray := filepath.Join(dir, "stray.gp")
+		os.WriteFile(stray, []byte("package basic\n"), 0o644)
+		if code, _, stderr = runCLI(args...); code != 1 || !strings.Contains(stderr, "stray.gp: is a hand-written file") || strings.Contains(stderr, "mine.gp") {
+			t.Errorf("-check %s with a stray file: exit %d\n%s", name, code, stderr)
+		}
+		os.Remove(stray)
+		os.Rename(mine, mine+".off")
+		if code, _, stderr = runCLI(args...); code != 1 || !strings.Contains(stderr, "mine.gp: ports.txt lists it as gocpp's own file") {
+			t.Errorf("-check %s with a missing own file: exit %d\n%s", name, code, stderr)
+		}
+		os.Rename(mine+".off", mine)
 	}
 	// a hand-written file that is not listed is refused
 	other := filepath.Join(dir, "other.gp")

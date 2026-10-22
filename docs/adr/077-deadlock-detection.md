@@ -101,6 +101,38 @@ Good:
   inlined for (its return address). The counts were two words that each goroutine start, end, sleep
   and wake already updated; they are one word now.
 
+- A report of all goroutines (`sched::report_scope`) reads the records of goroutines that run, so a goroutine
+  that ends must not free its record while a report may be reading it: the goroutine stores null in its
+  worker's `cur`, looks at `reporting` and, when a report exists, waits for the registry lock before it frees
+  the record; the report counts itself, makes `os::process_barrier` (membarrier / FlushProcessWriteBuffers),
+  and takes the lock. The proof is in the comment in `goroutine.cpp`. Where the system has the barrier
+  the goroutine pays a release store and a compiler fence; elsewhere (or when `run_main` could not prepare
+  it) a sequentially consistent exchange. If the barrier fails later the reports list no goroutine, for
+  ever; the report then says so (`(other goroutines not shown: the process barrier failed)`). Under
+  `-race` the registry reads are invisible (`race::ignore_reads`: they are the runtime's own bookkeeping),
+  and the order between the report's last use of a record (the request it posts to a parked goroutine's
+  waiter) and the goroutine's `delete` is an edge given by hand (`race::release` in `~report_scope`,
+  `race::acquire` in `wait_for_reports`), because the lock that orders them is hidden from the detector.
+  An edge, and not an ignore of the writes, keeps the races between the OTHER goroutines visible while
+  one is dumped (`tests/race/race_stack_all_user_race.gp`); it does not undo the order that the dump itself
+  makes. Limit: under `-race` a mid-run `runtime.Stack(buf, true)` orders the dumper with a goroutine that it dumps
+  that was in a short sleep at that moment (seen with sleeps up to about 150 ms; sleeps of 200 ms or more and channel waits were reported) (the request to the goroutine's wait and its answer are a mutex and a
+  condition variable that the detector sees), so it can hide a real race between the dumper's thread and such a
+  goroutine; a panic dump ends the process, so it is not affected, and the common case is not hurt (two
+  goroutines that race with each other are still reported: `tests/race/race_stack_all_user_race.gp`).
+  (Tried and given up: `race::no_sync` around the request and the wait on the dumper's side brings
+  that race back, but then the dump reports races of the program's own variables between the dumper and the
+  goroutines that it dumped, for every dump; hiding the goroutine's side of the handshake as well was not
+  found to be safe.) The failing-barrier note was checked end to end for the panic path; `Stack(buf, true)` shares
+  `append_other_goroutines` with it and is covered by the unit test only.
+  Cost of the goroutine end (1M `go` statements, `-release`, 20 alternating runs of each build, pinned to 8
+  cores, load average 75 to 86, so the noise is 3 to 5%): the end of a goroutine reads two words of one
+  cache line more than before and has a release store and a compiler fence. Median against the code
+  without it: one at a time +0.1% (g++) and +0.9% (clang++), in batches of 50 -0.4% and +4.0%; the same
+  build with the protocol taken out was between -1.9% and +4.9%, so no cost shows above that noise,
+  but none is proved smaller than it. The sequentially consistent exchange (no process-wide barrier)
+  measured +3.6% (clang++, one at a time). An earlier measure of +6% (g++) was not repeated here.
+
 Bad:
 - A goroutine that waits in a way that is not a `block_scope` (a wait for a child process, a blocking
   read) is "running": a program stuck there is not reported (Go reports a goroutine in a system call
@@ -111,7 +143,10 @@ Bad:
 - The report has no `, N minutes` after the reason of a goroutine that waited a long time (a clock
   read for every block would cost the hot path), and the frames of `sync` are gocpp's
   (`sync.(*Mutex).Lock`), not Go's runtime frames (`internal/sync.runtime_SemacquireMutex`).
-- `runtime.Stack(buf, true)` still shows only the calling goroutine.
+- `runtime.Stack(buf, true)` and a panic with `GOTRACEBACK=all` (or the timeout of a test) list the other
+  goroutines, but a goroutine that is running has only its header: a thread cannot walk another's stack
+  while it runs (Go stops the world first). A goroutine that is blocked in the runtime, or sleeps
+  (`[sleep]`, a reason that is not a block: the detector does not count it), gives its stack.
 - `-release` builds are stripped: the frames are `?()` with addresses.
 
 See: [Phase 08 §2.6](../../plans/2026-10-13-gocpp/phase-08-concurrency/README.md#26-program-exit-and-deadlocks).

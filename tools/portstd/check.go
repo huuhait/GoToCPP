@@ -13,7 +13,8 @@ import (
 // The check mode (make portstd-check): the committed stdlib/<pkg> is what the
 // tool writes now. It catches a hand edit of a ported file (the change must
 // go into a patch rule), a ported file that the tool does not write any more,
-// a PORT.md or an index line that is out of date.
+// a hand-written .gp file beside a port that ports.txt does not list as "own", an own file that is
+// missing, a PORT.md or an index line that is out of date.
 
 // firstDiff describes where two texts first differ.
 func firstDiff(want, have []byte) string {
@@ -43,7 +44,7 @@ func clip(s string) string {
 
 // checkPort returns what is wrong with the committed files of the port r
 // under out, as one message each.
-func checkPort(out string, r *Result) []string {
+func checkPort(out string, r *Result, own []string) []string {
 	dir := pkgDir(out, r.Pkg)
 	rel := func(name string) string {
 		return filepath.ToSlash(filepath.Join(filepath.Base(out), filepath.FromSlash(r.Pkg), name))
@@ -75,7 +76,36 @@ func checkPort(out string, r *Result) []string {
 			probs = append(probs, fmt.Sprintf("%s: has the header of a ported file, but the port does not write it any more (remove it, or fix the patches)", rel(name)))
 		}
 	}
-	return append(probs, stubProblems(out, r.Pkg)...)
+	probs = append(probs, stubProblems(out, r.Pkg)...)
+	return append(probs, handProblems(out, r.Pkg, own)...)
+}
+
+// handProblems reports the .gp files beside a port that nobody accounts for: a hand-written file
+// that ports.txt does not list with an "own" line (the port itself refuses to write beside it,
+// prepareWrite), and an own file that is not there. A file of the port or a stub is not its
+// business (checkPort and stubProblems). own is the "own" names of the package.
+func handProblems(out, pkg string, own []string) []string {
+	dir := pkgDir(out, pkg)
+	_, hand, err := foreignFiles(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	rel := func(name string) string {
+		return filepath.ToSlash(filepath.Join(filepath.Base(out), filepath.FromSlash(pkg), name))
+	}
+	var probs []string
+	for _, name := range hand {
+		if !slices.Contains(own, name) {
+			probs = append(probs, fmt.Sprintf("%s: is a hand-written file beside the port of %s that ports.txt does not list (an \"own %s %s\" line, or remove it)",
+				rel(name), pkg, pkg, name))
+		}
+	}
+	for _, name := range own {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			probs = append(probs, fmt.Sprintf("%s: ports.txt lists it as gocpp's own file of %s, but it is not there (%v)", rel(name), pkg, err))
+		}
+	}
+	return probs
 }
 
 // stubProblems reports the stubs of tools/stubgen beside a port: they declare what the port
@@ -97,7 +127,7 @@ func stubProblems(out, pkg string) []string {
 // have the SHA-256 that PORTED.sha256 records, and no file of a port is missing from it. It
 // catches a hand edit of a ported file; it cannot tell that the tool would write something
 // else (the cache is needed for that), and an edit of PORTED.sha256 together with the file hides it.
-func checkSums(out string) (n int, probs []string) {
+func checkSums(out string, own map[string][]string) (n int, probs []string) {
 	index, err := readIndex(out)
 	if err != nil {
 		return 0, []string{err.Error()}
@@ -140,6 +170,7 @@ func checkSums(out string) (n int, probs []string) {
 			}
 		}
 		probs = append(probs, stubProblems(out, pkg)...)
+		probs = append(probs, handProblems(out, pkg, own[pkg])...)
 	}
 	for _, pkg := range sortedMapKeys(mapKeysSet(by)) {
 		if _, ok := index[pkg]; !ok {

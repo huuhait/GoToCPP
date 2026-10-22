@@ -49,7 +49,26 @@ report to be written, `race_at_exit` that a report is written before `main` retu
 finished goroutines are kept (a race with a goroutine that has ended is found after any number of
 allocations, and after 30 other goroutines have finished); `ok_once_config` that `Once.Do` orders
 what its function wrote before every `Do` that returns after it; `ok_many_goroutines` that the parked
-threads do not pile up.
+threads do not pile up; `ok_stack_all_churn` that `runtime.Stack(buf, true)` (the report of all goroutines that a
+panic with `GOTRACEBACK=all` also makes) called by three goroutines at once while goroutines start and end reports no race: the
+registry that it walks is the runtime's bookkeeping, not a race. `ok_stack_all_parked_churn` is the same
+with goroutines that sleep and then wait on a channel while they are dumped: the dump posts a request to each parked
+goroutine's own wait, and the goroutine frees its record afterwards, which the race detector must see ordered (the
+runtime gives it that edge by hand: `race::release` at the end of a report, `race::acquire` before a goroutine frees
+its record). `race_stack_all_user_race` is its control: two goroutines that really race on a counter are still
+reported while a third dumps all stacks (the dump hides only the runtime's own records, and the edge
+keeps the order between the other goroutines visible; it does not unhide the order the dump itself makes: a real
+race between the dumper and a goroutine that was in a short sleep when it was dumped (up to about 150 ms in our runs) can go unreported, a limit
+in docs/guides/race.md; no `limit_` test pins it, because it depends on timing: with the goroutine asleep for 30 ms and the dump at
+5 ms the race went unreported in 5 of 5 runs (sleeps up to about 150 ms: 0 of 4 or 5; 200 ms or more: reported; a channel wait: reported), the same on both compilers, with 300 ms and 50 ms it was reported in 5 of 5, so a test of the
+miss would be flaky). One run of `ok_stack_all_parked_churn` (about 10 s) fails for a build without the acquire, or without the release, in 20 of 20 runs on each compiler (standalone; with a sleep in place of the `Gosched`, 13 of 20 and 18 of 20 at 40 and 100 rounds). Mutants of the edge that survive are narrow-window orderings, accepted:
+the acquire only after a wait for the lock, and the release only after the unlock. The failing-barrier note
+was checked end to end for the panic path; `Stack(buf, true)` shares the function and is covered by the
+unit test only. The lazy creation of the
+line table index and of the function-name memo under their lock (instead of a function-local static's
+initializer, whose guard ThreadSanitizer cannot order in a `-race` program) is sound by construction; one run
+in twelve of a two-goroutine first trace showed the false race before it, but no test makes it deterministic, so
+none claims it.
 
 Every program is valid Go, and `GOCPP_RUN_VS_GO=1 go test ./tests -run RaceVsGo` builds each with
 `go build -race` and checks the same expectations against real Go's detector (the output, the exit

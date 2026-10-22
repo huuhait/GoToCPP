@@ -6,7 +6,9 @@
 #include <gocpp/trace.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -1388,8 +1390,16 @@ struct line_index {
 void indexed_lines_of(std::string_view debug_line, std::string_view line_str, std::string_view str,
                       line_query* queries, std::size_t n) {
     static std::mutex mu;
-    static line_index* idx = new line_index; // never freed: a leak check finds it through here
+    // Never freed: a leak check finds it through here. Made under the lock, not by a function-local
+    // static's initializer: with the guard of that initializer ThreadSanitizer sees no edge from
+    // the constructor in one goroutine to the use in another that took the lock first (a false race
+    // at the first traces of two goroutines at once, in a -race program: seen in 5 of 60 runs of
+    // one program, and not reproduced by a deterministic test).
+    static line_index* idx = nullptr;
     std::lock_guard<std::mutex> lk(mu);
+    if (idx == nullptr) {
+        idx = new line_index;
+    }
     if (!idx->built || idx->data != debug_line.data() || idx->size != debug_line.size()) {
         *idx = line_index{};
         idx->data = debug_line.data();
@@ -1466,16 +1476,20 @@ namespace {
 // functions over and over, and demangling them is most of the cost of a trace.
 go_func shared_func_name(const exe_symbol& sym) {
     static std::mutex mu;
-    static std::unordered_map<const exe_symbol*, go_func> memo;
+    // (Made under the lock, never freed: see indexed_lines_of.)
+    static std::unordered_map<const exe_symbol*, go_func>* memo = nullptr;
     {
         std::lock_guard<std::mutex> lk(mu);
-        if (auto it = memo.find(&sym); it != memo.end()) {
+        if (memo == nullptr) {
+            memo = new std::unordered_map<const exe_symbol*, go_func>;
+        }
+        if (auto it = memo->find(&sym); it != memo->end()) {
             return it->second;
         }
     }
     go_func f = func_name(sym.name);
     std::lock_guard<std::mutex> lk(mu);
-    memo.emplace(&sym, f);
+    memo->emplace(&sym, f);
     return f;
 }
 
@@ -1648,24 +1662,30 @@ bool chain_pcs(const panic_error& e, std::vector<uintptr_t>& pcs) {
 } // namespace
 
 void append_created_by(std::string& out, const goroutine* g) {
-    if (g == nullptr || g->create_pc == nullptr) {
+    if (g != nullptr) {
+        append_created_by(out, g->create_pc, g->parent_id);
+    }
+}
+
+void append_created_by(std::string& out, const void* create_pc, uint64_t parent_id) {
+    if (create_pc == nullptr) {
         return;
     }
-    if (g->create_pc == &creator_gofunc) {
+    if (create_pc == &creator_gofunc) {
         // Go's own goroutine of an AfterFunc: the go statement of time.goFunc, in a system
         // goroutine (no "in goroutine N"), at the line of Go 1.25's time/sleep.go.
         out += "created by time.goFunc\n\ttime/sleep.go:215 +0x2d\n";
         return;
     }
-    if (g->create_pc == &creator_pull) {
+    if (create_pc == &creator_pull) {
         // The coroutine of iter.Pull (Go 1.25's iter/iter.go:269, in the goroutine that called
         // Pull).
         out += "created by iter.Pull[...] in goroutine ";
-        print_uint(out, g->parent_id);
+        print_uint(out, parent_id);
         out += "\n\titer/iter.go:269 +0x90\n";
         return;
     }
-    auto pc = reinterpret_cast<uintptr_t>(g->create_pc);
+    auto pc = reinterpret_cast<uintptr_t>(create_pc);
     frame_info fi;
     resolve_pcs(&pc, 1, true, &fi);
     if (!fi.ok || !fi.fn.shown) {
@@ -1674,7 +1694,7 @@ void append_created_by(std::string& out, const goroutine* g) {
     out += "created by ";
     out += fi.fn.name;
     out += " in goroutine ";
-    print_uint(out, g->parent_id);
+    print_uint(out, parent_id);
     out += "\n\t";
     out += fi.file.empty() ? std::string("?") : fi.file;
     out += ':';
@@ -1682,6 +1702,88 @@ void append_created_by(std::string& out, const goroutine* g) {
     out += " +";
     print_hex(out, pc - fi.entry);
     out += '\n';
+}
+
+namespace {
+
+// The traceback setting, as Go keeps it (runtime.setTraceback): the level in the bits above 2
+// (0 none, 1 the goroutine's stack, 2 and more also the runtime's frames, which gocpp does not
+// have), bit 0 "all goroutines" and bit 1 "crash" (Go aborts: gocpp ends with code 2 as for a
+// panic). debug.SetTraceback replaces the setting, with the bits of the GOTRACEBACK variable
+// added to it: the variable is the floor.
+constexpr uint32_t tb_all = 1;
+constexpr uint32_t tb_crash = 2;
+constexpr int tb_shift = 2;
+constexpr uint32_t tb_unset = ~uint32_t(0);
+
+constinit std::atomic<uint32_t> tb_cache{tb_unset};
+
+// tb_parse is Go's setTraceback for a level text: none, single (or empty), all, system, crash,
+// wer (Windows only, like crash; elsewhere an invalid word), or a number n (all goroutines, level
+// n; 0 prints no trace). Anything else is "all" with level 0: no trace.
+uint32_t tb_parse(std::string_view level) noexcept {
+    if (level == "none") {
+        return 0;
+    }
+    if (level == "single" || level.empty()) {
+        return 1u << tb_shift;
+    }
+    if (level == "all") {
+        return (1u << tb_shift) | tb_all;
+    }
+    if (level == "system") {
+        return (2u << tb_shift) | tb_all;
+    }
+    if (level == "crash") {
+        return (2u << tb_shift) | tb_all | tb_crash;
+    }
+#ifdef _WIN32
+    if (level == "wer") {
+        return (2u << tb_shift) | tb_all | tb_crash;
+    }
+#endif
+    uint32_t t = tb_all;
+    uint64_t n = 0;
+    bool number = true;
+    for (char c : level) {
+        if (c < '0' || c > '9' || n > (uint64_t(1) << 28)) {
+            number = false;
+            break;
+        }
+        n = n * 10 + static_cast<uint64_t>(c - '0');
+    }
+    if (number && n <= (uint64_t(1) << 28)) {
+        t |= static_cast<uint32_t>(n) << tb_shift;
+    }
+    return t;
+}
+
+// The setting of the GOTRACEBACK variable, read once.
+uint32_t tb_env() noexcept {
+    static const uint32_t env = [] {
+        const char* v = std::getenv("GOTRACEBACK");
+        return tb_parse(v != nullptr ? std::string_view(v) : std::string_view());
+    }();
+    return env;
+}
+
+uint32_t tb_get() noexcept {
+    uint32_t t = tb_cache.load(std::memory_order_acquire);
+    return t == tb_unset ? tb_env() : t;
+}
+
+} // namespace
+
+bool traceback_all() noexcept {
+    return (tb_get() & tb_all) != 0;
+}
+
+int traceback_level() noexcept {
+    return static_cast<int>(tb_get() >> tb_shift);
+}
+
+void set_traceback_level(std::string_view level) noexcept {
+    tb_cache.store(tb_parse(level) | tb_env(), std::memory_order_release);
 }
 
 void panic_report(std::string& out, const panic_error& e) noexcept {
@@ -1695,6 +1797,9 @@ void panic_report(std::string& out, const panic_error& e) noexcept {
         std::reverse(chain.begin(), chain.end());
         panic_report(out, chain.data(), chain.size());
         header = out.size();
+        if (traceback_level() == 0) {
+            return; // GOTRACEBACK=none: the panic's text only
+        }
         std::vector<uintptr_t> pcs;
         bool complete = chain_pcs(e, pcs);
         append_trace(out, pcs.data(), pcs.size(), complete);
@@ -1704,6 +1809,9 @@ void panic_report(std::string& out, const panic_error& e) noexcept {
         if (header != 0) {
             out.resize(header);
         }
+    }
+    if (traceback_all()) {
+        append_other_goroutines(out);
     }
 }
 

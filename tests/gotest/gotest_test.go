@@ -91,6 +91,7 @@ type fixture struct {
 //	multi         several packages: the order of their lines is the order of the packages
 //	diverge: why  the output differs from go test's for a reason: it is not compared
 //	want: text    a line that gocpp test must print (for fixtures that diverge)
+//	want-re: expr  a regexp that the output of gocpp test (standard output and error) must match, also when the traces are cut
 //	phase: NN     the gate phase of gocpp test (default 09), for a fixture that uses Phase 10 syntax
 //
 // A fixture that uses Phase 10 syntax (!, macros) has a folder twin/: a Go module (go.mod and .go files) with the same
@@ -100,6 +101,7 @@ type meta struct {
 	cutPanic, bench, stdoutOnly bool
 	diverge                     string
 	wants                       []string
+	wantsRe                     []string
 }
 
 func loadFixtures(t *testing.T) []fixture {
@@ -136,6 +138,8 @@ func loadFixtures(t *testing.T) []fixture {
 					f.meta.diverge = strings.TrimSpace(strings.TrimPrefix(line, "diverge:"))
 				case strings.HasPrefix(line, "phase:"):
 					f.meta.phase = strings.TrimSpace(strings.TrimPrefix(line, "phase:"))
+				case strings.HasPrefix(line, "want-re:"):
+					f.meta.wantsRe = append(f.meta.wantsRe, strings.TrimSpace(strings.TrimPrefix(line, "want-re:")))
 				case strings.HasPrefix(line, "want:"):
 					f.meta.wants = append(f.meta.wants, strings.TrimSpace(strings.TrimPrefix(line, "want:")))
 				default:
@@ -273,6 +277,11 @@ func TestGoTest(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			t.Parallel()
 			ours := runGocpp(t, f)
+			for _, w := range f.meta.wantsRe {
+				if !regexp.MustCompile(w).MatchString(ours.stdout + ours.stderr) {
+					t.Errorf("the output of gocpp test has no match for %q:\n%s\n%s", w, ours.stdout, ours.stderr)
+				}
+			}
 			if len(f.meta.wants) > 0 || f.meta.diverge != "" {
 				for _, w := range f.meta.wants {
 					if !strings.Contains(ours.stdout, w) {

@@ -381,8 +381,11 @@ fault_hook set_fault_hook(fault_hook hook) noexcept;
 // On Linux, the first process_barrier_init of a process that has other threads waits for an RCU
 // grace period (15 to 25 ms): run_main calls it before any goroutine exists, so that the first
 // Print does not pay it; later calls return at once.
+// process_barrier says whether it made the barrier: false when the system call failed (a kernel or
+// a sandbox that took the command away after process_barrier_init had succeeded); the caller must
+// not trust the ordering then.
 bool process_barrier_init() noexcept;
-void process_barrier() noexcept;
+bool process_barrier() noexcept;
 
 // --- seams for the runtime's own tests (runtime/test): only they call these ---
 //
@@ -418,6 +421,11 @@ barrier_hook set_barrier_hook(barrier_hook hook) noexcept;
 // not touch the system).
 unsigned long barrier_init_calls() noexcept;
 void set_barrier_init_failing(bool on) noexcept;
+
+// set_barrier_failing makes process_barrier fail (on Linux the system call gets a command that it
+// refuses, so process_barrier's own check of the result runs; it counts nothing), for the test of a
+// report that finds the barrier gone.
+void set_barrier_failing(bool on) noexcept;
 
 // fd_write writes the bytes to fd and fd_close closes it.
 void fd_write(int fd, const char* data, std::size_t n) noexcept;

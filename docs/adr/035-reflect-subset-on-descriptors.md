@@ -84,14 +84,31 @@ value of any type, a copy, a new slice, map or pointer, an assignment.
    Also absent (compile error): `VisibleFields`, `SetIterKey`/`SetIterValue`, `SetPointer`,
    `FieldByIndexErr`, `TypeAssert`, `MakeChan`, `NewAt`/`SliceAt`, `Seq2`, `CallSlice`,
    `Value.TrySend`/`TryRecv`.
-10. **Known divergences from Go** (found by the 9.3 review, kept on purpose or left for later):
-    (a) `DeepEqual` recurses on the 8 MiB fixed stack (ADR-001): about 1.3 KB per level at -O0, so
-    a linked list or tree deeper than about 6000 nodes ends in "fatal error: stack overflow"
-    (12000 at -O2); Go handles millions. (b) `MapIter`/`MapRange` take a snapshot of the keys:
-    keys deleted during the iteration are still produced (with stale values), where Go and the
-    language-level `range` skip them. (c) `Type.In`/`Out` out of range panic with a string, not
-    a `runtime.Error`. (d) `Value.Pointer()` of an empty string is not 0.
-    The `DeepEqual` depth and the map snapshot are in the plans TODO.
+10. **Known divergences from Go** (found by the 9.3 review; (a) and (b) were fixed in a later
+    pass): (a) `DeepEqual` walks with its own stack of frames on the heap, so a linked list or
+    a nest of a million levels works (Go's 1 GB stack ends at about a million). (b) `MapIter`/`MapRange`
+    take the keys of the map at the first `Next` (an entry added later is never produced, where Go
+    may produce it); an entry deleted before `Next` reaches it is skipped and `Value` reads the
+    current value (the zero value of the element type when the key was deleted after `Next`), as Go
+    and the language-level `range` do. (c) `Type.In`/`Out` out of range panic
+    with a string, not a `runtime.Error`. (d) `Value.Pointer()` of an empty string is not 0.
+    (e) `DeepEqual(reflect.ValueOf(1), reflect.ValueOf(1))` is false; Go says true. Go compares the
+    `Value` struct (type, pointer, flags), and the rule behind its answers (checked with Go 1.25.7)
+    is the identity of the pointer field: for a pointer, a map, a channel and a func it is the
+    pointer itself, so two `Value`s of the same one are equal, and so are `ValueOf(&x).Elem()`
+    and its `.Field(i)` taken twice, a copy of a `Value`, and two zero `Value`s; for any other kind
+    it is the box that `ValueOf` made, which is a new allocation for a number, a string, a float, a
+    struct or a slice computed at run time (false), and the same read-only box for a constant
+    (`ValueOf(1)`, `"a"`, `1.5`, `true`, `P{1, 2}`, also `n := 1000` that the compiler folds) and
+    for a run-time integer below 256 (true). gocpp follows the rule for the pointer kinds (the
+    `Value`s compare the pointers they hold; test `reflect_deepequal_values`) and for the
+    storage of copies, `Elem` and `Field`, but not the sharing of constants and small numbers: every
+    `ValueOf` boxes anew, so the scalar rows of constants say false where Go says true (skipped on
+    purpose: it would need a table of shared boxes in `ValueOf`).
+    (f) A C/C++ value in an
+    interface (`any(C.int(1))`) has a descriptor of its own that is not the Go `int32` of a
+    field `C.int` of a struct: `Set` between them panics, and the text names the C++ type
+    (`int32 (C++ int)`) so that it does not read "int32 is not assignable to int32".
 
 ## Alternatives
 

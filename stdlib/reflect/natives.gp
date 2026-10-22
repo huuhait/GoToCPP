@@ -24,6 +24,9 @@ func tPkgPath(t uintptr) string
 //gocpp:native gp::reflect::t_string
 func tString(t uintptr) string
 
+//gocpp:native gp::reflect::t_cppname
+func tCppName(t uintptr) string
+
 //gocpp:native gp::reflect::t_size
 func tSize(t uintptr) uintptr
 
@@ -212,6 +215,9 @@ func vMapNew(t uintptr) unsafe.Pointer
 
 //gocpp:native gp::reflect::v_mapindex
 func vMapIndex(t uintptr, p, kp unsafe.Pointer) unsafe.Pointer
+
+//gocpp:native gp::reflect::v_maphas
+func vMapHas(t uintptr, p, kp unsafe.Pointer) bool
 
 //gocpp:native gp::reflect::v_mapset
 func vMapSet(t uintptr, p, kp, vp unsafe.Pointer)

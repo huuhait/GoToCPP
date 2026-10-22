@@ -13,6 +13,7 @@ Tests of `gocpp test` against real `go test` (step 9.9, ADR-056, docs/guides/tes
   - `timeout`, `multi`: the run times out, or has several packages (no effect on the comparison);
   - `diverge: why`: the output differs from `go test`'s for a reason; it is not compared, only the `want:` lines;
   - `want: text`: a line that the output of `gocpp test` must contain;
+  - `want-re: expr`: a regexp (Go syntax, `(?s)` for several lines) that the standard output and standard error of `gocpp test` together must match, checked also when the traces are cut (`timeout_goroutines` uses it for the goroutines that a timeout prints);
   - `phase: NN`: the gate phase of `gocpp test` (default 09), for a fixture with Phase 10 syntax.
 
 A fixture with Phase 10 syntax (`!`, macros) has a folder `twin/`: a Go module (its own `go.mod` and `.go` files) with the same

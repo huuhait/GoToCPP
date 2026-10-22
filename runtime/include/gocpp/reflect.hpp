@@ -61,6 +61,9 @@ std::int64_t t_kind(std::uint64_t t) noexcept;
 gp::string t_name(std::uint64_t t);    // Type.Name: "" for an unnamed type
 gp::string t_pkgpath(std::uint64_t t); // Type.PkgPath: the import path of a named type, else ""
 gp::string t_string(std::uint64_t t);  // Type.String: what %T prints
+// The C++ spelling of a C/C++ type (`int` for C.int, whose t_string is `int32`); empty for a type
+// of Go.
+gp::string t_cppname(std::uint64_t t);
 std::uint64_t t_size(std::uint64_t t) noexcept;
 std::uint64_t t_align(std::uint64_t t) noexcept;
 std::uint64_t
@@ -165,6 +168,8 @@ vptr v_mapnew(std::uint64_t t);
 // v_mapindex(t, p, kp): storage with a copy of the value of the key at kp, or nil when it's not
 // there.
 vptr v_mapindex(std::uint64_t t, const vptr& p, const vptr& kp);
+// v_maphas(t, p, kp): whether the key at kp is in the map (no copy of the value).
+bool v_maphas(std::uint64_t t, const vptr& p, const vptr& kp);
 void v_mapset(std::uint64_t t, const vptr& p, const vptr& kp, const vptr& vp);
 void v_mapdel(std::uint64_t t, const vptr& p, const vptr& kp);
 void v_mapclear(std::uint64_t t, const vptr& p);

@@ -130,6 +130,11 @@ runtime's frames), for debugging the runtime.
   whose second goroutine would race with the first, but that ends or is killed before it runs, has
   no race to report. TSan limits the number of threads that are alive at once, so a program with many
   thousands of goroutines at once may not run under `-race`.
+- **`runtime.Stack(buf, true)`.** Under `-race` a mid-run `runtime.Stack(buf, true)` orders the dumper with a goroutine that it dumps
+that was in a short sleep at that moment (seen with sleeps up to about 150 ms; sleeps of 200 ms or more and channel waits were reported) (the request to the goroutine's wait and its answer are a mutex and a
+condition variable that the detector sees), so it can hide a real race between the dumper's thread and such a
+goroutine; a panic dump ends the process, so it is not affected, and the common case is not hurt (two
+goroutines that race with each other are still reported: `tests/race/race_stack_all_user_race.gp`).
 - **Cost.** TSan makes a program 5 to 15 times slower and uses 5 to 10 times the memory, as in Go.
 - **A simultaneous pair.** The detector keeps the last few accesses of each 8 bytes in a shadow cell.
   Two threads that make their one and only access to a variable in the very same instant can each

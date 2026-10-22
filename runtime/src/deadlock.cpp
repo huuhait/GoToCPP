@@ -48,6 +48,10 @@ constinit std::atomic<bool> looking{false};
 // How long the report waits for the parked goroutines to give their stacks, all together.
 constexpr int64_t capture_budget_ns = 5LL * 1000000000;
 
+// The same for the report of the other goroutines of a program that is ending with a panic (one
+// that cannot answer, because it waits in code that is not the runtime's, must not hold the end).
+constexpr int64_t other_budget_ns = 1LL * 1000000000;
+
 // A goroutine's stack, captured on its own thread.
 struct stack_slot {
     std::vector<uintptr_t> pcs;
@@ -75,6 +79,43 @@ void capture(void* p) {
 
 bool is_blocked(const goroutine* g) noexcept {
     return __atomic_load_n(&g->is_blocked, __ATOMIC_SEQ_CST);
+}
+
+// append_goroutine appends Go's block for the goroutine g: a blank line, "goroutine N [why]:", its
+// stack (slot; none when null, for a goroutine that is running and cannot be walked) and the line
+// "created by". idle is the text in the brackets for a goroutine that has no reason.
+void append_goroutine(std::string& out, const goroutine& g, const char* idle,
+                      const stack_slot* slot, const exe_image* img) {
+    // The fields of the record are read once, here (-race does not watch these reads: race.hpp,
+    // ignore_reads; no test kills a mutant without it, now that the edge of wait_for_reports orders
+    // the reads before the free, but it is cheap and these are unsynchronized reads of the
+    // runtime's own fields). locked is written by the goroutine while it runs: an atomic load; id,
+    // parent_id and create_pc are written before the goroutine is published and never again.
+    const char* why;
+    uint64_t id;
+    uint64_t parent_id;
+    const void* create_pc;
+    bool locked;
+    {
+        race::ignore_reads ignore;
+        why = g.reason();
+        id = g.id;
+        parent_id = g.parent_id;
+        create_pc = g.create_pc;
+        locked = __atomic_load_n(&g.locked, __ATOMIC_RELAXED) > 0;
+    }
+    out += "\ngoroutine ";
+    print_uint(out, id);
+    out += " [";
+    out += why != nullptr ? why : idle;
+    if (locked) {
+        out += ", locked to thread";
+    }
+    out += "]:\n";
+    if (slot != nullptr) {
+        append_trace(out, slot->pcs.data(), slot->pcs.size(), slot->complete, img);
+    }
+    append_created_by(out, create_pc, parent_id);
 }
 
 // finish ends the process with the report, or hands it to the test hook.
@@ -178,6 +219,14 @@ void deadlock_look() noexcept {
         auto* self = static_cast<goroutine*>(os::tls_get());
         std::vector<stack_slot> slots(gs.size());
         std::vector<char> posted(gs.size(), 0);
+        // GOTRACEBACK=none (or 0, or a word that Go does not know): the message only, as Go prints
+        // it, so no goroutine is asked for its stack.
+        const bool traced = traceback_level() > 0;
+        if (!traced) {
+            gs.clear();
+            slots.clear();
+            posted.clear();
+        }
         for (std::size_t i = 0; i < gs.size(); i++) {
             if (gs[i] == self) {
                 grab_stack(slots[i]);
@@ -197,18 +246,7 @@ void deadlock_look() noexcept {
         out = "fatal error: all goroutines are asleep - deadlock!\n";
         const exe_image* img = program_image();
         for (std::size_t i = 0; i < gs.size(); i++) {
-            const goroutine& g = *gs[i];
-            const char* why = g.reason();
-            out += "\ngoroutine ";
-            print_uint(out, g.id);
-            out += " [";
-            out += why != nullptr ? why : "waiting";
-            if (g.locked > 0) {
-                out += ", locked to thread";
-            }
-            out += "]:\n";
-            append_trace(out, slots[i].pcs.data(), slots[i].pcs.size(), slots[i].complete, img);
-            append_created_by(out, &g);
+            append_goroutine(out, *gs[i], "waiting", &slots[i], img);
         }
     } catch (...) {
         // Without memory the report is the message.
@@ -216,6 +254,63 @@ void deadlock_look() noexcept {
     }
     finish(out);
     looking.store(false);
+}
+
+void append_other_goroutines(std::string& out) noexcept {
+    try {
+        // The records stay alive while the scope lives: the other goroutines run, and one that
+        // ends waits for the report before it frees its record.
+        sched::report_scope scope;
+        if (!scope.usable()) {
+            // The barrier failed: no record can be read safely (report_scope). Go prints the other
+            // goroutines here, so say why they are missing.
+            out += "\n(other goroutines not shown: the process barrier failed)\n";
+            return;
+        }
+        std::vector<goroutine*> gs;
+        std::vector<char> parked; // 1: blocked in the runtime, or sleeping
+        {
+            // (-race does not watch these reads of the runtime's records: race.hpp, ignore_reads.)
+            race::ignore_reads ignore;
+            scope.collect_held(gs);
+            auto* self = static_cast<goroutine*>(os::tls_get());
+            gs.erase(std::remove(gs.begin(), gs.end(), self), gs.end());
+            std::sort(gs.begin(), gs.end(),
+                      [](const goroutine* a, const goroutine* b) { return a->id < b->id; });
+            for (const goroutine* g : gs) {
+                parked.push_back(is_blocked(g) || g->reason() != nullptr ? 1 : 0);
+            }
+        }
+
+        // (Under -race the request below and the wait for its answer are a mutex and a condition
+        // variable that the detector sees: they order this thread with each goroutine that it
+        // dumps, which can hide a real race between the two; docs/guides/race.md, Limits.)
+        // A goroutine that is blocked in the runtime, or sleeps (it has a reason without a block),
+        // captures its own stack on its own thread; one that runs cannot be walked from here, so it
+        // is listed without a stack.
+        std::vector<stack_slot> slots(gs.size());
+        std::vector<char> posted(gs.size(), 0);
+        for (std::size_t i = 0; i < gs.size(); i++) {
+            if (parked[i] != 0) {
+                posted[i] = gs[i]->park.gp_post(&capture, &slots[i]) ? 1 : 0;
+            }
+        }
+        auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(other_budget_ns);
+        for (std::size_t i = 0; i < gs.size(); i++) {
+            if (posted[i] != 0) {
+                auto left = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                end - std::chrono::steady_clock::now())
+                                .count();
+                posted[i] = gs[i]->park.gp_post_wait(left > 0 ? left : 0) ? 1 : 0;
+            }
+        }
+        const exe_image* img = program_image();
+        for (std::size_t i = 0; i < gs.size(); i++) {
+            append_goroutine(out, *gs[i], "running", posted[i] != 0 ? &slots[i] : nullptr, img);
+        }
+    } catch (...) {
+        // Without memory the report has the goroutines that it has.
+    }
 }
 
 } // namespace gp::detail

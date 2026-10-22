@@ -576,6 +576,17 @@ func valueInterface(v Value, safe bool) any {
 	return vInterface(v.typ, v.ptr)
 }
 
+// typeText is the text of type t in the panic of a failed assignment to or from type other. A C or
+// C++ type is named like the Go type of its size (C.int is int32), so when the texts of the two
+// types are the same, the C++ name tells them apart.
+func typeText(t, other uintptr) string {
+	text := tString(t)
+	if text == tString(other) && tCppName(t) != "" {
+		return text + " (C++ " + tCppName(t) + ")"
+	}
+	return text
+}
+
 // assignTo returns a value v that can be assigned directly to dst. It panics if v is not assignable
 // to dst.
 func (v Value) assignTo(context string, dst uintptr) Value {
@@ -583,7 +594,8 @@ func (v Value) assignTo(context string, dst uintptr) Value {
 		return Value{dst, v.ptr, v.flag&flagAddr | v.flag.ro() | flag(tKind(dst))}
 	}
 	if !tAssignable(v.typ, dst) {
-		panic(context + ": value of type " + tString(v.typ) + " is not assignable to type " + tString(dst))
+		panic(context + ": value of type " + typeText(v.typ, dst) +
+			" is not assignable to type " + typeText(dst, v.typ))
 	}
 	if tKind(dst) == int(Interface) {
 		if v.Kind() == Interface && v.IsNil() {
@@ -977,12 +989,21 @@ func (v Value) CanConvert(t Type) bool {
 	return true
 }
 
+// panicNilDeref panics as a read through a nil pointer does.
+func panicNilDeref() {
+	var none *rtype
+	_ = none.t
+}
+
 // Convert returns the value v converted to type t. If the usual Go conversion rules do not allow
 // conversion of the value v to type t, or if converting v to type t panics, Convert panics.
 func (v Value) Convert(t Type) Value {
-	dt := t.(*rtype).t
+	// Go reads the type of a nil Type or of a zero Value without a check: it is a nil pointer
+	// dereference, not a ValueError or a failed type assertion.
+	rt, _ := t.(*rtype)
+	dt := rt.t
 	if v.flag == 0 {
-		panic(&ValueError{"reflect.Value.Convert", Invalid})
+		panicNilDeref()
 	}
 	if !tConvertible(v.typ, dt) {
 		panic("reflect.Value.Convert: value of type " + tString(v.typ) + " cannot be converted to type " + t.String())
@@ -1059,7 +1080,19 @@ func (iter *MapIter) Value() Value {
 	t := iter.m.typ
 	et := tElem(t)
 	fl := iter.m.flag.ro() | flag(tKind(et))
-	return Value{et, vSnapVal(t, iter.h, iter.i), fl}
+
+	// As in Go, the value is read when it is asked for: the entry may have been set again since
+	// Next. A key that was deleted after Next gives the zero value of the element type, as Go's
+	// iterator reads the cleared slot. A NaN key cannot be looked up (and cannot be deleted one by
+	// one): it gives the value that the snapshot kept.
+	key := vSnapKey(t, iter.h, iter.i)
+	if p := vMapIndex(t, iter.m.ptr, key); p != nil {
+		return Value{et, p, fl}
+	}
+	if !vEqual(tKey(t), key, key) {
+		return Value{et, vSnapVal(t, iter.h, iter.i), fl}
+	}
+	return Value{et, vNew(et), fl}
 }
 
 // Next advances the map iterator and reports whether there is another entry. It returns false when
@@ -1080,7 +1113,24 @@ func (iter *MapIter) Next() bool {
 		}
 		iter.i++
 	}
+
+	// As in Go, an entry that was deleted during the iteration is not produced.
+	for iter.i < iter.n && !iter.live(iter.i) {
+		iter.i++
+	}
 	return iter.i < iter.n
+}
+
+// live reports whether the key of entry i of the snapshot is still in the map. A key that is not
+// equal to itself (NaN) cannot be looked up and cannot be deleted one by one, so it counts as there
+// unless the map was cleared.
+func (iter *MapIter) live(i int) bool {
+	t := iter.m.typ
+	if vLen(t, iter.m.ptr) == 0 {
+		return false
+	}
+	key := vSnapKey(t, iter.h, i)
+	return vMapHas(t, iter.m.ptr, key) || !vEqual(tKey(t), key, key)
 }
 
 // Reset modifies iter to iterate over v. It panics if v's Kind is not [Map] and v is not the zero
@@ -1100,8 +1150,9 @@ func (iter *MapIter) Reset(v Value) {
 // MapRange returns a range iterator for a map. It panics if v's Kind is not [Map].
 //
 // Call [MapIter.Next] to advance the iterator, and [MapIter.Key]/[MapIter.Value] to access each
-// entry. The iterator ranges over a snapshot of the map taken at the first Next (gocpp: Go's
-// iterator sees entries that are deleted or added during the iteration).
+// entry. The iterator takes the keys of the map at the first Next (gocpp: an entry that is added
+// later is never produced, where Go may produce it); an entry that is deleted before Next reaches
+// it is skipped, and Value reads the current value, as in Go.
 func (v Value) MapRange() *MapIter {
 	// This is inlinable to take advantage of "function outlining".
 	if v.kind() != Map {

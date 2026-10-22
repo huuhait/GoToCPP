@@ -6,6 +6,7 @@
 #include <gocpp/os.hpp>
 #include <gocpp/race.hpp>
 #include <gocpp/trace.hpp>
+#include "sched.hpp"
 
 #include <algorithm>
 #include <array>
@@ -518,6 +519,10 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
         print_hex(out, static_cast<uint64_t>(signal_pc));
         out += ']';
     }
+    if (traceback_level() == 0) {
+        out += '\n'; // GOTRACEBACK=none: no goroutine, no trace
+        return;
+    }
     // Go names the goroutine that panics: 1 is the main one.
     out += "\n\ngoroutine ";
     print_uint(out, goroutine_id());
@@ -640,6 +645,10 @@ void fatal(std::string_view msg) noexcept {
     std::fflush(nullptr);
     write_stderr("fatal error: ");
     write_stderr(msg);
+    if (traceback_level() == 0) {
+        write_stderr("\n"); // GOTRACEBACK=none: the message only
+        os::exit(2);
+    }
     char line[64]; // "\n\ngoroutine N [running]:\n"
     char* p = line;
     for (const char* c = "\n\ngoroutine "; *c != '\0'; c++) {
@@ -652,6 +661,9 @@ void fatal(std::string_view msg) noexcept {
     write_stderr(std::string_view(line, static_cast<std::size_t>(p - line)));
     std::string trace;
     fatal_trace(trace);
+    if (traceback_all()) {
+        append_other_goroutines(trace);
+    }
     write_stderr(trace);
     os::exit(2);
 }
@@ -751,7 +763,12 @@ void on_terminate() noexcept {
     panic_error here{gp::string::gp_copy(cxx_exception_text(e))};
     chain.push_back(&here);
     panic_report(out, chain.data(), chain.size());
-    fatal_trace(out); // the stack of the throw (and the running panic's, as Go shows it)
+    if (traceback_level() > 0) {
+        fatal_trace(out); // the stack of the throw (and the running panic's, as Go shows it)
+        if (traceback_all()) {
+            append_other_goroutines(out);
+        }
+    }
     write_stderr(out);
     os::exit(2);
 }
@@ -982,7 +999,9 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     // The barrier of fmt's Print/Close protocol is prepared here, while this is the only thread:
     // on Linux the first call waits for an RCU grace period (15 to 25 ms) once other threads exist.
     // fmt's ensure_process_barrier then finds it done.
-    os::process_barrier_init();
+    if (os::process_barrier_init()) {
+        detail::sched::barrier_end.store(true, std::memory_order_release);
+    }
     if constexpr (race::mode) {
         // -race: every goroutine has a thread of its own, so that a report's "created at" is the
         // go statement of that goroutine and not of the first one that used the thread.
@@ -996,12 +1015,12 @@ int run_main(int argc, char** argv, void (*init)(), void (*main)()) {
     try {
         // Go runs the package initializers with the main goroutine locked to its thread; a
         // LockOSThread in an init function keeps it locked for main (the count).
-        detail::this_goroutine().locked++;
+        __atomic_fetch_add(&detail::this_goroutine().locked, 1, __ATOMIC_RELAXED);
         if (init != nullptr) {
             init();
         }
         if (detail::goroutine& g0 = detail::this_goroutine(); g0.locked > 0) {
-            g0.locked--;
+            __atomic_fetch_sub(&g0.locked, 1, __ATOMIC_RELAXED);
         }
         main();
     } catch (const panic_error& e) {

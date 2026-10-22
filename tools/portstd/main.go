@@ -124,7 +124,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// Without Go's source the check is by hash: a hand edit is still found.
-		n, probs := checkSums(*out)
+		n, probs := checkSums(*out, cfg.Own)
 		for _, p := range probs {
 			fmt.Fprintln(stderr, "portstd: "+p)
 		}
@@ -222,7 +222,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *check {
 		var probs []string
 		for _, r := range results {
-			probs = append(probs, checkPort(*out, r)...)
+			probs = append(probs, checkPort(*out, r, cfg.Own[r.Pkg])...)
 		}
 		probs = append(probs, checkIndex(*out, results, all && status == 0)...)
 		probs = append(probs, checkSumsFile(*out, results, all && status == 0)...)

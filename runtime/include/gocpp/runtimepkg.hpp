@@ -137,8 +137,8 @@ void funcs_unlock() noexcept;
 
 // stack is runtime.Stack(buf, all): it writes "goroutine N [running]:" and the calling
 // goroutine's trace in Go's format into buf (cut when buf is too short) and returns the number of
-// bytes. all is not honoured: the other goroutines' stacks are not known (they are threads),
-// so only the calling goroutine's trace is written.
+// bytes. With all, the other goroutines follow (detail::append_other_goroutines): one that is
+// blocked in the runtime or sleeps gives its stack, one that runs only its header.
 int64_t stack(gp::slice<uint8_t> buf, bool all);
 
 // --- the values of the panics of the runtime ---
@@ -171,7 +171,8 @@ int64_t set_max_threads(int64_t threads) noexcept;
 // signal here; the panic of a nil dereference is made by a check.)
 bool set_panic_on_fault(bool enabled) noexcept;
 
-// set_traceback is debug.SetTraceback: nothing.
+// set_traceback is debug.SetTraceback (detail::set_traceback_level, gocpp/trace.hpp): the level
+// replaces the last one, with the GOTRACEBACK variable as the floor.
 void set_traceback(const gp::string& level) noexcept;
 
 // free_os_memory is debug.FreeOSMemory: it gives the allocator's free memory back to the system.

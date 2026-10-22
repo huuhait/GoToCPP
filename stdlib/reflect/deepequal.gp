@@ -15,14 +15,61 @@ type visit struct {
 	typ uintptr
 }
 
-// Tests for deep equality using reflected types. The map argument tracks comparisons that have
-// already been seen, which allows short circuiting on recursive types.
-func deepValueEqual(v1, v2 Value, visited map[visit]bool) bool {
+// deepFrame holds the children of one value that deepValueEqual has not compared yet: the
+// elements of an array or slice, the fields of a struct, the pointee of a pointer or the element of
+// an interface (n is 1), or the entries of a map (iter walks v1).
+type deepFrame struct {
+	v1, v2 Value
+	i, n   int
+	iter   *MapIter
+}
+
+// The results of deepStep and deepFrame.next.
+const (
+	deepDifferent = iota // the values are not deeply equal
+	deepSame             // nothing is left to compare for this value
+	deepMore             // there are children to compare (deepStep) or a pair to compare (next)
+)
+
+// next returns the next pair of children of f. It reports deepSame when f has no more children and
+// deepDifferent when a map entry of v1 has no deeply comparable entry in v2.
+func (f *deepFrame) next() (a, b Value, result int) {
+	if f.iter != nil {
+		if !f.iter.Next() {
+			return a, b, deepSame
+		}
+		a = f.iter.Value()
+		b = f.v2.MapIndex(f.iter.Key())
+		if !a.IsValid() || !b.IsValid() {
+			return a, b, deepDifferent
+		}
+		return a, b, deepMore
+	}
+	if f.i >= f.n {
+		return a, b, deepSame
+	}
+	i := f.i
+	f.i++
+	switch f.v1.Kind() {
+	case Array, Slice:
+		return f.v1.Index(i), f.v2.Index(i), deepMore
+	case Struct:
+		return f.v1.Field(i), f.v2.Field(i), deepMore
+	default:
+		// Interface or Pointer: the one child.
+		return f.v1.Elem(), f.v2.Elem(), deepMore
+	}
+}
+
+// deepStep compares what it can of v1 and v2 without looking at their children. It returns
+// deepMore and the frame of the children that still have to be compared (ordinary comparison of
+// the pair is not decided yet), deepSame when the pair is equal, or deepDifferent.
+func deepStep(v1, v2 Value, visited map[visit]bool) (frame deepFrame, result int) {
 	if !v1.IsValid() || !v2.IsValid() {
-		return v1.IsValid() == v2.IsValid()
+		return frame, deepResult(v1.IsValid() == v2.IsValid())
 	}
 	if v1.typ != v2.typ {
-		return false
+		return frame, deepDifferent
 	}
 
 	// We want to avoid putting more in the visited map than we need to. For any possible reference
@@ -57,7 +104,7 @@ func deepValueEqual(v1, v2 Value, visited map[visit]bool) bool {
 		// Short circuit if references are already seen.
 		v := visit{addr1, addr2, v1.typ}
 		if visited[v] {
-			return true
+			return frame, deepSame
 		}
 
 		// Remember for later.
@@ -66,90 +113,151 @@ func deepValueEqual(v1, v2 Value, visited map[visit]bool) bool {
 
 	switch v1.Kind() {
 	case Array:
-		for i := 0; i < v1.Len(); i++ {
-			if !deepValueEqual(v1.Index(i), v2.Index(i), visited) {
-				return false
-			}
-		}
-		return true
+		return deepChildren(v1, v2, v1.Len())
 	case Slice:
 		if v1.IsNil() != v2.IsNil() {
-			return false
+			return frame, deepDifferent
 		}
 		if v1.Len() != v2.Len() {
-			return false
+			return frame, deepDifferent
 		}
 		if v1.unsafePointer() == v2.unsafePointer() {
-			return true
+			return frame, deepSame
 		}
 		// Special case for []byte, which is common.
 		if tKind(tElem(v1.typ)) == int(Uint8) {
 			a, b := vBytes(v1.typ, v1.ptr), vBytes(v2.typ, v2.ptr)
-			return string(a) == string(b)
+			return frame, deepResult(string(a) == string(b))
 		}
-		for i := 0; i < v1.Len(); i++ {
-			if !deepValueEqual(v1.Index(i), v2.Index(i), visited) {
-				return false
-			}
-		}
-		return true
+		return deepChildren(v1, v2, v1.Len())
 	case Interface:
 		if v1.IsNil() || v2.IsNil() {
-			return v1.IsNil() == v2.IsNil()
+			return frame, deepResult(v1.IsNil() == v2.IsNil())
 		}
-		return deepValueEqual(v1.Elem(), v2.Elem(), visited)
+		return deepChildren(v1, v2, 1)
 	case Pointer:
 		if v1.unsafePointer() == v2.unsafePointer() {
-			return true
+			return frame, deepSame
 		}
-		return deepValueEqual(v1.Elem(), v2.Elem(), visited)
+		return deepChildren(v1, v2, 1)
 	case Struct:
-		for i, n := 0, v1.NumField(); i < n; i++ {
-			if !deepValueEqual(v1.Field(i), v2.Field(i), visited) {
-				return false
-			}
+		if v1.typ == valueType {
+			return frame, deepResult(sameValue(v1, v2))
 		}
-		return true
+		return deepChildren(v1, v2, v1.NumField())
 	case Map:
 		if v1.IsNil() != v2.IsNil() {
-			return false
+			return frame, deepDifferent
 		}
 		if v1.Len() != v2.Len() {
-			return false
+			return frame, deepDifferent
 		}
 		if v1.unsafePointer() == v2.unsafePointer() {
-			return true
+			return frame, deepSame
 		}
-		iter := v1.MapRange()
-		for iter.Next() {
-			val1 := iter.Value()
-			val2 := v2.MapIndex(iter.Key())
-			if !val1.IsValid() || !val2.IsValid() || !deepValueEqual(val1, val2, visited) {
-				return false
-			}
-		}
-		return true
+		return deepFrame{v1: v1, v2: v2, iter: v1.MapRange()}, deepMore
 	case Func:
-		if v1.IsNil() && v2.IsNil() {
-			return true
-		}
-		// Can't do better than this:
-		return false
+		// Can't do better than this: only two nil functions are equal.
+		return frame, deepResult(v1.IsNil() && v2.IsNil())
 	case Int, Int8, Int16, Int32, Int64:
-		return v1.Int() == v2.Int()
+		return frame, deepResult(v1.Int() == v2.Int())
 	case Uint, Uint8, Uint16, Uint32, Uint64, Uintptr:
-		return v1.Uint() == v2.Uint()
+		return frame, deepResult(v1.Uint() == v2.Uint())
 	case String:
-		return v1.String() == v2.String()
+		return frame, deepResult(v1.String() == v2.String())
 	case Bool:
-		return v1.Bool() == v2.Bool()
+		return frame, deepResult(v1.Bool() == v2.Bool())
 	case Float32, Float64:
-		return v1.Float() == v2.Float()
+		return frame, deepResult(v1.Float() == v2.Float())
 	case Complex64, Complex128:
-		return v1.Complex() == v2.Complex()
+		return frame, deepResult(v1.Complex() == v2.Complex())
 	default:
 		// Normal equality suffices
-		return vEqual(v1.typ, v1.ptr, v2.ptr)
+		return frame, deepResult(vEqual(v1.typ, v1.ptr, v2.ptr))
+	}
+}
+
+// valueType is the type of Value, whose fields are the type, the storage and the flags.
+var valueType = typeOf(Value{})
+
+// sameValue compares two Values (a struct that DeepEqual finds in an interface) as Go does, field
+// by field. Go's pointer field is the pointer itself for the kinds that are a pointer (Pointer,
+// Map, Chan, Func, UnsafePointer), so two Values of the same pointer are equal; here the field
+// is the address of a box that holds it, which is a new one for every ValueOf, so these kinds
+// compare the pointers they hold. For any other kind the storage is compared: it is the same for
+// a copy of a Value, and for the Elem or the Field of the same object, and a new box for every
+// ValueOf of a number, a string, a struct or a slice (Go shares the storage of a constant and of a
+// number below 256 between the boxes, which gocpp does not: ADR-035).
+func sameValue(v1, v2 Value) bool {
+	a := valueInterface(v1, false).(Value)
+	b := valueInterface(v2, false).(Value)
+	if a.typ != b.typ || a.flag != b.flag {
+		return false
+	}
+	if a.typ == 0 {
+		return true
+	}
+	switch a.kind() {
+	case Pointer, Map, Chan, Func, UnsafePointer:
+		p := a.unsafePointer()
+		q := b.unsafePointer()
+		if p != nil && q != nil {
+			return p == q
+		}
+		return vIsNil(a.typ, a.ptr) && vIsNil(b.typ, b.ptr)
+	}
+	return a.ptr == b.ptr
+}
+
+func deepResult(equal bool) int {
+	if equal {
+		return deepSame
+	}
+	return deepDifferent
+}
+
+// deepChildren is the frame of the n children of v1 and v2; an empty frame is already compared.
+func deepChildren(v1, v2 Value, n int) (frame deepFrame, result int) {
+	if n == 0 {
+		return frame, deepSame
+	}
+	return deepFrame{v1: v1, v2: v2, n: n}, deepMore
+}
+
+// Tests for deep equality using reflected types. The map argument tracks comparisons that have
+// already been seen, which allows short circuiting on recursive types.
+//
+// Go's function calls itself for every level of a list, a tree or a nested slice, and Go's stack
+// grows to 1 GB. The 8 MiB stack of gocpp (ADR-001) would end in a stack overflow at about 6000
+// levels, so the walk keeps its own stack of frames on the heap. A pair is equal only when all
+// pairs below it are, so the order of the walk does not change the answer: the order is Go's.
+func deepValueEqual(v1, v2 Value, visited map[visit]bool) bool {
+	var stack []deepFrame
+	for {
+		frame, result := deepStep(v1, v2, visited)
+		switch result {
+		case deepDifferent:
+			return false
+		case deepMore:
+			stack = append(stack, frame)
+		}
+
+		// The next pair: the next child of the innermost frame that still has one.
+		for {
+			if len(stack) == 0 {
+				return true
+			}
+			top := &stack[len(stack)-1]
+			var next int
+			v1, v2, next = top.next()
+			if next == deepDifferent {
+				return false
+			}
+			if next == deepMore {
+				break
+			}
+			stack = stack[:len(stack)-1]
+		}
 	}
 }
 

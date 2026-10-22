@@ -296,7 +296,7 @@ func main() {
 // uint.SetInt panic: reflect: call of reflect.Value.SetInt on uint8 Value
 // float.SetInt panic: reflect: call of reflect.Value.SetInt on float32 Value
 // bool.SetInt panic: reflect: call of reflect.Value.SetInt on bool Value
-// int.Set(C.int) panic: reflect.Set: value of type int32 is not assignable to type int32
+// int.Set(C.int) panic: reflect.Set: value of type int32 (C++ int) is not assignable to type int32
 // 11
 // 0
 // true 112
