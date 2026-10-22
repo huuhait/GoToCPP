@@ -33,6 +33,16 @@ build from this folder:
 GOCPP_CFLAGS=-I<glfw>/include GOCPP_LDFLAGS=-L<glfw>/lib gocpp build -os windows -o imgui.exe .
 ```
 
+That `.exe` is 17.8 MB: it carries debug information and the symbol table, which a debugger or a readable panic needs. For a
+small one, add `-release -strip` (`-O2` with link-time optimization, no debug information, no symbol table):
+
+```text
+GOCPP_CFLAGS=-I<glfw>/include GOCPP_LDFLAGS=-L<glfw>/lib gocpp build -release -strip -os windows -o imgui.exe .
+```
+
+It is 2.5 MB (`-release` alone: 5.0 MB, `-strip` alone: 3.3 MB; measured, not run: the demo needs a display)
+([build flags](../../docs/spec/build.md#program-size)).
+
 Copy `imgui.exe` and `glfw3.dll` to the PC and start `imgui.exe` from a desktop session. (A program started over ssh
 runs in session 0, which has no desktop: start it from the console, or through a scheduled task with `/it`.)
 Closing the window ends the program, which prints `window closed, clicks: N`.

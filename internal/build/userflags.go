@@ -18,7 +18,8 @@ import (
 // do not: the user chose them. They come from three places, in this order (a later flag wins where
 // the last one wins):
 //
-//   - the mode: -race (ThreadSanitizer), -release (-O2 -flto);
+//   - the mode: -race (ThreadSanitizer), -release (-O2 -flto, no debug information), -strip (the
+//     link drops the symbol table and the debug information);
 //   - the environment: GOCPP_CFLAGS (every C and C++ compile), GOCPP_CXXFLAGS (every C++ compile)
 //     and GOCPP_LDFLAGS (the link);
 //   - the build flags: -cflags, -cxxflags and -ldflags of gocpp build, which add to the environment's.
@@ -38,18 +39,20 @@ func (e EnvFlags) Layered(modeCompile, modeLink, cflags, cxxflags, ldflags []str
 	}
 }
 
-// A Profile is the kind of build that the flags -debug, -release and -race ask for.
+// A Profile is the kind of build that the flags -debug, -release, -race and -strip ask for.
 type Profile struct {
 	Debug   bool // -debug: -O0 -g, which is what a build is without a flag
-	Release bool // -release: -O2 -flto
+	Release bool // -release: -O2 -flto, and no debug information (-g0)
 	Race    bool // -race: ThreadSanitizer
+	Strip   bool // -strip: the link drops the symbol table and the debug information (-s)
 }
 
 // ProfileFlags returns the compile flags and the link flags of the mode for the
 // operating system goos, or an error for a combination that does not make sense: -debug with
 // -release, -race with -release (a race run wants the code as written, not as -O2 -flto
 // reorders it), -race with -asan (the compilers refuse both sanitizers in one program), and
-// -race on a system without ThreadSanitizer, and -asan for windows. On linux the race mode adds Go's report (a reporter
+// -race on a system without ThreadSanitizer, and -asan for windows; -strip with -race or -asan (their
+// reports need the symbols). On linux the race mode adds Go's report (a reporter
 // thread in the runtime's OS layer, which only linux has); darwin gets ThreadSanitizer's own text.
 func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, err error) {
 	switch {
@@ -61,6 +64,12 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 		return nil, nil, errors.New("-race and -release can't be used together")
 	case m.Race && goos == "windows":
 		return nil, nil, errors.New("-race is not supported for windows (the MinGW toolchains have no ThreadSanitizer)")
+	case m.Strip && m.Debug:
+		return nil, nil, errors.New("-strip and -debug can't be used together")
+	case m.Strip && m.Race:
+		return nil, nil, errors.New("-strip and -race can't be used together (ThreadSanitizer's report needs the symbols)")
+	case m.Strip && asan:
+		return nil, nil, errors.New("-strip and -asan can't be used together (the sanitizers' reports need the symbols)")
 	case asan && goos == "windows":
 		return nil, nil, errors.New("-asan is not supported for windows (the MinGW GCC of WinLibs, MSYS2 and the dev shell has no libsanitizer; clang's MinGW target has an AddressSanitizer that gocpp has not tried). Run the sanitizers on Linux")
 	}
@@ -77,8 +86,17 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 		}
 	}
 	if m.Release {
-		compile = []string{"-O2", "-flto"}
-		link = []string{"-O2", "-flto"}
+		// -g0 at the link too: with -flto the debug information is made by the link, from the -g that
+		// every link line has (flags.go), so only the compiles' -g0 would leave most of it.
+		compile = []string{"-O2", "-flto", "-g0"}
+		link = []string{"-O2", "-flto", "-g0"}
+	}
+	if m.Strip {
+		if goos == "darwin" {
+			link = append(link, "-Wl,-S", "-Wl,-x") // ld64 has no -s: no debug map, no local symbols
+		} else {
+			link = append(link, "-s")
+		}
 	}
 	return compile, link, nil
 }

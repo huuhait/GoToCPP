@@ -118,10 +118,33 @@ gocpp build hello.gp
 `gocpp run` builds and starts the program; `gocpp build` leaves `hello.exe` next to the source (`-o prog`
 writes `prog.exe`; a name with an extension keeps it). The first build compiles gocpp's C++ runtime and
 caches it, which took 10 to 15 seconds on the test PC (16 threads); the next `gocpp run` of the same file took about a
-second. The `.exe` is about 12 MB (it is static and carries debug information) and starts on any Windows 10 or later.
+second. The `.exe` is about 13 MB (it is static and carries debug information) and starts on any Windows 10 or later.
+`gocpp build -release -strip hello.gp` makes it 1.4 MB ([small programs](#small-programs)).
 
 Writing `gocpp build -x` shows the commands. `gocpp emit hello.gp` prints the C++ that was
 generated, as on Linux.
+
+## Small programs
+
+A build without a flag keeps the debug information, so that `gocpp debug`, gdb and VS Code can show the `.gp` lines and
+the variables, and it keeps the symbol table, so that a panic names the functions. That is most of the file. To ship a
+program, build it with `-release -strip`:
+
+```sh
+gocpp build -release -strip hello.gp
+```
+
+| `.exe` | no flag | `-strip` | `-release` | `-release -strip` |
+|---|---|---|---|---|
+| hello world | 13.3 MB | 2.0 MB | 3.4 MB | 1.4 MB |
+| Dear ImGui with OpenGL ([`demos/imgui`](../../demos/imgui/README.md)) | 17.8 MB | 3.3 MB | 5.0 MB | 2.5 MB |
+| Dear ImGui with Direct3D 11 ([`demos/imgui-dx11`](../../demos/imgui-dx11/README.md)) | 63.4 MB | 5.9 MB | 7.4 MB | 3.3 MB |
+
+(Cross-built on Linux with MinGW-w64 and g++ 15.3.) `-release` is `-O2` with link-time optimization and no debug
+information; the program is faster and a panic still prints the function names, without file and line. `-strip`
+also drops the symbol table: a panic then prints addresses (`?()` and `pc=0x...`), which `addr2line` turns into names on
+an unstripped build of the same program. The four builds of a small program run on a real Windows PC with the same output and the same panic report apart from the names ([`tests/windows_size_test.go`](../../tests/windows_size_test.go)); the ImGui sizes were measured, not run. The debugger needs the
+default build or `-release -cflags=-g -ldflags=-g`; see [the build flags](../spec/build.md#program-size).
 
 ## Folders, spaces and non-ASCII names
 

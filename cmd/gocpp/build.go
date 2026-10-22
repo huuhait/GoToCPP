@@ -270,7 +270,19 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		(docs/guides/race.md). Not with -asan or -release, and not for
 		windows
 	-release
-		build with -O2 -flto
+		build with -O2 -flto and without debug information (-g0): a
+		smaller and faster program. gdb and lldb show no source lines
+		and variables in it, and a panic prints the Go names of the
+		functions without file and line. To keep the debug information
+		of an optimized build (for perf, say), add -cflags=-g
+		-ldflags=-g
+	-strip
+		drop the symbol table and the debug information from the
+		program (the linker's -s): the smallest program. A panic then
+		prints addresses instead of function names (addr2line on an
+		unstripped build of the same program names them). The usual
+		small build is -release -strip. Not with -debug, -race or
+		-asan, whose reports need the symbols
 	-tags list
 		more build tags that are satisfied, separated by commas, like
 		go build -tags: for //go:build lines and file names of .gp, C

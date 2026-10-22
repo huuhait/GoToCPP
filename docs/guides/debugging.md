@@ -58,8 +58,13 @@ or load the script by hand, in a program without it or in a core file:
 
 The script is inside every program that gocpp links on Linux: a section that is not loaded into
 memory (it makes the file about 90 KB bigger, and `strip` removes it with the debug
-information, so a stripped program has no printers), so a program that you move to another
-machine still has its printers.
+information, so a program built with `-strip` has no printers), so a program that you move to another
+machine still has its printers. A `-release` build has no debug information at all: debug the default build, or build
+with `-release -cflags=-g -ldflags=-g` to keep the debug information of an optimized program.
+`gocpp debug -strip` is an error (nothing is left for the debugger to show), and `gocpp debug -release` prints one line
+saying that the program has no debug information, unless the flags put it back at the compiles (`-cflags` or `-cxxflags`, or `GOCPP_CFLAGS`, `GOCPP_CXXFLAGS`) and at the link
+(`-ldflags` or `GOCPP_LDFLAGS`: with `-flto` the link writes the debug information, so a `-g` that only the compiles have
+leaves none), and goes on.
 
 **Trust.** Auto-loading a program's script is like running the program: the script is Python, and gdb
 runs it as you when it loads the program. That is why gdb asks for a safe path. Add only

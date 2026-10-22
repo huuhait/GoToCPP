@@ -555,7 +555,7 @@ var linkWlSafe = map[string]bool{
 	"--as-needed": true, "--no-as-needed": true, "--start-group": true, "--end-group": true, "-Bstatic": true,
 	"-Bdynamic": true, "--gc-sections": true, "--no-gc-sections": true, "--export-dynamic": true, "-E": true,
 	"--no-undefined": true, "-z": true, "-O1": true, "-O0": true, "-s": true, "-S": true, "--strip-all": true,
-	"--strip-debug": true, "--build-id": true, "--fatal-warnings": true, "--warn-common": true, "-t": true,
+	"--strip-debug": true, "-x": true, "--build-id": true, "--fatal-warnings": true, "--warn-common": true, "-t": true,
 }
 
 // linkFlagProblem returns why the link flags can't be followed by the check, or "": a flag that
@@ -566,7 +566,7 @@ func linkFlagProblem(flags []string) string {
 		f := flags[i]
 		switch {
 		case f == "-pthread", f == "-static", f == "-static-libstdc++", f == "-static-libgcc", f == "-rdynamic",
-			f == "-s", f == "-g", f == "-no-pie", f == "-pie":
+			f == "-s", f == "-g", f == "-g0", f == "-no-pie", f == "-pie":
 		case strings.HasPrefix(f, "-fsanitize="), f == "-flto", strings.HasPrefix(f, "-flto="), f == "-fno-omit-frame-pointer",
 			f == "-O0" || f == "-O1" || f == "-O2" || f == "-O3" || f == "-Os" || f == "-Og":
 			// the flags of -race and -release (flags.go): they read no file

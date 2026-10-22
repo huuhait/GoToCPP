@@ -127,6 +127,9 @@ func TestBuildFlagUsageErrors(t *testing.T) {
 		{[]string{"build", "-debug", "-release", "hello.gp"}, 2, "-debug and -release can't be used together"},
 		{[]string{"build", "-race", "-asan", "hello.gp"}, 2, "-race and -asan can't be used together"},
 		{[]string{"build", "-race", "-release", "hello.gp"}, 2, "-race and -release can't be used together"},
+		{[]string{"build", "-strip", "-debug", "hello.gp"}, 2, "-strip and -debug can't be used together"},
+		{[]string{"build", "-strip", "-race", "hello.gp"}, 2, "-strip and -race can't be used together"},
+		{[]string{"build", "-strip", "-asan", "hello.gp"}, 2, "-strip and -asan can't be used together"},
 		{[]string{"build", "-cxxflags='-DX=open", "hello.gp"}, 2, "invalid value"},
 		{[]string{"build", "-nope", "hello.gp"}, 2, "flag provided but not defined: -nope"},
 		{[]string{"run", "-n", "hello.gp"}, 2, "flag provided but not defined: -n"},
@@ -180,6 +183,7 @@ func TestExtraFlagsKeyParts(t *testing.T) {
 		"release":  {mode: build.Profile{Release: true}},
 		"race":     {mode: build.Profile{Race: true}},
 		"debug":    {mode: build.Profile{Debug: true}},
+		"strip":    {mode: build.Profile{Strip: true}},
 	} {
 		if slices.Equal(base.keyParts(), e.keyParts()) {
 			t.Errorf("%s does not change the key", name)
@@ -222,7 +226,7 @@ func TestExtraFlagsLayered(t *testing.T) {
 	if (&extraFlags{}).layered() {
 		t.Errorf("no flags are layered")
 	}
-	for _, e := range []extraFlags{{cflags: []string{"-D"}}, {cxxflags: []string{"-D"}}, {ldflags: []string{"-l"}}, {mode: build.Profile{Race: true}}, {mode: build.Profile{Release: true}}} {
+	for _, e := range []extraFlags{{cflags: []string{"-D"}}, {cxxflags: []string{"-D"}}, {ldflags: []string{"-l"}}, {mode: build.Profile{Race: true}}, {mode: build.Profile{Release: true}}, {mode: build.Profile{Strip: true}}} {
 		if !e.layered() {
 			t.Errorf("%+v is not layered", e)
 		}

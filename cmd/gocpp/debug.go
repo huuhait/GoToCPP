@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -60,6 +61,32 @@ type debugFlags struct {
 	hostOS string
 }
 
+// keepsDebugInfo reports whether the user's flags put the debug information of a -release build back.
+// -release ends its compiles and its link with -g0, so both need a later -g flag (-g, -g1, -ggdb, ...)
+// of the user's: the compiles from -cflags or -cxxflags (or GOCPP_CFLAGS, GOCPP_CXXFLAGS), the link
+// from -ldflags (or GOCPP_LDFLAGS). With -flto the link writes the debug information, so a -g that
+// only the compiles have leaves none.
+func keepsDebugInfo(e *extraFlags) bool {
+	env, err := build.ReadEnvFlags()
+	if err != nil {
+		return false // the build reports the bad value itself
+	}
+	compile := slices.Concat(env.CFlags, env.CXXFlags, e.cflags, e.cxxflags)
+	link := slices.Concat(env.LDFlags, e.ldflags)
+	return lastDebugLevelOn(compile) && lastDebugLevelOn(link)
+}
+
+// lastDebugLevelOn reports whether the last -g flag in flags asks for debug information (not -g0).
+func lastDebugLevelOn(flags []string) bool {
+	on := false
+	for _, f := range flags {
+		if strings.HasPrefix(f, "-g") && !strings.HasPrefix(f, "-gno-") {
+			on = f != "-g0"
+		}
+	}
+	return on
+}
+
 // A stringList is a flag that can be given more than once.
 type stringList []string
 
@@ -93,6 +120,15 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "gocpp debug: -map %s: want FROM=TO\n", m)
 			return 2
 		}
+	}
+	// A stripped program has nothing for a debugger to show. A -release program has no debug
+	// information, unless the flags put it back (ADR-136): one line says so, and the session goes on.
+	if f.extra.mode.Strip {
+		fmt.Fprintln(stderr, "gocpp debug: -strip drops the symbols and the debug information that the debugger needs")
+		return 2
+	}
+	if f.extra.mode.Release && !keepsDebugInfo(&f.extra) {
+		fmt.Fprintln(stderr, "gocpp debug: -release builds have no debug information (add -cflags=-g and -ldflags=-g to keep it)")
 	}
 	args = flags.Args()
 	if df.vscode {

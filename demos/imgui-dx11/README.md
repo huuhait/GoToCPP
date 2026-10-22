@@ -27,7 +27,19 @@ gocpp build -os windows -o imguidx11.exe .
 
 (on a Windows host with MinGW-w64: `gocpp build .`). The program is written for typed interop (ADR-130, the default when a clang++ is found):
 it passes `&backBuffer` for a `void**`, a plain string for a `LPCWSTR`, and `Text("%s", s)` for a printf-like function. A machine without
-clang++, or `-interop=opaque`, stops at the first of them with the C++ compiler's own error. Copy `imguidx11.exe` to the PC and start it from a desktop
+clang++, or `-interop=opaque`, stops at the first of them with the C++ compiler's own error.
+
+That `.exe` is 63 MB, of which 5.9 MB is the program: the rest is debug information and the symbol table.
+For a small one, add `-release -strip` (`-O2` with link-time optimization, no debug information, no symbol table):
+
+```text
+gocpp build -release -strip -os windows -o imguidx11.exe .
+```
+
+It is 3.3 MB (`-release` alone: 7.4 MB, `-strip` alone: 5.9 MB; measured, not run: the demo needs a display)
+([build flags](../../docs/spec/build.md#program-size)). Keep the default build to debug the demo.
+
+Copy `imguidx11.exe` to the PC and start it from a desktop
 session; a program started over ssh runs in session 0, which has no desktop (use the console, or a scheduled
 task with `/it`). Closing the window ends the program, which prints `window closed, frames: N, clicks: N`.
 

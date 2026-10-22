@@ -191,7 +191,8 @@ func TestBuildModeFlags(t *testing.T) {
 			compile []string
 			link    []string
 		}{
-			{"-release", []string{"-O2", "-flto"}, []string{"-O2", "-flto"}},
+			{"-release", []string{"-O2", "-flto", "-g0"}, []string{"-O2", "-flto", "-g0"}},
+			{"-strip", nil, []string{"-s"}},
 			{"-race", []string{"-fsanitize=thread"}, []string{"-fsanitize=thread"}},
 		} {
 			os.RemoveAll(logs)
@@ -365,7 +366,7 @@ func TestStampKeyFollowsFlags(t *testing.T) {
 		// Each flag is another question: the build is not up to date, and it is current again after.
 		for _, args := range [][]string{
 			{"-cxxflags=-DKEY_TEST=1"}, {"-cxxflags=-DKEY_TEST=2"}, {"-cflags=-DKEY_TEST=3"}, {"-ldflags=-Wl,-O1"},
-			{"-tags", "keytag"}, {"-release"}, {"-debug"}, {"-race"},
+			{"-tags", "keytag"}, {"-release"}, {"-debug"}, {"-race"}, {"-strip"}, {"-release", "-strip"},
 		} {
 			s.args = args
 			r, n := s.build()

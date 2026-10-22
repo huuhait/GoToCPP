@@ -199,12 +199,52 @@ and `-o` are for `build` only; `-compdb` is also a flag of `run`, `test` and `de
 | `-n` | print the commands and run none (the generated C++ is written; no object, no program, nothing recorded) |
 | `-a` | compile everything again: no object cache, no runtime cache, no up-to-date check; the new objects are stored |
 | `-tags a,b` | more build tags (comma list; the last `-tags` is the list), for `//go:build` lines and the file names of `.gp`, `.c` and `.cc/.cpp/.cxx` files; also in `check`, `emit` and `list` |
-| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto` / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto -g0`, no debug information (see [Program size](#program-size)) / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-strip` | drop the symbol table and the debug information from the program (the link's `-s`; on macOS `-Wl,-S -Wl,-x`). With any mode but `-debug`, `-race` and `-asan` (errors: their tools need the symbols); `-release -strip` is the small build |
 | `-asan`, `-nochecks`, `-cpperrors` | as before |
 | `-gp:m`, `-gp:m=2` | print the decisions of the escape analysis in the form of `go build -gcflags=-m` (`moved to heap: x`, `&T{} escapes to heap`, `&x does not escape`, `leaking param: p`, `v borrows xs[i]`); `=2` says why. Only the program's own packages, not the standard library. On `build`, `run` and `emit` ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)) |
 | `-gp:noescape` | turn the escape analysis off: every variable whose address is taken is boxed and every `&T{...}` and `new(T)` allocates (to find out whether a bug is the analysis's) |
 | `-cflags`, `-cxxflags`, `-ldflags` | the user's flags: see below |
 | `-emit-llvm[=ll\|bc]`, `-compdb[=path]` | files for other tools: see below |
+
+### Program size
+
+A build without a flag is a debug build on purpose: `-O0 -g` is what gdb, lldb and VS Code need (source
+lines of the `.gp` files through `#line`, the values of variables, `gocpp debug`), and what a panic's trace reads its
+function names and `file.gp:line` from. The cost is size: the debug information is most of the file, and a Windows
+program also carries the whole COFF symbol table. Measured with g++ 15.3 on Linux, `-os windows` with the dev shell's
+MinGW-w64 (the programs are `examples/hello`, `examples/sqlite`, and the Dear ImGui demos of `demos/`):
+
+| program | no flag | `-strip` | `-release` | `-release -strip` |
+|---|---|---|---|---|
+| hello, linux | 5.6 MB | 585 KB | 375 KB | 224 KB |
+| sqlite example, linux | 6.2 MB | 679 KB | 429 KB | 261 KB |
+| hello, windows | 13.3 MB | 2.0 MB | 3.4 MB | 1.4 MB |
+| `demos/imgui` (OpenGL), windows | 17.8 MB | 3.3 MB | 5.0 MB | 2.5 MB |
+| `demos/imgui-dx11`, windows | 63.4 MB | 5.9 MB | 7.4 MB | 3.3 MB |
+
+Where the bytes of the Windows hello world are (13.3 MB): 6.7 MB of `.debug_*` sections (5.0 MB of it `.debug_info`),
+4.6 MB of COFF symbols (the long mangled names are in the string table), and 2.0 MB of program (1.5 MB of code at `-O0`).
+The `-release -strip` file is 1.0 MB of code, 0.2 MB of read-only data and 0.12 MB of unwind tables; the code is
+libstdc++ and the runtime (libstdc++'s locale facets, `time_get` and `money_get`, are in it). On Linux the program links
+libstdc++ and libc dynamically, so its file holds only the runtime and the program. Every link already uses
+`--gc-sections` with `-ffunction-sections -fdata-sections` (a program links only what it reaches), and a Windows
+program links statically (`-static`), so the `.exe` needs no DLLs.
+
+- **`-release`** is `-O2 -flto` and `-g0` (at the compiles and at the link: with `-flto` the compiler writes the debug
+  information at the link from the `-g` of the link line, so `-g0` there too). The symbol table stays, so a panic
+  still prints `main.main()` and the other Go function names, but no file and line (`?:0`; gdb has no source lines). To
+  keep the debug information of an optimized program, for `perf` or a debugger: `-release -cflags=-g -ldflags=-g`
+  (later flags win; the program is then as large as with `-O2` and `-g`: 5.2 MB for the Linux hello world).
+- **`-strip`** drops the symbol table and every `.debug_*` section, also the runtime's gdb printers (`.debug_gdb_scripts`,
+  84 KB). A panic prints `?()` with `pc=0x...` addresses (`addr2line` on an unstripped
+  build of the same program with the same flags names them). It is `-ldflags=-s` with a check: a stripped debug or
+  sanitizer build is an error.
+- Both flags are part of the key of the up-to-date check (a build with another flag links again), and `-release`'s
+  flags are part of the keys of the object cache and of the runtime library (`-strip` changes the link only).
+- `-Os` was tried (154 KB for the Linux hello world, against 224 KB) and is not the default: g++ 15.3 for MinGW
+  fails with an internal compiler error in `-Os -flto` on the Windows hello world and the dx11 demo. Use it with `-cflags=-Os -ldflags=-Os` on Linux
+  if size matters more than speed.
 
 **The user's flags are trusted.** A package's `//gocpp:cflags` line goes through the allow-list of Phase 04; the
 flags the user gives are not checked, as `CGO_CFLAGS` are not. They are layered, a later flag winning where
@@ -212,7 +252,7 @@ the last one wins:
 
 | | Compile (C and C++) | Compile (C++ only) | Link |
 |---|---|---|---|
-| 1. the mode | `-fsanitize=thread` (linux: and `-DGOCPP_RACE_MODE=1`), `-O2 -flto` | | `-fsanitize=thread` (linux: and `-Wl,--export-dynamic-symbol=__tsan_default_options`), `-O2 -flto` |
+| 1. the mode | `-fsanitize=thread` (linux: and `-DGOCPP_RACE_MODE=1`), `-O2 -flto -g0` | | `-fsanitize=thread` (linux: and `-Wl,--export-dynamic-symbol=__tsan_default_options`), `-O2 -flto -g0`, `-s` for `-strip` |
 | 2. the environment | `GOCPP_CFLAGS` | `GOCPP_CXXFLAGS` | `GOCPP_LDFLAGS` |
 | 3. the build flags | `-cflags` | `-cxxflags` | `-ldflags` |
 

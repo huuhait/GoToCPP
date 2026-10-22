@@ -52,6 +52,8 @@ func TestDebugUsage(t *testing.T) {
 		{[]string{"debug", "-debugger", "ddd", "x.gp"}, 2, "gocpp debug: -debugger ddd: want gdb or lldb\n"},
 		{[]string{"debug", "-map", "nofrom", "x.gp"}, 2, "gocpp debug: -map nofrom: want FROM=TO\n"},
 		{[]string{"debug", "-map", "=to", "x.gp"}, 2, "gocpp debug: -map =to: want FROM=TO\n"},
+		{[]string{"debug", "-strip", "x.gp"}, 2, "gocpp debug: -strip drops the symbols and the debug information"},
+		{[]string{"debug", "-release", "-strip", "x.gp"}, 2, "gocpp debug: -strip drops the symbols"},
 	} {
 		r := gocppRun("", false, tt.args...)
 		if r.code != tt.code || r.stdout != "" || !strings.HasPrefix(r.stderr, tt.want) {
@@ -293,5 +295,52 @@ func TestDebugCrossTarget(t *testing.T) {
 		!strings.Contains(line, ".exe") ||
 		!strings.Contains(line, "'break hello.gp:11'") {
 		t.Errorf("gocpp debug -os windows -print = %+v", r)
+	}
+}
+
+// TestDebugReleaseSaysNoDebugInfo: -release has no debug information (ADR-136), and gocpp debug says so in one
+// line, unless the user's flags put it back at the compiles and at the link. -vscode builds nothing, so only the line is looked at.
+func TestDebugReleaseSaysNoDebugInfo(t *testing.T) {
+	const note = "gocpp debug: -release builds have no debug information (add -cflags=-g and -ldflags=-g to keep it)\n"
+	inDir(t, map[string]string{"x.gp": helloSrc})
+	for _, tt := range []struct {
+		name string
+		args []string
+		note bool
+	}{
+		{"release", []string{"-release"}, true},
+		{"release with -g", []string{"-release", "-cflags=-g", "-ldflags=-g"}, false},
+		{"release with -ggdb in cxxflags", []string{"-release", "-cxxflags=-ggdb", "-ldflags=-ggdb"}, false},
+		{"release with -g in -cflags only: the link has -g0", []string{"-release", "-cflags=-g"}, true},
+		{"release with -g in -ldflags only", []string{"-release", "-ldflags=-g"}, true},
+		{"release with -g, then -g0 at the link", []string{"-release", "-cflags=-g", "-ldflags=-g", "-ldflags=-g0"}, true},
+		{"release with -g0", []string{"-release", "-cflags=-g0", "-ldflags=-g0"}, true},
+		{"no flag", nil, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := gocppRun("", false, append(append([]string{"debug", "-vscode"}, tt.args...), "x.gp")...)
+			if r.code != 0 {
+				t.Fatalf("gocpp debug -vscode %v = %+v", tt.args, r)
+			}
+			if got := strings.Contains(r.stderr, note); got != tt.note {
+				t.Errorf("stderr %q: has the note = %v, want %v", r.stderr, got, tt.note)
+			}
+		})
+	}
+}
+
+// TestDebugReleaseNoteSeesTheEnvironment: GOCPP_CFLAGS and GOCPP_LDFLAGS count like -cflags and -ldflags.
+func TestDebugReleaseNoteSeesTheEnvironment(t *testing.T) {
+	inDir(t, map[string]string{"x.gp": helloSrc})
+	t.Setenv("GOCPP_CFLAGS", "-g")
+	t.Setenv("GOCPP_LDFLAGS", "-g")
+	r := gocppRun("", false, "debug", "-vscode", "-release", "x.gp")
+	if r.code != 0 || strings.Contains(r.stderr, "no debug information") {
+		t.Errorf("gocpp debug -vscode -release with -g in the environment = %+v, want no note", r)
+	}
+	t.Setenv("GOCPP_LDFLAGS", "")
+	r = gocppRun("", false, "debug", "-vscode", "-release", "x.gp")
+	if r.code != 0 || !strings.Contains(r.stderr, "no debug information") {
+		t.Errorf("gocpp debug -vscode -release with -g only in GOCPP_CFLAGS = %+v, want the note", r)
 	}
 }
