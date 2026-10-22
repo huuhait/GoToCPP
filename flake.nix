@@ -76,9 +76,10 @@
           inherit src;
           # The hash of the downloaded modules: it changes with go.mod and go.sum. When
           # TestFlakeVendorHash (internal/packaging) says that go.mod or go.sum changed, run
-          #   nix build .#gocpp
-          # with lib.fakeHash here, copy the hash that Nix reports, and write the new
-          # sha256 of go.mod followed by go.sum (cat go.mod go.sum | sha256sum) on the next line.
+          #   make flake-hash
+          # which does by hand: nix build .#gocpp with lib.fakeHash here, copy the hash that
+          # Nix reports, and write the new sha256 of go.mod followed by go.sum
+          # (cat go.mod go.sum | sha256sum) on the next line.
           # go.mod+go.sum sha256: 266875ca3c94dc999671c0ddd01ac2d3595642481d8796b13d40d64e7b8e71f3
           vendorHash = "sha256-yQpnSIS+F8ANLTm1WdUe1Nc8me1LK98G0gjQQ8vaC6o=";
           subPackages = [ "cmd/gocpp" ];

@@ -7,7 +7,6 @@ import (
 	"go/types"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -83,7 +82,7 @@ const stdlibDir = "$GOCPP/stdlib"
 // the embedded standard library for a standard package.
 func readSource(p *load.Package, f *load.File) ([]byte, error) {
 	if !p.Std {
-		return os.ReadFile(f.Path)
+		return load.ReadRegular(f.Path)
 	}
 	rel, ok := strings.CutPrefix(f.Path, stdlibDir+string(filepath.Separator))
 	if !ok {

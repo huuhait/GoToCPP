@@ -32,6 +32,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // ReadFile reads the file filename, which info describes, like gofmt reads
@@ -40,7 +42,8 @@ import (
 // editing the file at the same time, and writing back a formatted half
 // file would destroy their work.
 func ReadFile(filename string, info fs.FileInfo) ([]byte, error) {
-	in, err := os.Open(filename)
+	// (a named pipe or a device is an error, not a wait for a writer)
+	in, err := load.OpenRegular(filename)
 	if err != nil {
 		return nil, err
 	}

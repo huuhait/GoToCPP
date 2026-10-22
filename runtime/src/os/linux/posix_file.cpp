@@ -609,6 +609,9 @@ void sys_sigpipe() {
     gp::os::die_of_sigpipe();
 }
 
+// The test seams for the EINTR rule (runtime/test/syscall_test.cpp) are built only by the runtime's
+// own tests (they define GOCPP_RUNTIME_TEST): the program's runtime library does not have them.
+#ifdef GOCPP_RUNTIME_TEST
 namespace {
 std::atomic<int> selftest_runs{0};
 std::atomic<int> selftest_wfd{-1};
@@ -685,6 +688,7 @@ std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr() {
     return {selftest_runs.load(), e != 0 ? -e : state,
             std::chrono::duration_cast<std::chrono::milliseconds>(took).count()};
 }
+#endif // GOCPP_RUNTIME_TEST
 
 std::tuple<gp::string, int64_t> sys_nodename() {
     struct utsname u;

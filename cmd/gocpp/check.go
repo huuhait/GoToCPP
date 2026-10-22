@@ -701,7 +701,7 @@ func (c *checkCommand) header(name string) *header {
 	}
 	h := &header{}
 	c.headers[name] = h
-	src, err := os.ReadFile(name)
+	src, err := load.ReadRegular(name)
 	if err != nil {
 		return h
 	}
@@ -830,7 +830,7 @@ func (c *checkCommand) parserErrorsOf(name string) *fileErrors {
 	}
 	fe := &fileErrors{parser: make(map[errorAt]bool), scanner: make(map[errorAt]bool), scannerAt: make(map[[2]int]bool), first: make(map[int]errorAt), size: -1}
 	c.parserErrors[name] = fe
-	src, err := os.ReadFile(name)
+	src, err := load.ReadRegular(name)
 	if err != nil {
 		return fe
 	}

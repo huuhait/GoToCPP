@@ -1,6 +1,6 @@
 # ADR-044: The user's compiler flags, LLVM tools, and files for other tools
 
-Status: accepted (2026-10-18; point 5 amended 2026-10-19: a debug build writes `compile_commands.json` by itself), builds on [ADR-036](036-action-graph-and-up-to-date-check.md)
+Status: accepted (2026-10-18; point 5 amended 2026-10-19: a debug build writes `compile_commands.json` by itself; amended 2026-10-22: what `-compdb=path` and `gocpp export compdb -o path` may name), builds on [ADR-036](036-action-graph-and-up-to-date-check.md)
 
 ## Context
 
@@ -65,6 +65,16 @@ program's LLVM IR for `opt`. Phase 04 made the flags of `//gocpp:` lines go thro
      and gets the note until `-compdb` writes it again; the replace and the record are two steps, not atomic across
      builds of different programs that run at the same time (the worst case is a note, or one more write); the records
      are small and are never trimmed.
+   - **What a name may be** (amended 2026-10-22, job 13.hangs). The name of `-compdb=path` and `-o path` is looked at
+     with `os.Lstat`, like Go's `-o`: a folder, or a name that ends with a slash, gets `compile_commands.json` (a
+     folder that does not exist is made, as `go build -o bin/` makes `bin`); a name that does not exist and has no
+     slash is the file; a regular file is replaced. A **named pipe, a socket or a device is refused** with a message
+     (it hung for ever on the open and ignored SIGTERM, and a device would be replaced by the rename); so is a
+     trailing slash on a regular file. A **symbolic link to a folder is refused** unless the name ends with a slash
+     (`-o link/`: the person said it is a folder; `os.Stat` used to resolve it silently, and a repository can ship
+     such a link): the link is neither written through nor replaced by a file without a word. A link to a file, or a
+     dangling one, stays as decided above (replaced by the file). The automatic write is given file names only and
+     never resolves a name: a folder or a link with the name `compile_commands.json` is foreign and left alone.
    - **Nothing is written when the generated files are not kept**: without a usable cache folder the build is in a
      work folder that is removed, and the commands name files in it, so neither copy is written (a good file stays).
      An explicit `-compdb` says so in a warning and writes nothing.

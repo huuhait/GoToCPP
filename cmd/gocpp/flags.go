@@ -303,7 +303,12 @@ func (d *driver) compdbTargets(set *buildSet, gen string) []string {
 		return []string{filepath.Join(gen, "compile_commands.json"), filepath.Join(compdbModuleRoot(set), "compile_commands.json")}
 	}
 	if !filepath.IsAbs(v) {
+		// (Join drops a trailing slash, which says that the name is a folder)
+		folder := os.IsPathSeparator(v[len(v)-1])
 		v = filepath.Join(d.check.dir, v)
+		if folder {
+			v += string(filepath.Separator)
+		}
 	}
 	return []string{v}
 }

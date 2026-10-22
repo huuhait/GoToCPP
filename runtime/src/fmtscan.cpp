@@ -5,6 +5,7 @@
 //
 // Go's panics inside the scanner (scanError, and panic(io.EOF)) are C++ exceptions of private
 // types here; the functions that Go's errorHandler wraps catch them and return the error.
+#include <gocpp/nofortify.h>
 #include <gocpp/os.hpp>
 #include <gocpp/rt.hpp>
 
@@ -916,7 +917,7 @@ struct ss {
     }
     gp::ptr<ss_state>* state =
         nullptr;               // the ScanState handed to the Scan methods, made by the first
-    live_span live;           // the live []any of a variadic slice, held by with_operands
+    live_span live;            // the live []any of a variadic slice, held by with_operands
     rune_source* rs = nullptr; // where to read input
     std::string buf;           // token accumulator
     int64_t count = 0;         // runes consumed so far
@@ -1985,8 +1986,8 @@ void ss::do_scanf(std::string_view format, const value* a, std::size_t n, int64_
             error_string("too few operands for format '%" +
                          std::string(format.substr(static_cast<std::size_t>(i - cw))) + "'");
         }
-        value operand = live.data == nullptr ? a[num_processed]
-                                             : from_iface(live.data[num_processed]);
+        value operand =
+            live.data == nullptr ? a[num_processed] : from_iface(live.data[num_processed]);
 
         scan_one(c, operand);
         num_processed++;
@@ -2038,49 +2039,51 @@ std::tuple<int64_t, gp::error> scan_bytes(byte_source& src, bool nl_is_space, bo
 } // namespace
 
 std::tuple<int64_t, gp::error> scan_string(std::string_view str, bool nl_is_space, bool nl_is_end,
-                                         const arg* a, std::size_t n, live_span live) {
+                                           const arg* a, std::size_t n, live_span live) {
     string_bytes src(str);
-    return scan_bytes(src, nl_is_space, nl_is_end,
-                      [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
+    return scan_bytes(
+        src, nl_is_space, nl_is_end, [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
 }
 
 std::tuple<int64_t, gp::error> scanf_string(std::string_view str, std::string_view format,
-                                          const arg* a, std::size_t n, live_span live) {
+                                            const arg* a, std::size_t n, live_span live) {
     string_bytes src(str);
-    return scan_bytes(src, false, false,
-                      [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
+    return scan_bytes(
+        src, false, false, [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
 }
 
 std::tuple<int64_t, gp::error> scan_reader(const iface& r, bool nl_is_space, bool nl_is_end,
-                                         const arg* a, std::size_t n, live_span live) {
+                                           const arg* a, std::size_t n, live_span live) {
     if (r.gp_type() != nullptr) {
         const method* rr = find_method(r.gp_type(), "ReadRune", read_rune_sig);
         const method* ur = find_method(r.gp_type(), "UnreadRune", unread_rune_sig);
         if (rr != nullptr && ur != nullptr) {
             dyn_runes runes(r, rr, ur);
-            return run_scan(runes, nl_is_space, nl_is_end,
-                            [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
+            return run_scan(
+                runes, nl_is_space, nl_is_end, [&](ss& s, int64_t& np) { s.do_scan(a, n, np); },
+                live);
         }
     }
     reader_bytes src(r);
-    return scan_bytes(src, nl_is_space, nl_is_end,
-                      [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
+    return scan_bytes(
+        src, nl_is_space, nl_is_end, [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
 }
 
 std::tuple<int64_t, gp::error> scanf_reader(const iface& r, std::string_view format, const arg* a,
-                                          std::size_t n, live_span live) {
+                                            std::size_t n, live_span live) {
     if (r.gp_type() != nullptr) {
         const method* rr = find_method(r.gp_type(), "ReadRune", read_rune_sig);
         const method* ur = find_method(r.gp_type(), "UnreadRune", unread_rune_sig);
         if (rr != nullptr && ur != nullptr) {
             dyn_runes runes(r, rr, ur);
-            return run_scan(runes, false, false,
-                            [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
+            return run_scan(
+                runes, false, false, [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); },
+                live);
         }
     }
     reader_bytes src(r);
-    return scan_bytes(src, false, false,
-                      [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
+    return scan_bytes(
+        src, false, false, [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
 }
 
 namespace {
@@ -2132,23 +2135,24 @@ std::tuple<int64_t, gp::error> with_stdin(Fd0&& scan_fd0, Rd&& scan_reader_of) {
 }
 
 std::tuple<int64_t, gp::error> scan_stdin(bool nl_is_space, bool nl_is_end, const arg* a,
-                                        std::size_t n, live_span live) {
+                                          std::size_t n, live_span live) {
     return with_stdin(
         [&] {
             stdin_bytes src;
-            return scan_bytes(src, nl_is_space, nl_is_end,
-                              [&](ss& s, int64_t& np) { s.do_scan(a, n, np); }, live);
+            return scan_bytes(
+                src, nl_is_space, nl_is_end, [&](ss& s, int64_t& np) { s.do_scan(a, n, np); },
+                live);
         },
         [&](const gp::any& r) { return scan_reader(r, nl_is_space, nl_is_end, a, n, live); });
 }
 
 std::tuple<int64_t, gp::error> scanf_stdin(std::string_view format, const arg* a, std::size_t n,
-                                         live_span live) {
+                                           live_span live) {
     return with_stdin(
         [&] {
             stdin_bytes src;
-            return scan_bytes(src, false, false,
-                              [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
+            return scan_bytes(
+                src, false, false, [&](ss& s, int64_t& np) { s.do_scanf(format, a, n, np); }, live);
         },
         [&](const gp::any& r) { return scanf_reader(r, format, a, n, live); });
 }

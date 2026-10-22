@@ -334,7 +334,7 @@ func Getrlimit(resource int, rlim *Rlimit) (err error) {
 	return nil
 }
 
-func Setrlimit(resource int, rlim *Rlimit) (err error) {
+func Setrlimit(resource int, rlim *Rlimit) error {
 	return errnoErr(Errno(sysSetrlimit(resource, int(rlim.Cur), int(rlim.Max))))
 }
 

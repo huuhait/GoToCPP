@@ -39,7 +39,10 @@ const fmtUsage = `usage: gocpp fmt [-l] [-w] [-d] [path ...]
 gocpp fmt formats .gp files the way gofmt formats Go files. A path is a
 file or a folder. In a folder, gocpp fmt formats every .gp file, also in
 the folders inside it, but not the files whose names start with a dot.
-A file named on the command line is always formatted. With no path, it
+A file named on the command line is always formatted; if it is a named
+pipe (gocpp fmt /dev/stdin, gocpp fmt <(...)), it is read as gofmt reads it,
+which waits for a writer of the pipe, and -w refuses it. In a folder, a
+named pipe with the name of a source is an error. With no path, it
 formats standard input, which may also be a part of a file, and prints
 the result.
 
@@ -90,7 +93,9 @@ func runFmt(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			c.report(err)
 		case !info.IsDir():
 			// A file named on the command line is always formatted.
+			c.explicit = true
 			c.process(arg, info, nil)
+			c.explicit = false
 		default:
 			// A folder is walked, and only its .gp files are formatted. Like
 			// gofmt, the walk goes into every folder (testdata, vendor and
@@ -130,6 +135,7 @@ type fmtCommand struct {
 	list, write, diff bool
 	stdout, stderr    io.Writer
 	exit              int
+	explicit          bool // the file is named on the command line (not found by the walk)
 }
 
 // report prints err the way gofmt prints an error: a list of syntax or
@@ -160,7 +166,7 @@ func (c *fmtCommand) processFile(filename string, info fs.FileInfo, in io.Reader
 		if src, err = io.ReadAll(in); err == nil {
 			res, err = format.Fragment(filename, src)
 		}
-	} else if src, err = format.ReadFile(filename, info); err == nil {
+	} else if src, err = c.readSource(filename, info); err == nil {
 		res, err = format.Source(filename, src)
 	}
 	if err != nil {
@@ -193,6 +199,25 @@ func (c *fmtCommand) processFile(filename string, info fs.FileInfo, in io.Reader
 		_, err = c.stdout.Write(res)
 	}
 	return err
+}
+
+// readSource reads the file filename, which info describes. A file named on the command line
+// that is not a regular file (a named pipe from a shell's process substitution, /dev/stdin) is
+// opened as gofmt opens it: it waits for a writer. A file that the walk found is read by
+// format.ReadFile, which refuses it: a pipe with the name of a source must not stop the run.
+func (c *fmtCommand) readSource(filename string, info fs.FileInfo) ([]byte, error) {
+	if !c.explicit || info.Mode().IsRegular() {
+		return format.ReadFile(filename, info)
+	}
+	if c.write {
+		return nil, fmt.Errorf("error: cannot use -w with %s: it is not a regular file", filename)
+	}
+	in, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer in.Close()
+	return io.ReadAll(in)
 }
 
 // writePerm returns the mode bits of the file filename, for gocpp fmt -w:

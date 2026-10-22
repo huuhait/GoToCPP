@@ -249,7 +249,7 @@ $XDG_CACHE_HOME/gocpp/gen/<hash>/gpkg/<import path>/      (a stable folder; with
   `-Qunused-arguments` for clang, and `-iquote <the folder of the generated files>`. The debug info has no columns (`-gno-column-info`): they would
   be the columns of the C++ code, and debuggers would show them on `.gp` lines. Valid Go can
   make the compilers warn about generated code that is right, so that code also gets
-  `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); every other warning stays
+  `-Wno-tautological-compare` (clang) or `-Wno-overflow` (g++); g++ also gets `-Wno-psabi` (the note about the ABI of a 64-byte-aligned parameter, which nothing here can act on); every other warning stays
   visible. g++ also gets `-Werror=conditionally-supported`: a class object such as a gocpp
   pointer passed through a C function's `...` is then an error, as it is with clang (the callee
   would read a copy of the object as its pointer). The runtime comes from the gocpp binary: it is extracted once into the user

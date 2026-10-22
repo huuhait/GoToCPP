@@ -11,6 +11,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/explain"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lower"
 	"github.com/huuhait/gocpp/stdlib"
 )
@@ -99,7 +100,7 @@ func readGP(path string) []byte {
 		}
 		return data
 	}
-	data, err := os.ReadFile(path)
+	data, err := load.ReadRegular(path)
 	if err != nil {
 		return nil
 	}

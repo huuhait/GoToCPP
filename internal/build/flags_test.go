@@ -13,8 +13,8 @@ func TestFlags(t *testing.T) {
 		asan      bool
 		want, gen []string
 	}{
-		{GCC, false, debug, []string{"-Wno-overflow", "-Werror=conditionally-supported", "-Werror=narrowing"}},
-		{GCC, true, slices.Concat(debug, asan), []string{"-Wno-overflow", "-Werror=conditionally-supported", "-Werror=narrowing"}},
+		{GCC, false, debug, []string{"-Wno-overflow", "-Wno-psabi", "-Werror=conditionally-supported", "-Werror=narrowing"}},
+		{GCC, true, slices.Concat(debug, asan), []string{"-Wno-overflow", "-Wno-psabi", "-Werror=conditionally-supported", "-Werror=narrowing"}},
 		{Clang, false, slices.Concat(debug, []string{"-Qunused-arguments"}), []string{"-Wno-tautological-compare"}},
 		{Clang, true, slices.Concat(debug, asan, []string{"-Qunused-arguments"}), []string{"-Wno-tautological-compare"}},
 	} {

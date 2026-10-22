@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/winpath"
 )
 
@@ -435,6 +436,27 @@ func checkInclude(inc string) error {
 		}
 	}
 	return fmt.Errorf("bad include %q: want <header> or \"header\"", inc)
+}
+
+// checkLocalHeaders reports a quoted include whose file in dir is a named pipe, a socket or a
+// device: the compiler would wait for ever to read it (a header found through -I is not looked
+// at). A folder or a missing file is for the compiler to report.
+func checkLocalHeaders(dir string, includes []string) error {
+	for _, inc := range includes {
+		inc, _ = SplitExternC(inc)
+		if len(inc) < 3 || inc[0] != '"' {
+			continue
+		}
+		path := inc[1 : len(inc)-1]
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		fi, err := os.Stat(path)
+		if err == nil && !fi.Mode().IsRegular() && !fi.IsDir() {
+			return load.NotRegular(path, fi.Mode())
+		}
+	}
+	return nil
 }
 
 // checkArgs checks the includes and the flags of a probe call.

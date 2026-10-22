@@ -236,8 +236,13 @@ Remote `github:huuhait/gocpp` commands use a moving source revision, not this pr
 snapshot. From a checkout, `nix build .#gocpp` selects that source instead. Nix builds identify
 as `dev-<revision>`; neither form establishes an approved release or native arm64 validation.
 
-When `go.mod` or `go.sum` change, the `vendorHash` in `flake.nix` goes stale; `TestFlakeVendorHash` fails with
-the steps (set `lib.fakeHash`, run `nix build .#gocpp`, copy the hash, update the stamp).
+When `go.mod` or `go.sum` change, the `vendorHash` in `flake.nix` goes stale. `TestFlakeVendorHash` says so: it
+only logs and skips while you work (so a change of the dependencies does not turn every `go test` red), and it
+fails under `GOCPP_REQUIRE_PACKAGING=1` (`make package-check`, `make workflow-check`, and the release workflow's
+preflight job, so a stale hash stops a tag; `make ci` only logs it). `make flake-hash` makes the hash again: it sets
+Nix's fake hash, runs `nix build .#gocpp` (network needed), reads the hash that Nix reports and writes it with the
+new stamp into `flake.nix`; `make flake-hash FLAKE_HASH_FLAGS=-f` redoes it even when the stamp is current. By
+hand: set `lib.fakeHash`, run `nix build .#gocpp`, copy the hash, update the stamp.
 
 ## Licensing and redistribution
 

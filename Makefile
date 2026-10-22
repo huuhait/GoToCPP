@@ -323,6 +323,18 @@ quick:
 clean:
 	rm -rf bin
 
+# The leftovers of gocpp's tests and builds in $TMPDIR (gocpp-*, gp-ssh-*, gp-nsprobe*; scripts/clean-tmp
+# has the rules): only your own, not links, and only what nothing changed in for CLEAN_TMP_AGE minutes
+# (default 1440: a running build keeps writing); $TMPDIR itself and other folders are never touched.
+# clean-tmp-dry only lists them; CLEAN_TMP_AGE=60 makes the age one hour.
+CLEAN_TMP_AGE ?= 1440
+.PHONY: clean-tmp clean-tmp-dry
+clean-tmp:
+	sh scripts/clean-tmp -a $(CLEAN_TMP_AGE)
+
+clean-tmp-dry:
+	sh scripts/clean-tmp -n -a $(CLEAN_TMP_AGE)
+
 # Go's own test/ folder as a conformance suite (step 15.10, tools/gotest,
 # docs/guides/conformance.md). Opt-in and heavy: not part of ci (the tool's
 # own tests are, as part of "make test"). conformance-check runs the tests of
@@ -354,6 +366,14 @@ package-check:
 	goreleaser release --snapshot --clean --skip=publish
 	nix build .#gocpp --no-link -L
 
+# Redo the flake's vendorHash after go.mod or go.sum changed (scripts/flake-hash: it runs nix build
+# with Nix's fake hash, reads the hash that Nix reports and writes it and the new stamp into
+# flake.nix; FLAKE_HASH_FLAGS=-f redoes it even when the stamp is current). TestFlakeVendorHash only
+# logs a stale stamp; make package-check (GOCPP_REQUIRE_PACKAGING=1) fails on it.
+.PHONY: flake-hash
+flake-hash:
+	sh scripts/flake-hash $(FLAKE_HASH_FLAGS)
+
 # The workflow files (step 15.12, docs/guides/packaging.md "CI and the release pipeline"), not part of ci
 # (the tests are part of make test, as go test ./internal/packaging): the tests that tie .github/workflows
 # to the Makefile, the test lists and GoReleaser's names, then actionlint (with shellcheck for the scripts
@@ -363,7 +383,7 @@ package-check:
 # Nothing here runs a workflow: only GitHub does.
 .PHONY: workflow-check
 workflow-check:
-	$(GO) test -count=1 -run 'TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64' ./internal/packaging
+	GOCPP_REQUIRE_PACKAGING=1 $(GO) test -count=1 -run 'TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64|TestFlakeVendorHash' ./internal/packaging
 	actionlint .github/workflows/*.yml
 
 # The documentation site (step 15.15, docs/guides/docs-site.md): docs/ and the standard library

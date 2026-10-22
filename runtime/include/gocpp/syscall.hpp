@@ -171,6 +171,10 @@ std::tuple<int64_t, int64_t> sys_fcntl_getfl(int64_t fd);
 // sys_sigpipe ends the program with SIGPIPE (gp::os::die_of_sigpipe).
 [[noreturn]] void sys_sigpipe();
 
+#ifdef GOCPP_RUNTIME_TEST
+// The test seams exist only in the runtime's own test build (GOCPP_RUNTIME_TEST, defined by
+// runtime/cxx_test.go): the library that programs link does not have them.
+
 // sys_selftest_retry is a test seam for the EINTR rule (runtime/test/syscall_test.cpp): it makes a
 // pipe, installs a SIGALRM handler without SA_RESTART that writes one byte into the pipe, arms a
 // timer, and calls sys_read on the empty pipe. The signal interrupts the read (EINTR); a sys_read
@@ -182,6 +186,7 @@ std::tuple<int64_t, int64_t> sys_selftest_retry();
 // idle pipe while SIGALRM arrives every 20 ms (no SA_RESTART), and returns the number of signals
 // that ran, the state sys_poll_wait reported (or its negated errno) and the milliseconds it took.
 std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr();
+#endif // GOCPP_RUNTIME_TEST
 
 // sys_nodename is the host name (uname(2)'s nodename).
 std::tuple<gp::string, int64_t> sys_nodename();

@@ -31,7 +31,9 @@ gocpp export compdb
 	folder, the packages' folders), so a tool can open the generated C++ after the build. Without
 	-o it is written to the folder of the generated files and to the module's folder (the folder
 	of gocpp.mod; else the package's folder); -o names a file, or a folder that gets
-	compile_commands.json. The paths are printed. gocpp build -compdb writes the same file as
+	compile_commands.json: a name that ends with a slash is a folder (made if it does not exist, as
+	go build -o bin/ does), and a link to a folder needs the slash too (-o link/). A named pipe, a
+	socket or a device is refused. The paths are printed. gocpp build -compdb writes the same file as
 	part of a build.
 
 	clangd needs the compiler's include folders: with g++ or a compiler in a Nix shell, start

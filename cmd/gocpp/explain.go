@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/explain"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 const explainUsage = `usage: gocpp explain [-json] [-nochecks] topic | file.gp:LINE[-LINE] | "error message"
@@ -385,7 +386,7 @@ var packageRx = regexp.MustCompile(`(?m)^package[ \t]+([A-Za-z_][A-Za-z0-9_]*)`)
 // packageName returns the name in the package clause of the .gp file path, or "main" if it can't
 // be read (the loader reports the problem).
 func packageName(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := load.ReadRegular(path)
 	if err != nil {
 		return "main"
 	}

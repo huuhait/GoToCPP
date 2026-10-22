@@ -43,3 +43,33 @@ func TestTestingNatives(t *testing.T) {
 		})
 	}
 }
+
+// TestTestingNativesTSan runs the same program under ThreadSanitizer: the threads of test_threads
+// (make_temp_dir and remove_all at the same time) must not race on the set of the folders that
+// make_temp_dir made.
+func TestTestingNativesTSan(t *testing.T) {
+	t.Parallel()
+	ccs := compilers(t)
+	rt := extractRuntime(t)
+	for _, c := range ccs {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			flags := []string{"-O1", "-fsanitize=thread", "-fno-omit-frame-pointer"}
+			bins := c.startBuilds(t, rt, t.TempDir(), flags, []prog{
+				{src: "test/testing_natives_test.cpp", weight: 4, testing: true},
+			})
+			bin := bins.bin(t, "test/testing_natives_test.cpp")
+			tmp := t.TempDir()
+			stdout, stderr, code, err := command(tmp, []string{"TMPDIR=" + tmp}, false, bin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if code != 0 || len(stderr) != 0 || !bytes.HasPrefix(stdout, []byte("ok: ")) {
+				t.Fatalf("exit code %d\nstdout:\n%s\nstderr:\n%.3000s", code, stdout, stderr)
+			}
+		})
+	}
+}

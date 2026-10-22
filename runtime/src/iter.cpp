@@ -13,6 +13,7 @@
 // Accounting (goroutine.hpp, block_scope): a side that waits is a blocked goroutine; the side that
 // hands over unblocks the other BEFORE it blocks itself, so the detector never sees both sides
 // blocked while one has been handed control.
+#include <gocpp/nofortify.h>
 #include <gocpp/goroutine.hpp>
 #include <gocpp/iter.hpp>
 #include <gocpp/os.hpp>

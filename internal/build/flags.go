@@ -87,6 +87,12 @@ func Flags(cxx CXX, asan bool) []string {
 // it on its own (-Wnon-pod-varargs is an error by default).
 // runtime/reject_test.go checks both.
 //
+// g++ also gets -Wno-psabi: it prints a note, also without -Wall and with no way to see it as a
+// real problem, for every function with a parameter or a deferred argument that is a C++ value
+// with 64-byte alignment (`func f(w lib.Wide)`, with `struct alignas(64) Wide`): "the ABI for
+// passing parameters with 64-byte alignment has changed in GCC 4.6". Everything of the program is
+// compiled by the same compiler, so that ABI change reaches nothing. clang has no such note.
+//
 // And g++ gets -Werror=narrowing: a narrowing conversion in a braced list (a gocpp int64_t into
 // a C int field of a literal, lib.Point{1, n}, Phase 04 §2.5) is an error in C++, which clang
 // reports, while g++ only warns for a value that is not a constant. Both compilers then reject
@@ -96,7 +102,7 @@ func GeneratedFlags(cxx CXX) []string {
 	case Clang:
 		return []string{"-Wno-tautological-compare"}
 	case GCC:
-		return []string{"-Wno-overflow", "-Werror=conditionally-supported", "-Werror=narrowing"}
+		return []string{"-Wno-overflow", "-Wno-psabi", "-Werror=conditionally-supported", "-Werror=narrowing"}
 	}
 	return nil
 }

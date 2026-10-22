@@ -282,6 +282,9 @@ func (c *cache) probeMode(ctx context.Context, cxx build.CXX, dir string, flags,
 	if err := checkArgs(flags, includes); err != nil {
 		return Result{}, fmt.Errorf("kind probe: %w", err)
 	}
+	if err := checkLocalHeaders(dir, includes); err != nil {
+		return Result{}, fmt.Errorf("kind probe: %w", err)
+	}
 	// names are the paths without a leading ::, each once, and parts
 	// their parts.
 	var names []string

@@ -13,6 +13,7 @@
 #include <gocpp/rt.hpp>
 #include <gocpp/testing.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +25,8 @@
 #include <thread>
 #include <tuple>
 #include <vector>
+
+#include "threads_ended.hpp"
 
 namespace {
 
@@ -401,6 +404,41 @@ void test_remove_busy() {
 }
 #endif
 
+// --- threads ---
+
+// Several threads make and remove temporary folders at the same time: the set of the folders that
+// make_temp_dir made (which remove_target looks in for a folder at the top of the tree) is
+// guarded by a mutex. Under ThreadSanitizer (TestTestingNativesTSan) an unguarded set is a race.
+void test_threads() {
+    std::atomic<int> bad{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; i++) {
+        threads.emplace_back([&bad] {
+            for (int round = 0; round < 25; round++) {
+                auto [dir, err] = T::make_temp_dir(gs("gocpp-tn-thread-"));
+                if (!str(err).empty() || str(dir).empty()) {
+                    bad++;
+                    continue;
+                }
+#ifndef _WIN32
+                auto [kept, why] = T::remove_target(gs("/home"));
+                if (!str(kept).empty() || str(why).empty()) {
+                    bad++;
+                }
+#endif
+                if (!str(T::remove_all(dir)).empty()) {
+                    bad++;
+                }
+            }
+        });
+    }
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+    CHECK(bad.load() == 0);
+    rt_test::threads_ended();
+}
+
 // --- the working folder, files ---
 
 void test_files() {
@@ -626,6 +664,10 @@ void test_trim_and_target() {
                              "\\\\server\\share\\dir\\.."}) {
         CHECK(refused(dots));
     }
+    // A NUL ends the path for the system, so any NUL is refused.
+    CHECK(refused(std::string("C:\\\0", 3)));
+    CHECK(refused(std::string("C:\\x\\y\0", 7)));
+    CHECK(refused(std::string("x\0", 2)));
     // The folder of temporary files and the profile themselves, not what is in them.
     auto [tdir, terr] = T::make_temp_dir(gs("gocpp-tn-target-"));
     CHECK_STR(str(terr), "");
@@ -698,6 +740,109 @@ void test_trim_and_target() {
     CHECK(refused(tbase + "/home"));
     CHECK(refused(tbase + "/home//"));
     CHECK(allowed(tbase + "/home/x", tbase + "/home/x"));
+
+    // A NUL ends the path for the system ("/\0" is "/"), so any NUL is refused, also one that
+    // would be harmless; the folder that the text before it names is not removed.
+    CHECK(refused(std::string("/\0", 2)));
+    CHECK(refused(std::string("/\0/x", 4)));
+    CHECK(refused(tbase + std::string("/sub\0", 5)));
+    CHECK(refused(std::string("x\0", 2)));
+    CHECK_STR(str(T::make_dir(gs(tbase + "/nul"))), "");
+    std::string nul_error = str(T::remove_all(gs(tbase + std::string("/nul\0/x", 7))));
+    CHECK(nul_error.find("refusing to remove a path with a NUL") != std::string::npos);
+    std::error_code nul_ec;
+    CHECK(fs::exists(to_path(tbase + "/nul"), nul_ec));
+
+    // Repeated separators, a relative spelling and a link in the folder name the same folders as
+    // the plain spelling.
+    CHECK(refused("/" + tbase));
+    CHECK(refused("//" + tbase + "//"));
+    CHECK(refused("/" + tbase + "/home"));
+    CHECK(allowed("/" + tbase + "/sub", "/" + tbase + "/sub"));
+    std::string parent = tbase.substr(0, tbase.rfind('/'));
+    std::string leaf = tbase.substr(tbase.rfind('/') + 1);
+    auto [cwd, cwd_err] = T::getwd();
+    CHECK_STR(str(cwd_err), "");
+    CHECK_STR(str(T::chdir(gs(parent))), "");
+    CHECK(refused(leaf));
+    CHECK(refused(leaf + "/home"));
+    CHECK(allowed(leaf + "/sub", leaf + "/sub"));
+    CHECK_STR(str(T::chdir(cwd)), "");
+    std::error_code link_ec;
+    fs::create_directory_symlink("/proc", to_path(tbase + "/to-proc"), link_ec);
+    CHECK(!link_ec);
+    CHECK(refused(tbase + "/to-proc/self"));
+    fs::create_directory_symlink("/", to_path(tbase + "/to-root"), link_ec);
+    CHECK(!link_ec);
+    CHECK(refused(tbase + "/to-root/proc"));
+    CHECK(refused(tbase + "/to-root/dev"));
+    CHECK(refused(tbase + "/to-root/sys/kernel"));
+    fs::create_directory_symlink(to_path(parent), to_path(tbase + "/up"), link_ec);
+    CHECK(!link_ec);
+    CHECK(refused(tbase + "/up/" + leaf));
+    CHECK(refused(tbase + "/up/" + leaf + "/home"));
+    CHECK(allowed(tbase + "/up/" + leaf + "/sub", tbase + "/up/" + leaf + "/sub"));
+    // (the link itself is a file to remove: it is not followed)
+    CHECK(allowed(tbase + "/to-root", tbase + "/to-root"));
+
+    // The folders of the system that no test made.
+    for (const char* bad : {"/sys", "/sys/", "/sys/kernel", "/dev", "/dev/", "/dev/null",
+                            "/dev/pts/0", "/dev/shm", "/dev/shm/", "/dev/mqueue", "/proc/1"}) {
+        CHECK(refused(bad));
+    }
+    CHECK(allowed("/dev/shm/gocpp-x", "/dev/shm/gocpp-x"));
+    CHECK(allowed("/dev/mqueue/x/", "/dev/mqueue/x"));
+    CHECK(allowed("/system/x", "/system/x")); // only the folders of that name, not a longer name
+    CHECK(allowed("/devices/x", "/devices/x"));
+
+    // The folders at the top of the tree, also through a link to them; what is in them is not.
+    for (const char* top :
+         {"/home", "/home/", "/etc", "/usr", "/var", "/root", "/boot", "/bin", "/sbin", "/lib",
+          "/lib64", "/opt", "/mnt", "/media", "/run", "/srv", "/tmp", "/anything"}) {
+        CHECK(refused(top));
+    }
+    CHECK(refused(tbase + "/to-root/etc"));
+    CHECK(refused(tbase + "/to-root/home/"));
+    CHECK(refused(tbase + "/to-root/usr"));
+    CHECK(allowed("/home/gocpp-no-such-user", "/home/gocpp-no-such-user"));
+
+    // HOME and TMPDIR named through a link: the folder behind the link is the home folder (or
+    // the folder of temporary files) too.
+    CHECK_STR(str(T::make_dir(gs(tbase + "/real-home"))), "");
+    fs::create_directory_symlink("real-home", to_path(tbase + "/home-link"), link_ec);
+    CHECK(!link_ec);
+    CHECK_STR(str(T::set_env(gs("HOME"), gs(tbase + "/home-link"))), "");
+    CHECK(refused(tbase + "/real-home"));
+    CHECK(refused(tbase + "/real-home/"));
+    CHECK(refused(tbase + "/home-link"));
+    CHECK(allowed(tbase + "/real-home/x", tbase + "/real-home/x"));
+    CHECK(allowed(tbase + "/home-link/x", tbase + "/home-link/x"));
+    CHECK_STR(str(T::make_dir(gs(tbase + "/real-tmp"))), "");
+    fs::create_directory_symlink("real-tmp", to_path(tbase + "/tmp-link"), link_ec);
+    CHECK(!link_ec);
+    CHECK_STR(str(T::set_env(gs("TMPDIR"), gs(tbase + "/tmp-link"))), "");
+    CHECK(refused(tbase + "/real-tmp"));
+    CHECK(refused(tbase + "/tmp-link"));
+    CHECK(allowed(tbase + "/real-tmp/x", tbase + "/real-tmp/x"));
+    CHECK_STR(str(T::set_env(gs("TMPDIR"), gs(tbase))), "");
+
+    // TMPDIR=/ (some containers): the folder that make_temp_dir makes is directly under the root,
+    // and it is the test's own, so remove_all may remove it; the other top-level folders stay
+    // refused. (Where / can't be written the folder can't be made: only the refusals run.)
+    CHECK_STR(str(T::set_env(gs("TMPDIR"), gs("/"))), "");
+    CHECK(refused("/home"));
+    CHECK(refused("/etc"));
+    CHECK(refused("/"));
+    auto [rootdir, rooterr] = T::make_temp_dir(gs("gocpp-top-"));
+    if (str(rooterr).empty()) {
+        std::string made = str(rootdir);
+        CHECK(made.rfind("/gocpp-top-", 0) == 0); // one slash, not //gocpp-top-
+        CHECK(allowed(made, made));
+        CHECK_STR(str(T::remove_all(gs(made))), "");
+        std::error_code root_ec;
+        CHECK(!fs::exists(to_path(made), root_ec));
+    }
+    CHECK_STR(str(T::set_env(gs("TMPDIR"), gs(tbase))), "");
     if (thad) {
         T::set_env(gs("TMPDIR"), gs(tsaved));
     } else {
@@ -758,6 +903,7 @@ int main() {
     test_remove_busy();
 #endif
     test_files();
+    test_threads();
     test_capture();
     test_trim_and_target();
     test_cpu_name();

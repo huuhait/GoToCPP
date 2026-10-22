@@ -2,6 +2,7 @@
 // runtime that uses std::ostream: a std::ostringstream pulls libstdc++'s whole locale machinery
 // (about 750 KB) into the program, so the function is a file of its own, which the linker takes
 // only when a program prints such a value.
+#include <gocpp/nofortify.h>
 #include <gocpp/fmt.hpp>
 
 #include <sstream>

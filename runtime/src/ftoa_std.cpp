@@ -1,6 +1,7 @@
 // The digits of a float through std::to_chars (ftoa.hpp): the engine that programs use where
 // libstdc++ is a shared library. std::to_chars rounds the exact value correctly (ties to
 // even), as strconv does.
+#include <gocpp/nofortify.h>
 #include "ftoa.hpp"
 
 #include <algorithm>

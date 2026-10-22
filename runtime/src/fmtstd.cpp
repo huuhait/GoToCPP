@@ -1,6 +1,7 @@
 // The standard streams of package os, as fmt sees them (gocpp/fmt.hpp: std_gate, os_std): the gate
 // that Print, Println, Printf, Scan, Scanln and Scanf pass, and the cold paths behind it. In a file
 // of its own, so that the printer's file keeps the size (and the inlining) it had.
+#include <gocpp/nofortify.h>
 #include <gocpp/os.hpp>
 #include <gocpp/rt.hpp>
 

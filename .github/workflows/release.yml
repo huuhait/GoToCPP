@@ -53,8 +53,12 @@ jobs:
           echo "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
           git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"
       - uses: cachix/install-nix-action@v31
-      - name: the GoReleaser configuration and the notices
-        run: go test -count=1 -run 'TestGoReleaserConfig|TestThirdPartyNotices|TestRepoFilesDoNotCollide|TestGoModIsInstallable|TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64' ./internal/packaging
+      # (make ci skips TestFlakeVendorHash when the stamp is stale; a tag must not: the Nix build of the
+      # tag would fail with a hash mismatch. GOCPP_REQUIRE_PACKAGING makes it a failure. make flake-hash.)
+      - name: the GoReleaser configuration, the notices and the vendorHash of flake.nix
+        env:
+          GOCPP_REQUIRE_PACKAGING: "1"
+        run: go test -count=1 -run 'TestGoReleaserConfig|TestThirdPartyNotices|TestRepoFilesDoNotCollide|TestGoModIsInstallable|TestWorkflow|TestCIWorkflow|TestCIWindows|TestReleaseWorkflow|TestFlakeHasAnArm64|TestFlakeVendorHash' ./internal/packaging
         shell: nix develop -c bash -eo pipefail {0}
 
   # The tag run: the only job that may write to the repository (the draft release).

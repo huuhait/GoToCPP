@@ -371,6 +371,13 @@ std::wstring plain_path(std::wstring w) {
 
 } // namespace
 
+// remove_target returns the path to remove, or the refusal for a path that names a folder that must
+// stay. The checks are on the spelling (drives, shares, device paths, the dots, the temp folder and
+// the profile), not on what the links resolve to, unlike the Linux helper (which resolves the
+// working folder and the links of the folder part, and refuses the folders at the top of the
+// tree): a relative name is not joined to the working folder, a short 8.3 name ("PROGRA~1") is not
+// expanded, and a UNC name is only checked for its share. A test that removes such a name must
+// not be able to name a system folder: the folder of a test is in the temp folder.
 std::tuple<gp::string, gp::string> remove_target(gp::string path) {
     std::string given(path.gp_view());
     std::wstring w = to_backslashes(given);
@@ -381,6 +388,10 @@ std::tuple<gp::string, gp::string> remove_target(gp::string path) {
         return {gp::string(),
                 gp::string::gp_copy("RemoveAll \"" + given + "\": refusing to remove " + why)};
     };
+    // The system stops at a NUL: "C:\\x\0" is "C:\\x", and "\\\\\0" would pass the checks below.
+    if (given.find('\0') != std::string::npos) {
+        return refuse("a path with a NUL byte in it");
+    }
     while (!w.empty() && w.back() == L'\\') {
         w.pop_back();
     }

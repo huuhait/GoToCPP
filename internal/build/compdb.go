@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -108,14 +110,17 @@ func compDBRecord(cache, path string) string {
 // it is never written through). cache may be
 // "" (nothing is remembered; auto then only writes where nothing is).
 func WriteCompDBOwned(p *Plan, path, cache string, auto bool) (string, error) {
-	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
-		path = filepath.Join(path, "compile_commands.json")
-	}
 	data, err := p.CompDBJSON()
 	if err != nil {
 		return "", err
 	}
-	if abs, err := filepath.Abs(path); err == nil {
+	if !auto {
+		// The automatic write is always given a file name; a name that the person gave may be
+		// a folder, and says what it is with a trailing slash.
+		if path, err = compDBTarget(path); err != nil {
+			return path, err
+		}
+	} else if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
 	if auto {
@@ -149,6 +154,73 @@ func WriteCompDBOwned(p *Plan, path, cache string, auto bool) (string, error) {
 	return path, nil
 }
 
+// compDBTarget returns the file that the name a person gave (-compdb=name, gocpp export compdb
+// -o name) stands for, as an absolute name, or says why gocpp does not write there. The name is
+// looked at without following a link (os.Lstat), and decided like Go's -o:
+//   - a folder, or a name that ends with a slash, gets compile_commands.json; a folder that does
+//     not exist yet is made when the file is written (go build -o bin/ makes bin);
+//   - a file that does not exist, or a regular file, is the file;
+//   - a symbolic link is replaced by a file, as for the automatic write, never written through;
+//     but a link to a folder is refused unless the name ends with a slash (then the person said
+//     that the name is a folder, and the link is the way to it): the link is not silently
+//     replaced by a file, and nothing is written behind it by accident;
+//   - a named pipe, a socket or a device is refused: opening it would wait for ever or write to
+//     a device. A trailing slash on a name that is not a folder is refused too.
+func compDBTarget(name string) (string, error) {
+	folder := name != "" && os.IsPathSeparator(name[len(name)-1])
+	path := name
+	if abs, err := filepath.Abs(name); err == nil {
+		path = abs
+	}
+	fi, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if folder {
+			path = filepath.Join(path, "compile_commands.json")
+		}
+		return path, nil
+	case err != nil:
+		return path, err
+	}
+	mode := fi.Mode()
+	switch {
+	case mode.IsDir():
+		return filepath.Join(path, "compile_commands.json"), nil
+	case mode&fs.ModeSymlink != 0:
+		target, err := os.Stat(path)
+		switch {
+		case err == nil && target.IsDir() && folder:
+			return filepath.Join(path, "compile_commands.json"), nil
+		case err == nil && target.IsDir():
+			return path, fmt.Errorf("%s is a symbolic link to a folder: write %s%c to put compile_commands.json in the folder, "+
+				"or name a file", path, name, filepath.Separator)
+		case folder:
+			return path, fmt.Errorf("%s is a symbolic link that does not lead to a folder", path)
+		}
+		return path, nil // a link to a file, or a dangling one: replaced by the file
+	case !mode.IsRegular():
+		return path, fmt.Errorf("%s is not a regular file (%s): not writing the compilation database there", path, fileKind(mode))
+	case folder:
+		return path, fmt.Errorf("%s is a file, not a folder", path)
+	}
+	return path, nil
+}
+
+// fileKind says what a file that is not regular is.
+func fileKind(mode fs.FileMode) string {
+	switch {
+	case mode&fs.ModeNamedPipe != 0:
+		return "a named pipe"
+	case mode&fs.ModeSocket != 0:
+		return "a socket"
+	case mode&fs.ModeCharDevice != 0:
+		return "a character device"
+	case mode&fs.ModeDevice != 0:
+		return "a device"
+	}
+	return "an irregular file"
+}
+
 // recordCompDB remembers that gocpp wrote data to path.
 func recordCompDB(cache, path string, data []byte) {
 	if cache == "" {
@@ -163,8 +235,12 @@ func recordCompDB(cache, path string, data []byte) {
 // WriteFileIfChanged writes data to the file name unless it has these bytes already: through a
 // temporary file next to it and a rename.
 func WriteFileIfChanged(name string, data []byte) error {
-	if old, err := os.ReadFile(name); err == nil && bytes.Equal(old, data) {
-		return nil
+	// Only a regular file is read: a named pipe would wait for ever (a file that is not regular is
+	// replaced, like a link: the rename does not open it).
+	if fi, err := os.Lstat(name); err == nil && fi.Mode().IsRegular() {
+		if old, err := os.ReadFile(name); err == nil && bytes.Equal(old, data) {
+			return nil
+		}
 	}
 	return replaceFile(name, data)
 }

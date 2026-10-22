@@ -4,6 +4,7 @@
 // the choices of ftoa.go that the callers make. Copyright 2009 and 2021 The Go Authors, under the
 // BSD-style license of the Go project (THIRD_PARTY_NOTICES.txt). Standard C++ and the compilers'
 // unsigned __int128.
+#include <gocpp/nofortify.h>
 #include "ftoa.hpp"
 
 #include <cstddef>

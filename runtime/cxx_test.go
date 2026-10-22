@@ -41,9 +41,10 @@ import (
 const cmdTimeout = 10 * time.Minute
 
 // baseFlags are the driver's flags (Phase 02 §2.7), plus warnings as errors for the runtime's
-// own code.
+// own code, and GOCPP_RUNTIME_TEST: the test seams that only the runtime's tests use
+// (sys_selftest_retry, sys_selftest_poll_eintr) are built in these objects and in no program.
 var baseFlags = []string{"-std=c++20", "-fwrapv", "-fno-strict-aliasing", "-ffp-contract=off", "-fstack-clash-protection", "-g",
-	"-Wall", "-Wextra", "-Werror"}
+	"-Wall", "-Wextra", "-Werror", "-DGOCPP_RUNTIME_TEST=1"}
 
 // The modes: the driver's debug build, an optimized build, and the sanitizers. With
 // -fno-sanitize-recover=all, a sanitizer report stops the program with a nonzero exit code.
@@ -321,7 +322,10 @@ func TestCXX(t *testing.T) {
 						{src: "test/concepts_test.cpp", weight: 4},
 						{src: "test/lazy_test.cpp", weight: 3},
 						{src: "test/trace_test.cpp", weight: 3},
-						{src: "test/defer_test.cpp", weight: 3},
+						// -Wno-psabi: g++ notes that passing a parameter with 64-byte alignment
+						// changed its ABI in GCC 4.6, for the test's alignas(64) argument (the
+						// generated code has the flag too: build.GeneratedFlags).
+						{src: "test/defer_test.cpp", flags: []string{"-Wno-psabi"}, weight: 3},
 						{src: "test/func_test.cpp", weight: 3},
 						{src: "test/type_test.cpp", weight: 4},
 						{src: "test/iface_test.cpp", weight: 7},
@@ -999,6 +1003,57 @@ func TestSymbols(t *testing.T) {
 				// race.cpp is empty unless the runtime is built for -race (GOCPP_RACE).
 				if n == 0 && !strings.HasSuffix(s, "/race.cpp") {
 					t.Errorf("nm found no global symbols in %s:\n%s", s, out)
+				}
+			}
+		})
+	}
+}
+
+// TestSelftestSeamsAreTestOnly: sys_selftest_retry and sys_selftest_poll_eintr are test seams of
+// runtime/test/syscall_test.cpp. The runtime's own test build defines GOCPP_RUNTIME_TEST and has
+// them; the library that programs link (no such macro) does not export them.
+func TestSelftestSeamsAreTestOnly(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the seams are in the Linux OS layer")
+	}
+	t.Parallel()
+	ccs := compilers(t)
+	nm, err := exec.LookPath("nm")
+	if err != nil {
+		t.Skipf("no nm: %v", err)
+	}
+	rt := extractRuntime(t)
+	src := filepath.Join(rt, "src", "os", "linux", "posix_file.cpp")
+	for _, c := range ccs {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			dir := t.TempDir()
+			defined := func(withSeams bool) string {
+				flags := c.flags([]string{"-O0"})
+				if !withSeams {
+					flags = slices.DeleteFunc(flags, func(f string) bool { return f == "-DGOCPP_RUNTIME_TEST=1" })
+				}
+				obj := filepath.Join(dir, fmt.Sprint("posix_file_", withSeams, ".o"))
+				args := append(flags, "-I", filepath.Join(rt, "include"), "-c", src, "-o", obj)
+				if err := c.compileCmd(prioRT, dir, nil, args); err != nil {
+					t.Fatal(err)
+				}
+				out, _, code, err := command(dir, nil, true, nm, "--defined-only", "-C", obj)
+				if err != nil || code != 0 {
+					t.Fatalf("nm %s: exit %d %v\n%s", obj, code, err, out)
+				}
+				return string(out)
+			}
+			withSeams, withoutSeams := defined(true), defined(false)
+			for _, name := range []string{"sys_selftest_retry", "sys_selftest_poll_eintr"} {
+				if !strings.Contains(withSeams, name) {
+					t.Errorf("the test build of posix_file.cpp does not define %s (syscall_test.cpp needs it)", name)
+				}
+				if strings.Contains(withoutSeams, name) {
+					t.Errorf("the production build of posix_file.cpp defines the test seam %s", name)
 				}
 			}
 		})

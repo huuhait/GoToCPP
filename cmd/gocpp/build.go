@@ -174,9 +174,11 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		goes to the two places even for -release and replaces a file; a
 		symbolic link is replaced by the file, never written through
 		(to fill the file behind a link: gocpp export compdb -o path).
-		-compdb=path goes to that file or folder, -compdb=false turns
-		the automatic write off (a file that is there stays). gocpp
-		export compdb does only this
+		-compdb=path goes to that file or folder (a name that ends with
+		a slash is a folder, made if missing; a named pipe, a socket or
+		a device, and a link to a folder without the slash, are
+		refused), -compdb=false turns the automatic write off (a file that
+		is there stays). gocpp export compdb does only this
 	-cpperrors mode
 		short (the default) or full: full shows the whole output of
 		the C++ compiler or the linker when the program's C++ doesn't

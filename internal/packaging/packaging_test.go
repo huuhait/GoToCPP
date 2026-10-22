@@ -3,6 +3,7 @@ package packaging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -198,22 +199,66 @@ func TestGoReleaserCheck(t *testing.T) {
 	}
 }
 
-// TestFlakeVendorHash: the vendorHash of the Nix package belongs to go.mod and go.sum. The
-// comment above it holds the sha256 of both files at the time the hash was made; when they
-// change, the hash must be made again (the comment says how), or nix build fails with a hash
-// mismatch for everyone.
-func TestFlakeVendorHash(t *testing.T) {
-	flake := readRepoFile(t, "flake.nix")
+// vendorStamp checks the vendorHash of flake.nix against go.mod and go.sum: stale is what is wrong
+// with the stamp (the hash goes with the two files, so it must be made again when they change),
+// bad is what is wrong with the hash itself.
+func vendorStamp(flake, gomod, gosum string) (stale, bad string) {
 	m := regexp.MustCompile(`go\.mod\+go\.sum sha256: ([0-9a-f]{64})`).FindStringSubmatch(flake)
 	if m == nil {
-		t.Fatal("flake.nix: no 'go.mod+go.sum sha256: <hex>' comment above vendorHash")
+		return "", "flake.nix: no 'go.mod+go.sum sha256: <hex>' comment above vendorHash"
 	}
-	sum := sha256.Sum256([]byte(readRepoFile(t, "go.mod") + readRepoFile(t, "go.sum")))
+	sum := sha256.Sum256([]byte(gomod + gosum))
 	if got := hex.EncodeToString(sum[:]); got != m[1] {
-		t.Errorf("go.mod or go.sum changed since the vendorHash of flake.nix was made (stamp %s, now %s): update the vendorHash and the stamp (see the comment in flake.nix)", m[1], got)
+		stale = fmt.Sprintf("go.mod or go.sum changed since the vendorHash of flake.nix was made (stamp %s, now %s): run make flake-hash", m[1], got)
 	}
 	if !regexp.MustCompile(`vendorHash = "sha256-[A-Za-z0-9+/]{43}=";`).MatchString(flake) {
-		t.Error(`flake.nix: vendorHash is not a sha256 SRI hash (lib.fakeHash left in?)`)
+		bad = `flake.nix: vendorHash is not a sha256 SRI hash (lib.fakeHash left in?)`
+	}
+	return stale, bad
+}
+
+// TestFlakeVendorHash: the vendorHash of the Nix package belongs to go.mod and go.sum. The
+// comment above it holds the sha256 of both files at the time the hash was made; when they
+// change, the hash must be made again (make flake-hash), or nix build fails with a hash
+// mismatch for everyone. A stale stamp is a failure only under GOCPP_REQUIRE_PACKAGING=1 (make
+// package-check, the release steps); otherwise it is logged and the test skips, so that changing
+// a dependency does not turn go test red until the hash is made (it needs Nix and the network).
+func TestFlakeVendorHash(t *testing.T) {
+	stale, bad := vendorStamp(readRepoFile(t, "flake.nix"), readRepoFile(t, "go.mod"), readRepoFile(t, "go.sum"))
+	if bad != "" {
+		t.Error(bad)
+	}
+	if stale == "" {
+		return
+	}
+	if os.Getenv("GOCPP_REQUIRE_PACKAGING") != "" {
+		t.Error(stale)
+		return
+	}
+	t.Skip(stale + " (a failure under GOCPP_REQUIRE_PACKAGING=1)")
+}
+
+// TestVendorStamp: the decisions of TestFlakeVendorHash, with files of the test's own.
+func TestVendorStamp(t *testing.T) {
+	const hash = `vendorHash = "sha256-yQpnSIS+F8ANLTm1WdUe1Nc8me1LK98G0gjQQ8vaC6o=";`
+	sum := sha256.Sum256([]byte("go.mod text" + "go.sum text"))
+	stamp := "# go.mod+go.sum sha256: " + hex.EncodeToString(sum[:]) + "\n"
+	for _, tc := range []struct {
+		name, flake, gomod, gosum string
+		stale, bad                bool
+	}{
+		{"current", stamp + hash, "go.mod text", "go.sum text", false, false},
+		{"go.mod changed", stamp + hash, "go.mod text!", "go.sum text", true, false},
+		{"go.sum changed", stamp + hash, "go.mod text", "go.sum text!", true, false},
+		{"fake hash", stamp + `vendorHash = lib.fakeHash;`, "go.mod text", "go.sum text", false, true},
+		{"no stamp", hash, "go.mod text", "go.sum text", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stale, bad := vendorStamp(tc.flake, tc.gomod, tc.gosum)
+			if (stale != "") != tc.stale || (bad != "") != tc.bad {
+				t.Errorf("vendorStamp = (%q, %q), want stale %v, bad %v", stale, bad, tc.stale, tc.bad)
+			}
+		})
 	}
 }
 

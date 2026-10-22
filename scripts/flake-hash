@@ -1,0 +1,83 @@
+#!/bin/sh
+# flake-hash: make the vendorHash of flake.nix again after go.mod or go.sum changed
+# (make flake-hash; TestFlakeVendorHash, internal/packaging, says when it is needed).
+#
+# The hash is the one of the Go modules that Nix downloads for the package; only Nix can compute
+# it. The script puts Nix's fake hash in flake.nix, runs `nix build .#gocpp` (which needs the
+# network the first time and fails with a hash mismatch), reads the hash that Nix reports, and
+# writes it with the new stamp (the sha256 of go.mod followed by go.sum) into flake.nix. When the
+# build fails for another reason, flake.nix stays as it was. Nothing else is touched.
+#
+#   scripts/flake-hash        redo the hash if the stamp is out of date
+#   scripts/flake-hash -f     redo it even when the stamp is current
+#
+# NIX names the nix command (default nix); the tests use a fake one.
+set -eu
+
+force=0
+if [ "${1:-}" = "-f" ]; then
+	force=1
+elif [ $# -gt 0 ]; then
+	echo "usage: scripts/flake-hash [-f]" >&2
+	exit 2
+fi
+
+cd "$(dirname "$0")/.."
+nix=${NIX:-nix}
+fake='sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+
+stamp=$(cat go.mod go.sum | sha256sum | cut -d' ' -f1)
+old=$(sed -n 's/.*go\.mod+go\.sum sha256: \([0-9a-f]\{64\}\).*/\1/p' flake.nix)
+if [ -z "$old" ]; then
+	echo "flake-hash: flake.nix has no 'go.mod+go.sum sha256: <hex>' comment above vendorHash" >&2
+	exit 1
+fi
+if [ "$old" = "$stamp" ] && [ "$force" = 0 ]; then
+	echo "flake-hash: the vendorHash of flake.nix is current (stamp $stamp); -f redoes it anyway"
+	exit 0
+fi
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/gocpp-flake-hash.XXXXXX")
+cp flake.nix "$work/flake.nix.orig"
+nixpid=
+restore() {
+	status=$?
+	if [ -n "$nixpid" ]; then
+		kill "$nixpid" 2>/dev/null || true
+	fi
+	if [ "$status" -ne 0 ]; then
+		cp "$work/flake.nix.orig" flake.nix
+	fi
+	rm -rf "$work"
+	exit "$status"
+}
+# A signal ends the script through the EXIT trap too: flake.nix must not stay with the fake hash.
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+trap restore EXIT
+
+# Step 1: the fake hash, so that the build says what the real one is.
+sed -i "s|vendorHash = \"sha256-[A-Za-z0-9+/]\{43\}=\";|vendorHash = \"$fake\";|" flake.nix
+if [ -z "$(sed -n "/vendorHash = \"$fake\";/p" flake.nix)" ]; then
+	echo "flake-hash: no vendorHash = \"sha256-...\"; line in flake.nix" >&2
+	exit 1
+fi
+
+# Step 2: the build. It fails with "specified: ... got: sha256-..." (the exit status is not
+# looked at: the text is).
+# (in the background and waited for: a trap runs only when the foreground command is done)
+"$nix" build .#gocpp --no-link >"$work/build.log" 2>&1 &
+nixpid=$!
+wait "$nixpid" || true
+nixpid=
+got=$(sed -n 's/^ *got: *\(sha256-[A-Za-z0-9+/]\{43\}=\).*/\1/p' "$work/build.log" | head -n 1)
+if [ -z "$got" ]; then
+	echo "flake-hash: nix build did not report a hash; its output:" >&2
+	cat "$work/build.log" >&2
+	exit 1
+fi
+
+# Step 3: the hash and the stamp.
+sed -i "s|vendorHash = \"$fake\";|vendorHash = \"$got\";|" flake.nix
+sed -i "s|go\.mod+go\.sum sha256: [0-9a-f]\{64\}|go.mod+go.sum sha256: $stamp|" flake.nix
+echo "flake-hash: vendorHash $got, stamp $stamp"

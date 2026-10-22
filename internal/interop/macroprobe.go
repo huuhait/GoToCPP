@@ -114,6 +114,9 @@ func (c *cache) probeMacros(ctx context.Context, cxx build.CXX, dir string, flag
 	if err := checkArgs(flags, includes); err != nil {
 		return Macros{}, fmt.Errorf("macro probe: %w", err)
 	}
+	if err := checkLocalHeaders(dir, includes); err != nil {
+		return Macros{}, fmt.Errorf("macro probe: %w", err)
+	}
 	if cxx.Family != build.Clang && cxx.Family != build.GCC {
 		return Macros{}, fmt.Errorf("macro probe: %w", unknownFamily(cxx))
 	}

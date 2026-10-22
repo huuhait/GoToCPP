@@ -301,6 +301,9 @@ func TestCompdbTargets(t *testing.T) {
 	d.flags.extra.mode = build.Profile{}
 	d.flags.extra.compdb = "out.json"
 	expect("-compdb=out.json", filepath.Join(dir, "out.json"))
+	d.flags.extra.compdb = "newdir/"
+	expect("-compdb=newdir/", filepath.Join(dir, "newdir")+"/")
+	d.flags.extra.compdb = "out.json"
 	abs := filepath.Join(os.TempDir(), "x.json")
 	d.flags.extra.compdb = abs
 	expect("-compdb="+abs, abs)

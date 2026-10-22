@@ -340,7 +340,10 @@ files are in `gen/<hash>` of the cache folder (the same folder for every build o
 and the others in their own folders, so a tool can open them after the build; `-o` and the object file are left out
 (the objects are in the work folder, which is gone). The entries are sorted by file, and the file is replaced
 only when its content changes. Without a value `-compdb` writes to the generated folder and to the module's folder
-(the one with `gocpp.mod`; else the package's folder); with a value, to that file or folder. What a debug build writes
+(the one with `gocpp.mod`; else the package's folder); with a value, to that file or folder: like Go's `-o`, a name that
+is a folder or ends with a slash (`-o out/`, made if missing) gets `compile_commands.json`, a name that does not exist
+is the file, a named pipe, a socket or a device is refused, and a link to a folder is refused unless the name ends
+with a slash (ADR-044, amended 2026-10-22). What a debug build writes
 by itself is the same, except that the module's copy is only `gocpp build`'s for the host, of a program in a module
 (`run`, `test`, `debug`, a cross-compile and a loose `.gp` file write the generated folder's copy only; with several
 programs in a module it holds the last one built), that nothing is written when there is no cache folder (the build is

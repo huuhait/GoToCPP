@@ -66,7 +66,7 @@ func (r *runner) modules() *moduleState {
 		return ms
 	}
 	ms.main = list.Main
-	ms.roots = append(ms.roots, &root{importPath: list.Main.Path, dir: list.Main.Dir, fsys: os.DirFS(list.Main.Dir), inModule: true})
+	ms.roots = append(ms.roots, &root{importPath: list.Main.Path, dir: list.Main.Dir, fsys: load.DirFS(list.Main.Dir), inModule: true})
 	// go list -m all: the main module first, then the others sorted by path.
 	deps := slices.Clone(list.Deps)
 	slices.SortStableFunc(deps, func(a, b *load.Dependency) int { return strings.Compare(a.Path, b.Path) })
@@ -76,7 +76,7 @@ func (r *runner) modules() *moduleState {
 			continue
 		}
 		ms.deps = append(ms.deps, d)
-		ms.roots = append(ms.roots, &root{importPath: d.Path, dir: d.Dir, fsys: os.DirFS(d.Dir), inModule: true})
+		ms.roots = append(ms.roots, &root{importPath: d.Path, dir: d.Dir, fsys: load.DirFS(d.Dir), inModule: true})
 	}
 	return ms
 }
@@ -268,5 +268,5 @@ func (r *runner) importDir(dir string) (*Package, error) {
 			importPath += "/" + filepath.ToSlash(rel)
 		}
 	}
-	return r.env.readPackage(os.DirFS(dir), ".", filepath.ToSlash(dir), importPath, false)
+	return r.env.readPackage(load.DirFS(dir), ".", filepath.ToSlash(dir), importPath, false)
 }

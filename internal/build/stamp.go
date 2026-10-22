@@ -228,9 +228,10 @@ func (r *FSRecorder) add(op fsOp) {
 	r.ops = append(r.ops, op)
 }
 
-// ReadFile reads the file name like os.ReadFile and records it.
+// ReadFile reads the file name like load.ReadRegular (a named pipe is an error, not a wait) and
+// records it.
 func (r *FSRecorder) ReadFile(name string) ([]byte, error) {
-	return r.readFile(name, os.ReadFile)
+	return r.readFile(name, load.ReadRegular)
 }
 
 // ReadFileLimit reads a regular file of at most limit bytes, without following a link, and

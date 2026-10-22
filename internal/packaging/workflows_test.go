@@ -376,6 +376,16 @@ func TestReleaseWorkflowPreflightRunsTheWorkflowChecks(t *testing.T) {
 			t.Errorf("release.yml's preflight lacks %s, which make workflow-check runs", name)
 		}
 	}
+	// A stale vendorHash must stop a tag: the stamp test fails, not skips, with this set on the step
+	// that runs it (make ci skips it).
+	if !strings.Contains(fromMakefile[1], "TestFlakeVendorHash") {
+		t.Error("make workflow-check does not run TestFlakeVendorHash")
+	}
+	stepStart := strings.LastIndex(preflight[:strings.Index(preflight, "TestFlakeVendorHash")], "- name:")
+	stepText := preflight[stepStart:strings.Index(preflight, "TestFlakeVendorHash")]
+	if !strings.Contains(stepText, "GOCPP_REQUIRE_PACKAGING:") {
+		t.Error("release.yml: the step that runs TestFlakeVendorHash must set GOCPP_REQUIRE_PACKAGING")
+	}
 }
 
 var customShellPattern = regexp.MustCompile(`(?m)^\s+shell: (nix develop -c bash.*)$`)

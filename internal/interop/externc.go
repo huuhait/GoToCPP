@@ -3,7 +3,9 @@ package interop
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/winpath"
 )
 
@@ -144,7 +147,12 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 	}
 	path = filepath.Clean(path)
 	var res CHeader
-	text, err := os.ReadFile(path)
+	text, err := load.ReadRegular(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// A named pipe or a device would make the compiler wait for ever, and a header that can't
+		// be read fails the compile anyway.
+		return CHeader{}, fmt.Errorf("parse-as-C check: %w", err)
+	}
 	exists := err == nil
 	res.Guard = cplusplusRx.Match(text)
 

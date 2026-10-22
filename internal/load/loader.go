@@ -1,6 +1,7 @@
 package load
 
 import (
+	"bytes"
 	"cmp"
 	"container/heap"
 	"errors"
@@ -156,9 +157,26 @@ type FileSystem interface {
 // osFS is the FileSystem of the operating system.
 type osFS struct{}
 
-func (osFS) ReadFile(name string) ([]byte, error)       { return os.ReadFile(name) }
 func (osFS) ReadDir(name string) ([]fs.DirEntry, error) { return os.ReadDir(name) }
 func (osFS) Stat(name string) (fs.FileInfo, error)      { return os.Stat(name) }
+
+// ReadFile reads a regular file (or a link to one); see ReadRegular.
+func (osFS) ReadFile(name string) ([]byte, error) { return ReadRegular(name) }
+
+// ReadRegular reads the file name like os.ReadFile, but a named pipe, a socket or a device with
+// the name of a source is an error, not a read that waits for ever (see openRegular). The reads of
+// the sources and of the module file by the loader, gocpp build's recorder (build.FSRecorder), the
+// commands and the C header checks go through it; the language server's own reads do not.
+func ReadRegular(name string) ([]byte, error) {
+	f, size, err := openRegular(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	buf := bytes.NewBuffer(make([]byte, 0, size+bytes.MinRead))
+	_, err = buf.ReadFrom(f)
+	return buf.Bytes(), err
+}
 
 // A Program is what Load loaded: the packages that the patterns name and
 // every package that they import, directly or not.

@@ -1,0 +1,165 @@
+#!/bin/sh
+# clean-tmp: remove the leftovers that gocpp's tests and builds leave in the temporary folder
+# (make clean-tmp; make clean-tmp-dry shows what it would remove).
+#
+#   scripts/clean-tmp [-n] [-a minutes]
+#     -n            dry run: print what would be removed, remove nothing
+#     -a minutes    only entries that nothing in them changed for this long (default 1440, one day):
+#                   a build that is still running keeps writing into its folder
+#
+# What it touches: the entries directly in $TMPDIR (/tmp when it is not set) whose names start with
+# a gocpp prefix (gocpp-*: build work folders, test folders, the extracted runtime; gp-ssh-*: the
+# control sockets of the Windows runner; gp-nsprobe*), and only if they are owned by you, are not
+# symbolic links, and have not changed for the age. It never removes $TMPDIR itself, other
+# folders (nix-shell.* belong to shells that may be running), or anything behind a link. An
+# entry that a process has as its working folder (/proc/*/cwd on Linux, else fuser) is left too, and
+# a tree that is read-only is made writable (inside the entry only) to be removed. An entry with a
+# mount point inside is left (rm would empty the folder that is mounted there).
+# Folders that `nix develop` made are for that shell: run this from inside one to clean its TMPDIR.
+set -eu
+
+dry=0
+age=1440
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-n) dry=1 ;;
+	-a)
+		shift
+		age=${1:-}
+		;;
+	*)
+		echo "usage: scripts/clean-tmp [-n] [-a minutes]" >&2
+		exit 2
+		;;
+	esac
+	shift
+done
+case "$age" in
+'' | *[!0-9]*)
+	echo "clean-tmp: -a wants a number of minutes" >&2
+	exit 2
+	;;
+esac
+
+root=${TMPDIR:-/tmp}
+root=${root%/}
+# Never the root of the file system or the home folder.
+if [ -z "$root" ] || [ ! -d "$root" ] || [ -L "$root" ]; then
+	echo "clean-tmp: TMPDIR '${TMPDIR:-/tmp}' is not a plain folder; not touching anything" >&2
+	exit 1
+fi
+real=$(cd "$root" && pwd -P)
+if [ "$real" = "/" ] || [ "$real" = "${HOME:-/nonexistent}" ]; then
+	echo "clean-tmp: TMPDIR is $real; not touching anything" >&2
+	exit 1
+fi
+
+# The working folders of the processes that can be seen, one per line (Linux).
+nl='
+'
+cwds=
+if [ -d /proc/self ]; then
+	cwds=$(readlink /proc/[0-9]*/cwd 2>/dev/null || true)
+fi
+
+# has_mount_inside reports whether the folder $1 is a mount point or has one below it: the mount
+# points are in /proc/self/mountinfo, with a space, a tab, a newline and a backslash written as
+# \040, \011, \012 and \134. Where there is no such table, a different device number (find -xdev)
+# is the best that is known (it does not see the folder itself, nor a bind mount of the same file
+# system).
+has_mount_inside() {
+	if [ -r /proc/self/mountinfo ]; then
+		escaped=$(printf '%sx' "$1" | sed -e 's/\\/\\134/g' -e 's/ /\\040/g' -e 's/\t/\\011/g')
+		escaped=${escaped%x} # (the x keeps a newline at the end of the name from being cut)
+		# (the newlines in the shell: sed works on lines)
+		while :; do
+			case "$escaped" in
+			*"$nl"*) escaped=${escaped%%"$nl"*}'\012'${escaped#*"$nl"} ;;
+			*) break ;;
+			esac
+		done
+		while read -r _ _ _ _ mountpoint _; do
+			case "$mountpoint" in
+			"$escaped" | "$escaped"/*) return 0 ;;
+			esac
+		done </proc/self/mountinfo
+		return 1
+	fi
+	[ "$(find "$1" 2>/dev/null | wc -l)" != "$(find "$1" -xdev 2>/dev/null | wc -l)" ]
+}
+
+# GNU rm can be told to stay on one file system (a mount point that appears after the check above).
+onefs=
+case "$(rm --version 2>/dev/null)" in
+*GNU*) onefs=--one-file-system ;;
+esac
+
+count=0
+kilobytes=0
+failed=0
+for entry in "$real"/gocpp-* "$real"/gp-ssh-* "$real"/gp-nsprobe*; do
+	# (a pattern that matches nothing stays as it is)
+	if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+		continue
+	fi
+	if [ -L "$entry" ]; then
+		echo "clean-tmp: skipping $entry (a symbolic link)"
+		continue
+	fi
+	if [ ! -O "$entry" ]; then
+		echo "clean-tmp: skipping $entry (not yours)"
+		continue
+	fi
+	# Anything in the entry that changed within the age: it may be in use.
+	if [ -n "$(find "$entry" -mmin "-$age" -print -quit 2>/dev/null)" ]; then
+		echo "clean-tmp: skipping $entry (changed within $age minutes)"
+		continue
+	fi
+	if [ -d /proc/self ]; then
+		case "$nl$cwds$nl" in
+		*"$nl$entry$nl"* | *"$nl$entry/"*)
+			echo "clean-tmp: skipping $entry (a process has it as its working folder)"
+			continue
+			;;
+		esac
+	elif [ -d "$entry" ] && command -v fuser >/dev/null 2>&1 && fuser -s "$entry" 2>/dev/null; then
+		echo "clean-tmp: skipping $entry (a process uses it)"
+		continue
+	fi
+	# A mount point inside the entry (a bind mount of a folder somewhere else): rm would empty the
+	# folder behind it. A bind mount of the same file system has the same device number, so
+	# find -xdev and rm --one-file-system do not see it: the table of mounts does (Linux).
+	if has_mount_inside "$entry"; then
+		echo "clean-tmp: skipping $entry (it has a mount point inside)"
+		continue
+	fi
+	# (the first line only: a name with a newline makes du print more)
+	size=$(du -sk -- "$entry" 2>/dev/null | head -n 1 | cut -f1)
+	case "$size" in
+	'' | *[!0-9]*) size=0 ;;
+	esac
+	if [ "$dry" = 1 ]; then
+		echo "would remove $entry (${size} KB)"
+	else
+		# A folder without write permission keeps rm from removing what is in it. find does not
+		# follow links, so this stays inside the entry.
+		find "$entry" -xdev -type d ! -perm -u+rwx -exec chmod u+rwx {} \; 2>/dev/null || true
+		if ! rm -rf $onefs -- "$entry"; then
+			echo "clean-tmp: could not remove $entry" >&2
+			failed=$((failed + 1))
+			continue
+		fi
+		echo "removed $entry (${size} KB)"
+	fi
+	count=$((count + 1))
+	kilobytes=$((kilobytes + size))
+done
+if [ "$dry" = 1 ]; then
+	echo "clean-tmp: $count entries (${kilobytes} KB) would be removed from $real"
+else
+	echo "clean-tmp: removed $count entries (${kilobytes} KB) from $real"
+fi
+if [ "$failed" -gt 0 ]; then
+	echo "clean-tmp: $failed entries could not be removed" >&2
+	exit 1
+fi

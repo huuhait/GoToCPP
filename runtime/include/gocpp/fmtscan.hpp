@@ -124,7 +124,7 @@ std::tuple<int64_t, gp::error> scanf_reader(const iface& r, std::string_view for
 std::tuple<int64_t, gp::error> scan_stdin(bool nl_is_space, bool nl_is_end, const arg* a,
                                           std::size_t n, live_span live = {});
 std::tuple<int64_t, gp::error> scanf_stdin(std::string_view format, const arg* a, std::size_t n,
-                                         live_span live = {});
+                                           live_span live = {});
 
 } // namespace detail
 
