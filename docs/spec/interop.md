@@ -259,7 +259,14 @@ Output:
   - `header "./bad.h" doesn't compile: bad.h:3:12: <the compiler's first message>`: the header,
     or a header that it includes, has an error.
   - `header "./bad.h" ends inside a declaration or a block that it doesn't close`: for example
-    an `extern "C" {` without its `}`.
+    an `extern "C" {` without its `}`, or a last declaration without its `;` (`int f(void)`): the
+    build includes the header in front of other code, so the declaration would swallow it.
+  - `header "./b.h" doesn't compile with the headers of the other files of the package: b.h:1:5: ...`:
+    the build includes the headers of **all** the files of a package in every C++ file of it, so two
+    headers that are fine alone and conflict together (the same function with C linkage in a `.h` and
+    with C++ linkage in a header that includes `<string>`) are an error, at the import of the later
+    header. It is reported only when the headers of every file work on their own, and only for
+    packages whose files import different headers.
   - `header "./x.h" can't be read: <the compiler's message>`: for example no read permission.
   - A local header that is not a file: a folder gives `cannot find header "./x.h"`, and a named
     pipe, a socket or a device gives `cannot check the header imports: kind probe: open ...: not a
@@ -696,8 +703,16 @@ index (with Go's bounds checks), slicing (`xs[1:]` shares the array), `range` (t
 copies) and `v, ok := m[k]` work as for any other.
 
 **Constants.** A constant can't be made from a C/C++ variable or call: `const d = x + 1` with
-`var x C.int` is "x + 1 (C/C++ value) is not constant", as in Go. (C macros in constants come
-with Phase 12.)
+`var x C.int` is "x + 1 (C/C++ value) is not constant", as in Go. `gocpp check`, the editor and the
+build all report it for a variable of your own (a local, a parameter, a package variable) and for a call
+of a Go function in the value. A C/C++ **name** from a header in a constant expression,
+`const n = cstdio.BUFSIZ`, is the gate "C/C++ names in constant expressions are not supported yet
+(Phase 12)" in opaque mode; typed interop probes the name, accepts a macro, an enumerator and a
+`constexpr` variable, and reports a variable of a header as not constant. Only with the gates open
+(`GOCPP_GATE_PHASE=15`) does `gocpp check` not know whether `lib.f(1)` in a constant calls a function
+or converts to a type, and in opaque mode whether `lib.cvar + 1` is a variable: then only the build
+reports `lib.f(1)` (`(C/C++ value) is not constant`), and for `lib.cvar + 1` it stops with an internal
+error at the use of the constant (`not supported yet: the identifier`).
 
 **gocpp values inside C++ values.** A gocpp value that comes back through C++ (a field of an
 element of a `std.vector[*Node]`: `nodes[0].N`) has no gocpp type for the compiler: it is a
@@ -2584,9 +2599,12 @@ Or name the header `.hpp` when only C++ uses it. A `.h` header with a `.c` file 
 - The header is a package named after the file (`mathx`, `ledger`), with the usual
   [naming rules](#header-packages-and-their-names). **Name a helper header yourself** when its
   default name is not usable: `main.h` next to `main.gp` has the name `main`, which the package
-  already declares (`main.mn` is then Go's `func main` and its error is a bare `undefined`:
-  write `import mh "./main.h"`), and `./3d.h` has no name at all (a Go name can't start with a
-  digit: `import d3 "./3d.h"`). A file name with `-` is fine (`my-lib.h` is `my_lib`). When it also declares a namespace of that
+  already declares (`main.mn` is then Go's `func main`: the error is go/types' `main.mn undefined`
+  with the hint `"./main.h" has no package name, because main is declared by the package: give it a
+  name: import cmain "./main.h"` after it; write `import mh "./main.h"`), and `./3d.h` has no name at
+  all (a Go name can't start with a digit: `undefined: d3; "./3d.h" has no package name, because 3d
+  is not a valid Go name: ...`, then `import d3 "./3d.h"`; the hint is left out for a name that looks like a
+  typo of a name the file can see, `strngs.Join` with `"strings"` imported). A file name with `-` is fine (`my-lib.h` is `my_lib`). When it also declares a namespace of that
   name, `ledger.book` is `::ledger::book` (the namespace first) and `ledger.ledger_total` is the
   C-level `::ledger_total`.
 - A `.h` file that parses as C is wrapped in `extern "C"`, so a `.c` file defines what it
@@ -2872,13 +2890,12 @@ compiler decides. They fall in three groups.
 
 These are known, small, and listed in the plan's TODO; each has a workaround.
 
-- **Constants from C values are rejected late.** `const d = x + 1` with `var x C.int` is an error ("is not
-  constant", as in Go), but `gocpp check` and the editor accept it: only the build reports it.
-- **A header whose default name is a keyword**, used by that name, is a parse error before gocpp can ask for
-  a name: `import "<sys/select.h>"` and then `select.FD_SETSIZE` is "expected operand, found 'select'".
-  Import it with a name, `import sel "<sys/select.h>"`.
-- **A named gocpp array or slice of C elements**: `type Chars [1]C.char; var a Chars; a[0] = 1` is
-  "internal error: expression has no type: a[0]". Use the unnamed type (`var a [1]C.char`) or a struct.
+- **A named type over C/C++ types** (`type Count C.int`, and `type Chars [4]C.char`, `type List []C.int`,
+  `type Dict map[string]C.int`, `type Ptr *C.int`, `type Fn func() C.int` over C elements, keys, parameters
+  or results): `gocpp check` and the editor accept them, and the build stops at the declaration with
+  `internal error: not supported yet: named types declared over C/C++ types (Chars, a later step of Phase 04)`.
+  A struct with C fields (`type Q struct{ n C.int }`) and a container of such a struct are written. Use the
+  unnamed type (`var a [4]C.char`) or a struct that holds it.
 - **A C char array or a `char*` compared with a string constant** is an error at the line (C++ would compare
   addresses, silently false for an array): `rec.name == "bob"` is "invalid operation: comparing a C string
   (char*) with a Go string compares addresses: use C.GoString(x) == "..." (or strcmp)". Compare text:
@@ -2886,13 +2903,6 @@ These are known, small, and listed in the plan's TODO; each has a workaround.
   `std::string` compares by content. The check sees the C++ type, so it is a `C++:` error from the
   compiler, and only for a string constant: a char pointer next to a Go string variable is the mismatched-types
   error above.
-- **A header problem that no probe sees**: a header that ends in the middle of a declaration passes
-  `gocpp check` and then fails the build as an "internal error", and two headers imported by different files of
-  one package that conflict with each other (the same function with C and with C++ linkage) are reported as
-  gocpp's bug too. `-cpperrors=full` shows the compiler's real message.
-- **Helper header names**: a header whose default name is unusable and which is used by that name
-  (`main.h` next to `main.gp`, `./3d.h`) gets a bare "undefined" error, without the hint for the other
-  names. Name it in the import ([small helpers](#small-helpers-a-header-next-to-the-gp-file)).
 - **A `.h` next to a `.cpp` of the same name** needs `//gocpp:no-extern-c` or guards (the trap above).
 - **No C-only flag**: `//gocpp:cflags` and `GOCPP_CFLAGS` reach C and C++; there is no `-std=gnu11` for C only.
 - **The language server** does not show the errors of `.c` and `.cpp` files (it lists `.gp` files only).

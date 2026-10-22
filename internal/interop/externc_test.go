@@ -46,17 +46,17 @@ func TestSplitExternC(t *testing.T) {
 func TestMakeProbeExternC(t *testing.T) {
 	pf := makeProbe([]string{"<vector>", ExternC(`"./c.h"`), "<cstdio>", ExternC("<lua.h>")}, [][]string{{"std"}}, false)
 	want := `#include <vector>
-; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 extern "C" {
 #include "./c.h"
 }
-; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
 #include <cstdio>
-; template <class> struct gp_inc_2; using gp_inc_2_c = ::gp_inc_2<int>;
+template <class> struct gp_inc_2; using gp_inc_2_c = ::gp_inc_2<int>;
 extern "C" {
 #include <lua.h>
 }
-; template <class> struct gp_inc_3; using gp_inc_3_c = ::gp_inc_3<int>;
+template <class> struct gp_inc_3; using gp_inc_3_c = ::gp_inc_3<int>;
 #if defined(std)
 #error gp_kind_macro
 #else

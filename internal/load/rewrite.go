@@ -220,6 +220,14 @@ func RewriteFile(fset *token.FileSet, f *ast.File, info *FileInfo, pkgLevel map[
 			r.wouldBe[inc.WouldBe] = append(r.wouldBe[inc.WouldBe], inc)
 		}
 	}
+	for _, inc := range info.Includes {
+		switch inc.Why {
+		case Keyword, NotAName, UsedByPackage:
+			if inc.Name == "" && inc.WouldBe != "" {
+				inc.Hint = inc.NoNameHint(r.suggestion(inc))
+			}
+		}
+	}
 
 	for _, d := range f.Decls {
 		if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.IMPORT {
@@ -492,6 +500,27 @@ func (r *rewriter) noNameHint(incs []*Include) string {
 	}
 	return fmt.Sprintf("%s has no package name%s: give it %s: import %s %s",
 		headerText(inc), why, give, r.suggestion(inc), strconv.Quote(inc.Path))
+}
+
+// NoNameHint returns the message that asks for a name for the header inc, whose default name is
+// a keyword, is no Go name or is declared by the package (Include.Why), with name as the example:
+//
+//	<sys/select.h> has no package name, because select is a Go keyword: give it a name: import
+//	cselect "<sys/select.h>"
+//
+// It is "" for a header with another reason: those have their hint at the use (noNameHint).
+func (inc *Include) NoNameHint(name string) string {
+	var why string
+	switch inc.Why {
+	case Keyword, NotAName:
+		why = notANameText(inc.WouldBe, inc.Why)
+	case UsedByPackage:
+		why = inc.WouldBe + " is declared by the package"
+	default:
+		return ""
+	}
+	return fmt.Sprintf("%s has no package name, because %s: give it a name: import %s %s",
+		headerText(inc), why, name, strconv.Quote(inc.Path))
 }
 
 // suggestion returns the name that the hint suggests for the header inc:

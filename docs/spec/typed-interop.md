@@ -672,7 +672,7 @@ probes, the declaration parts and their refusals.
 
 [ADR-097](../adr/097-typed-interop-puts-the-values-of-c-constants-into-the-program-before-go-types.md) has the
 reasons. Stock `go/types` cannot evaluate a C/C++ name (it is opaque), so `[cstdio.BUFSIZ]byte`, `const n =
-cmath.M_PI * 2` and `case cstdio.EOF:` fail in opaque mode (the phase gate "C macros in constant expressions
+cmath.M_PI * 2` and `case cstdio.EOF:` fail in opaque mode (the phase gate "C/C++ names in constant expressions
 are not supported yet (Phase 12)" and the lowering's "write the number"). In typed mode the names are probed
 **before** `go/types` and replaced in the syntax tree by constants of the same position:
 

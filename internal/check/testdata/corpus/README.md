@@ -29,6 +29,7 @@ the front-end, not the gates (Phase 01 README §5).
 | `crosspkg.gp` | opaque values of another package (`clib`): variables, results, named types over C types, a Go struct with C fields |
 | `conversions.gp` | conversions of opaque values to Go types (they stay typed), C's built-in types |
 | `closures_generics.gp` | opaque values captured by closures, method values, generic calls, `defer`, `go` |
+| `named_containers.gp` | named gocpp arrays, slices, maps, pointers and funcs with C parts (`type Chars [4]C.char`): index, slice, range, `append`, element assignment, copies |
 | `cstdio.gp` | `<cstdio>`, a named `<string.h>`, `<cstdlib>`, `C.CString`, `C.cstr`, `C.GoString`, `C.int` |
 | `statements.gp` | opaque values in if/switch init statements, type switches, labeled loops, channels, `select`, interfaces, builtins, arrays and maps of C types, an embedded Go struct with C fields |
 | `seeded_namespaces.gp` | namespace typos (`stdd`, `geoo`, a bad rename), next to correct uses |

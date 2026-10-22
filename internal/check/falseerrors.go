@@ -634,3 +634,56 @@ func (op *opaquePass) namedOverC(t types.Type) bool {
 	}
 	return op.objectFromC(n.Obj())
 }
+
+// holdsC reports whether the type of e is a named type with a C/C++ part
+// that go/types did not make invalid as a whole: type Chars [1]C.char,
+// type List []C.int, type Ptr *C.int, type Fn func() C.int. The named type
+// is complete, but its underlying type is not, so go/types gives no type to
+// what is taken out of a value of it (a[0], l[1:], *p, f()), and the
+// range variables over it have none. Its declaration comes from C/C++, as
+// for namedOverC, and so does an instance of a Go generic type (type Box[T any] []T, Box[C.int]). A named type that is invalid itself is namedOverC's, and
+// a struct type is not counted: go/types types the fields it can and the
+// others are opaque names (objectFromC). A type parameter counts when its
+// constraint is one term with such a type, func g[T ~[]C.int](x T) { x[0] }.
+func (op *opaquePass) holdsC(e ast.Expr) bool {
+	tv, ok := op.info.Types[e]
+	if !ok || tv.Type == nil {
+		return false
+	}
+	t := types.Unalias(tv.Type)
+	if tp, ok := t.(*types.TypeParam); ok {
+		core := singleTerm(tp)
+		if core == nil {
+			return false
+		}
+		return containerOfC(core)
+	}
+	n, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	return containerOfC(n.Underlying())
+}
+
+// containerOfC reports whether t is an array, slice, map, channel, pointer or func type that has
+// a C/C++ type in it, so that it is incomplete.
+func containerOfC(t types.Type) bool {
+	switch t.(type) {
+	case *types.Array, *types.Slice, *types.Map, *types.Chan, *types.Pointer, *types.Signature:
+		return incomplete(t)
+	}
+	return false
+}
+
+// singleTerm returns the type of the one term of the constraint of tp (~[]C.int, or []C.int), or
+// nil if the constraint has no term or several.
+func singleTerm(tp *types.TypeParam) types.Type {
+	iface, ok := tp.Constraint().Underlying().(*types.Interface)
+	if !ok || iface.NumEmbeddeds() != 1 {
+		return nil
+	}
+	if u, ok := iface.EmbeddedType(0).(*types.Union); ok && u.Len() == 1 {
+		return u.Term(0).Type().Underlying()
+	}
+	return nil
+}

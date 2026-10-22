@@ -1127,7 +1127,8 @@ message.
 | `C++: fmt can't print a C++ type in this value: it has no std::formatter and no operator<<` | print its fields, or declare an `operator<<` in a helper header | [cpp_error_print.gp](../../tests/interop/cpp_error_print.gp) |
 | `& of the variable of a 3-clause for loop (i): ...` | copy it, `j := i`, and take `&j` | [addr_loopvar_error.gp](../../tests/interop/addr_loopvar_error.gp) |
 | `panic: C++ exception std::out_of_range: ...` and exit code 2 | an exception no function with a `defer` recovered ([recipe 4](#4-catch-a-c-exception)) | [cxx_exception.gp](../../tests/interop/cxx_exception.gp) |
-| `expected operand, found 'select'` after `import "<sys/select.h>"` | the header's default name is a keyword and the parser stops before the import rules can say so: import it with a name, `import sel "<sys/select.h>"` | (a [known gap](interop.md#limits-and-known-gaps)) |
+| `<sys/select.h> has no package name, because select is a Go keyword: give it a name: import cselect "<sys/select.h>"` | the header's default name is a keyword and the code uses it by that name (`select.FD_SETSIZE`): import it with a name | [header_keyword_error.gp](../../tests/interop/header_keyword_error.gp) |
+| `main.mn undefined (...); "./main.h" has no package name, because main is declared by the package: ...` and `undefined: d3; "./3d.h" has no package name, because 3d is not a valid Go name: ...` | a helper header whose file name is not usable as a name, used by that name: import it with a name | [header_main_name_error/](../../tests/interop/header_main_name_error), [header_not_a_name_error/](../../tests/interop/header_not_a_name_error) |
 | `internal error: generated C++ did not compile` | a bug in gocpp, or code gocpp cannot write yet: report it with the program; `-cpperrors=full` shows the compiler's output | |
 
 `-cpperrors=full` shows the C++ compiler's whole output instead of the trimmed errors. For a message

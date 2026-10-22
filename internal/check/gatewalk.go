@@ -456,7 +456,7 @@ func (g *gateChecker) visit(n ast.Node) bool {
 		if n.Tok == token.CONST {
 			for _, spec := range n.Specs {
 				for _, v := range spec.(*ast.ValueSpec).Values {
-					if g.hasC(v) && !g.hasUnsafeSize(v) {
+					if g.hasC(v) && !g.hasUnsafeSize(v) && !g.pkg.notConst[v] {
 						g.node(featCConstants, v)
 					}
 				}

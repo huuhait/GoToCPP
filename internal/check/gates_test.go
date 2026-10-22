@@ -390,7 +390,7 @@ func main() {
 
 	// Phase 12.
 	{name: "C macros as constants", phase: 12, src: "package main\n\nimport \"<stdio.h>\"\n\nconst n = stdio.BUFSIZ\n\nfunc main() {\n\tvar buf [stdio.BUFSIZ]byte\n\t_ = buf\n}\n",
-		want: []string{"5:11: C macros in constant expressions are not supported yet (Phase 12)"}},
+		want: []string{"5:11: C/C++ names in constant expressions are not supported yet (Phase 12)"}},
 	{name: "promoted C++ members", phase: 12, src: "package main\n\nimport \"<string>\"\nimport \"<vector>\"\n\ntype V struct {\n\tstd.vector[int]\n\tstd.string\n}\n\nfunc main() {\n\tvar v V\n\tv.push_back(1)\n\tv.vector.push_back(2)\n}\n",
 		want:   []string{"13:4: promoted fields and methods of several embedded C/C++ types are not supported yet (Phase 12)"},
 		wantAt: []string{"13:4: v.push_back undefined (type V has no field or method push_back)"}},

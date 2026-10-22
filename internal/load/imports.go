@@ -79,6 +79,17 @@ type Include struct {
 	WouldBe string
 	Why     NoNameReason
 
+	// Hint is the message that asks for a name, for a header whose default name no Go code
+	// can use by itself, because the name is a keyword (select for <sys/select.h>), is no Go
+	// name (3d for "./3d.h") or is declared by the package (main for "./main.h" next to
+	// func main). The uses of the name never reach the rewrite as the name of a header, so the
+	// errors that they cause (a syntax error at the keyword, go/types' "main.mn undefined", the
+	// "undefined: d3" of a name for it) get the hint (keywordhint.go, internal/check hints.go):
+	// <sys/select.h> has no package name, because select is a Go keyword: give it a name: import
+	// cselect "<sys/select.h>". RewriteFile sets it, for these three reasons only (the other
+	// reasons have their hint at the use, noNameHint). It is "" for a header with a name.
+	Hint string
+
 	// Pos is the position of the import path: the place for messages
 	// about the header.
 	Pos token.Pos

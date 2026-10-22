@@ -1537,7 +1537,8 @@ func (l *loader) process(p *Package) {
 		addOnTopUnresolved(f.AST) // macros.go: the lines of macros are not walked by the parser's resolver
 		f.Rewrite = RewriteFile(l.fset, f.AST, f.Info, pkgLevel, fileDots[i], errs)
 	})
-	l.builtinMacros(p) // builtins.go: #file, #line, #func, #text, #embed and //go:embed
+	l.builtinMacros(p)                // builtins.go: #file, #line, #func, #text, #embed and //go:embed
+	hintKeywordUses(p, l.parseMode()) // keywordhint.go: select.FD_SETSIZE for <sys/select.h>
 }
 
 // loadDep loads the package dep that the package on top of the stack

@@ -30,13 +30,13 @@ import (
 // the includes, a few helper lines, and a block of lines per path:
 //
 //	#include <vector>
-//	; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+//	template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 //	#include "./physics.h"
-//	; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+//	template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
 //	extern "C" {                                (a C header: see writeInclude)
 //	#include "./legacy.h"
 //	}
-//	; template <class> struct gp_inc_2; using gp_inc_2_c = ::gp_inc_2<int>;
+//	template <class> struct gp_inc_2; using gp_inc_2_c = ::gp_inc_2<int>;
 //	struct gp_kp0 {}; ...                                 (the helper lines)
 //	#if defined(std) || defined(chrono)
 //	#error gp_kind_macro
@@ -72,11 +72,16 @@ import (
 //     at the top level: in the middle of a declaration (int f( or int x =),
 //     which would otherwise swallow the next line and with it a path, or
 //     inside a block that it leaves open (extern "C" {, a namespace, a
-//     class, a function, an enum). The ";" ends an unfinished declaration,
-//     a template can't have C linkage, and ::gp_inc_N is found only at the
-//     top level. So the error is on the culprit's own line, before the
-//     next header can use up the open brace (clang's recovery inside
-//     libstdc++ did that for an open extern "C" { before <vector>).
+//     class, a function, an enum). A declaration that lacks its ";"
+//     (int f(void) or struct S {} at the end of the file) is an error at
+//     the check line too, as it is in the build, where the next line of
+//     the translation unit follows the header: the line starts with
+//     "template", which no declaration can continue with, so nothing
+//     completes it for the header. A template can't have C linkage, and
+//     ::gp_inc_N is found only at the top level. So the error is on the
+//     culprit's own line, before the next header can use up the open brace
+//     (clang's recovery inside libstdc++ did that for an open extern "C" {
+//     before <vector>).
 //   - The #if keeps macros out of the C++ lines: a macro that expands to
 //     an unbalanced brace would hide the lines after it, and a path with a
 //     macro in it means what the macro says, not what its name says (a
@@ -599,7 +604,7 @@ func (p *probeFile) include(n int) (index int, check, ok bool) {
 // probe file, to b:
 //
 //	#include <vector>
-//	; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+//	template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 //
 // For an include marked with ExternC, the #include is inside an extern "C"
 // block, as in the build (lower), and the scope check comes after its }:
@@ -607,7 +612,7 @@ func (p *probeFile) include(n int) (index int, check, ok bool) {
 //	extern "C" {
 //	#include "./legacy.h"
 //	}
-//	; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+//	template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
 //
 // So the scope check still fails when the header leaves a block open (the
 // } then closes the header's block, and the template is in the extern "C"
@@ -624,7 +629,7 @@ func writeInclude(b *bytes.Buffer, index int, inc string) (lines, at int) {
 	if externC {
 		b.WriteString("}\n")
 	}
-	fmt.Fprintf(b, "; template <class> struct gp_inc_%d; using gp_inc_%d_c = ::gp_inc_%d<int>;\n", index, index, index)
+	fmt.Fprintf(b, "template <class> struct gp_inc_%d; using gp_inc_%d_c = ::gp_inc_%d<int>;\n", index, index, index)
 	return lines + 2, at
 }
 

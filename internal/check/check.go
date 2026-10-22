@@ -231,6 +231,10 @@ type Package struct {
 	// and variables, and nothing in the package or its imports is C.
 	typesClean bool
 
+	// notConst holds the values of const declarations that are errors because they hold a variable or a
+	// call of a Go function (constvalues.go): the gate of the C names in constant expressions leaves them.
+	notConst map[ast.Expr]bool
+
 	// hresultCalls are the calls that Config.HResults made errors, hresultVars the variables that hold
 	// one (hresults.go).
 	hresultCalls map[*ast.CallExpr]bool
@@ -857,6 +861,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 			}
 		}
 	}
+	c.hinter = newHeaderHinter(fset, lp, info, pkg) // hints.go
 	c.flush(func(err types.Error) bool {
 		if diag.ErrorCode(err) == diag.UnusedVar {
 			return used.vars[err.Pos]
@@ -1055,6 +1060,9 @@ type collector struct {
 
 	// fixAt is fix for a message that depends on the place (the stubs of #Derive, derive.go), or nil.
 	fixAt func(pos token.Pos, msg string) string
+
+	// hinter adds the hint for a header without a name to the errors that its name causes (hints.go), or is nil.
+	hinter *headerHinter
 }
 
 // A foundError is an error of go/types that the collector keeps.
@@ -1175,6 +1183,9 @@ func (c *collector) flush(used, falseError func(err types.Error) bool) {
 			}
 		}
 		if keep {
+			if msg, ok := c.hinter.hint(c.fset, f.err); ok && !strings.HasPrefix(f.err.Msg, "\t") {
+				f.err.Msg = msg
+			}
 			c.list.Collect(f.err)
 		}
 	}

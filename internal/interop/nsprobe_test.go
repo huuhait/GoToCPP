@@ -167,11 +167,13 @@ int unfinished(
 	"openclass.h": `#pragma once
 struct OpenClass { int a;
 `,
-	// A missing ; after a struct is harmless here: the ; after the
-	// #include ends the declaration.
+	// A missing ; after a struct, or after the last declarator, is an
+	// error: the build puts the next lines of the translation unit after
+	// the header, which do not complete the declaration.
 	"nosemi.h": `#pragma once
 struct NoSemi {}
 `,
+	"nosemi_fn.h": "#pragma once\nint nosemi_fn(void)",
 	// An error early in the header, and one at the end of the file, when
 	// the template is instantiated: gcc prints the include stack only for
 	// the first one.
@@ -282,13 +284,21 @@ func TestProbeKindsNamespaces(t *testing.T) {
 		}
 		checkKinds(t, res, []kindCase{{"physics_ns", Namespace}, {"stdd", NotFound}})
 
-		// A struct without its ; at the end of a header doesn't hide the
-		// next line.
-		res, err = c.probe(context.Background(), cxx, dir, nil, []string{`"nosemi.h"`, "<vector>"}, []string{"std", "stdd"})
-		if err != nil {
-			t.Fatal(err)
+		// A struct, or a function declarator, without its ; at the end of
+		// a header is an error of that header, as it is in the build, and
+		// not a swallowed line.
+		for _, c2 := range []struct {
+			header string
+			kind   IncludeErrorKind
+		}{{"nosemi.h", HeaderErrors}, {"nosemi_fn.h", HeaderUnclosed}} {
+			res, err = c.probe(context.Background(), cxx, dir, nil, []string{`"` + c2.header + `"`, "<vector>"}, []string{"std", "stdd"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.IncludeErrors) != 1 || res.IncludeErrors[0].Index != 0 || res.IncludeErrors[0].Kind != c2.kind {
+				t.Errorf("%s: include errors %+v, want one %v for the first include", c2.header, res.IncludeErrors, c2.kind)
+			}
 		}
-		checkKinds(t, res, []kindCase{{"std", Namespace}, {"stdd", NotFound}})
 	})
 }
 
@@ -440,6 +450,14 @@ func TestProbeIncludeErrors(t *testing.T) {
 			{name: "unfinished declaration",
 				includes: []string{"<vector>", `"./unfinished.h"`, "<cstdio>"},
 				want:     []includeErrorCase{{1, "", 0, "the header ends inside a declaration or a block that it doesn't close: "}}},
+			// The last declarator without its ;, or a struct without it: nothing
+			// in the build completes them either.
+			{name: "last declarator without a semicolon",
+				includes: []string{"<vector>", `"./nosemi_fn.h"`, "<cstdio>"},
+				want:     []includeErrorCase{{1, "", 0, "the header ends inside a declaration or a block that it doesn't close: "}}},
+			{name: "struct without a semicolon",
+				includes: []string{`"./nosemi.h"`, "<vector>"},
+				want:     []includeErrorCase{{0, "nosemi.h", 2, "expected ';' after struct"}}},
 			{name: "open extern C",
 				includes: []string{"<vector>", `"./unclosed.h"`},
 				want:     []includeErrorCase{{1, "", 0, "the header ends inside a declaration or a block that it doesn't close: "}}},

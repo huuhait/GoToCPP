@@ -1018,8 +1018,8 @@ func TestCUserErrors(t *testing.T) {
 			"cannot use std.minmax(1, 2) (C/C++ value) as int value in assignment: declare new variables for its values (a, b := x), and convert those"},
 		{"_ = rp", ""},
 		{"lib.f(&lib.g); p := &lib.g; _ = p", ""},
-		{"var x C.int; const d = x + 1", "x + 1 (C/C++ value) is not constant"},
-		{"var x C.int; const c = x == 2", "x == 2 (C/C++ value) is not constant"},
+		// A variable in a constant is the check's error (internal/check constvalues.go); the call
+		// of a C/C++ function is known here only.
 		{"const k = lib.f()", "lib.f() (C/C++ value) is not constant"},
 		{"const k C.int = 1 << 3; const j = C.int(2)", ""},
 		{"var xs []C.int; _ = xs[1:]; var arr [3]C.int; for i, v := range arr { _, _ = i, v }; m := make(map[int]C.int); v, ok := m[1]; _, _ = v, ok", ""},

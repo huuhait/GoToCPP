@@ -198,7 +198,7 @@ const n = lib.BUFSIZ
 func main() { _ = buf }
 `
 	const gated = `# example.com/m
-./main.gp:5:10: C macros in constant expressions are not supported yet (Phase 12)
+./main.gp:5:10: C/C++ names in constant expressions are not supported yet (Phase 12)
 `
 	if _, errs := checkConsts(t, src, nil, 5); errs != gated {
 		t.Errorf("no function:\n%s", errs)

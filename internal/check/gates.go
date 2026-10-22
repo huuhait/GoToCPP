@@ -347,9 +347,9 @@ var features = [numFeatures]feature{
 	{id: featPromotedCppExpr, Name: "method expressions of promoted members of an embedded C/C++ type", Plural: true, Phase: 12,
 		Detect: "T.name where name can only be a member of the one C/C++ type that T embeds",
 		Notes:  "`MV.size`, `(*MV).push_back` for a struct that embeds `std.vector[int]`. Use a func literal instead: `func(m MV) { m.size() }`. Typed interop does not change this."},
-	{id: featCConstants, Name: "C macros in constant expressions", Plural: true, Phase: 12,
+	{id: featCConstants, Name: "C/C++ names in constant expressions", Plural: true, Phase: 12,
 		Detect: "a C/C++ name in an array length or a const declaration",
-		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. Typed interop (the default when clang++ is installed; `-interop=typed` requires it) probes the value of the macro and accepts them; opaque mode reports them. Write the number in a program that must build without clang++."},
+		Notes:  "`[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. Typed interop (the default when clang++ is installed; `-interop=typed` requires it) probes the value of a macro, an enumerator or a `constexpr` variable and accepts them; opaque mode cannot tell those from a variable, which is never a constant, so it reports every C/C++ name there. A variable of your own (`var x C.int`, `const d = x + 1`) is always the error `x + 1 (C/C++ value) is not constant`. Write the number in a program that must build without clang++."},
 
 	{id: featWideStrings, Name: "C.wstr and C.GoStringW", Plural: true, Phase: 14,
 		Detect: "the selectors C.wstr, C.GoStringW and C.GoStringWN",

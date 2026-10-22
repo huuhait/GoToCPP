@@ -52,7 +52,13 @@ import (
 // before go/types. The probe runs once per include set (the files of a
 // package that have the same header imports, with all their names), the
 // probes of all packages run at the same time (at most GOMAXPROCS, like
-// the compiles of go build), and interop caches the results.
+// the compiles of go build), and interop caches the results. When the files
+// of a package import different headers, one more probe asks for all the
+// headers together, as every translation unit of the build includes them
+// (addUnit): two headers that conflict with each other are fine for the
+// probe of either file's set, and an error of the build. It runs only when
+// every file's own set works (the errors of the headers come first), and
+// its error is at the import of the header that the compiler blames.
 //
 // The probe gets the package's flags (build.ReadPackageFlags): the trusted
 // flags of the environment (GOCPP_CFLAGS, GOCPP_CXXFLAGS), then those of
@@ -103,6 +109,11 @@ type probedPackage struct {
 	// answers or errors.
 	wrap    map[string]bool
 	cChecks []*cCheck
+
+	// unit is the probe of all the headers of the package together, in the order of the build's
+	// translation units, or nil (unitProbe); unitIncs are the imports that its includes come from.
+	unit     *probeGroup
+	unitIncs []*load.Include
 }
 
 // A cCheck is the C header check of one local header (Config.CHeader).
@@ -112,6 +123,45 @@ type cCheck struct {
 	flags   []string // probedPackage.cflags
 	res     interop.CHeader
 	err     error
+}
+
+// probes returns the probes of the package: the include sets of its files, then the unit.
+func (pp *probedPackage) probes() []*probeGroup {
+	if pp.unit == nil {
+		return pp.groups
+	}
+	return append(slices.Clone(pp.groups), pp.unit)
+}
+
+// addUnit makes the probe of the unit, when the files of the package have different header
+// imports. Every translation unit of a package includes the headers of all its files (pkg.hpp's
+// .cpp files and pkg_init.cpp, in file order and source order, each header once: the build's
+// unitIncludes), but the probes above ask for one include set at a time, so two headers that
+// conflict with each other (one function with C linkage in a C header and with C++ linkage in
+// a C++ one, imported by different files) are fine for every probe and an error in the build.
+// The unit probe has the same includes as the build, and no candidates. It is left out when
+// one include set is the whole unit already (one file has all the headers, or the files import the
+// same), and when there are no headers.
+func (pp *probedPackage) addUnit() {
+	var includes []string
+	var imports []*load.Include
+	seen := make(map[string]bool)
+	for _, f := range pp.lp.Files {
+		if f.Info == nil {
+			continue
+		}
+		for _, inc := range f.Info.Includes {
+			if t := includeText(inc); !seen[t] {
+				seen[t] = true
+				includes = append(includes, t)
+				imports = append(imports, inc)
+			}
+		}
+	}
+	if len(includes) == 0 || slices.ContainsFunc(pp.groups, func(g *probeGroup) bool { return slices.Equal(g.includes, includes) }) {
+		return
+	}
+	pp.unit, pp.unitIncs = &probeGroup{includes: includes}, imports
 }
 
 // A packageFlags is what probeNamespaces found of the flags of a package.
@@ -193,6 +243,7 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 			}
 		}
 		if len(pp.groups) > 0 {
+			pp.addUnit()
 			pkgs = append(pkgs, pp)
 		}
 	}
@@ -234,7 +285,7 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 	}
 	checkCHeaders(ctx, pkgs, cxx, cxxErr, cheader, sem)
 	for _, pp := range pkgs {
-		for _, g := range pp.groups {
+		for _, g := range pp.probes() {
 			for i, t := range g.includes {
 				g.includes[i] = wrapExternC(t, pp.wrap)
 			}
@@ -242,7 +293,7 @@ func probeNamespaces(prog *load.Program, cfg Config) (map[*load.Package][]diag.D
 	}
 
 	for _, pp := range pkgs {
-		for _, g := range pp.groups {
+		for _, g := range pp.probes() {
 			if len(g.includes) == 0 {
 				continue
 			}
@@ -383,6 +434,10 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 			cErrs[c.include] = c.err
 		}
 	}
+	groupsFailed := pp.cxxErr != nil || len(cErrs) > 0 // a probe that can't say anything about the unit either
+	for _, g := range pp.groups {
+		groupsFailed = groupsFailed || g.err != nil || len(g.res.IncludeErrors) > 0
+	}
 	for _, f := range pp.lp.Files {
 		g := byFile[f]
 		if g == nil {
@@ -418,7 +473,7 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 			for _, ie := range g.res.IncludeErrors {
 				if ie.Index < len(incs) {
 					inc := incs[ie.Index]
-					add(inc.Pos, inc.Spec.Path.End(), includeErrorText(inc, ie, pp.lp.Dir))
+					add(inc.Pos, inc.Spec.Path.End(), includeErrorText(inc, ie, pp.lp.Dir, false))
 				}
 			}
 		default:
@@ -435,6 +490,18 @@ func (pp *probedPackage) apply(fset *token.FileSet) []diag.Diagnostic {
 		}
 		// In source order: all of them are at imports.
 		slices.SortStableFunc(fileDs, func(a, b diag.Diagnostic) int { return a.Pos.Offset - b.Pos.Offset })
+		ds = append(ds, fileDs...)
+	}
+	if u := pp.unit; u != nil && !groupsFailed && u.err == nil {
+		// The headers of all the files together: only when every file's own set is fine, else the
+		// same header would be reported twice, and the user fixes one error at a time anyway.
+		fileDs = fileDs[:0]
+		for _, ie := range u.res.IncludeErrors {
+			if ie.Index < len(pp.unitIncs) {
+				inc := pp.unitIncs[ie.Index]
+				add(inc.Pos, inc.Spec.Path.End(), includeErrorText(inc, ie, pp.lp.Dir, true))
+			}
+		}
 		ds = append(ds, fileDs...)
 	}
 	return ds
@@ -455,8 +522,9 @@ func undoNamespace(rw *load.Rewrite, c *load.NamespaceCandidate) {
 }
 
 // includeErrorText returns the message for the include error ie of the
-// header import inc, in a package in the folder dir.
-func includeErrorText(inc *load.Include, ie interop.IncludeError, dir string) string {
+// header import inc, in a package in the folder dir. With unit, the error is the unit probe's:
+// the header works with the headers of its own file, not with those of the other files.
+func includeErrorText(inc *load.Include, ie interop.IncludeError, dir string, unit bool) string {
 	header := inc.Path
 	if inc.Kind == load.LocalHeader {
 		header = strconv.Quote(inc.Path)
@@ -490,6 +558,9 @@ func includeErrorText(inc *load.Include, ie interop.IncludeError, dir string) st
 	pos := shortPath(ie.File, dir) + ":" + strconv.Itoa(ie.Line)
 	if ie.Column > 0 {
 		pos += ":" + strconv.Itoa(ie.Column)
+	}
+	if unit {
+		return "header " + header + " doesn't compile with the headers of the other files of the package: " + pos + ": " + ie.Msg
 	}
 	return "header " + header + " doesn't compile: " + pos + ": " + ie.Msg
 }

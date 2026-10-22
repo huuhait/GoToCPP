@@ -26,9 +26,9 @@ import (
 func TestMakeProbe(t *testing.T) {
 	pf := makeProbe([]string{"<vector>", `"./x.h"`}, [][]string{{"std"}, {"std", "filesystem"}}, true)
 	want := `#include <vector>
-; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 #include "./x.h"
-; template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
+template <class> struct gp_inc_1; using gp_inc_1_c = ::gp_inc_1<int>;
 ` + helperLines + `#if defined(std)
 #error gp_kind_macro
 #else
@@ -84,7 +84,7 @@ namespace gp_probe_eof {}
 	// probe's of Phase 01 without candidates.
 	for _, kinds := range []bool{true, false} {
 		pf = makeProbe([]string{"<vector>"}, nil, kinds)
-		want = "#include <vector>\n; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;\n" +
+		want = "#include <vector>\ntemplate <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;\n" +
 			"namespace gp_probe_end = ::gp_probe_no_such_namespace;\nnamespace gp_probe_eof {}\n"
 		if got := string(pf.src); got != want || pf.canary() != 3 || pf.helpers(3) {
 			t.Errorf("makeProbe without paths:\n%s\nwant:\n%s", got, want)
@@ -94,7 +94,7 @@ namespace gp_probe_eof {}
 	// The namespace mode: the namespace probe of Phase 01.
 	pf = makeProbe([]string{"<vector>"}, [][]string{{"std"}, {"std", "filesystem"}}, false)
 	want = `#include <vector>
-; template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
+template <class> struct gp_inc_0; using gp_inc_0_c = ::gp_inc_0<int>;
 #if defined(std)
 #error gp_kind_macro
 #else

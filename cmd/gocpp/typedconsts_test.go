@@ -72,7 +72,7 @@ func main() { _ = f(0) + len(buf) + len(grid) + half + len(name) }
 	}
 
 	// Opaque mode is unchanged: the names are not constants for go/types, the phase gate says so.
-	opaqueWant := "./a.gp:8:14: C macros in constant expressions are not supported yet (Phase 12)"
+	opaqueWant := "./a.gp:8:14: C/C++ names in constant expressions are not supported yet (Phase 12)"
 	t.Setenv("GOCPP_INTEROP", "opaque")
 	if r := gocppRun("", false, "check", "a.gp"); r.code == 0 || !strings.Contains(r.stderr, opaqueWant) {
 		t.Errorf("opaque check: exit %d\n%s", r.code, r.stderr)

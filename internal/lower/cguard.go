@@ -167,9 +167,11 @@ func (w *cWalk) check(e ast.Expr) bool {
 }
 
 // constsOK reports whether the values of the const declaration d are constants as far as their
-// C/C++ parts go, and reports Go's error if one isn't: a C/C++ variable or a call of a C/C++
-// function in it (const d = x + 1 with var x C.int), which go/types doesn't report for a value
-// it has no type for. (C macros in constants are a gate of the check, Phase 12.)
+// C/C++ parts go, and reports Go's error if one isn't: a call of a C/C++ function in it
+// (const d = lib.f(1)), which go/types doesn't report for a value it has no type for. A
+// variable or a call of a Go function in the value is the check's error (constvalues.go); the
+// kind of a C/C++ name (a function or a type: C.int(1) is a conversion) is known here only.
+// (C macros in constants are a gate of the check, Phase 12.)
 func (w *cWalk) constsOK(d *ast.GenDecl) bool {
 	g := w.g
 	for _, spec := range d.Specs {
@@ -179,12 +181,7 @@ func (w *cWalk) constsOK(d *ast.GenDecl) bool {
 			}
 			bad := false
 			ast.Inspect(v, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.Ident:
-					if obj, ok := g.info.Uses[x].(*types.Var); ok && !complete(obj.Type()) {
-						bad = true
-					}
-				case *ast.CallExpr:
+				if x, ok := n.(*ast.CallExpr); ok {
 					if r, ok := g.cRefOf(x.Fun); !ok || r.kind != interop.Type {
 						bad = true // (C.int(1) is a conversion)
 					}

@@ -91,7 +91,11 @@ func main() {}
 		for _, c := range rec.calls {
 			calls = append(calls, c.includes)
 		}
+		// The files import different headers, so the headers of all of them are probed together
+		// too, in the order of the build's translation units; it is the longest call, so it sorts first.
 		wantCalls := [][]string{
+			{interop.ExternC(`"c.h"`), `"./b.h"`, interop.ExternC("<zlib.h>"), "<stdio.h>", `"./plain.h"`, interop.ExternC(`"./c.h"`),
+				interop.ExternC(`"./guarded.h"`), `"./cpp.h"`, interop.ExternC(`"./odd.hpp"`), `"./native.hpp"`, `"./notfound.h"`},
 			{interop.ExternC("<zlib.h>"), "<stdio.h>", `"./plain.h"`, interop.ExternC(`"./c.h"`), interop.ExternC(`"./guarded.h"`),
 				`"./cpp.h"`, interop.ExternC(`"./odd.hpp"`), `"./native.hpp"`, `"./notfound.h"`},
 			{interop.ExternC(`"c.h"`), `"./b.h"`},

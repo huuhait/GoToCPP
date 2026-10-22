@@ -164,6 +164,7 @@ func findOpaque(fset *token.FileSet, p *Package) *Opaque {
 	op.label(files)
 	if !typesMayBeIncomplete(p.Errors) {
 		op.unusedRangeVars(fset, p)
+		op.notConstants(fset, p)
 		for _, e := range op.bad {
 			p.Errors.Add(diag.Diagnostic{
 				Pos: fset.Position(e.Pos()),
@@ -836,14 +837,33 @@ func (op *opaquePass) computeOpaque(e ast.Expr) bool {
 // m map[Handle]int, cNamed). Nowhere else does such a Go value count, so
 // that -hs or pp + 1, whose errors stay, are no more opaque than the
 // errors say.
+//
+// A Go value of a named type with C/C++ parts (type Chars [1]C.char, whose
+// underlying type is complete but for the element: holdsC) has a type, but
+// what is taken out of it has none: a[0], a[1:], *p with type Ptr *C.int
+// and f() with type Fn func() C.int are opaque, and so is the range
+// variable over one (objectFromC).
 func (op *opaquePass) cOperand(e, c ast.Expr) bool {
 	switch e := e.(type) {
 	case *ast.SelectorExpr:
 		if c == e.X {
 			return op.cPointer(c) || op.promoted(e, c)
 		}
+	case *ast.IndexExpr:
+		if c == e.X {
+			return op.cValue(c) || op.holdsC(c)
+		}
+	case *ast.SliceExpr:
+		if c == e.X {
+			return op.cValue(c) || op.holdsC(c)
+		}
+	case *ast.StarExpr:
+		return op.cValue(c) || op.holdsC(c)
 	case *ast.CallExpr:
-		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok && c != e.Fun {
+		if c == e.Fun {
+			return op.cValue(c) || op.holdsC(c)
+		}
+		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok {
 			b, ok := op.info.Uses[id].(*types.Builtin)
 			if ok && (b.Name() == "delete" || b.Name() == "copy") {
 				return op.cValue(c) || op.cNamed(c)
@@ -946,7 +966,7 @@ func (op *opaquePass) objectFromC(obj types.Object) bool {
 			// A range variable, or one of several values: from a value
 			// of a named type over a C/C++ type too (range v with
 			// type V C.vec), which go/types can't take apart.
-			v = op.cValue(d.init)
+			v = op.cValue(d.init) || op.holdsC(d.init)
 		}
 	}
 	op.objC[obj] = v

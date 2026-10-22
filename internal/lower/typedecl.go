@@ -183,7 +183,7 @@ func (g *gen) typeSpec(spec *ast.TypeSpec, local bool) {
 	if named == nil {
 		return
 	}
-	if !complete(named) {
+	if !complete(named) || containerOverC(named) {
 		g.unsupported(spec.Pos(), "named types declared over C/C++ types ("+tn.Name()+", a later step of Phase 04)")
 		return
 	}
@@ -837,4 +837,16 @@ func typeStringOpt(t types.Type, named func(*types.Named) string, fieldPkg bool)
 		}
 	}
 	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
+}
+
+// containerOverC reports whether the named type is an array, slice, map, channel, pointer or func
+// type whose element, key, parameter or result is a C/C++ type (type Chars [4]C.char): the same
+// kind of declaration as type Count C.int, which the lowering does not write yet. (A struct with
+// C/C++ fields is written; so is a container of such a struct.)
+func containerOverC(named *types.Named) bool {
+	switch u := named.Underlying().(type) {
+	case *types.Array, *types.Slice, *types.Map, *types.Chan, *types.Pointer, *types.Signature:
+		return !complete(u)
+	}
+	return false
 }
