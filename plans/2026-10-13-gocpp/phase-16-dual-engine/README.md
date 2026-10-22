@@ -45,6 +45,26 @@ Typical things that do not survive a straight translation to reference counting:
 - Go's goroutine scheduler and stack model against gocpp's own thread layer (Phase 08).
 - Build time and binary size of large dependency trees through a C++ compiler.
 
+## 2b. Direction given by the user (2026-10-21)
+
+Go packages are **translated to C++ as well** (this is option B2 below), and all of them use the
+GC. The real Go toolchain is not part of the picture, B1 stays only as a possible fallback for
+packages the translator cannot handle (assembly, cgo). What follows from that:
+
+- The transpiler gets a **memory mode** per package: engine A emits `gp::ptr<T>` (reference
+  counting), engine B emits GC pointers. Slices, maps, strings, closures, channels and
+  interfaces of engine B need GC-flavoured runtime types (or the same templates parameterised
+  by a memory policy).
+- The **standard library has to exist for both engines** (a Go package imports `strings`, `io`,
+  `fmt`): translate it twice, or once with a policy parameter. This costs build time and binary
+  size, and `error`, `io.Reader` and friends must be **one type** across the engines.
+- The collector must scan **C/C++ stacks and registers** (C++ code holds raw pointers into GC
+  objects), so a **conservative** collector is the natural first choice; a precise one needs stack
+  maps that generated C++ cannot give. The collector must stop and scan every goroutine thread
+  (signals on Linux, `SuspendThread` on Windows).
+- **Engine A objects that point into the GC heap** need to be roots; **GC objects that own engine
+  A objects** (a `shared_ptr` inside) need finalizers or handles.
+
 ## 3. Options for engine B (to be compared, not chosen)
 
 | | Option | Idea | Good | Risky |
@@ -90,7 +110,9 @@ Each of these needs a rule, a test and an error message:
 
 ## 6. Steps (placeholders until the questions above are answered)
 
-- 16.1 Research spike: measure B1 (a small Go package behind a c-archive: call cost, callbacks,
-  binary size, startup) and sketch B2 cost for one real package of the user's list.
+- 16.1 Research spike (B2): translate one small real Go package in a GC memory mode with a
+  conservative collector (for example the bdwgc library through a `cxx` recipe) and a minimal
+  GC-flavoured `string`/`slice`/`map`/pointer, call it from a gp program, and measure build time,
+  binary size, call overhead and what breaks; keep B1 (c-archive) as a quick comparison only.
 - 16.2 Decision record (ADR): which option, the boundary rules, what is out of scope.
 - 16.3 and later: written after 16.2.
