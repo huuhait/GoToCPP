@@ -180,6 +180,13 @@ func flagFileArg(f string) bool {
 // reads them, so a cache key has their content (the object of a compile that follows -MD knows
 // the -include files, but not a response file, and the runtime's keys know neither). The files
 // that a response file names in turn are not followed.
+//
+// A -include or -imacros name that is not an absolute path is looked up the way the compiler does
+// it for #include "name": in the folders of -iquote, -I, -isystem and -idirafter (a name that
+// exists under the user's folder was made absolute before, by AbsPluginPaths). Without this, a
+// forced include that is found only through -I (-I inc -include hh.h) would have no entry in the
+// key of the runtime's objects, which the compiler's dependency lists do not reach. A name found
+// nowhere stays as written.
 func FlagFiles(flags []string) []string {
 	var files []string
 	for i := 0; i < len(flags); i++ {
@@ -188,10 +195,41 @@ func FlagFiles(flags []string) []string {
 			files = append(files, f[1:])
 		case flagFileArg(f) && i+1 < len(flags):
 			i++
-			files = append(files, flags[i])
+			files = append(files, throughIncludeDirs(flags[i], flags))
 		}
 	}
 	return files
+}
+
+// throughIncludeDirs returns the file that name is in the include folders of flags (the
+// first folder that has it as a regular file), or name itself.
+func throughIncludeDirs(name string, flags []string) string {
+	if name == "" || filepath.IsAbs(name) {
+		return name
+	}
+	// The compiler's order for #include "name": -iquote, -I, -isystem, then -idirafter (within one
+	// kind, the order of the flags).
+	var dirs []string
+	for _, kind := range []string{"-iquote", "-I", "-isystem", "-idirafter"} {
+		for i, f := range flags {
+			switch {
+			case f == kind && i+1 < len(flags):
+				dirs = append(dirs, flags[i+1])
+			case strings.HasPrefix(f, kind) && len(f) > len(kind):
+				dirs = append(dirs, f[len(kind):]) // joined: -Idir, -isystemdir
+			}
+		}
+	}
+	for _, dir := range dirs {
+		if !filepath.IsAbs(dir) {
+			continue // a folder that is relative to the work folder holds nothing of the user's
+		}
+		candidate := filepath.Join(dir, name)
+		if fi, err := os.Stat(candidate); err == nil && fi.Mode().IsRegular() {
+			return candidate
+		}
+	}
+	return name
 }
 
 // AbsPluginPaths returns flags with the relative paths of -fplugin= and -fpass-plugin= made

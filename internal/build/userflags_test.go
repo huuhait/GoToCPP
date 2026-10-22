@@ -304,3 +304,74 @@ func TestAbsUserPaths(t *testing.T) {
 		t.Errorf("flags with no path = %q", got)
 	}
 }
+
+// A forced include that is found only through the include folders (-I inc -include hh.h, hh.h only
+// in inc) is a file of the key like any other: FlagFiles resolves it the way #include "hh.h" is.
+func TestFlagFilesThroughIncludeDirs(t *testing.T) {
+	root := t.TempDir()
+	first, second, third := filepath.Join(root, "first"), filepath.Join(root, "second"), filepath.Join(root, "third")
+	for _, d := range []string{first, second, third} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{
+		filepath.Join(first, "only_first.h"), filepath.Join(second, "both.h"), filepath.Join(third, "both.h"),
+		filepath.Join(second, "joined.h"), filepath.Join(third, "sys.h"), filepath.Join(first, "quote.h"),
+		filepath.Join(third, "quote.h"),
+	} {
+		if err := os.WriteFile(f, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(first, "isdir.h"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"-I with a separate folder", []string{"-I", first, "-include", "only_first.h"}, filepath.Join(first, "only_first.h")},
+		{"-I joined", []string{"-I" + second, "-imacros", "joined.h"}, filepath.Join(second, "joined.h")},
+		{"the first folder that has it", []string{"-I", second, "-I", third, "-include", "both.h"}, filepath.Join(second, "both.h")},
+		{"-isystem", []string{"-isystem", third, "-include", "sys.h"}, filepath.Join(third, "sys.h")},
+		{"-iquote before -I", []string{"-I", first, "-iquote", third, "-include", "quote.h"}, filepath.Join(third, "quote.h")},
+		{"-I before -isystem, whatever the order of the flags", []string{"-isystem", second, "-I", third, "-include", "both.h"}, filepath.Join(third, "both.h")},
+		{"-isystem before -idirafter", []string{"-idirafter", second, "-isystem", third, "-include", "both.h"}, filepath.Join(third, "both.h")},
+		{"-idirafter is looked in last", []string{"-idirafter", second, "-I", third, "-include", "both.h"}, filepath.Join(third, "both.h")},
+		{"-idirafter alone", []string{"-idirafter", second, "-include", "joined.h"}, filepath.Join(second, "joined.h")},
+		{"-isystem joined", []string{"-isystem" + third, "-include", "sys.h"}, filepath.Join(third, "sys.h")},
+		{"-iquote joined", []string{"-iquote" + third, "-include", "quote.h"}, filepath.Join(third, "quote.h")},
+		{"-idirafter joined", []string{"-idirafter" + second, "-include", "joined.h"}, filepath.Join(second, "joined.h")},
+		{"a folder is not the file", []string{"-I", first, "-include", "isdir.h"}, "isdir.h"},
+		{"found nowhere stays", []string{"-I", first, "-include", "nowhere.h"}, "nowhere.h"},
+		{"a relative folder is not looked in", []string{"-I", "first", "-include", "only_first.h"}, "only_first.h"},
+		{"an absolute name stays", []string{"-I", first, "-include", "/abs/x.h"}, "/abs/x.h"},
+		{"no folders", []string{"-include", "only_first.h"}, "only_first.h"},
+	} {
+		if got := FlagFiles(c.flags); len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s: FlagFiles(%q) = %q, want [%s]", c.name, c.flags, got, c.want)
+		}
+	}
+}
+
+// The runtime's key follows the content of a forced include that is found through -I: the
+// runtime objects of a program with -cxxflags="-Iinc -include hh.h" are built again when hh.h
+// changes (its macros are in them).
+func TestRuntimeKeyFollowsForcedIncludeThroughIncludeDir(t *testing.T) {
+	inc := t.TempDir()
+	header := filepath.Join(inc, "hh.h")
+	b := &Builder{CXX: CXX{Path: "/x/g++", Family: GCC, Version: "g++ 15"}}
+	key := func(content string) string {
+		t.Helper()
+		if err := os.WriteFile(header, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return b.runtimeKey([]string{"src/rt.cpp"}, []string{"-O0", "-I", inc, "-include", "hh.h"})
+	}
+	one, one2, two := key("#define VAL 1\n"), key("#define VAL 1\n"), key("#define VAL 2\n")
+	if one != one2 || one == two {
+		t.Errorf("keys: %s, %s, %s; want the same for the same content and another for a changed header", one, one2, two)
+	}
+}

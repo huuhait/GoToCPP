@@ -1010,8 +1010,9 @@ for byte the same with a cold and a warm cache.
 
 A pure C header is read as C++ (the way gocpp includes it); a name that is a C++ keyword (`#define bool int`) is taken out of
 the probe's file and the macro is listed as not translated, as is any macro whose value depends on where it is used
-(`__FILE__`, `__LINE__`, `__COUNTER__`). The compiler runs with gocpp's usual environment: a folder with non-ASCII
-characters in `-I` fails under `LC_ALL=C`, as it does for every gocpp compiler run.
+(`__FILE__`, `__LINE__`, `__COUNTER__`). The compiler runs with gocpp's usual environment (`LC_ALL=C`, and
+`NIX_CC_USE_RESPONSE_FILE=0` so that Nix's clang wrapper takes a folder with non-ASCII characters in `-I`; see "Paths with
+a double quote or non-ASCII letters" in build.md).
 
 ### 12.5 Tests
 

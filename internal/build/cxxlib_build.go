@@ -85,7 +85,6 @@ func (b *Builder) planLibs(ctx context.Context, rtDir string, libs []*CxxLib) (o
 	if err := os.Mkdir(objDir, 0o755); err != nil {
 		return nil, nil, err
 	}
-	nofortify := filepath.Join(rtDir, "include", "gocpp", "nofortify.h")
 	objs = make([]string, len(jobs))
 	for i, j := range jobs {
 		objs[i] = j.obj
@@ -95,7 +94,7 @@ func (b *Builder) planLibs(ctx context.Context, rtDir string, libs []*CxxLib) (o
 		if j.src.C {
 			std, lang, env, private, what = "-std="+j.lib.CStd, "c", b.Env.CFlags, j.lib.Private, "the C file "
 		}
-		args := slices.Concat(SourceFlags(j.c, b.ASan), []string{std, "-w", "-iquote", j.lib.Dir, "-include", nofortify},
+		args := slices.Concat(SourceFlags(j.c, b.ASan), []string{std, "-w", "-iquote", j.lib.Dir}, nofortifyFlags(j.c, rtDir),
 			env, j.lib.Public, private, []string{"-c", "-x", lang, j.src.File, "-o", j.obj})
 		cmd := Command{Kind: KindLibrary, Lang: lang, Compiler: compiler(j.c), Args: args, Dir: j.lib.Dir, File: j.src.File, Output: j.obj,
 			IR: "lib/" + j.lib.Module + "/" + filepath.ToSlash(j.src.Rel)}

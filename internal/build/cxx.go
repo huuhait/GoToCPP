@@ -416,19 +416,38 @@ var dropEnv = map[string]bool{
 // compiler write files of its own or translate its messages, and with
 // LC_ALL=C, so that the messages are the same in every locale. A caller
 // can append more KEY=value entries; os/exec keeps the last one of a key.
+//
+// NIX_CC_USE_RESPONSE_FILE=0 is set unless the user chose a (non-empty) value: Nix's clang
+// wrapper hands its arguments to the real clang in a response file written
+// with bash's printf %q, which in the C locale writes a non-ASCII path as
+// $'\320\272...'. clang reads that as the file name "$/tmp/320272...", so every
+// compile in a folder with a non-ASCII letter fails. Without the response file
+// the wrapper runs clang with the arguments as they are. Other compilers
+// ignore the variable.
 func CompilerEnv() []string {
 	var env []string
+	hasNixResponseFile := false
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		if runtime.GOOS == "windows" {
 			name = strings.ToUpper(name)
 		}
+		if name == nixResponseFile && !strings.HasSuffix(kv, "=") {
+			hasNixResponseFile = true // an empty value counts as not set
+		}
 		if !dropEnv[name] {
 			env = append(env, kv)
 		}
 	}
+	if !hasNixResponseFile {
+		env = append(env, nixResponseFile+"=0")
+	}
 	return append(env, "LC_ALL=C")
 }
+
+// nixResponseFile is the variable that tells Nix's compiler wrappers whether to pass the
+// arguments to the compiler in a response file.
+const nixResponseFile = "NIX_CC_USE_RESPONSE_FILE"
 
 // familyOf returns the compiler family that the macro list out (from -dM
 // -E) shows, or 0, and its major version (__clang_major__ or __GNUC__;

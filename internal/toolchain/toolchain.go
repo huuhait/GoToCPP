@@ -31,6 +31,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/envflag"
 )
 
 // Release is the llvm-mingw release that this gocpp pins, and Variant its C runtime: UCRT, the one
@@ -140,18 +142,11 @@ func FromEnv(download bool) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Mode: mode, BaseURL: os.Getenv("GOCPP_TOOLCHAIN_URL"), Download: download, Offline: envOn(os.Getenv("GOCPP_OFFLINE"))}
+	cfg := Config{Mode: mode, BaseURL: os.Getenv("GOCPP_TOOLCHAIN_URL"), Download: download, Offline: envflag.Offline(os.Getenv("GOCPP_OFFLINE"))}
 	if dir, err := os.UserCacheDir(); err == nil {
 		cfg.Cache = filepath.Join(dir, "gocpp")
 	}
 	return cfg, nil
-}
-
-// envOn reports whether an on/off variable is on: anything but empty, 0 and false (the rule of
-// GOCPP_OFFLINE for module downloads).
-func envOn(v string) bool {
-	v = strings.ToLower(strings.TrimSpace(v))
-	return v != "" && v != "0" && v != "false"
 }
 
 func (c *Config) host() string {

@@ -14,13 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/envflag"
 	"github.com/huuhait/gocpp/internal/version"
 )
 
 // The environment variables of the module downloads (docs/spec/modules.md).
 const (
 	EnvModCache = "GOCPP_MODCACHE" // the module cache folder, or off
-	EnvOffline  = "GOCPP_OFFLINE"  // 1: never use the network
+	EnvOffline  = "GOCPP_OFFLINE"  // 1, true, yes, on: never use the network (envflag.Offline)
 	EnvModFlags = "GOCPP_MODFLAGS" // readonly or -mod=readonly: never write gocpp.sum
 	EnvModProxy = "GOCPP_MODPROXY" // mirrors, "direct" and "off"
 	EnvModURL   = "GOCPP_MODURL"   // where the archives of some modules are
@@ -139,7 +140,7 @@ func ConfigFromEnv(getenv func(string) string, stderr io.Writer) (*Config, error
 			c.CacheDir = filepath.Join(base, "gocpp", "mod")
 		}
 	}
-	c.Offline = envOn(getenv(EnvOffline))
+	c.Offline = envflag.Offline(getenv(EnvOffline))
 	for _, f := range strings.Fields(getenv(EnvModFlags)) {
 		switch strings.TrimPrefix(f, "-mod=") {
 		case "readonly":
@@ -171,14 +172,6 @@ func ConfigFromEnv(getenv func(string) string, stderr io.Writer) (*Config, error
 		c.Timeout = d
 	}
 	return c, nil
-}
-
-func envOn(v string) bool {
-	switch strings.ToLower(v) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
 }
 
 // checkBase reports why s is not a usable base URL: HTTPS only (the

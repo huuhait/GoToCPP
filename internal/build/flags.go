@@ -1,6 +1,10 @@
 package build
 
-import "slices"
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // debugFlags are the flags of every compile in Phase 02 (README §2.7): a
 // debug build. -std=c++20 and not gnu++20, so that macros such as linux
@@ -95,4 +99,19 @@ func GeneratedFlags(cxx CXX) []string {
 		return []string{"-Wno-overflow", "-Werror=conditionally-supported", "-Werror=narrowing"}
 	}
 	return nil
+}
+
+// nofortifyFlags returns the flags that include gocpp/nofortify.h first in a compile of a package's
+// own C or C++ file (see SourceFlags). The file is named by its path, except for clang with a double
+// quote in that path: clang writes the forced include as #include "<path>" into its <built-in>
+// buffer without escaping the quote, and fails ("invalid suffix on literal"). Then the name is
+// gocpp/nofortify.h, found through -iquote of the runtime's include folder (which clang prints
+// nowhere).
+func nofortifyFlags(c CXX, rtDir string) []string {
+	include := filepath.Join(rtDir, "include")
+	path := filepath.Join(include, "gocpp", "nofortify.h")
+	if c.Family == Clang && strings.Contains(path, `"`) {
+		return []string{"-iquote", include, "-include", "gocpp/nofortify.h"}
+	}
+	return []string{"-include", path}
 }

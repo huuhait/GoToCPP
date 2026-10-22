@@ -534,6 +534,15 @@ func (b *Builder) runCommand(ctx context.Context, c CXX, what string, link bool,
 	if b.DryRun {
 		return nil, nil
 	}
+	if assemblerNeedsFix(c, args) {
+		return b.runViaFixedAssembly(ctx, c, what, link, args, show)
+	}
+	return b.execCommand(ctx, c, what, link, args, show)
+}
+
+// execCommand runs the compiler c with args and returns what it printed (see runCommand); a
+// failure is a CompileError that names show as the command.
+func (b *Builder) execCommand(ctx context.Context, c CXX, what string, link bool, args []string, show string) ([]byte, error) {
 	out := &limitBuffer{max: maxCompileOutput}
 	args, doneRsp, err := b.fitCommand(c, args) // a command too long for Windows goes into a response file
 	if err != nil {

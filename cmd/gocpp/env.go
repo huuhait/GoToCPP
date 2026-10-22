@@ -185,7 +185,7 @@ var envVars = []envVar{
 	{name: "GOCPP_NOUPTODATE", doc: "any value but empty, 0 and false: gocpp build does not check whether the program is up to date"},
 	{name: "GOCPP_NO_MANIFEST", doc: "any value but empty, 0 and false: no application manifest in a Windows program (longPathAware, UTF-8 code page, asInvoker); for a program that brings its own resource"},
 	{name: "GOCPP_OBJCACHE_SIZE", def: func(*envState) string { return "2G" }, doc: "the size limit of the object cache (a number with K, M or G); the oldest files go first"},
-	{name: "GOCPP_OFFLINE", doc: "any value but empty, 0 and false: never use the network (module downloads and the Windows toolchain)"},
+	{name: "GOCPP_OFFLINE", doc: "never use the network (module downloads and the Windows toolchain): 1, true, yes and on turn it on; empty, 0, false, no and off turn it off (any case); another word is on too, so that a typo never goes online"},
 	{name: "GOCPP_OS", doc: "the operating system to build for, like -os (linux or windows); default: GOOS, else this system's"},
 	{name: "GOCPP_PROBE_BATCH", doc: "the least number of references that one compiler run of the typed probes has when several run (a number); default 400"},
 	{name: "GOCPP_PROBE_CACHE", doc: "the folder of the probe cache on disk (an absolute name; the typed interop's answers are in its subfolder typed-v1), or off for none; default: gocpp/probe in the cache folder"},

@@ -146,6 +146,7 @@ func TestConcurrentProcesses(t *testing.T) {
 			defer wg.Done()
 			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperDownload$")
 			cmd.Env = append(os.Environ(), "MODFETCH_HELPER=1", "MODFETCH_MAIN="+main,
+				"GOCPP_OFFLINE=0", // the test downloads, also when the run sets GOCPP_OFFLINE=1
 				"GOCPP_MODCACHE="+cache, "GOCPP_MODURL=github.com="+h.srv.URL, "GOCPP_MODCACERT="+h.caFile())
 			outs[i], errs[i] = cmd.CombinedOutput()
 		}()

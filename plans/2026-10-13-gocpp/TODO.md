@@ -1,7 +1,7 @@
 # gocpp · TODO
 
 **Legend:** `[ ]` todo · `[~]` doing · `[x]` done
-**Last updated:** 2026-10-22 (every open line audited against dev 81c0d4e1: [AUDIT-2026-10-22.md](AUDIT-2026-10-22.md))
+**Last updated:** 2026-10-22 (every open line audited against dev 81c0d4e1; 06.lows merged: [AUDIT-2026-10-22.md](AUDIT-2026-10-22.md))
 
 Keep this list short: only what is next. The full step lists live in each phase's `STATE.md`.
 Every item is built through the manager → coder → reviewer loop in [WORKFLOW.md](WORKFLOW.md).
@@ -12,7 +12,6 @@ Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engin
 ## Now: jobs in progress (2026-10-22)
 
 - [~] Job 08.synclows (branch job/08.synclows): 8.7 lows: a clock hook for the Mutex starvation hand-off test (`gp::detail::set_clock_for_test`), `sync.Map.Range` copies every entry under the read lock (stdlib/sync/map.gp:159); other 8.7 lows: the `sync.Cond` ARC cycle (known, D1), sync waits against the deadlock detector, three relaxed-ordering mutants.
-- [~] Job 06.lows (branch job/06.lows): worktree exists, no commit and no change yet; scope presumably the 6.x lows below (check with the manager before starting any of them).
 - [~] Job 11.lspgap5 (branch job/11.lspgap5): LSP speed rows, every-row gopls wins; also the open 11.14 and 11.13 acceptance lines.
 - [~] Job 12.hresult (branch job/12.hresult): ADR-137, a call that returns `HRESULT` is a Go error in typed mode; review round 2 done, merge pending.
 - [~] Job dev.walltests (branch job/dev.walltests, 46 test files): wall-clock bounds in tests become counted work, event waits and one-minute hang limits. Covers `TestLSPProcess`, `TestProbeCancelStopsTheCompiler`, the 1-2 s bounds listed by the 12.racefix reviewer (probe cache_review_test.go `a_cut_answer_is_not_complete`, lsp/server stale_test.go, lsp/cache versions_test.go, lsp/server edits_test.go) and, by the manager's note, the tests that fail when TMPDIR contains `..` (`internal/interop` TestProbeCommand, `internal/load` TestLoadModule/TestTestFiles/TestNoFiles/TestTestOnlyExternal). Not audited by todo.audit.
@@ -137,12 +136,10 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Build, modules, packaging
 
-- [ ] The runtime cache folder path breaks the C++ compile: a `"` in `XDG_CACHE_HOME` breaks the g++ assembler step (`Assembler messages: invalid character (0x9)`); a non-ASCII cache path breaks every clang++ runtime compile (`no such file or directory: '$/.../cä/...atomic.cpp'`, a `$'...'` quoting bug). A project folder with `"` or non-ASCII builds fine. Repro: `XDG_CACHE_HOME='/tmp/cä' gocpp build x.gp` (was L254).
 - [ ] `gocpp export compdb -o newdir/` writes a file named `newdir`; `-compdb=<fifo>` blocks forever and ignores SIGTERM; a symlink to a directory is resolved with `os.Stat`; refuse non-regular targets (was L249, L261).
-- [ ] `GOCPP_OFFLINE` has two meanings: `internal/toolchain/toolchain.go:152 envOn` (anything but ""/0/false is on) against `internal/modfetch/config.go:176 envOn` (only 1/true/yes/on); `GOCPP_OFFLINE=off` differs; `modfetch.TestConcurrentProcesses` fails when `GOCPP_OFFLINE=1` is set (helpers inherit it) (was L252, L73).
 - [ ] `gocpp build -n` prints 171 lines (the runtime object compiles) instead of the `libgocpprt.a` link line (was L255).
-- [ ] 6.2/6.8/6.11 lows carried: `unitName` hash mutant, goldens through `EmitProgram`, hash collision of the unnamed-type hash, a private `gen/<hash>-<pid>-<n>` folder left by a failed build, forced include through `-I` not tracked for the runtime, `--sysroot dir`/`-Wl,-T` not made absolute, -race/-release/-lto matrix on clang++ (was L227, L249, L255). Job 06.lows may touch these.
-- [ ] 15.14 lows carried: `exclude lib v2.0.0` non-canonical form (N1); a local `replace` with `get m@latest` (L1); git-host selection downloads full archives (L4); surviving mutants (L9); a pseudo-version vs release check reads the archive mtime (was L256).
+- [ ] 6.2/6.8/6.11 lows carried: `unitName` hash mutant, goldens through `EmitProgram`, hash collision of the unnamed-type hash, a private `gen/<hash>-<pid>-<n>` folder left by a failed build, `--sysroot dir`/`-Wl,-T,script`/`-Wl,-L,dir`/`-Xlinker -Map` not made absolute, -race/-release/-lto matrix on clang++ (only the quote-path `-release` case is covered), `export compdb -o newdir/`, 6.8 second round (`build -n` lists runtime objects, mutant coverage notes) (was L227, L249, L255). Forced include through `-I` is done (06.lows).
+- [ ] 15.14 lows carried: a local `replace` with `get m@latest` (L1); git-host selection downloads full archives (L4); a hand-edited `require lib v2.0.0` is not canonicalized and remaining L9 mutants (nested case clashes in `CreateZip`, `isFileProxy`, the `!rel.IsZero()` guard, sweep tests, retraction details); a pseudo-version vs release check reads the archive mtime (was L256). N1 (non-canonical `exclude`) and the exclude mutants of `Required`, `Previous`, `CanonicalVersion` are done (06.lows).
 - [ ] 15.13 lows: `TestFlakeVendorHash` hard-fails whenever go.mod/go.sum change (make it a hard failure only under `GOCPP_REQUIRE_PACKAGING=1`; add `make flake-hash`); `-X ...Version=` (empty) prints `gocpp  (phase ...)`; `version = "dev-${rev}"` renames the vendor derivation per commit; three packaging survivors; no aarch64 nix build, no `go install ...@latest` run (was L280).
 - [ ] 15.1 BUG for scheduling: builds are flaky when several run at once in one cache (4 of 324 builds failed at random under load; `stat .../gocpp-clang++-release: no such file`); root cause not found; the committed benchmark baseline is a loaded-machine baseline (was L274).
 - [ ] 15.9 cleanups: turn the `capgrowth` scenario on by default and delete the `cap-growth-size-classes` entry of tools/difftest/known.txt (cap now equals real Go: repro with 33 string appends gives 71); the generator lacks slices/maps/cmp/iter/sort/context scenarios (was L271).

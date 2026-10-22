@@ -83,7 +83,7 @@ cache again.
   only possible this way (it can't be downloaded).
 - A fork: `replace github.com/x/y => github.com/me/y v1.2.4`.
 - `exclude github.com/x/y v1.3.0` keeps a bad version out of the build, whatever other modules ask for.
-- `GOCPP_OFFLINE=1`: nothing is downloaded. A query that needs the list of versions (`latest`) fails and says so; a
+- `GOCPP_OFFLINE=1` (also `true`, `yes`, `on`; `0`, `false`, `no`, `off` and empty turn it off): nothing is downloaded. A query that needs the list of versions (`latest`) fails and says so; a
   version that is in the cache works.
 - Two `gocpp get` commands at once in one project wait for each other (a lock on the project folder; on Windows, which cannot lock a folder, a lock on the file
   `gocpp-project-<hash>.lock` in the temporary folder, named from a hash of the project's absolute path, which is deleted

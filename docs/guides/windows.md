@@ -212,7 +212,7 @@ The ones that matter on Windows:
 | `GOCPP_CXX`, `CXX` | the C++ compiler, ahead of everything else (`GOCPP_CXX` first). Words are allowed: `GOCPP_CXX="ccache g++"` |
 | `GOCPP_TOOLCHAIN` | `auto` (default), `local` or `pinned`: where the compiler comes from (above) |
 | `GOCPP_TOOLCHAIN_URL` | a mirror for the download: an `https://` folder that holds the archives under their names |
-| `GOCPP_OFFLINE` | `1`: never use the network (no toolchain download, no module download) |
+| `GOCPP_OFFLINE` | `1` (or `true`, `yes`, `on`): never use the network (no toolchain download, no module download); empty, `0`, `false`, `no` and `off` turn it off |
 | `GOCPP_NO_MANIFEST` | `1`: link no application manifest |
 | `GOCPP_CFLAGS`, `GOCPP_CXXFLAGS`, `GOCPP_LDFLAGS` | your own flags for the compiler and the linker. A `-DUNICODE` or `-UNOMINMAX` here switches off that one [Win32 default](windows-interop.md#the-defaults-gocpp-sets) |
 | `GOCPP_INTEROP` | `typed`, `opaque` or `auto` (the `-interop` flag wins): how C/C++ names are understood. The default is `auto`: typed when a clang++ is found (the pinned llvm-mingw has one), else `opaque`, with no message; `opaque` turns typed mode off (see the end of this page). The older `GOCPP_TYPED_INTEROP=1` still works |

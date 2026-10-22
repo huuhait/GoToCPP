@@ -132,7 +132,7 @@ func New(ctx context.Context, cfg *Config) *Reqs {
 	}
 	if cfg.File != nil {
 		for _, e := range cfg.File.Exclude {
-			r.excluded[mvs.Module{Path: e.Path, Version: e.Version}] = true
+			r.excluded[excludeKey(e.Path, e.Version)] = true
 		}
 	}
 	return r
@@ -140,7 +140,16 @@ func New(ctx context.Context, cfg *Config) *Reqs {
 
 // Excluded reports whether the main module excludes the version.
 func (r *Reqs) Excluded(path, version string) bool {
-	return r.excluded[mvs.Module{Path: path, Version: version}]
+	return r.excluded[excludeKey(path, version)]
+}
+
+// excludeKey is the key of an exclude line, and of a version that is looked up in them: the
+// version without +incompatible. v2.0.0 and v2.0.0+incompatible of a module with no /v2 in its path
+// are one tree (the list of versions writes the second, "get" turns an explicit v2.0.0 into it),
+// and Go insists on the second spelling in an exclude line, but gocpp.mod is read leniently, so
+// an exclude line written the first way must still match.
+func excludeKey(path, version string) mvs.Module {
+	return mvs.Module{Path: path, Version: strings.TrimSuffix(version, "+incompatible")}
 }
 
 // Main returns the main module.
@@ -181,7 +190,7 @@ func (r *Reqs) Required(m mvs.Module) ([]mvs.Module, error) {
 	}
 	var out []mvs.Module
 	for _, q := range lm.file.Require {
-		if r.excluded[mvs.Module{Path: q.Path, Version: q.Version}] {
+		if r.Excluded(q.Path, q.Version) {
 			continue
 		}
 		out = append(out, mvs.Module{Path: q.Path, Version: q.Version})
@@ -207,7 +216,7 @@ func (r *Reqs) mainRequired() []mvs.Module {
 	}
 	var out []mvs.Module
 	for _, q := range r.cfg.File.Require {
-		if r.excluded[mvs.Module{Path: q.Path, Version: q.Version}] {
+		if r.Excluded(q.Path, q.Version) {
 			continue
 		}
 		out = append(out, mvs.Module{Path: q.Path, Version: q.Version})
@@ -249,7 +258,7 @@ func (r *Reqs) Previous(m mvs.Module) (mvs.Module, error) {
 	}
 	prev := mvs.Module{Path: m.Path, Version: mvs.None}
 	for _, v := range vs {
-		if r.excluded[mvs.Module{Path: m.Path, Version: v}] {
+		if r.Excluded(m.Path, v) {
 			continue
 		}
 		if _, bad := modfetch.Retraction(rets, v); bad {

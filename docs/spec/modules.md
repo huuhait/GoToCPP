@@ -54,7 +54,7 @@ with `//` in it must be quoted: `cflags "-DURL=http://x"`. A file may be at most
 | `cxx c++20` | The C++ standard of the generated code and of the module's C++ files: `c++NN`, `gnu++NN` (`c++2b`, `c++2a` too) |
 | `require path version` | A module that the module needs, with a version `vX.Y.Z` (a prerelease, such as `-rc.1`, without leading zeros in its numbers, and a `+build` part are allowed; `v1` and `v1.2` are not, which is stricter than Go). `+build` parts are dropped, except `+incompatible`, as the go command writes versions. `// indirect` marks one that only another module needs |
 | `replace old [version] => dir` | Use the local folder `dir` for the module `old` (see below). With a version, only for that version |
-| `exclude path version` | Never use that version: a requirement on it (in any module file of the graph) counts as nothing, and `gocpp get` does not choose it. Only the main module's lines count |
+| `exclude path version` | Never use that version: a requirement on it (in any module file of the graph) counts as nothing, and `gocpp get` does not choose it. Only the main module's lines count. For a module whose path has no `/vN`, `exclude lib v2.0.0` and `exclude lib v2.0.0+incompatible` are the same line (Go insists on the second spelling and rejects the first when it reads `go.mod`; gocpp reads `gocpp.mod` leniently and matches both) |
 | `retract version` or `retract [low, high]` | In a module's own file: its author says that those versions must not be used (the comment above or after the line is the reason). Read from the highest version of the module by `gocpp get`, which skips them and warns |
 | `cflags flag...`, `ldflags flag...` | Compile and link flags for the whole module |
 | `pkg-config package...` | `pkg-config` libraries for the whole module |
@@ -305,7 +305,7 @@ archive. Details that follow Go and are tested against it (`go list -m all` and 
 - **The main module** is selected whatever other modules require of it.
 - **`replace`** changes where a module's files and requirements come from (a local folder, or another module version), not the version in the build list; a replacement folder or
   module must declare the replaced path (or its own).
-- **`exclude`** (main module only): a requirement on an excluded version counts as nothing, and `gocpp get` never chooses it.
+- **`exclude`** (main module only): a requirement on an excluded version counts as nothing, and `gocpp get` never chooses it. `exclude lib v2.0.0` (a path with no `/v2`) also excludes `v2.0.0+incompatible`, the name that `gocpp get` and the list of versions use; Go rejects the first spelling, gocpp reads it leniently.
 - **`retract`** (in the module file of a later version of a module) does not change the selection of the build list;
   `gocpp get` skips retracted versions for `latest`, `upgrade` and `patch` and as the version that a downgrade falls back
   to (Go's `CheckAllowed`), and warns when you name one. The retract lines are read from the module file of the highest
@@ -409,7 +409,7 @@ folders writable first); the command `gocpp clean -modcache` (step 6.12) will ca
 | Variable | Meaning |
 |---|---|
 | `GOCPP_MODCACHE` | The module cache folder (an absolute path), or `off` for none (then a module must be vendored or replaced). Default: `gocpp/mod` in the user cache folder; with neither `$XDG_CACHE_HOME` nor `$HOME` there is none |
-| `GOCPP_OFFLINE=1` | Never use the network: a module that is not in the cache (or vendored) is an error that says so |
+| `GOCPP_OFFLINE=1` | Never use the network: a module that is not in the cache (or vendored) is an error that says so. The spellings are the same for module downloads and for the Windows toolchain download: `1`, `true`, `yes` and `on` turn it on; empty, `0`, `false`, `no` and `off` turn it off (any case, spaces around the word are ignored); any other word is on too, so that a typo never goes online |
 | `GOCPP_MODFLAGS` | `-mod=readonly` (or `readonly`): do not write `gocpp.sum`; `-mod=mod`: the default |
 | `GOCPP_MODPROXY` | Where to download from, in order, like `GOPROXY`: URLs of mirrors, `file:///folder` (a folder in the layout of Go's proxy: `<module>/@v/list`, `.info`, `.mod`, `.zip`), `direct`, `off`. `,` goes on after "not found" only, `\|` after any error. A mirror serves `<url>/<module path>/@v/<version>.tar.gz` (or `.zip`) and the list of versions `<url>/<module path>/@v/list`. Default: `direct` |
 | `GOCPP_MODURL` | Rules for direct downloads, separated by spaces: `[module-prefix=]value`. A value without `{` is a base URL that replaces `https://<host>` for the built-in layouts (a GitHub Enterprise or a mirror with the same URLs); a value with `{...}` is a template for the archive URL with the fields `{path} {root} {host} {repo} {name} {subdir} {version} {ref}` (`{ref}` is the tag or the commit). The first rule whose prefix matches is used. This is also how a module on another host is downloaded |

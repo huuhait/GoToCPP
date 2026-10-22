@@ -147,6 +147,16 @@ func TestBuildListCases(t *testing.T) {
 			head + "require example.com/a v1.0.0\nexclude example.com/b v1.5.0\n", "example.com/app example.com/a@v1.0.0"},
 		{"a main require of an excluded version is nothing as well", newFake(),
 			head + "require example.com/a v1.0.0\nexclude example.com/a v1.0.0\n", "example.com/app"},
+		{"exclude v2.0.0 of a module without /v2 counts for v2.0.0+incompatible", newFake(),
+			head + "require example.com/a v2.0.0+incompatible\nexclude example.com/a v2.0.0\n", "example.com/app"},
+		{"exclude v2.0.0+incompatible counts for a require of v2.0.0", newFake(),
+			head + "require example.com/a v2.0.0\nexclude example.com/a v2.0.0+incompatible\n", "example.com/app"},
+		{"a dependency's require of v2.0.0+incompatible is excluded by exclude v2.0.0",
+			newFake("example.com/a@v1.0.0: example.com/b@v2.0.0+incompatible", "example.com/b@v2.0.0+incompatible: example.com/c@v1.0.0"),
+			head + "require example.com/a v1.0.0\nexclude example.com/b v2.0.0\n", "example.com/app example.com/a@v1.0.0"},
+		{"a dependency's require of v2.0.0 is excluded by exclude v2.0.0+incompatible",
+			newFake("example.com/a@v1.0.0: example.com/b@v2.0.0", "example.com/b@v2.0.0: example.com/c@v1.0.0"),
+			head + "require example.com/a v1.0.0\nexclude example.com/b v2.0.0+incompatible\n", "example.com/app example.com/a@v1.0.0"},
 		{"retract lines of dependencies play no part", newFake("example.com/a@v1.0.0: example.com/b@v1.0.0", "example.com/b@v1.0.0"),
 			head + "require example.com/a v1.0.0\n", "example.com/app example.com/a@v1.0.0 example.com/b@v1.0.0"},
 		{"several require lines for a module: the highest counts", newFake("example.com/a@v1.0.0", "example.com/a@v1.3.0"),
@@ -352,6 +362,17 @@ func TestPreviousSkipsExcluded(t *testing.T) {
 	p, _ = r.Previous(mvs.Module{Path: "example.com/a", Version: "v1.0.0"})
 	if p.Version != mvs.None {
 		t.Fatalf("previous of the first = %v", p)
+	}
+}
+
+func TestPreviousSkipsExcludedIncompatible(t *testing.T) {
+	// exclude v2.0.0 (the lenient spelling) skips v2.0.0+incompatible, the name the list of versions has.
+	src := newFake("example.com/a@v1.9.0", "example.com/a@v2.0.0+incompatible", "example.com/a@v2.1.0+incompatible")
+	file := mainFile(t, head+"exclude example.com/a v2.0.0\n")
+	r := New(context.Background(), &Config{MainDir: ".", File: file, Source: src})
+	p, err := r.Previous(mvs.Module{Path: "example.com/a", Version: "v2.1.0+incompatible"})
+	if err != nil || p.Version != "v1.9.0" {
+		t.Fatalf("previous = %v, %v; want v1.9.0", p, err)
 	}
 }
 

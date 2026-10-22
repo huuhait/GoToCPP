@@ -22,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/huuhait/gocpp/internal/envflag"
 )
 
 func main() {
@@ -197,7 +199,7 @@ func (c *commonFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.config, "config", "", "the folder with PINS, manifest.txt, overrides.txt, ... (default: tools/gotest of the repository)")
 	fs.StringVar(&c.cache, "cache", "", "the cache folder of the Go tarball (default: $XDG_CACHE_HOME/gocpp/portstd, shared with tools/portstd)")
 	fs.StringVar(&c.root, "root", "", "a folder that has test/ (default: extracted from the pinned tarball in the cache)")
-	fs.BoolVar(&c.fetch, "fetch", os.Getenv("GOCPP_OFFLINE") == "", "download the tarball when the cache lacks it (default off when GOCPP_OFFLINE is set)")
+	fs.BoolVar(&c.fetch, "fetch", !envflag.Offline(os.Getenv("GOCPP_OFFLINE")), "download the tarball when the cache lacks it (default off when GOCPP_OFFLINE is set)")
 }
 
 // newFlagSet returns a flag set that prints its errors to w.

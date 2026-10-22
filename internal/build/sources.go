@@ -148,7 +148,6 @@ func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *Pack
 	if err := os.MkdirAll(objDir, 0o755); err != nil {
 		return nil, nil, err
 	}
-	nofortify := filepath.Join(rtDir, "include", "gocpp", "nofortify.h")
 	objs = make([]string, len(srcs))
 	for i, s := range srcs {
 		file := filepath.Join(pb.Dir, s.file)
@@ -158,7 +157,7 @@ func (b *Builder) planPackageSources(ctx context.Context, rtDir string, pb *Pack
 		if s.c.C {
 			what, std, lang, env = "the C file ", "-std=gnu17", "c", b.Env.CFlags
 		}
-		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", pb.Dir, "-include", nofortify},
+		args := slices.Concat(SourceFlags(s.c, b.ASan), []string{std, "-iquote", pb.Dir}, nofortifyFlags(s.c, rtDir),
 			env, pb.Flags.Compile, pb.Public, []string{"-c", "-x", lang, file, "-o", objs[i]})
 		cmd := Command{Kind: KindSource, Pkg: pb.Path, Lang: lang, Compiler: compiler(s.c), Args: args, Dir: pb.Dir, File: file, Output: objs[i],
 			IR: "src/" + pb.Path + "/" + s.file}

@@ -276,7 +276,9 @@ cache (the cache can't see what such a flag reads), so those units are compiled 
 "up to date" (`-fpass-plugin=` and `-include` are cached, keyed by content). Relative names in the flags
 (`-I`, `-L`, `--sysroot=`, `-isystem`, `-iquote`, `-idirafter`, `-Wl,-Map`, plugins, `@file`, `-include`, `-imacros`,
 and a library or object file that exists under the current folder) are made absolute from the folder gocpp runs in,
-because the compiles run in a private work folder; `-Wl,-rpath` is left as written. The limits: the files that a response
+because the compiles run in a private work folder; `-Wl,-rpath` is left as written. A `-include` or `-imacros` name that
+is not a file under the current folder is looked up like `#include "name"` in the absolute folders of `-iquote`, `-I`,
+`-isystem` and `-idirafter` (`-Iinc -include hh.h` with `hh.h` only in `inc/` is tracked by content too). The limits: the files that a response
 file names in turn, and the files a plugin itself reads, are not tracked (`gocpp build -a` compiles all again); the
 content hash of a file is remembered by its name, size and time for the life of the process (the language server).
 
@@ -303,6 +305,27 @@ of the program, the generated C++, the package's own C and C++ files and the lib
 run of the compiler with the flags of the object's compile (plugins included), `-c` turned into `-S -emit-llvm`. The folder
 is emptied at the next build with the flag, only if it has the marker file `.gocpp-llvm` that gocpp writes (or is empty):
 gocpp does not remove what it did not make.
+
+### Paths with a double quote or non-ASCII letters
+
+The project, the cache (`XDG_CACHE_HOME`, where the runtime is built) and `TMPDIR` can be in folders with spaces,
+non-ASCII letters (`~/проект`, `C:\Users\Zoë`) and, on Linux and macOS, a double quote. Both compilers have bugs with
+such paths, and gocpp works around them:
+
+- Nix's clang wrapper writes its arguments to a response file with bash's `printf %q`, which in the `C` locale
+  (the one gocpp runs compilers in, for the same messages everywhere) turns a non-ASCII path into `$'\320...'`, which clang
+  then reads as another file name. gocpp sets `NIX_CC_USE_RESPONSE_FILE=0` for its compiler runs (unless you set a
+  non-empty value yourself); other compilers ignore it.
+- g++ writes `# 70 "<path>" 1` into its assembly for every inline `asm` statement without escaping a double quote in the
+  path, and the assembler fails. For a g++ compile that has a path with a double quote in it (the source, a folder of
+  `-I`, `-isystem`, `-iquote`, `-idirafter` or `--sysroot`, a `-include` or `-imacros` file; a quote in `-D` does not
+  count), gocpp compiles to assembly (`-S`), escapes the quotes of those lines and assembles it (`-x assembler`, with
+  the `-m...`, `-Wa,...` and `-Xassembler` flags), so `-x` shows one command, run as two steps. The limit: with `-flto`
+  (`-release`, `-lto`) that unit is compiled **without LTO** (the marker would be written at the link, out of
+  reach): it is not optimized together with the other units, and the LTO link takes it as a plain object.
+- clang writes a forced include as `#include "<path>"` into its `<built-in>` buffer without escaping a double quote, so for
+  a cache folder with a quote the runtime's `gocpp/nofortify.h` is included by name through `-iquote` of the runtime's
+  include folder.
 
 ## Files for other tools
 

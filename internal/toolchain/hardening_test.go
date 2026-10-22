@@ -50,7 +50,10 @@ func TestOfflineStopsTheDownload(t *testing.T) {
 }
 
 func TestFromEnvOffline(t *testing.T) {
-	for v, want := range map[string]bool{"": false, "0": false, "false": false, "1": true, "true": true, "yes": true} {
+	for v, want := range map[string]bool{
+		"": false, "0": false, "false": false, "no": false, "off": false, "OFF": false, " Off ": false,
+		"1": true, "true": true, "yes": true, "on": true, "On": true, "2": true, "ture": true,
+	} {
 		t.Setenv("GOCPP_OFFLINE", v)
 		cfg, err := FromEnv(true)
 		if err != nil || cfg.Offline != want {

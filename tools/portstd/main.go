@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/huuhait/gocpp/internal/envflag"
 )
 
 func main() {
@@ -80,7 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		cacheDir = filepath.Join(base, "gocpp", "portstd")
 	}
-	noNet := *offline || os.Getenv("GOCPP_OFFLINE") == "1"
+	noNet := *offline || envflag.Offline(os.Getenv("GOCPP_OFFLINE"))
 
 	if *pin != "" {
 		if noNet {

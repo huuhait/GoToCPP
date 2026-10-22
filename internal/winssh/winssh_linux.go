@@ -113,14 +113,16 @@ func NewUnlocked(host string) (*Remote, error) {
 		runID: fmt.Sprintf("%d_%d", os.Getpid(), nextStamp())}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	// Folders of earlier runs that were killed before they could clean up (a day old or more; only the
-	// <pid>_<time> folders of this tool, never another tool's), then this run's folder.
-	r.CleanStale(ctx, 24*time.Hour)
+	// This run's folder first: it is also the test that the machine answers, and an unreachable one
+	// fails after one connect timeout (10 seconds), not two.
 	out, errb, code, err := r.ssh(ctx, `mkdir gocpp-wintest\`+r.runID+` && echo gocpp-ready`)
 	if err != nil || code != 0 || !strings.Contains(string(out), "gocpp-ready") {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("ssh to the Windows machine failed: exit %d %v\nstdout: %s\nstderr: %s", code, err, out, errb)
 	}
+	// Folders of earlier runs that were killed before they could clean up (a day old or more; only the
+	// <pid>_<time> folders of this tool, never another tool's).
+	r.CleanStale(ctx, 24*time.Hour)
 	return r, nil
 }
 

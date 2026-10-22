@@ -359,3 +359,26 @@ func TestRedactURL(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigFromEnvOffline(t *testing.T) {
+	// The spellings are the toolchain's too (internal/envflag); cmd/gocpp's TestOfflineSpellingsAgree
+	// compares the two readers.
+	for v, want := range map[string]bool{
+		"": false, "0": false, "false": false, "no": false, "off": false, "OFF": false, " Off ": false,
+		"1": true, "true": true, "yes": true, "on": true, "On": true, "2": true, "ture": true,
+	} {
+		getenv := func(k string) string {
+			if k == "GOCPP_OFFLINE" {
+				return v
+			}
+			if k == "GOCPP_MODCACHE" {
+				return "off"
+			}
+			return ""
+		}
+		c, err := ConfigFromEnv(getenv, nil)
+		if err != nil || c.Offline != want {
+			t.Errorf("GOCPP_OFFLINE=%q: Offline = %v, %v; want %v", v, c != nil && c.Offline, err, want)
+		}
+	}
+}

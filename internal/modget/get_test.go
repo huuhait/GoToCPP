@@ -295,6 +295,40 @@ func TestGetExcludedVersion(t *testing.T) {
 	}
 }
 
+// A hand-written exclude line may spell a version of a module without /vN as v2.0.0 (Go rejects
+// that form; gocpp reads it): it excludes v2.0.0+incompatible, which is what "get" turns an
+// explicit v2.0.0 into, and the other spelling excludes both as well.
+func TestGetExcludedIncompatibleSpellings(t *testing.T) {
+	for _, c := range []struct{ name, exclude, query string }{
+		{"plain exclude, plain query", "v2.0.0", "v2.0.0"},
+		{"plain exclude, explicit +incompatible", "v2.0.0", "v2.0.0+incompatible"},
+		{"explicit exclude, plain query", "v2.0.0+incompatible", "v2.0.0"},
+		{"explicit exclude, explicit query", "v2.0.0+incompatible", "v2.0.0+incompatible"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, appMod+"\nexclude example.com/a "+c.exclude+"\n", cat(libA)...)
+			_, err := e.get("example.com/a@" + c.query)
+			if err == nil || !strings.Contains(err.Error(), "excluded by an exclude line") {
+				t.Errorf("get example.com/a@%s with exclude %s: %v", c.query, c.exclude, err)
+			}
+		})
+	}
+}
+
+// With a local replace, an explicit version is only a name, and the exclude line still applies to it,
+// also when the query has build metadata (v1.2.3+meta is v1.2.3).
+func TestGetLocalReplaceHonoursExclude(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "gocpp.mod"), []byte("module example.com/a\n"), 0o644)
+	mod := appMod + "\nreplace example.com/a => " + filepath.ToSlash(dir) + "\nexclude example.com/a v1.2.3\n"
+	for _, query := range []string{"v1.2.3", "v1.2.3+meta"} {
+		e := newEnv(t, mod)
+		if _, err := e.get("example.com/a@" + query); err == nil || !strings.Contains(err.Error(), "excluded by an exclude line") {
+			t.Errorf("get example.com/a@%s: %v", query, err)
+		}
+	}
+}
+
 func TestGetRetractedWarning(t *testing.T) {
 	mods := []tmod{
 		{Path: "example.com/r", Version: "v1.0.0"},
