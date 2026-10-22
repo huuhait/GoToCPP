@@ -112,7 +112,9 @@ changelog, known limits and open acceptance gates. No release is approved by the
 
 You need Go 1.25 and make, and `make ci` also needs `g++` and `clang++`. The Nix dev shell has
 all of them and the rest of the toolchain: run `nix develop` in the repo root, or use direnv
-with the committed `.envrc` (run `direnv allow` once).
+with the committed `.envrc` (run `direnv allow` once). To run single commands in the dev shell
+(scripts, many worktrees), `scripts/in-devenv <command>` does the same without `nix develop`'s copy of
+the source tree ([docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) §2).
 
 ```sh
 make ci           # every required check: lint, test, build

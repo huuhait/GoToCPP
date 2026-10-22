@@ -22,7 +22,8 @@
 #   SANITIZE_LIVE=1    test the live tree instead of a snapshot (a dirty tree is recorded as such)
 #   SANITIZE_PHASE     -phase N (default: every phase; the tool counts what it skips)
 #   SANITIZE_RUNNER    a command that wraps the job, for example a slot script that limits the load
-#   SANITIZE_DEVSHELL  how to enter the dev shell (default "nix develop -c"; set it empty to use the
+#   SANITIZE_DEVSHELL  how to enter the dev shell (default scripts/in-devenv, the cached dev shell; "nix
+#                      develop -c" also works; set it empty to use the
 #                      tools of the current environment, as the tests of this script do)
 set -u
 # the script may be run through a symlink (a cron entry, ~/bin): find the repository from the real file
@@ -30,7 +31,7 @@ self=$(readlink -f "$0" 2>/dev/null || echo "$0")
 root=$(cd "$(dirname "$self")/../.." && pwd) || exit 2
 results=${SANITIZE_RESULTS:-$root/sanitize-results}
 cache=${SANITIZE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/gocpp-sanitize}
-devshell=${SANITIZE_DEVSHELL-nix develop -c}
+devshell=${SANITIZE_DEVSHELL-$root/scripts/in-devenv}
 mkdir -p "$results" "$cache" || exit 2
 stamp=$(date -u +%Y%m%d-%H%M%S)
 

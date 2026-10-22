@@ -70,6 +70,36 @@ The plan files (root [README](../plans/2026-10-13-gocpp/README.md) §9):
 
 The full layout is in the root [README](../plans/2026-10-13-gocpp/README.md) §10.
 
+### The dev shell without copies of the tree
+
+On NixOS (or any Linux with Nix), `nix develop -c <command>` in a git worktree with uncommitted
+changes copies the whole source tree into `/nix/store` (a new `<hash>-source` with thousands of
+files) on every call. Scripts, agents and test loops that call it many times fill the store and
+the root filesystem's inodes. Use the wrapper instead:
+
+```sh
+scripts/in-devenv go build ./...      # any command, from any folder of any worktree
+scripts/in-devenv make quick
+make devenv                           # make the cached environment again, print its file
+```
+
+`scripts/in-devenv` takes the flake of the current folder's repository (like `nix develop`) and
+evaluates it once per key (the hash of `flake.nix`, `flake.lock` and the system) from a copy of
+just those two files, keeps the toolchain alive with a GC root (`nix print-dev-env --profile`) and
+saves the environment as a file in
+`${GOCPP_DEVENV_DIR:-${XDG_CACHE_HOME:-~/.cache}/gocpp-devenv}`. A call sources that file, runs
+the command (`scripts/in-devenv -- <command>` also works) and removes its temporary folder. The
+environment is the one of `nix develop`, except that `GOCPP_IN_DEVENV` is set, `NIX_GCROOT` is
+not, and the few variables that name the folder where `nix develop` was called (`out`, `prefix`,
+the `-rpath` in `NIX_LDFLAGS`) do not follow the current folder. INT, QUIT, TERM and HUP reach the
+command; if the wrapper itself is killed with SIGKILL the command gets SIGTERM (`setpriv`) but its
+temporary folder stays. The wrapper makes the environment again by itself when `flake.nix` or
+`flake.lock` change, waits for a parallel call that is making it (`flock`), runs the command as it
+is inside a dev shell or without Nix, and falls back to plain `nix develop -c` (with a line on
+stderr that says why and points at `<key>.err`) when the environment cannot be made. Entries of
+other keys unused for 30 days are removed when a new one is made. `tools/devenv` has its tests.
+The wrapper is for Linux with Nix; macOS and Windows use their own toolchains.
+
 ## 3. Tests come first
 
 - **Every behavior change comes with a test**, in the same change. Write the test first when

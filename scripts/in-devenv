@@ -1,0 +1,301 @@
+#!/bin/sh
+# in-devenv: run a command in the Nix dev shell (flake.nix) without `nix develop`.
+#
+#   scripts/in-devenv [--] <command> [args...]   run the command in the dev shell
+#   scripts/in-devenv --key                 print the cache key (hash of flake.nix, flake.lock, system)
+#   scripts/in-devenv --file                print the cached environment file (made when missing)
+#   scripts/in-devenv --refresh             make the cached environment again (make devenv)
+#
+# `nix develop` in a git worktree with uncommitted changes copies the whole source tree into
+# /nix/store (a new <hash>-source of thousands of inodes) on EVERY call. This script evaluates the
+# flake once per key instead: it copies only flake.nix and flake.lock to a folder of the cache,
+# runs `nix print-dev-env --profile` on that folder (one tiny copy in the store, the same path
+# for the same content; the profile is a GC root that keeps the toolchain), and stores the
+# environment as a bash file. A call then sources that file and runs the command.
+#
+# The key changes when flake.nix or flake.lock change, so the next call makes the environment
+# again. A parallel call waits for the one that is making it (flock).
+#
+# Without nix, or inside `nix develop` already, the command runs as it is. When the cached
+# environment cannot be made (no flock or bash, the evaluation fails), the command runs through
+# plain `nix develop -c`, and a line on stderr says why and where the details are ($key.err).
+#
+# The command runs as a child of this script, which removes the temporary folder after it (the
+# environment has TMPDIR=/tmp/nix-shell.XXXXXX, as under `nix develop`, which never removes it).
+# Signals INT, QUIT, TERM and HUP reach the command. If this script is killed with SIGKILL the
+# command gets SIGTERM (setpriv --pdeathsig, when setpriv exists) but the temporary folder stays.
+# Without env --default-signal (GNU coreutils) the command is exec'd and its folder stays too.
+#
+# The environment is the one of `nix develop`, with these differences: GOCPP_IN_DEVENV is set,
+# NIX_GCROOT is not, and the variables that name the folder where it was made (out, prefix, the
+# -rpath in NIX_LDFLAGS: <cache>/<key>.flake/outputs/out) do not follow the current folder.
+#
+# Environment:
+#   GOCPP_DEVENV_DIR   the cache folder (default ${XDG_CACHE_HOME:-~/.cache}/gocpp-devenv)
+#   GOCPP_DEVENV_KEEP_DAYS  entries of other keys that were not used for this many days are
+#                           removed when a new one is made (default 30)
+# The flake is looked for from the current folder upwards (like `nix develop`), then next to this
+# script, so one copy of the script serves every worktree.
+# Linux with Nix only; macOS and Windows use their own toolchains and do not call this.
+
+# The flake is the one of the current folder's repository, as for `nix develop` (a worktree may
+# change flake.nix); outside any repository, the one this script belongs to. Only shell builtins
+# (a minimal PATH, for example in cron, has no dirname).
+find_root() {
+	dir=$PWD
+	while :
+	do
+		if [ -f "$dir/flake.nix" ] && [ -f "$dir/flake.lock" ]
+		then
+			root=$dir
+			return 0
+		fi
+		[ "$dir" = / ] && break
+		parent=${dir%/*}
+		[ -z "$parent" ] && parent=/
+		[ "$parent" = "$dir" ] && break
+		dir=$parent
+	done
+
+	self=$0
+	case $self in
+	*/*) ;;
+	*) self=$(command -v -- "$0") || return 1 ;;
+	esac
+	here=${self%/*}
+	[ "$here" = "$self" ] && here=.
+	root=$(cd "$here/.." && pwd) || return 1
+}
+
+# The cache folder as an absolute path.
+cache_dir() {
+	if [ -n "${GOCPP_DEVENV_DIR:-}" ]
+	then
+		cache=$GOCPP_DEVENV_DIR
+	else
+		cache=${XDG_CACHE_HOME:-$HOME/.cache}/gocpp-devenv
+	fi
+	case $cache in
+	/*) ;;
+	*) cache=$PWD/$cache ;;
+	esac
+	printf '%s\n' "$cache"
+}
+
+# The key is the hash of what decides the environment: the two flake files and the system.
+compute_key() {
+	{
+		uname -sm
+		cat "$root/flake.nix" "$root/flake.lock"
+	} | sha256sum | cut -c1-32
+}
+
+# A key is 32 lower-case hex digits; nothing else in the cache folder is ours to remove.
+is_key() {
+	case $1 in
+	*[!0-9a-f]*) return 1 ;;
+	esac
+	[ "${#1}" -eq 32 ]
+}
+
+# Make the cached environment for $1 (the key); the caller holds the lock. On failure the
+# reason is in $key.err and no partial file is left.
+make_env() {
+	key=$1
+	dir=$(cache_dir)
+	src=$dir/$key.flake
+	file=$dir/$key.sh
+	tmp=$dir/$key.sh.tmp.$$
+	err=$dir/$key.err
+
+	rm -rf "$src"
+	mkdir -p "$src" || return 1
+	cp "$root/flake.nix" "$root/flake.lock" "$src/" || return 1
+
+	# Evaluated from inside the copy, so that the paths the environment names after the
+	# current folder (out, prefix) do not depend on the folder of the first call. --offline
+	# first (the inputs are in the store already: no network wait), then online.
+	for flags in "--offline" ""
+	do
+		# shellcheck disable=SC2086
+		if (cd "$src" && nix print-dev-env $flags --profile "$dir/$key.profile" "path:$src") >"$tmp" 2>"$err"
+		then
+			break
+		fi
+		rm -f "$tmp"
+	done
+	[ -s "$tmp" ] || return 1
+
+	# The script makes a new /tmp/nix-shell.XXXXXX at every source. in-devenv makes its own
+	# (and removes it), so that line goes. If one is left (another nix version wrote it
+	# differently), the environment would leak a folder per call: refuse it.
+	grep -v '^export NIX_BUILD_TOP="$(mktemp -d -t nix-shell.XXXXXX)"$' "$tmp" >"$tmp.2"
+	if [ ! -s "$tmp.2" ] || grep -q 'nix-shell\.XXXXXX' "$tmp.2"
+	then
+		echo "in-devenv: the environment still makes its own nix-shell.XXXXXX folder; not used" >>"$err"
+		rm -f "$tmp" "$tmp.2"
+		return 1
+	fi
+	rm -f "$tmp"
+	if ! mv "$tmp.2" "$file"
+	then
+		rm -f "$tmp.2"
+		return 1
+	fi
+
+	prune_old "$dir" "$key"
+	return 0
+}
+
+# Remove what belongs to other keys that nobody used for GOCPP_DEVENV_KEEP_DAYS days: the
+# environment file, its flake copy, error file, GC root (profile and its links), lock and
+# unfinished temporary files. Only names that start with a key are looked at.
+prune_old() {
+	days=${GOCPP_DEVENV_KEEP_DAYS:-30}
+	for entry in "$1"/*
+	do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		name=${entry##*/}
+		oldkey=${name%%.*}
+		is_key "$oldkey" || continue
+		[ "$oldkey" = "$2" ] && continue
+
+		# The environment file's time is the last use; without it, the entry's own time.
+		stamp=$1/$oldkey.sh
+		[ -e "$stamp" ] || stamp=$entry
+		if [ -n "$(find "$stamp" -maxdepth 0 -mtime "+$days" 2>/dev/null)" ]
+		then
+			rm -rf "$entry"
+		fi
+	done
+}
+
+# ensure_env KEY: succeed when the environment file for KEY is usable. The file is usable when
+# it exists and its GC root still points to the store (a profile that was removed means the
+# toolchain may have been collected).
+ensure_env() {
+	key=$1
+	dir=$(cache_dir)
+	file=$dir/$key.sh
+	if [ "$force" != 1 ] && [ -s "$file" ] && [ -e "$dir/$key.profile" ]
+	then
+		touch "$file" 2>/dev/null
+		return 0
+	fi
+
+	command -v flock >/dev/null 2>&1 || return 1
+	mkdir -p "$dir" || return 1
+
+	# One maker at a time; the others wait here and find the file made.
+	(
+		flock 9 || exit 1
+		if [ "$force" != 1 ] && [ -s "$file" ] && [ -e "$dir/$key.profile" ]
+		then
+			exit 0
+		fi
+		make_env "$key"
+	) 9>"$dir/$key.lock"
+}
+
+# fallback WHY COMMAND...: run through plain nix develop; WHY and the details go to stderr.
+fallback() {
+	why=$1
+	shift
+	echo "in-devenv: $why; using plain 'nix develop -c'" >&2
+	if [ -n "${key:-}" ] && [ -s "$(cache_dir)/$key.err" ]
+	then
+		echo "in-devenv: details: $(cache_dir)/$key.err: $(tail -n 1 "$(cache_dir)/$key.err")" >&2
+	fi
+	exec nix develop "$root" -c "$@"
+}
+
+usage() {
+	echo "usage: in-devenv [--] <command> [args...] | --key | --file | --refresh" >&2
+	exit 2
+}
+
+force=0
+case "${1:-}" in
+--key)
+	find_root || exit 2
+	compute_key
+	exit
+	;;
+--file | --refresh)
+	mode=$1
+	[ "$mode" = "--refresh" ] && force=1
+	find_root || exit 2
+	key=$(compute_key) || exit 1
+	if ! ensure_env "$key"
+	then
+		echo "in-devenv: could not make the environment (see $(cache_dir)/$key.err)" >&2
+		exit 1
+	fi
+	printf '%s\n' "$(cache_dir)/$key.sh"
+	exit
+	;;
+--)
+	shift
+	[ $# -gt 0 ] || usage
+	;;
+"")
+	usage
+	;;
+esac
+
+# Inside a dev shell already, or no nix at all: nothing to enter.
+if [ -n "${IN_NIX_SHELL:-}" ] || [ -n "${GOCPP_IN_DEVENV:-}" ] || ! command -v nix >/dev/null 2>&1
+then
+	exec "$@"
+fi
+
+find_root || exit 2
+key=
+command -v bash >/dev/null 2>&1 || fallback "no bash for the environment file" "$@"
+key=$(compute_key) || fallback "cannot compute the key" "$@"
+ensure_env "$key" || fallback "cannot make the environment" "$@"
+envfile=$(cache_dir)/$key.sh
+
+export GOCPP_IN_DEVENV=$key
+NIX_BUILD_TOP=$(mktemp -d -t nix-shell.XXXXXX) || fallback "no temporary folder" "$@"
+export NIX_BUILD_TOP
+
+# Without env --default-signal the child would ignore INT and QUIT (a shell starts background
+# jobs that way), so then the command takes this process' place and its folder stays.
+if ! env --default-signal=INT,QUIT true >/dev/null 2>&1
+then
+	exec bash -c '. "$1" || exit 126; shift; exec "$@"' in-devenv "$envfile" "$@"
+fi
+pdeath=
+if command -v setpriv >/dev/null 2>&1 && setpriv --pdeathsig TERM true >/dev/null 2>&1
+then
+	pdeath="setpriv --pdeathsig TERM"
+fi
+
+# The command runs as a child so that the temporary folder goes away after it. Signals are
+# passed on; stdin stays the caller's.
+child=
+cleanup() {
+	rm -rf "$NIX_BUILD_TOP"
+}
+forward() {
+	[ -n "$child" ] && kill -s "$1" "$child" 2>/dev/null
+}
+trap cleanup EXIT
+trap 'forward TERM' TERM
+trap 'forward INT' INT
+trap 'forward HUP' HUP
+trap 'forward QUIT' QUIT
+# shellcheck disable=SC2086
+env --default-signal=INT,QUIT $pdeath bash -c '. "$1" || exit 126; shift; exec "$@"' \
+	in-devenv "$envfile" "$@" <&0 &
+child=$!
+wait "$child"
+status=$?
+# A signal interrupts the first wait; wait again for the child itself.
+while kill -0 "$child" 2>/dev/null
+do
+	wait "$child"
+	status=$?
+done
+exit "$status"

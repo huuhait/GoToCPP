@@ -58,10 +58,17 @@ LINT_SKIP = -path ./spikes -o -path ./.git -o -name testdata
 STATICCHECK ?= $(GO) run honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
 .PHONY: build test lint staticcheck ci clean quick portstd-check conformance conformance-check conformance-report
+.PHONY: devenv
 .PHONY: bench bench-smoke bench-check bench-baseline bench-history
 
 build:
 	$(GO) build -o bin/gocpp ./cmd/gocpp
+
+# The cached Nix dev shell (Linux with Nix; docs/CONTRIBUTING.md, "The dev shell without copies of the
+# tree"): make devenv makes it again and prints the environment file. scripts/in-devenv <command>
+# runs a command in it, for example scripts/in-devenv make ci.
+devenv:
+	scripts/in-devenv --refresh
 
 # -timeout 45m: the runtime package builds every C++ test with g++ and clang++
 # in three modes, and cmd/gocpp and internal/build compile whole programs; on a
