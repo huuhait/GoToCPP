@@ -33,6 +33,32 @@ Only necessary focused checks. No `make ci`, `verify.sh` or full sweeps by any w
 manager. The user owns the final manual broad verification. Review findings are handed
 back together after each round; workers report only at completion or a genuine blocker.
 
+## Triage: what the open lines really are (manager estimate, 2026-10-22)
+
+The open list below has about 87 checkbox lines. They are NOT 87 tasks: many lines bundle several
+small "lows", and most bundles are old review leftovers that no user has hit. Rough split by what
+the lines are (a line counts once):
+
+| Kind | Lines | What it means |
+|---|---|---|
+| In a running job | about 9 | recover, `&cvar`, anonymous interface field, reflect, sync.Map, paths and offline, HRESULT, LSP speed: they close at merge |
+| Real bugs a user can hit | about 16 | 8 MiB stack, generic types in functions, range over generic iterator with C++ types, `const d = x+1`, `sys/select.h`, header ending mid-declaration, `check` and `build` disagree, `make([]struct{}, MaxInt)`, FIFO hang in `check .`, `export compdb -o fifo`, `remove_target` NUL, builds flaky when several run in one cache, syscall small differences, `-release` traces without frames |
+| Failing or never-run tests and CI | about 9 | `TestGDBPrinters` (61 lines), `TestClangFormat`, `TestNixHardening`, `defer_test` under g++ -Werror, clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
+| Performance (no wrong answer) | about 8 | timers, string maps, panic from a callee, `iter.Pull`, `-O0` default speed |
+| Old review leftovers ("lows" bundles) | about 20 | 6.x, 7.x, 8.x, 10.x, 12.x, 13.x, 14.x, 15.x bundles: mutants, cosmetic output, rare shapes |
+| Cosmetic, stale comments, docs | about 15 | wording, stale text, missing run tests |
+| Needs the real Windows PC | about 4 | `Chdir` over 260 characters, `time.Local`, `Process.Release`, 14.x suites |
+
+Release exit criteria (Phase 15: v1.0) are separate lines in the phase STATE files and need you:
+24 h fuzzing, benchmarks published, CI green on three targets, installable release, docs site live,
+the v1.0 promise and changelog. Phase 14 (Windows) exit lines need the real PC.
+
+Working order of the manager: finish the running jobs, then the real bugs, then the failing tests,
+then the bundles in the order of how likely a user hits them. Performance and cosmetic lines only
+when the rest is done or a user asks.
+
+---
+
 ## Historical front-end checklist
 
 - [x] Turn the front-end spike (header packages, namespace rewrite + namespace probe, `FakeImportC`) into `internal/load` + `internal/check` — done 2026-10-19: internal/load and internal/check exist (Phase 01 done: steps 1.9, 1.10)
