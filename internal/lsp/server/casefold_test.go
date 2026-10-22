@@ -268,11 +268,18 @@ func TestIsHeaderFold(t *testing.T) {
 		if isHeader("/p/X.H") || !isHeader("/p/x.h") || !isHeader("/p/x.hpp") || isHeader("/p/x.gp") {
 			t.Error("isHeader")
 		}
+		if isSource("/p/X.CPP") || !isSource("/p/x.cpp") || !isSource("/p/x.c") ||
+			isSource("/p/x.h") {
+			t.Error("isSource")
+		}
 	})
 	t.Run("case-insensitive", func(t *testing.T) {
 		t.Cleanup(fspath.Use(fspath.CaseFold))
 		if !isHeader("/p/X.H") || !isHeader("/p/x.HPP") || isHeader("/p/x.GO") {
 			t.Error("isHeader")
+		}
+		if !isSource("/p/X.CPP") || !isSource("/p/x.C") || isSource("/p/x.H") {
+			t.Error("isSource")
 		}
 	})
 }

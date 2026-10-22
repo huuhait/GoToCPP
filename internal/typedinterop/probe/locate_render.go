@@ -28,6 +28,46 @@ type Declaration struct {
 	// Signature is the declaration in C++; Doc the comment of the header, or "".
 	Signature string `json:"signature"`
 	Doc       string `json:"doc,omitempty"`
+
+	// Type is the compiler's type of a function or a variable as the dump prints it ("int (int,
+	// int)", with the typedef names as the declaration spells them). Tag is set for a typedef of a
+	// struct, union or enum, whose body LocateBodies can ask for (step 12.13e).
+	Type string  `json:"type,omitempty"`
+	Tag  *TagRef `json:"tag,omitempty"`
+
+	// Params are the types of the parameters of a function, each with its typedef names resolved,
+	// joined by ";", with "..." last for a variadic function: two declarations of one function
+	// have them alike whatever typedef names they spell (`size_t` and `unsigned long`), and a
+	// function of another parameter list is another function. They pair a declaration of a header
+	// with the definition of a source file (step 12.13e).
+	Params string `json:"params,omitempty"`
+
+	// Defined says that a function has a body, or that a variable is defined here and not only
+	// declared (extern). A name looked up after the includes of a package source shows the
+	// definition of that source as its latest declaration.
+	Defined bool `json:"defined,omitempty"`
+
+	// Redeclares says that the compiler took the declaration for another declaration of the same
+	// entity (the dump says "prev") and that this declaration is not static. The definition of a
+	// header's function in a source redeclares it; a static function, or a function without a
+	// previous declaration, does not. (A function of an unnamed namespace has no mark in a
+	// lookup dump: it is told from the header's function by its parameters.)
+	Redeclares bool `json:"redeclares,omitempty"`
+}
+
+// A TagRef says that a typedef names a tag (typedef struct Vector2 Vector2;). The tag's body is
+// found by its name, or, when the tag has no name of its own (typedef struct {...} Name;), by the
+// range of the typedef, which holds it.
+type TagRef struct {
+	Kind string `json:"kind"` // struct, union, class or enum
+	Name string `json:"name"` // the last part of the tag's name, as the typedef spells it
+	// Qualified is the tag's name with the namespaces the compiler printed for the type: two
+	// tags of one name in other namespaces are told apart by it.
+	Qualified string `json:"qualified,omitempty"`
+	Typedef   string `json:"typedef"` // the typedef's name, qualified
+	// Span is the range of the typedef declaration in its file: the first line and column, the
+	// last line and column (1-based, the compiler's columns).
+	Span [4]int `json:"span"`
 }
 
 const (
@@ -155,6 +195,28 @@ func lastCut(s, sep string) (before, after string, found bool) {
 	return s[:i], s[i+len(sep):], true
 }
 
+// parameterTypes returns the types of the parameters of the function at i (see Declaration.Params).
+func parameterTypes(t *tree, i int) string {
+	types := make([]string, 0, 4)
+	for _, k := range t.children(i, "ParmVarDecl") {
+		p := t.nodes[k].hdr
+		typ := p.canon
+		if typ == "" {
+			typ = p.typ
+		}
+		types = append(types, typ)
+	}
+	if strings.HasSuffix(t.nodes[i].hdr.typ, "...)") {
+		types = append(types, "...") // f(int, ...) is not f(int)
+	}
+	return strings.Join(types, ";")
+}
+
+// isStatic says that the declaration is written static: its name is not seen by other files.
+func isStatic(h nodeHeader) bool {
+	return slices.Contains(h.pre, "static") || slices.Contains(h.post, "static")
+}
+
 func (r *renderer) render(t *tree, i int, qual string, partial bool) (Declaration, bool) {
 	h := t.nodes[i].hdr
 	var decl Declaration
@@ -164,11 +226,16 @@ func (r *renderer) render(t *tree, i int, qual string, partial bool) (Declaratio
 		"CXXConversionDecl":
 		decl.Signature, ok = functionSignature(t, i, "", qual)
 		decl.Kind = functionKind(h.kind)
+		decl.Type = h.typ
+		decl.Params = parameterTypes(t, i)
+		decl.Defined = h.body
+		decl.Redeclares = h.prev && !isStatic(h)
 	case "FunctionTemplateDecl":
 		decl.Signature, decl.Kind, ok = templateFunction(t, i, qual)
 	case "TypedefDecl":
 		decl.Signature, ok = typedefSignature(h, qual), true
 		decl.Kind = "type"
+		decl.Tag = typedefTag(h, qual)
 	case "TypeAliasDecl":
 		decl.Signature, ok = aliasSignature(h, qual), true
 		decl.Kind = "type"
@@ -187,6 +254,9 @@ func (r *renderer) render(t *tree, i int, qual string, partial bool) (Declaratio
 	case "VarDecl":
 		decl.Signature, ok = variableSignature(t, i, qual), true
 		decl.Kind = "variable"
+		decl.Type = h.typ
+		decl.Redeclares = h.prev
+		decl.Defined = !slices.Contains(h.pre, "extern") && !slices.Contains(h.post, "extern")
 	case "EnumConstantDecl":
 		decl.Signature, ok = enumeratorSignature(t, i, qual), true
 		decl.Kind = "constant"

@@ -51,6 +51,12 @@ func TestIndexChanged(t *testing.T) {
 			t.Errorf("an unchanged save of %s made the indexes old", rel)
 		}
 	}
+	// The headers and the C/C++ sources of a package are no packages.
+	for _, rel := range []string{"a/p/p.h", "a/p/p.cpp", "a/p/p.c", "a/p/p.cc", "a/p/p.cxx"} {
+		if changed(rel, protocol.Changed) {
+			t.Errorf("a change of %s made the indexes old", rel)
+		}
+	}
 	// Folders and files that the walk skips.
 	write("a/testdata/t/t.gp", "package other\n")
 	write("a/_hidden/h.gp", "package other\n")

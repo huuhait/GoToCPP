@@ -530,9 +530,12 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 
 // watchedFiles are the files whose changes on disk the server wants to hear
 // of (workspace/didChangeWatchedFiles): the .gp files and gocpp.mod files,
-// which the snapshots read, and the C/C++ headers, which the namespace probe
-// reads.
-var watchedFiles = []string{"**/*.gp", "**/gocpp.mod", "**/*.{h,hh,hpp,hxx,inc}"}
+// which the snapshots read, the C/C++ headers, which the namespace probe
+// reads, and the C/C++ sources of a package, which give the definitions of
+// its header functions.
+var watchedFiles = []string{
+	"**/*.gp", "**/gocpp.mod", "**/*.{h,hh,hpp,hxx,inc}", "**/*.{c,cc,cpp,cxx}",
+}
 
 // initialized registers workspace/didChangeWatchedFiles when the client can
 // (like gopls; a client without dynamic registration may send it anyway).
@@ -715,6 +718,21 @@ func isHeader(path string) bool {
 	return false
 }
 
+// isSource reports whether the file is a C/C++ source (watchedFiles). Like a header it changes no
+// snapshot: the definitions that the sources of a package give are checked again in the
+// background.
+func isSource(path string) bool {
+	ext := filepath.Ext(path)
+	if fspath.FoldCase() {
+		ext = strings.ToLower(ext)
+	}
+	switch ext {
+	case ".c", ".cc", ".cpp", ".cxx":
+		return true
+	}
+	return false
+}
+
 // didChangeWatchedFiles takes in files that changed on disk, outside the
 // editor (a git checkout, a generator, another editor): a new snapshot
 // reads them again (Session.Invalidate) and the open packages they are in
@@ -725,7 +743,7 @@ func isHeader(path string) bool {
 // open package: every open package is diagnosed again (only what the
 // change touches is checked again, step 11.3), and the package that is not
 // open is not checked for itself. A
-// header changes no snapshot: the namespace probe checks its answers again
+// header or a C/C++ source changes no snapshot: the namespace probe checks its answers again
 // in the background (Pipeline.HeadersChanged), and the packages whose
 // answers changed are diagnosed again (diagnostics.probed). The events of
 // an open document change nothing: its overlay is what counts.
@@ -752,7 +770,7 @@ func (s *Server) didChangeWatchedFiles(_ context.Context, params json.RawMessage
 		switch {
 		case path == "":
 			continue
-		case isHeader(path):
+		case isHeader(path) || isSource(path):
 			headers = true
 			continue
 		case strings.HasSuffix(path, ".gp"):

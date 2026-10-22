@@ -102,10 +102,10 @@ func (ix *importIndex) changed(events []protocol.FileEvent) {
 }
 
 // folderOrOther reports whether a changed path is something else than a .gp
-// file or a header: a folder, whose listing may have changed in a way that
+// file, a header or a C/C++ source: a folder, whose listing may have changed in a way that
 // nobody reported file by file (a tool that deleted its files).
 func folderOrOther(path string) bool {
-	return path != "" && !strings.HasSuffix(path, ".gp") && !isHeader(path)
+	return path != "" && !strings.HasSuffix(path, ".gp") && !isHeader(path) && !isSource(path)
 }
 
 // nameChanged reports whether the .gp file path, as it is on disk now, makes

@@ -66,6 +66,10 @@ const (
 type Locations struct {
 	named   map[string][]Declaration
 	members map[string][]Declaration
+
+	deps    []string  // the files that the compiler runs read, and the places that shadow them
+	started time.Time // when the call began: a file that changed after it is not what was read
+	dir     string
 }
 
 func namedKey(scope, name string) string { return scope + "\x00" + name }
@@ -146,14 +150,17 @@ func (rn *Runner) Locate(ctx context.Context, cfg Config, includes []string,
 	todo := validLocateNames(req.Names)
 	members := validLocateMembers(req.Members)
 	answers := make(map[string]roundAnswer)
+	var read []string // the files that the runs read
+	started := time.Now()
 	for round := 0; round < maxLocateRounds && (len(todo) > 0 || round == 0 && len(members) > 0); round++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		got, err := rn.locateRound(ctx, cfg, includes, todo, members)
+		got, deps, err := rn.locateRound(ctx, cfg, includes, todo, members)
 		if err != nil {
 			return nil, err
 		}
+		read = append(read, deps...)
 		members = nil // members are asked in the first round only
 		var next []LocateName
 		for key, answer := range got {
@@ -168,7 +175,14 @@ func (rn *Runner) Locate(ctx context.Context, cfg Config, includes []string,
 		}
 		todo = next
 	}
-	locations := &Locations{named: make(map[string][]Declaration), members: make(map[string][]Declaration)}
+	slices.Sort(read)
+	locations := &Locations{
+		named:   make(map[string][]Declaration),
+		members: make(map[string][]Declaration),
+		deps:    slices.Compact(read),
+		started: started,
+		dir:     cfg.Dir,
+	}
 	var resolve func(key string, depth int) ([]Declaration, bool)
 	resolve = func(key string, depth int) ([]Declaration, bool) {
 		answer, found := answers[key]
@@ -373,9 +387,12 @@ func locateSource(includes []string, names []LocateName, members []LocateMembers
 }
 
 // locateKeyVersion is part of the key of every locate entry. It changes when the answers that a
-// run gives change for the same source and compiler (v2: redeclarations, templates, doc cuts;
-// v3: the comments of system headers are kept), so an entry of an older version is never looked up.
-const locateKeyVersion = "locate-v3"
+// run gives change for the same source and compiler, so an entry of an older version is never
+// looked up. v2: redeclarations, templates, doc cuts. v3: the comments of system headers are kept.
+// v4: a declaration has its compiler type, the tag of a typedef and the flag Defined. v5: the tag
+// has its qualified name. v6: a function has its canonical parameter types, and a static function
+// does not redeclare.
+const locateKeyVersion = "locate-v6"
 
 // locateEntryName is the name of the cache entry of a locate source.
 func locateEntryName(version string, cfg Config, text string, tc toolchain) string {
@@ -386,35 +403,50 @@ func locateEntryName(version string, cfg Config, text string, tc toolchain) stri
 // locateRound makes one run for the names and the members, or reads it from the cache.
 func (rn *Runner) locateRound(ctx context.Context, cfg Config, includes []string,
 	names []LocateName, members []LocateMembers,
-) (map[string]roundAnswer, error) {
+) (map[string]roundAnswer, []string, error) {
 	text, items, err := locateSource(includes, names, members)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	produce := func(set *sourceSet, answers map[string]roundAnswer) ([]*auxOut, error) {
+		return rn.produceLocate(ctx, cfg, text, set, items, answers)
+	}
+	return rn.cachedRound(ctx, cfg, includes, locateKeyVersion, text, produce)
+}
+
+// A producer makes the answers of a run from the compiler's output, and returns the outputs whose
+// dependency lists must be the ones the run was bound to.
+type producer func(set *sourceSet, answers map[string]roundAnswer) ([]*auxOut, error)
+
+// cachedRound makes a run, or reads it from the cache. version is part of the key: it says which
+// kind of run it is (declarations, or the body of a tag) and what its compiler flags are.
+func (rn *Runner) cachedRound(ctx context.Context, cfg Config, includes []string,
+	version, text string, produce producer,
+) (map[string]roundAnswer, []string, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dir, write := rn.diskFor(cfg)
 	tc := rn.toolchain(ctx, cfg, dir, write)
-	name := locateEntryName(locateKeyVersion, cfg, text, tc)
-	lookup := func() map[string]roundAnswer {
+	name := locateEntryName(version, cfg, text, tc)
+	lookup := func() (map[string]roundAnswer, []string) {
 		v := rn.findVariant(dir, name, "l")
 		if v == nil {
-			return nil
+			return nil, nil
 		}
 		var file locateFile
 		if json.Unmarshal(v.Part, &file) != nil || file.Answers == nil || file.Targets == nil ||
 			!sameIndexTargets(file.Targets) {
-			return nil
+			return nil, nil
 		}
-		return file.Answers
+		return file.Answers, v.Deps
 	}
 	for round := 0; round < 16; round++ {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if answers := lookup(); answers != nil {
-			return answers, nil
+		if answers, deps := lookup(); answers != nil {
+			return answers, deps, nil
 		}
 		rn.mu.Lock()
 		if other := rn.flying[name]; other != nil {
@@ -422,10 +454,10 @@ func (rn *Runner) locateRound(ctx context.Context, cfg Config, includes []string
 			select {
 			case <-other.done:
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			}
 			if other.err != nil && !errors.Is(other.err, context.Canceled) {
-				return nil, other.err
+				return nil, nil, other.err
 			}
 			continue
 		}
@@ -436,35 +468,37 @@ func (rn *Runner) locateRound(ctx context.Context, cfg Config, includes []string
 		rn.flying[name] = fl
 		rn.mu.Unlock()
 
-		answers, err := rn.makeLocate(ctx, cfg, includes, text, items, dir, name, write, tc, lookup)
+		answers, deps, err := rn.makeLocate(ctx, cfg, includes, text, produce, dir, name, write, tc,
+			lookup)
 		rn.mu.Lock()
 		delete(rn.flying, name)
 		fl.err = err
 		close(fl.done)
 		rn.mu.Unlock()
-		return answers, err
+		return answers, deps, err
 	}
-	return nil, errors.New("the locate query kept being taken by other callers")
+	return nil, nil, errors.New("the locate query kept being taken by other callers")
 }
 
 func (rn *Runner) makeLocate(ctx context.Context, cfg Config, includes []string, text string,
-	items []*locateItem, dir, name string, write bool, tc toolchain, lookup func() map[string]roundAnswer,
-) (map[string]roundAnswer, error) {
+	produce producer, dir, name string, write bool, tc toolchain,
+	lookup func() (map[string]roundAnswer, []string),
+) (map[string]roundAnswer, []string, error) {
 	if dir != "" {
 		release, _ := acquireLock(ctx, dir, name, effTimeout(cfg))
 		if release != nil {
 			defer release()
 		}
 	}
-	if answers := lookup(); answers != nil {
-		return answers, nil
+	if answers, deps := lookup(); answers != nil {
+		return answers, deps, nil
 	}
 	start := time.Now()
 	// Bind the inputs before reading any answer, as the header index does: the files that the
 	// compiler reads are validated, and must be the same in every run below.
 	_, discovery, err := indexOutput(ctx, cfg, []string{"-E", "-o", os.DevNull}, text)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	read := interop.ParseDeps(discovery.depData, discovery.srcPath, cfg.Dir)
 	slices.Sort(read)
@@ -473,23 +507,55 @@ func (rn *Runner) makeLocate(ctx context.Context, cfg Config, includes []string,
 	deps := metadata.finalDeps(ctx, cfg, text, includes, read, nil, tc)
 	info := metadata.includeInfo(ctx, cfg, text, read, false, "")
 	if !info.complete || !info.successful || len(read) == 0 || racyDeps(deps, start) {
-		return nil, errors.New("locate inputs changed or could not be validated")
+		return nil, nil, errors.New("locate inputs changed or could not be validated")
 	}
 	required, err := captureIndexDeps(read)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resolution, err := captureIndexResolution(append(slices.Clone(deps), cfg.Dir))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	depsHash := DepsHash(deps)
 	set := newSourceSet(cfg.Dir, read)
-	answers := make(map[string]roundAnswer, len(items))
+	answers := make(map[string]roundAnswer)
 	outputs := []*auxOut{discovery}
+	produced, err := produce(set, answers)
+	if err != nil {
+		return nil, nil, err
+	}
+	outputs = append(outputs, produced...)
+	for _, output := range outputs {
+		actual := interop.ParseDeps(output.depData, output.srcPath, cfg.Dir)
+		slices.Sort(actual)
+		if !slices.Equal(slices.Compact(actual), read) {
+			return nil, nil, errors.New("locate dependency resolution changed during production")
+		}
+	}
+	if !required.unchanged() || !resolution.unchanged() || racyDeps(deps, start) ||
+		DepsHash(deps) != depsHash {
+		return nil, nil, errors.New("locate inputs changed during production")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	body, err := json.Marshal(locateFile{Answers: answers, Targets: resolution.targets})
+	if err != nil {
+		return nil, nil, err
+	}
+	rn.addVariant(dir, name, "l", "declaration locations "+cfg.CXX.Name(),
+		variant{Deps: deps, DepsHash: depsHash, Part: body}, write)
+	return answers, deps, nil
+}
 
-	hasDecls := slices.ContainsFunc(items, func(item *locateItem) bool { return !item.macro })
-	if hasDecls {
+// produceLocate runs the lookups of a probe file: the dump of the declarations, and the
+// preprocessor's output for the macros.
+func (rn *Runner) produceLocate(ctx context.Context, cfg Config, text string, set *sourceSet,
+	items []*locateItem, answers map[string]roundAnswer,
+) ([]*auxOut, error) {
+	var outputs []*auxOut
+	if slices.ContainsFunc(items, func(item *locateItem) bool { return !item.macro }) {
 		dumped, err := rn.runLocateDump(ctx, cfg, text, set, items, answers)
 		if err != nil {
 			return nil, err
@@ -505,27 +571,7 @@ func (rn *Runner) makeLocate(ctx context.Context, cfg Config, includes []string,
 		outputs = append(outputs, macroOut)
 		locateMacros(set, macros, items, answers)
 	}
-	for _, output := range outputs {
-		actual := interop.ParseDeps(output.depData, output.srcPath, cfg.Dir)
-		slices.Sort(actual)
-		if !slices.Equal(slices.Compact(actual), read) {
-			return nil, errors.New("locate dependency resolution changed during production")
-		}
-	}
-	if !required.unchanged() || !resolution.unchanged() || racyDeps(deps, start) ||
-		DepsHash(deps) != depsHash {
-		return nil, errors.New("locate inputs changed during production")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	body, err := json.Marshal(locateFile{Answers: answers, Targets: resolution.targets})
-	if err != nil {
-		return nil, err
-	}
-	rn.addVariant(dir, name, "l", "declaration locations "+cfg.CXX.Name(),
-		variant{Deps: deps, DepsHash: depsHash, Part: body}, write)
-	return answers, nil
+	return outputs, nil
 }
 
 // runLocateDump runs the dump of the lookups and renders each group into answers.

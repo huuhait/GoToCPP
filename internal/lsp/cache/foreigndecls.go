@@ -105,6 +105,7 @@ func (ix *headerIndexer) locateNames(ctx context.Context, entry *headerEntry, ke
 		query probe.LocateName
 	}
 	var wants []wanted
+	queries := make(map[string]probe.LocateName)
 	var request probe.LocateRequest
 	for _, name := range names {
 		canonical, macro, ok := index.Resolve(name.scope, name.name)
@@ -145,6 +146,7 @@ func (ix *headerIndexer) locateNames(ctx context.Context, entry *headerEntry, ke
 	for _, want := range wants {
 		if found := locations.Named(want.query.Scope, want.query.Name); len(found) > 0 {
 			decls[foreignKey(want.user.scope, want.user.name)] = found
+			queries[foreignKey(want.user.scope, want.user.name)] = want.query
 		}
 	}
 	cost := locations.Bytes()
@@ -156,6 +158,7 @@ func (ix *headerIndexer) locateNames(ctx context.Context, entry *headerEntry, ke
 	if ctx.Err() == nil && ix.entries[key] == entry && len(decls) > 0 &&
 		ix.bytes+cost <= maxHeaderIndexBytes {
 		entry.decls = decls
+		entry.queries = queries
 		entry.bytes += cost
 		ix.bytes += cost
 	}

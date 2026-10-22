@@ -244,6 +244,13 @@ func fakeCompiler(args []string) int {
 	if strings.Contains(string(text), "__debug dump") {
 		return fakeLocateDump(string(text), deps)
 	}
+	for _, arg := range args {
+		// (the JSON dump of the probes has a filter too: only the text dump is a tag's)
+		name, ok := strings.CutPrefix(arg, "-ast-dump-filter=")
+		if ok && slices.Contains(args, "-ast-dump") {
+			return fakeTagDump(name, deps)
+		}
+	}
 	if strings.Contains(string(text), "gocpp_member_validation_complete") {
 		return fakeMemberValidation(string(text), src)
 	}

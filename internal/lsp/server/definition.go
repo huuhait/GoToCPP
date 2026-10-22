@@ -10,8 +10,8 @@ import (
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
 
-// textDocument/definition and textDocument/typeDefinition (step 11.5): the
-// declaring name of the name under the cursor, in this package or in a
+// textDocument/definition, textDocument/declaration and textDocument/typeDefinition (step
+// 11.5): the declaring name of the name under the cursor, in this package or in a
 // package of the workspace that it imports (whose objects come from export
 // data, with the file and line of their declaration: declOf finds the
 // name there). An import path goes to the package's files, a header
@@ -22,8 +22,23 @@ import (
 // library, which is embedded in gocpp and has no file on disk, nor a
 // predeclared name.
 
+// A Go name has one place that declares it, so declaration answers as definition does (as gopls
+// does). A C/C++ function or variable that a header declares and a C or C++ source of the package
+// defines (step 12.13e) is where the two differ: definition goes to the source's body,
+// declaration to the header. Everything else about a C/C++ name is the header's declaration for
+// both.
 func (s *Server) definition(ctx context.Context, e env, params json.RawMessage) (any, error) {
-	return s.locations(ctx, e, params, (*query).definition)
+	return s.locations(ctx, e, params, func(q *query, ctx context.Context,
+	) ([]protocol.Location, error) {
+		return q.locate(ctx, true)
+	})
+}
+
+func (s *Server) declaration(ctx context.Context, e env, params json.RawMessage) (any, error) {
+	return s.locations(ctx, e, params, func(q *query, ctx context.Context,
+	) ([]protocol.Location, error) {
+		return q.locate(ctx, false)
+	})
 }
 
 func (s *Server) typeDefinition(ctx context.Context, e env, params json.RawMessage) (any, error) {
@@ -60,8 +75,9 @@ func (s *Server) locations(ctx context.Context, e env, params json.RawMessage, f
 	return locs, nil
 }
 
-// definition returns where the name at the place of q is declared.
-func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
+// locate returns where the name at the place of q is declared, or, with source, where it is
+// defined when a source of the package defines the C/C++ name.
+func (q *query) locate(ctx context.Context, source bool) ([]protocol.Location, error) {
 	if info := q.file.Info; info != nil {
 		for _, spec := range info.Packages {
 			if q.contains(spec.Path) {
@@ -80,7 +96,11 @@ func (q *query) definition(ctx context.Context) ([]protocol.Location, error) {
 	}
 	if u, names, _ := q.cppUseAt(); u != nil {
 		// Into the header, from a background fact only; a name without one has no definition.
-		return q.declarationLocations(q.foreignNameDecls(u, names)), nil
+		decls := q.foreignNameDecls(u, names)
+		if source {
+			decls = q.withSourceDefinitions(u, names, decls)
+		}
+		return q.declarationLocations(decls), nil
 	}
 	id, path := identAt(q.file, q.pos)
 	if id == nil {

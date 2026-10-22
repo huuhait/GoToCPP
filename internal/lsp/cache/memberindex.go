@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -47,6 +48,12 @@ type memberFacts struct {
 	// or failing run delays and loses nothing of them, and the entry gets a copy of the facts
 	// with decls when it succeeds. It is nil for facts that have nothing to look up.
 	pending func(context.Context) (map[string][]probe.Declaration, int64, error)
+
+	// refine is the third step (step 12.13e): the body of the struct, union or enum that a
+	// typedef of a receiver type names. It gets the declarations that the second step published
+	// and returns them with the typedef text replaced.
+	refine func(context.Context, map[string][]probe.Declaration,
+	) (map[string][]probe.Declaration, int64, error)
 }
 
 type memberEntry struct {
@@ -608,11 +615,53 @@ func memberDeclRequest(pkg *Package, bindings map[*types.Var]memberBinding) prob
 	for _, receiver := range slices.Sorted(maps.Keys(used)) {
 		request.Members = append(request.Members, probe.LocateMembers{Receiver: receiver, Names: used[receiver]})
 	}
+	// The declaration of the receiver's own type, for the hover of a variable of it (step 12.13e).
+	receivers := make(map[string]bool)
+	for _, binding := range bindings {
+		if name, ok := receiverTypeName(binding.receiver); ok && !receivers[binding.receiver] {
+			receivers[binding.receiver] = true
+			request.Names = append(request.Names, name)
+		}
+	}
+	slices.SortFunc(request.Names, func(a, b probe.LocateName) int {
+		return strings.Compare(typeText(a), typeText(b))
+	})
+	if len(request.Names) > maxMemberDeclNames {
+		request.Names = request.Names[:maxMemberDeclNames]
+	}
 	return request
+}
+
+var receiverNameRx = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*::)*[A-Za-z_][A-Za-z0-9_]*$`)
+
+// receiverTypeName returns the lookup of a receiver type that is a plain or qualified name
+// (Vector2, geo::Widget). A type with template arguments, pointers or qualifiers is not one.
+func receiverTypeName(receiver string) (probe.LocateName, bool) {
+	if !receiverNameRx.MatchString(receiver) {
+		return probe.LocateName{}, false
+	}
+	at := strings.LastIndex(receiver, "::")
+	if at < 0 {
+		return probe.LocateName{Name: receiver}, true
+	}
+	return probe.LocateName{Scope: receiver[:at], Name: receiver[at+2:]}, true
+}
+
+// typeText is the spelling of the type that a lookup of a receiver type stands for.
+func typeText(name probe.LocateName) string {
+	if name.Scope == "" {
+		return name.Name
+	}
+	return name.Scope + "::" + name.Name
 }
 
 // covers reports whether every name of the request is a name of the other one.
 func covers(wide, narrow probe.LocateRequest) bool {
+	for _, name := range narrow.Names {
+		if !slices.Contains(wide.Names, name) {
+			return false
+		}
+	}
 	for _, group := range narrow.Members {
 		i := slices.IndexFunc(wide.Members, func(g probe.LocateMembers) bool {
 			return g.Receiver == group.Receiver
@@ -641,6 +690,11 @@ func memberDecls(locations *probe.Locations,
 			}
 		}
 	}
+	for _, name := range request.Names {
+		if found := locations.Named(name.Scope, name.Name); len(found) > 0 {
+			decls[memberDeclKey(strings.Clone(typeText(name)), "")] = found
+		}
+	}
 	return decls
 }
 
@@ -667,7 +721,7 @@ type earlyLocate struct {
 func startEarlyLocate(ctx context.Context, runner *probe.Runner, cfg probe.Config,
 	includes []string, request probe.LocateRequest,
 ) *earlyLocate {
-	if len(request.Members) == 0 {
+	if len(request.Members) == 0 && len(request.Names) == 0 {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -735,9 +789,10 @@ func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string,
 		bindings[variable] = memberBinding{receiver: answer.receiver, names: answer.names}
 	}
 	request := memberDeclRequest(pkg, bindings)
-	if len(request.Members) == 0 {
+	if len(request.Members) == 0 && len(request.Names) == 0 {
 		return nil
 	}
+	facts.refine = typeBodies(runner, cfg, includes, inputs)
 	return func(ctx context.Context) (map[string][]probe.Declaration, int64, error) {
 		locations := early.answers(request)
 		if locations == nil {
@@ -750,6 +805,54 @@ func memberDeclLookup(runner *probe.Runner, cfg probe.Config, includes []string,
 			return nil, 0, errors.New("member declaration inputs changed")
 		}
 		return memberDecls(locations, request), locations.Bytes(), nil
+	}
+}
+
+// typeBodies returns the third step of the member analysis (step 12.13e): the declarations of the
+// receiver types that are typedefs of a struct, union or enum get its body.
+func typeBodies(runner *probe.Runner, cfg probe.Config, includes []string,
+	inputs *probe.InputGuard,
+) func(context.Context, map[string][]probe.Declaration,
+) (map[string][]probe.Declaration, int64, error) {
+	return func(ctx context.Context, decls map[string][]probe.Declaration,
+	) (map[string][]probe.Declaration, int64, error) {
+		type place struct {
+			key   string
+			index int
+		}
+		var places []place
+		var tags []probe.Declaration
+		for _, key := range slices.Sorted(maps.Keys(decls)) {
+			if !strings.HasSuffix(key, "\x00") {
+				continue // a member, not the receiver's type
+			}
+			for i, d := range decls[key] {
+				if d.Tag != nil && d.Kind == "type" {
+					places = append(places, place{key, i})
+					tags = append(tags, d)
+				}
+			}
+		}
+		if len(tags) == 0 {
+			return nil, 0, nil
+		}
+		filled, err := runner.LocateBodies(ctx, cfg, includes, tags)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !inputs.Unchanged(ctx) {
+			return nil, 0, errors.New("member type inputs changed")
+		}
+		next := make(map[string][]probe.Declaration, len(decls))
+		for key, list := range decls {
+			next[key] = slices.Clone(list)
+		}
+		var cost int64
+		for n, at := range places {
+			cost += int64(len(filled[n].Signature) - len(tags[n].Signature))
+			next[at.key][at.index] = filled[n]
+		}
+		return next, max(cost, 0), nil
 	}
 }
 
@@ -789,15 +892,54 @@ func (ix *memberIndexer) locateStep(ctx context.Context, entry *memberEntry, fac
 	}
 	// The published facts are shared with readers: the entry gets a copy that has the
 	// declarations.
+	next := withDecls(facts, decls, cost)
+	entry.facts = next
+	entry.bytes += cost
+	ix.bytes += cost
+	if facts.refine == nil {
+		return
+	}
+	// The third step runs after the second step's answers are in place, so a slow run delays
+	// nothing of them.
+	ix.mu.Unlock()
+	refined, extra, err := facts.refine(ctx, decls)
+	ix.mu.Lock()
+	if err != nil || refined == nil || ctx.Err() != nil || ix.entries[entry.key] != entry ||
+		entry.facts != next || ix.bytes+extra > maxMemberIndexBytes {
+		return
+	}
+	entry.facts = withDecls(next, refined, extra)
+	entry.bytes += extra
+	ix.bytes += extra
+}
+
+// withDecls returns a copy of the facts that has the declarations. The published facts are
+// shared with readers and are not changed.
+func withDecls(facts *memberFacts, decls map[string][]probe.Declaration, cost int64) *memberFacts {
 	next := &memberFacts{bindings: make(map[*types.Var]memberAnswer, len(facts.bindings)),
 		bytes: facts.bytes + cost}
 	for variable, answer := range facts.bindings {
 		answer.decls = decls
 		next.bindings[variable] = answer
 	}
-	entry.facts = next
-	entry.bytes += cost
-	ix.bytes += cost
+	return next
+}
+
+// ForeignVariableTypeDeclarations returns the declarations of the type of the bound variable
+// (the typedef of a struct with its body, or a class), when the type is a plain or qualified name
+// and the second and third steps of the member analysis completed. Like ForeignVariableType it
+// reads retained facts only.
+func (s *Snapshot) ForeignVariableTypeDeclarations(pkg *Package, object *types.Var,
+) ([]probe.Declaration, bool) {
+	answer, ready := s.memberFact(pkg, object)
+	if !ready || answer.receiver == "" {
+		return nil, false
+	}
+	found := answer.decls[memberDeclKey(answer.receiver, "")]
+	if len(found) == 0 {
+		return nil, false
+	}
+	return slices.Clone(found), true
 }
 
 // ForeignMemberDeclarations returns the completed declarations of the member that the program

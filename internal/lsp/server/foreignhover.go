@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/load"
@@ -61,6 +62,76 @@ func (q *query) foreignNameDecls(u *load.CppUse, names []string) []probe.Declara
 		return nil
 	}
 	return decls
+}
+
+// withSourceDefinitions replaces the declarations of a function or variable that a header only
+// declares by their definitions in the C or C++ sources of the package (step 12.13e), when a
+// completed fact has them. The cache keeps only definitions that the compiler took for another
+// declaration of the entity that the header declares (not a static function, not a function
+// without a previous declaration). A function declaration is replaced by the definition with the
+// same parameter types, which tell the overloads apart whatever typedef names the declarations
+// spell (`size_t` and `unsigned long`); a variable by its definition (a name has one, and its
+// type may be spelled another way: `extern int a[]`, `int a[3]`). A declaration without a
+// definition stays.
+func (q *query) withSourceDefinitions(u *load.CppUse, names []string, decls []probe.Declaration,
+) []probe.Declaration {
+	if !q.trustedView() || len(decls) == 0 {
+		return decls
+	}
+	scope, name, ok := foreignScope(u, names)
+	if !ok {
+		return decls
+	}
+	defs, ready := q.snap.ForeignDefinitions(q.pkg, q.file, scope, name)
+	if !ready {
+		return decls
+	}
+	return pairDefinitions(decls, defs)
+}
+
+// pairDefinitions is the pairing of withSourceDefinitions.
+func pairDefinitions(decls, defs []probe.Declaration) []probe.Declaration {
+	out := make([]probe.Declaration, len(decls))
+	copy(out, decls)
+	for i, d := range decls {
+		if d.Defined || d.Type == "" {
+			continue
+		}
+		same := func(def probe.Declaration) bool {
+			if def.Kind != d.Kind {
+				return false
+			}
+			return d.Kind == "variable" || def.Params == d.Params
+		}
+		if at := slices.IndexFunc(defs, same); at >= 0 {
+			out[i] = defs[at]
+		}
+	}
+	return out
+}
+
+// sourcesNote says that some sources of the package were not read for definitions, for the hover
+// of a function or a variable that no source was found to define: the definition may be in one of
+// them.
+func (q *query) sourcesNote(u *load.CppUse, names []string, decls []probe.Declaration) string {
+	if !q.trustedView() || !slices.ContainsFunc(decls, func(d probe.Declaration) bool {
+		return d.Kind == "function" || d.Kind == "variable"
+	}) {
+		return ""
+	}
+	left, limit := q.snap.ForeignSourcesLeftOut(q.pkg, q.file)
+	if left == 0 {
+		return ""
+	}
+	if scope, name, ok := foreignScope(u, names); ok {
+		defs, ready := q.snap.ForeignDefinitions(q.pkg, q.file, scope, name)
+		if ready && len(defs) > 0 {
+			return ""
+		}
+	}
+	return fmt.Sprintf("Go to definition may show this header: %d C/C++ source files of the "+
+		"package were not read for definitions (the limit is %d files of up to 512 KiB).",
+		left, limit)
 }
 
 // foreignMemberDecls returns the completed declarations of the member that sel selects on an

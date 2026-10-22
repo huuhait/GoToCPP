@@ -43,7 +43,9 @@
 //     features (step 11.5): textDocument/hover (the declaration of a name
 //     as Go code, its doc comment in Markdown or plain text, the methods
 //     of a type; for a C/C++ name or a header import, where it comes
-//     from), textDocument/definition and typeDefinition (in the package,
+//     from), textDocument/definition, declaration (the same place for a Go name;
+//     for a C/C++ function or variable that a package source defines, the header,
+//     where definition goes to the body, step 12.13e) and typeDefinition (in the package,
 //     into the packages it imports, whose objects come from export data,
 //     and from a header import to the header file), and
 //     textDocument/signatureHelp (the active parameter, also of a

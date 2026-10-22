@@ -18,6 +18,7 @@ import (
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/syntax/gpast"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
+	"github.com/huuhait/gocpp/internal/typedinterop/probe"
 )
 
 // textDocument/hover (step 11.5): like gopls, the declaration of the name
@@ -43,6 +44,8 @@ type hoverResult struct {
 	// text is plain text after the signature, for the hovers that have
 	// no doc comment of their own (C/C++ names, header imports).
 	text string
+	// typeBody is the C++ definition of the type of a C/C++ variable, after the text and the doc.
+	typeBody string
 	// expansion is Go code after the text and the doc: what a `!` or a macro use becomes (step 11.13).
 	expansion string
 }
@@ -400,6 +403,22 @@ func (q *query) addNativeType(h *hoverResult, variable *types.Var) {
 	h.signature = native
 	h.signatureLanguage = "cpp"
 	h.text = text
+	if decls, ok := q.snap.ForeignVariableTypeDeclarations(q.pkg, variable); ok {
+		addTypeBody(h, decls)
+	}
+}
+
+// addTypeBody shows the definition of the type of a variable (the fields of a struct that a
+// typedef names, the public members of a class) below its native type, with the comment of the
+// header. A type that the headers only declare has no body to show (step 12.13e).
+func addTypeBody(h *hoverResult, decls []probe.Declaration) {
+	if len(decls) != 1 || decls[0].Kind != "type" || !strings.Contains(decls[0].Signature, " {") {
+		return
+	}
+	h.typeBody = decls[0].Signature
+	if doc := decls[0].Doc; doc != "" {
+		h.text = joinParas(h.text, doc)
+	}
 }
 
 // cppValue reports whether the variable v of the document's package has
@@ -609,6 +628,9 @@ func (q *query) cppHover() (*hoverResult, ast.Node) {
 		// The header's own declaration, once a background fact has it (never probed here).
 		if decls := q.foreignNameDecls(u, names); len(decls) > 0 {
 			applyDeclarations(h, user, decls)
+			if note := q.sourcesNote(u, names, decls); note != "" {
+				h.text = joinParas(h.text, note)
+			}
 		}
 	}
 	return h, n
@@ -680,7 +702,7 @@ func (h *hoverResult) format(markdown bool) string {
 	text := h.text // with `code`, which reads as well in plain text
 	sections := [][]string{
 		{fenced(h.signature, language)},
-		{text, doc, fenced(h.methods, "go")},
+		{text, doc, fenced(h.methods, "go"), fenced(h.typeBody, "cpp")},
 		{fenced(h.expansion, "go")},
 		{h.footer},
 	}

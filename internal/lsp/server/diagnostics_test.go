@@ -251,7 +251,7 @@ func TestDiagnosticsWatchedFiles(t *testing.T) {
 	if !ok || req.IsNotification() || req.Method != "client/registerCapability" {
 		t.Fatalf("got %+v, want client/registerCapability", m)
 	}
-	if got, want := string(req.Params), `{"registrations":[{"id":"gocpp-watched-files","method":"workspace/didChangeWatchedFiles","registerOptions":{"watchers":[{"globPattern":"**/*.gp"},{"globPattern":"**/gocpp.mod"},{"globPattern":"**/*.{h,hh,hpp,hxx,inc}"}]}}]}`; got != want {
+	if got, want := string(req.Params), `{"registrations":[{"id":"gocpp-watched-files","method":"workspace/didChangeWatchedFiles","registerOptions":{"watchers":[{"globPattern":"**/*.gp"},{"globPattern":"**/gocpp.mod"},{"globPattern":"**/*.{h,hh,hpp,hxx,inc}"},{"globPattern":"**/*.{c,cc,cpp,cxx}"}]}}]}`; got != want {
 		t.Errorf("registration:\n%s\nwant\n%s", got, want)
 	}
 	id, _ := json.Marshal(req.ID)

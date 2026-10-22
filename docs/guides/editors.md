@@ -5,7 +5,7 @@ over standard input and output, so any editor with an LSP client can use it. The
 `gocpp lsp` and talks to it; there is nothing else to run.
 
 What the server does now: it shows the errors of `gocpp check` as you type, and it has hover,
-go to definition and type definition, signature help, completion (with snippets for calls and
+go to declaration, definition and type definition, signature help, completion (with snippets for calls and
 the imports it adds for you), formatting and organize imports, find references, rename,
 document highlights, document and workspace symbols, semantic tokens, inlay hints, document
 links, a quick fix for a missing import, and the features for `!`, macros and `#Derive` (below,
@@ -231,10 +231,68 @@ when the data has come, and typing without a pause cancels the work: ask again a
 `tools/cppdata` measures these times; the tables, the method and the gaps are in
 [ADR-126](../adr/126-time-to-c-cpp-editor-data-is-measured-and-its-independent-compiler-runs-go-together.md).
 
-Known limits: a C struct behind a typedef (raylib's `Vector2`) shows `typedef struct Vector2
-Vector2;` without its fields; members of a template receiver show the instantiated declaration of the
-header; there is no separate `textDocument/declaration` request (the server has none: definition
-goes to the declaration in the header).
+**Go to declaration, and definitions in the sources of the package.** `textDocument/declaration` is
+answered for every name that go to definition is. For a Go name the two are the same place (as in
+gopls). For a C/C++ name they differ when a header declares a function or a variable and a C or C++
+source in the package folder defines it (`add` in `geo.h`, `int add(int a, int b) { ... }` in
+`geo.cpp`): go to declaration goes to the header, go to definition to the body in the source. A
+name that no source defines, a type, a macro and a member go to the header for both. The worker finds
+the definitions by looking the name up again after the includes of each `.c`, `.cc`, `.cpp` and `.cxx`
+file of the package folder (one compiler run each, a `.c` file is read as C code), and takes a
+definition only when it has a body and the compiler took it for another declaration of the entity
+that the header declares: a `static` function or one in an unnamed namespace that has the name of
+the header's function is another function and is not taken, also when the source declares it with
+a prototype before it defines it (`static int sp(char c);` then `static int sp(char c) { ... }`
+does not stand for the header's `int sp(int);`). A function is paired with its declaration by the
+types of its parameters (the overloads of a name are told apart by them, whatever typedef names
+the two spell: `size_t` and `unsigned long`), a variable by its name. A definition that a
+redeclaration follows in the same source (`int g(int a) { ... }` and then `int g(int a);`) is
+still the definition. A source that does not compile on this target (the file name
+suffixes and `//go:build` lines of a build are not applied here) gives no definitions, and the
+others still do. A source that you edit or save on disk is read again in the background (the
+client watches the C/C++ sources as it does the headers), so go to definition follows the new line
+after a moment. Only the source that changed is read again: what each source gave is kept from one
+edit to the next while the files it read are as they were (by their size, times and identity), so
+editing a `.gp` file costs no compiler run for the sources.
+
+*A folder with many sources.* At most 16 sources of up to 512 KiB are read for the headers a file
+uses; a larger file is skipped and does not take a place. They are taken in this order: those whose
+name has the stem of one of the headers (`geo.cpp` for `geo.h`), those that include one of the
+headers near their start, then the others by name. When sources were left out, the hover of a
+C/C++ function or variable that no source was found to define says "Go to definition may show this
+header: N C/C++ source files of the package were not read for definitions": one of them may
+define it. A function that a source that was read defines has no such note. Go to implementation
+is not offered; go to type definition is for Go types only.
+
+**The fields of a C struct behind a typedef.** A C library names its structs with a typedef
+(`typedef struct Vector2 { float x; float y; } Vector2;`), and the compiler's lookup of the name
+finds the typedef, which has none of the fields. Hover on `raylib.Vector2` (and the other types of
+this kind: unions, enums, and the same with an unnamed tag, `typedef struct { ... } Name;`) now
+shows the declaration as the header has it, with the fields, their types and the comment that
+follows each field on its line (or a documentation comment, when it is one line), and the comment of
+the type. An enum shows its enumerators with their values (`FLAG_VSYNC_HINT = 64`). An unnamed
+union or struct inside a struct is written where its member is; a bit-field shows its width; a
+body has at most 40 fields or enumerators and then `// ...`; only public members of a class are
+shown. A typedef whose tag has another name (`typedef struct Plain PlainT;`) shows the typedef and
+the struct below it. A function pointer typedef (`typedef void (*Callback)(int);`), a typedef of a
+plain type and a struct that is only declared (`typedef struct Fwd Fwd;`) show what they showed.
+Hover on a variable of such a type (`var v raylib.Vector2`, `v := raylib.GetMousePosition()`) shows
+the native type, as before, and below it the same definition and the comment of the type; a
+variable of a class type shows the class with its public members. The text comes from the
+compiler's filtered AST dump (`-ast-dump -ast-dump-filter=NAME`), one run for each typedef of a
+tag, cached on disk like the other runs, after the declarations are published, so nothing waits for
+it; a failed or missing run keeps the plain typedef. The tag is found by its qualified name, so
+two structs of one name in other namespaces are not mixed up. A comment at the end of a line that
+several fields end (`int a; int b; // text`) is shown for none of them. A typedef whose tag name
+is shorter than three letters (`V2`) is not asked and stays the plain typedef, because the
+compiler's filter is a substring of every name. Completion items still say only "C/C++ declaration" or
+"C/C++ member": they carry no signature or comment, so there is nothing to add to them, and
+signature help is not offered for C/C++ functions.
+
+Known limits: members of a template receiver show the instantiated declaration of the
+header; a member function that a source of the package defines goes to the header (definitions in
+sources are for functions and variables of a header package or namespace); the field comments of
+a struct are the ones on the field's line.
 
 **Symbols.** The outline of a file (functions, methods, types with their fields, constants,
 variables) comes from its syntax tree alone, so it works while the file has errors. Workspace

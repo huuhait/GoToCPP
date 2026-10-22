@@ -45,7 +45,7 @@ type dumpGroup struct {
 }
 
 var (
-	lookupHeaderRx = regexp.MustCompile(`^lookup results for (.+):$`)
+	lookupHeaderRx = regexp.MustCompile(`^(?:lookup results for|Dumping) (.+):$`)
 	topNodeRx      = regexp.MustCompile(`^[A-Z][A-Za-z0-9]* 0x[0-9a-f]+`)
 )
 
@@ -73,6 +73,7 @@ type dumpReader struct {
 	partial []byte
 	cur     *dumpGroup // receives the node lines; nil after a line that is not a dump line
 	keep    []bool     // whether the last node of each depth is kept
+	at      []int      // the index in cur.nodes of the last node of each depth, when it is kept
 	st      locState
 	paths   func(string) string
 	total   int64
@@ -133,6 +134,7 @@ func (r *dumpReader) line(line string) {
 		r.groups = append(r.groups, dumpGroup{name: strings.Clone(m[1])})
 		r.cur = &r.groups[len(r.groups)-1]
 		r.keep = r.keep[:0]
+		r.at = r.at[:0]
 		return
 	}
 	depth, text, ok := treeLine(line)
@@ -151,6 +153,10 @@ func (r *dumpReader) line(line string) {
 		return // a line whose parent is missing: the dump is not what this reader knows
 	}
 	r.keep = append(r.keep[:depth], kept)
+	r.at = append(r.at[:depth], -1)
+	if kind == "CompoundStmt" && depth > 0 && parentKept && r.at[depth-1] >= 0 {
+		r.cur.nodes[r.at[depth-1]].hdr.body = true // (the statements below are not kept)
+	}
 
 	var node dumpNode
 	node.depth = depth
@@ -171,6 +177,7 @@ func (r *dumpReader) line(line string) {
 	if node.hdr.kind == "" && node.text == "" {
 		node.hdr.kind = kind
 	}
+	r.at[depth] = len(r.cur.nodes)
 	r.cur.nodes = append(r.cur.nodes, node)
 }
 
@@ -281,6 +288,8 @@ type nodeHeader struct {
 	// definition says that the node is the definition of a class (the dump prints "definition").
 	definition bool
 	invalid    bool // the declaration has no place (implicit, built in)
+	// body says that a function has a body: the dump has a CompoundStmt below it.
+	body bool
 }
 
 // parseNodeRange reads the kind, the redeclaration words and the range of a node line, and

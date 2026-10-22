@@ -25,8 +25,8 @@ import (
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
-// The navigation features (step 11.5): hover (hover.go), go to definition
-// and type definition (definition.go), and signature help (signature.go).
+// The navigation features (step 11.5): hover (hover.go), go to definition,
+// declaration and type definition (definition.go), and signature help (signature.go).
 // Ideas and some code come from gopls (see COPIED.md).
 //
 // A request works on the snapshot it took on the read loop, so it sees the
@@ -67,6 +67,7 @@ func (n *navigation) initialize(client protocol.ClientCapabilities, caps *protoc
 	}
 	n.sigMarkdown.Store(sig)
 	caps.HoverProvider = &protocol.Or_ServerCapabilities_hoverProvider{Value: true}
+	caps.DeclarationProvider = &protocol.Or_ServerCapabilities_declarationProvider{Value: true}
 	caps.DefinitionProvider = &protocol.Or_ServerCapabilities_definitionProvider{Value: true}
 	caps.TypeDefinitionProvider = &protocol.Or_ServerCapabilities_typeDefinitionProvider{Value: true}
 	caps.SignatureHelpProvider = &protocol.SignatureHelpOptions{TriggerCharacters: []string{"(", ","}}
@@ -91,6 +92,7 @@ func preferMarkdown(formats []protocol.MarkupKind, def bool) bool {
 // addNavigation adds the requests of the navigation features.
 func (s *Server) addNavigation() {
 	s.requests["textDocument/hover"] = method{run: s.hover}
+	s.requests["textDocument/declaration"] = method{run: s.declaration}
 	s.requests["textDocument/definition"] = method{run: s.definition}
 	s.requests["textDocument/typeDefinition"] = method{run: s.typeDefinition}
 	s.requests["textDocument/signatureHelp"] = method{run: s.signatureHelp}

@@ -7,7 +7,7 @@ The VS Code extension for gocpp. It adds the `gocpp` language for `.gp` files:
   (`language-configuration.json`: VS Code's settings for Go, plus a word pattern);
 - the gocpp language server: it starts `gocpp lsp` when you open a `.gp` file (with
   [vscode-languageclient](https://github.com/microsoft/vscode-languageserver-node)). Today the
-  server shows the errors of `gocpp check` as you type, and has hover, go to definition,
+  server shows the errors of `gocpp check` as you type, and has hover, go to definition and declaration,
   signature help, completion, formatting and organize imports, references, rename, symbols,
   semantic highlighting, inlay hints, links to header files, a quick fix for a missing
   import, and the features for `!`, macros and `#Derive` (the list is in [docs/guides/editors.md](../../docs/guides/editors.md)); the features

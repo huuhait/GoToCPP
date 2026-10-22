@@ -347,6 +347,11 @@ func sameIndexTargets(targets map[string]string) bool {
 }
 
 func (state *indexResolution) unchanged() bool {
+	return state.nodesUnchanged() && sameIndexTargets(state.targets)
+}
+
+// nodesUnchanged compares the status of the nodes alone, without following the links again.
+func (state *indexResolution) nodesUnchanged() bool {
 	for path, before := range state.nodes {
 		after, err := os.Lstat(path)
 		if before == nil {
@@ -368,7 +373,7 @@ func (state *indexResolution) unchanged() bool {
 			return false
 		}
 	}
-	return sameIndexTargets(state.targets)
+	return true
 }
 
 // An indexRun is one compiler run of the products of an index: the mode and text it is given, and

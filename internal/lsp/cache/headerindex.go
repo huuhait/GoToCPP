@@ -36,6 +36,24 @@ type headerIndexer struct {
 	// (step 12.13c2). It has its own cache entries in the runner.
 	locate func(context.Context, probe.Config, []string, probe.LocateRequest) (*probe.Locations, error)
 
+	// bodies adds the bodies of the structs, unions and enums that typedefs name to the typedef
+	// declarations (step 12.13e).
+	bodies func(context.Context, probe.Config, []string, []probe.Declaration,
+	) ([]probe.Declaration, error)
+
+	// chain finds every declaration of a name after the includes (step 12.13e).
+	chain func(ctx context.Context, cfg probe.Config, includes []string, scope, name string,
+	) ([]probe.Declaration, error)
+
+	// memos are what the sources of a package gave, kept from one snapshot to the next
+	// (foreignmemo.go); memoBytes is their estimated size.
+	memos     map[string]*sourceMemo
+	memoClock uint64
+	memoBytes int64
+
+	// retry is how long a source whose lookup failed waits for its second try (0: revalidateAfter).
+	retry time.Duration
+
 	// beforePublish is a hook of the tests, called when the facts are complete and before they
 	// are published.
 	beforePublish func()
@@ -52,6 +70,16 @@ type headerEntry struct {
 	// decls are the completed declarations of the names that the program wrote after a header
 	// package or a namespace, by foreignKey. A name that is missing has no proven declaration.
 	decls map[string][]probe.Declaration
+
+	// queries are the lookups that gave decls (by foreignKey); defs are the declarations that the
+	// C and C++ sources of the package give for the functions and variables among them: where they
+	// are defined (step 12.13e).
+	queries map[string]probe.LocateName
+	defs    map[string][]probe.Declaration
+
+	// sourcesLeftOut is the number of C and C++ sources of the package folder that were not read
+	// for defs (foreigndefs.go).
+	sourcesLeftOut int
 }
 
 type headerWork struct {
@@ -80,6 +108,8 @@ func newHeaderIndexer(cfg Config) *headerIndexer {
 		},
 		run:    runner.Index,
 		locate: runner.Locate,
+		bodies: runner.LocateBodies,
+		chain:  runner.LocateChain,
 	}
 }
 
@@ -306,7 +336,9 @@ func (ix *headerIndexer) schedule(ctx context.Context, key, dir string, flags, i
 				}
 				ix.mu.Unlock()
 				release()
-				ix.locateNames(ctx, entry, key, probe.Config{CXX: cxx, Dir: dir, Flags: flags}, includes, index, names)
+				cfg := probe.Config{CXX: cxx, Dir: dir, Flags: flags}
+				ix.locateNames(ctx, entry, key, cfg, includes, index, names)
+				ix.locateMore(ctx, entry, key, cfg, includes)
 				return
 			}
 			if attempt == 0 {

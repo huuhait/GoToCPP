@@ -126,6 +126,23 @@ func TestDumpReaderDroppedLinesStillMoveThePlace(t *testing.T) {
 	}
 }
 
+func TestDumpReaderMarksTheFunctionsThatHaveABody(t *testing.T) {
+	reader := readDump(t, knownPaths("/inc/a.h"), strings.Join([]string{
+		"lookup results for f:",
+		"FunctionDecl 0x1 </inc/a.h:1:1, line:3:1> line:1:5 f 'int ()'",
+		"`-CompoundStmt 0x2 <col:9, line:3:1>",
+		"  `-ReturnStmt 0x3 <line:2:3, col:10>",
+		"lookup results for g:",
+		"FunctionDecl 0x4 </inc/a.h:5:1, col:10> col:5 g 'int ()'",
+	}, "\n")+"\n")
+	if f := reader.groups[0].nodes[0].hdr; !f.body {
+		t.Errorf("f = %+v, want a body", f)
+	}
+	if g := reader.groups[1].nodes[0].hdr; g.body {
+		t.Errorf("g = %+v, want no body", g)
+	}
+}
+
 func TestDumpReaderLimits(t *testing.T) {
 	t.Run("byte limit cancels the run", func(t *testing.T) {
 		canceled := false

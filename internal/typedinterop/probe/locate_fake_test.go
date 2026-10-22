@@ -42,6 +42,27 @@ func fakeLocateDump(text string, deps []string) int {
 	return 0
 }
 
+// fakeTagDump is the fake compiler's answer to the filtered AST dump of a tag: for a line
+// "struct NAME { int a; };" of a header of FAKE_INC it prints the definition of the record in the
+// format of clang 21, on the standard output.
+func fakeTagDump(name string, deps []string) int {
+	for _, dep := range deps {
+		for n, line := range strings.Split(string(mustRead(dep)), "\n") {
+			prefix := "struct " + name + " { int a; };"
+			if !strings.HasPrefix(line, prefix) {
+				continue
+			}
+			fmt.Printf("Dumping %s:\n", name)
+			fmt.Printf("CXXRecordDecl 0x1 <%s:%d:1, col:%d> col:8 struct %s definition\n", dep, n+1,
+				len(prefix), name)
+			fmt.Printf("`-FieldDecl 0x2 <col:%d, col:%d> col:%d a 'int'\n",
+				len("struct "+name+" { int ")-3, len("struct "+name+" { int a"),
+				len("struct "+name+" { int a"))
+		}
+	}
+	return 0
+}
+
 func locateRequestFor(names ...string) LocateRequest {
 	var request LocateRequest
 	for _, name := range names {
@@ -210,15 +231,16 @@ func TestLocateEntriesOfOlderKeysAreNeverLookedUp(t *testing.T) {
 	}
 	toolchain := runner.toolchain(context.Background(), cfg, dir, write)
 	current := filepath.Join(dir, locateEntryName(locateKeyVersion, cfg, source, toolchain))
-	if locateKeyVersion != "locate-v3" {
-		t.Fatalf("locateKeyVersion = %q, the rename of the key is pinned as locate-v3", locateKeyVersion)
+	if locateKeyVersion != "locate-v6" {
+		t.Fatalf("locateKeyVersion = %q, the rename of the key is pinned as locate-v6",
+			locateKeyVersion)
 	}
 	body, err := os.ReadFile(current)
 	if err != nil {
 		t.Fatalf("no entry under the current key: %v", err)
 	}
 	runs := fake.runs()
-	for _, old := range []string{"locate-v1", "locate-v2"} {
+	for _, old := range []string{"locate-v1", "locate-v2", "locate-v3", "locate-v4", "locate-v5"} {
 		oldPath := filepath.Join(dir, locateEntryName(old, cfg, source, toolchain))
 		if oldPath == current {
 			t.Fatalf("the key of %s is the current key", old)
@@ -237,5 +259,113 @@ func TestLocateEntriesOfOlderKeysAreNeverLookedUp(t *testing.T) {
 		if got := fake.runs(); got != runs {
 			t.Fatalf("with an entry of %s only: %d dump runs, want %d (a fresh run)", old, got, runs)
 		}
+	}
+}
+
+func fakeTypedef(t *testing.T, fake *fake, name string) Declaration {
+	t.Helper()
+	return Declaration{Kind: "type", File: filepath.Join(fake.inc, "api.hpp"), Line: 1, Col: 8,
+		Length: len(name), Signature: "typedef struct " + name + " " + name + ";",
+		Tag: &TagRef{Kind: "struct", Name: name, Qualified: name, Typedef: name,
+			Span: [4]int{1, 1, 1, 30}}}
+}
+
+func TestLocateBodiesFakeCompiler(t *testing.T) {
+	defer SetRacyWindow(0)()
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "struct Box { int a; };\ntypedef struct Box Box;\n")
+	includes := []string{`"api.hpp"`}
+	typedef := fakeTypedef(t, fake, "Box")
+	got, err := new(Runner).LocateBodies(context.Background(), fake.cfg(), includes,
+		[]Declaration{typedef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "typedef struct Box {\n    int a;\n} Box;"
+	if len(got) != 1 || got[0].Signature != want {
+		t.Fatalf("got %+v, want the signature %q", got, want)
+	}
+	runs := fake.runs()
+	if _, err := new(Runner).LocateBodies(context.Background(), fake.cfg(), includes,
+		[]Declaration{typedef}); err != nil {
+		t.Fatal(err)
+	}
+	if again := fake.runs(); again != runs {
+		t.Errorf("dump runs after a warm start = %d, want %d (the cache)", again, runs)
+	}
+}
+
+func TestLocateBodiesStaleHeaderIsAskedAgain(t *testing.T) {
+	defer SetRacyWindow(0)()
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "struct Box { int a; };\n")
+	runner := new(Runner)
+	includes := []string{`"api.hpp"`}
+	typedef := fakeTypedef(t, fake, "Box")
+	if _, err := runner.LocateBodies(context.Background(), fake.cfg(), includes,
+		[]Declaration{typedef}); err != nil {
+		t.Fatal(err)
+	}
+	fake.header(t, "api.hpp", "// edited\nstruct Box { int a; };\n")
+	if _, err := runner.LocateBodies(context.Background(), fake.cfg(), includes,
+		[]Declaration{typedef}); err != nil {
+		t.Fatal(err)
+	}
+	if runs := fake.runs(); runs != 2 {
+		t.Errorf("dump runs = %d, want one for each text of the header", runs)
+	}
+}
+
+func TestLocateBodiesWithoutADefinitionKeepTheTypedef(t *testing.T) {
+	defer SetRacyWindow(0)()
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "typedef struct Box Box;\n")
+	typedef := fakeTypedef(t, fake, "Box")
+	got, err := new(Runner).LocateBodies(context.Background(), fake.cfg(), []string{`"api.hpp"`},
+		[]Declaration{typedef})
+	if err != nil || len(got) != 1 || got[0].Signature != typedef.Signature {
+		t.Errorf("got %+v, error %v, want the typedef as it was", got, err)
+	}
+}
+
+func TestLocateBodiesFailedCompilerKeepsTheTypedef(t *testing.T) {
+	defer SetRacyWindow(0)()
+	fake := newFake(t)
+	typedef := fakeTypedef(t, fake, "Box")
+	got, err := new(Runner).LocateBodies(context.Background(), fake.cfg(),
+		[]string{`"FAILNOW.hpp"`}, []Declaration{typedef})
+	if err != nil || len(got) != 1 || got[0].Signature != typedef.Signature {
+		t.Errorf("got %+v, error %v, want the typedef as it was", got, err)
+	}
+}
+
+func TestLocateBodiesStoppedRequestIsAnError(t *testing.T) {
+	fake := newFake(t)
+	fake.header(t, "api.hpp", "struct Box { int a; };\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := new(Runner).LocateBodies(ctx, fake.cfg(), []string{`"api.hpp"`},
+		[]Declaration{fakeTypedef(t, fake, "Box")}); err == nil {
+		t.Error("a stopped request answered")
+	}
+}
+
+func TestTypedefTagNeedsALongEnoughName(t *testing.T) {
+	loc := srcLoc{file: "/inc/api.h", line: 3, col: 1, valid: true}
+	header := func(tag string) nodeHeader {
+		return nodeHeader{kind: "TypedefDecl", name: "Alias", typ: "struct " + tag, canon: tag,
+			begin: loc, end: loc, at: loc}
+	}
+	for tag, want := range map[string]bool{"V2": false, "V": false, "Vec": true, "ns::V2": false,
+		"ns::Vec": true} {
+		got := typedefTag(header(tag), "") != nil
+		if got != want {
+			t.Errorf("tag %q: asked = %v, want %v (a short filter matches most headers)",
+				tag, got, want)
+		}
+	}
+	tag := typedefTag(header("ns::Vec"), "ns")
+	if tag == nil || tag.Name != "Vec" || tag.Qualified != "ns::Vec" || tag.Typedef != "ns::Alias" {
+		t.Errorf("tag = %+v, want the last name, the qualified name and the typedef's", tag)
 	}
 }

@@ -394,6 +394,9 @@ func slowRequests(t *testing.T, c *dclient, hook func(step string)) slowAnswers 
 	ask("definition api", definition, slowForeignFile, foreign, markAPIName)
 	ask("definition member", definition, slowForeignFile, foreign, markMemberName)
 	ask("definition plain", definition, slowPlainFile, plain, "x * Va|lue")
+	ask("declaration api", "textDocument/declaration", slowForeignFile, foreign, markAPIName)
+	ask("declaration member", "textDocument/declaration", slowForeignFile, foreign, markMemberName)
+	ask("declaration plain", "textDocument/declaration", slowPlainFile, plain, "x * Va|lue")
 	ask("signature help", "textDocument/signatureHelp", slowForeignFile, foreign, "api.add(|1, 2)")
 	ask("prepare rename", "textDocument/prepareRename", slowPlainFile, plain, "func Tw|ice")
 
