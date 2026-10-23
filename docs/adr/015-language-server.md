@@ -34,7 +34,7 @@ a regression over 10 % fails CI. Some of the budgets:
 | completion | < 50 ms |
 | hover, go-to-definition | < 30 ms |
 | open a 50k-line project → first diagnostics | < 300 ms warm, < 2 s cold |
-| memory for a 50k-line project | < 400 MB |
+| memory for a 50k-line project | at most gopls's peak on the same project (user 2026-10-23, ADR-142; was < 400 MB) |
 
 On the same code (a real ~30k-line Go library copied as `.gp`), every row must be within 1.5× of
 gopls. A first version (v0) needs only Phase 01; in the one-person order it is built right

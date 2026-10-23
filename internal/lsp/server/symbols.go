@@ -385,9 +385,11 @@ type fileSyms struct {
 // A snapshot never changes, so the list is made once for it (Snapshot.Memo): the 120 queries of
 // a benchmark row on one snapshot made the same 1,500 slots again each time. A list that lacks
 // the symbols of a file that did not parse is not kept, so the next query tries that file again.
+// The list also depends on the module index (the packages, their import paths), which a save
+// can make old without a new snapshot, so the key has the index's generation.
 func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot) ([]fileSyms, error) {
 	var partial []fileSyms
-	v, err := snap.Memo(workspaceFileSymbolsKey{}, func() (any, error) {
+	v, err := snap.Memo(workspaceFileSymbolsKey{s.comp.index.generation()}, func() (any, error) {
 		out, complete, err := s.makeWorkspaceFileSymbols(ctx, snap)
 		if err != nil {
 			return nil, err
@@ -407,8 +409,9 @@ func (s *Server) workspaceFileSymbols(ctx context.Context, snap *cache.Snapshot)
 	return v.([]fileSyms), nil
 }
 
-// workspaceFileSymbolsKey is the key of a snapshot's list of the symbols of its files.
-type workspaceFileSymbolsKey struct{}
+// workspaceFileSymbolsKey is the key of a snapshot's list of the symbols of its files, for the
+// generation gen of the module index.
+type workspaceFileSymbolsKey struct{ gen uint64 }
 
 // errIncompleteSymbols is what the memo function returns for a list that is not to be kept.
 var errIncompleteSymbols = errors.New("the symbols of a file are missing")

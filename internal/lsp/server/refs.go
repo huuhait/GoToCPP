@@ -1225,14 +1225,18 @@ type moduleImports struct {
 	dirOfPath map[string]string            // the folder of the package with an import path
 }
 
-// moduleImportsKey is the Snapshot.Memo key of the imports of the module in the folder dir.
-type moduleImportsKey struct{ dir string }
+// moduleImportsKey is the Snapshot.Memo key of the imports of the module in the folder dir, for
+// the generation gen of the module index (a save changes the index, not the snapshot).
+type moduleImportsKey struct {
+	dir string
+	gen uint64
+}
 
 // moduleImports returns the packages of mod, with the open documents that are in it but not on
 // disk yet, and their imports, which it reads concurrently (cheap: the metadata of the pipeline).
 func (r *searcher) moduleImports(ctx context.Context, mod *load.Module) (*moduleImports, error) {
 	r.mod = mod
-	v, err := r.snap.Memo(moduleImportsKey{mod.Dir}, func() (any, error) {
+	v, err := r.snap.Memo(moduleImportsKey{mod.Dir, r.s.comp.index.generation()}, func() (any, error) {
 		pkgs, err := r.s.comp.index.moduleWait(ctx, mod) // all of it: a missing package is a missing reference
 		if err != nil {
 			return nil, err

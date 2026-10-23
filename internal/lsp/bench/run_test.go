@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -182,6 +184,7 @@ var allScenarios = []string{ScInit, ScOpenCold, ScOpenWarm, ScKeystroke, ScKeyst
 	ScRenameType, ScRenameMethod, ScRenameField, ScRenameLocal, ScRenameVar, ScRenameConst,
 	ScRenameFanout, ScRenameIface,
 	ScRenameHidden, ScRenameAlias, ScRenameGenFunc, ScRenameGenType, ScRenameGenMethod,
+	ScKeystrokeGeneric, ScCompletionGeneric,
 	ScWorkspaceSymbol, ScDocumentSymbol,
 	ScSemanticTokens, ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix}
 
@@ -192,9 +195,26 @@ func TestRunProjectFake(t *testing.T) {
 	f := newFake(nil)
 	cfg := fakeConfig(t)
 	cfg.Runs = 2
-	res, err := RunProject(context.Background(), cfg, Generate(Small), f.target("gocpp", ".gp"))
+	// Every run starts from the generated tree: the extra file that the rename forms of the first
+	// run write (at the end of its session) is not there when a server of the next run starts.
+	proj := Generate(Small)
+	extra, _ := extraFile(proj)
+	target := f.target("gocpp", ".gp")
+	start := target.Start
+	var starts, leftovers int
+	target.Start = func(ctx context.Context, dir, cacheDir string) (*Proc, error) {
+		starts++
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(extra)+".gp")); err == nil {
+			leftovers++
+		}
+		return start(ctx, dir, cacheDir)
+	}
+	res, err := RunProject(context.Background(), cfg, proj, target)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if starts != 2*cfg.Runs || leftovers != 0 {
+		t.Errorf("%d server starts, %d of them with %s.gp on disk, want %d and none", starts, leftovers, extra, 2*cfg.Runs)
 	}
 	for _, name := range allScenarios {
 		sc := res.Scenario(name)
@@ -447,7 +467,7 @@ func TestMarkdown(t *testing.T) {
 		"| open-cold | 900 | 900 | 1500 | 1500 | 2000 | 2000 | 4000 | 4000 | 0.38 | 600 | MISSED (2.5x the budget) |",
 		"| open-cpp-cold | 10.0 | 10.0 | 10.0 | 10.0 | n/a | n/a | n/a | n/a | - | - |  |",
 		"| rename | failed | - | - | - | n/a | n/a | n/a | n/a | - | 60 | FAILED: no answer in 60s (5 failed) |",
-		"Memory at the end of the session (resident set, MiB): gocpp 50 (peak 60), gopls 200 (peak 250).",
+		"Memory at the end of the session (resident set, MiB): gocpp 50 (peak 60), gopls 200 (peak 250). Budget: a peak at most gopls's (250 MiB): met.",
 		"- gocpp on small: 5 repetitions of rename failed; the first error: `no answer in 60s`",
 	} {
 		if !strings.Contains(out, want) {
@@ -474,6 +494,25 @@ func TestThousandsAndMs(t *testing.T) {
 	for in, want := range map[float64]string{0: "0", 0.426: "0.43", 3.414: "3.41", 56.24: "56.2", 412.6: "413"} {
 		if got := FormatMs(in); got != want {
 			t.Errorf("FormatMs(%v) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// The memory budget is gopls's peak on the same project; without a gopls figure there is no verdict.
+func TestMemoryBudgetMet(t *testing.T) {
+	g := &ProjectResult{Target: "gocpp", PeakRSS: 480}
+	for _, tc := range []struct {
+		gopls         *ProjectResult
+		met, measured bool
+	}{
+		{&ProjectResult{Target: "gopls", PeakRSS: 1044}, true, true},
+		{&ProjectResult{Target: "gopls", PeakRSS: 480}, true, true},
+		{&ProjectResult{Target: "gopls", PeakRSS: 300}, false, true},
+		{&ProjectResult{Target: "gopls"}, false, false},
+		{nil, false, false},
+	} {
+		if met, measured := MemoryBudgetMet(g, tc.gopls); met != tc.met || measured != tc.measured {
+			t.Errorf("gopls %+v: met %v measured %v, want %v %v", tc.gopls, met, measured, tc.met, tc.measured)
 		}
 	}
 }

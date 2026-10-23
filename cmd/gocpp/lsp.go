@@ -69,12 +69,13 @@ in flight are lost; its entries are checked when read). The request gocpp/stats,
 workspace/executeCommand, returns the cache hit rates, the snapshots and the
 memory.
 
-The server has a soft memory limit that follows its live heap (256 MiB or
-1.4 times the live heap and 64 MiB, whichever is more; GOMEMLIMIT, when set,
-is used instead), and, once the first diagnostics of a package are out, checks
-the packages that import it in the background (at most 96, one or two at a
-time, while it is idle; -no-warm turns that off), so that the first references
-or rename of an exported name finds them done. -idle-gc makes it collect
+The server has a soft memory limit that follows its live heap: 256 MiB, or
+1.4 times the live heap and 64 MiB plus the Go runtime's own memory (at most
+once more the live heap), whichever is more; GOMEMLIMIT, when set, is used
+instead. Once the first diagnostics of a package are out, it checks the
+packages that import it in the background (at most 96, one or two at a time,
+while it is idle; -no-warm turns that off), so that the first references or
+rename of an exported name finds them done. -idle-gc makes it collect
 garbage in the gaps between two pieces of work too (off: it did not pay).
 
 The flags are:

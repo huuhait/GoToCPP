@@ -1,6 +1,7 @@
 package server
 
 import (
+	"runtime/metrics"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -152,23 +153,39 @@ func TestReadHeap(t *testing.T) {
 
 func TestMemoryLimitFor(t *testing.T) {
 	for _, tc := range []struct {
-		live uint64
-		want int64 // MiB
+		live, overhead uint64
+		want           int64 // MiB
 	}{
-		{0, 256},
-		{50, 256},
-		{120, 256},   // 1.4 * 120 + 64 = 232: the floor
-		{155, 281},   // a project of 90,000 lines: 1.4 * 155 + 64
-		{200, 344},   // 1.4 * 200 + 64
-		{1000, 1464}, // a huge one: the limit stays above the live heap
+		{0, 0, 256},
+		{50, 0, 256},
+		{120, 0, 256},     // 1.4 * 120 + 64 = 232: the floor
+		{155, 0, 281},     // a project of 90,000 lines: 1.4 * 155 + 64
+		{200, 0, 344},     // 1.4 * 200 + 64
+		{1000, 0, 1464},   // a huge one: the limit stays above the live heap
+		{50, 40, 256},     // 70 + 64 + 40: still the floor
+		{146, 112, 380},   // the large benchmark project on 192 threads: 1.4 * 146 + 64 + 112
+		{155, 500, 436},   // the overhead counts at most once more the live heap: 281 + 155
+		{1000, 300, 1764}, // 1464 + 300
 	} {
-		got := memoryLimitFor(tc.live * mib)
+		got := memoryLimitFor(tc.live*mib, tc.overhead*mib)
 		if got/mib != tc.want {
-			t.Errorf("live %d MiB: limit %d MiB, want %d", tc.live, got/mib, tc.want)
+			t.Errorf("live %d MiB, overhead %d MiB: limit %d MiB, want %d", tc.live, tc.overhead, got/mib, tc.want)
 		}
-		if got < int64(tc.live*mib) {
-			t.Errorf("live %d MiB: the limit is under the live heap", tc.live)
+		// The room for garbage: what the runtime may hold above the live heap and the overhead.
+		if room := got - int64(tc.live*mib) - int64(min(tc.overhead, tc.live)*mib); room < memSlack {
+			t.Errorf("live %d MiB, overhead %d MiB: %d MiB of room, want at least %d", tc.live, tc.overhead, room/mib, memSlack/mib)
 		}
+	}
+}
+
+// TestRuntimeOverhead: the overhead of this process is what the limit counts beyond its heap
+// objects and free spans: more than nothing (stacks, metadata), less than all of its memory.
+func TestRuntimeOverhead(t *testing.T) {
+	s := []metrics.Sample{{Name: "/memory/classes/total:bytes"}, {Name: "/memory/classes/heap/released:bytes"}}
+	metrics.Read(s)
+	limited := s[0].Value.Uint64() - s[1].Value.Uint64()
+	if o := runtimeOverhead(); o == 0 || o >= limited {
+		t.Errorf("overhead %d bytes of %d that the limit counts", o, limited)
 	}
 }
 
@@ -222,10 +239,10 @@ func TestApplyHeapPolicySetsBoth(t *testing.T) {
 	t.Setenv("GOGC", "")
 	limit, percent := recordHeapPolicy(t)
 
-	applyHeapPolicy(24 * mib)
+	applyHeapPolicy(24*mib, 0)
 
-	if *limit != memoryLimitFor(24*mib) || *percent != 400 {
-		t.Errorf("limit %d, percent %d, want %d and 400", *limit, *percent, memoryLimitFor(24*mib))
+	if *limit != memoryLimitFor(24*mib, 0) || *percent != 400 {
+		t.Errorf("limit %d, percent %d, want %d and 400", *limit, *percent, memoryLimitFor(24*mib, 0))
 	}
 }
 
@@ -234,7 +251,7 @@ func TestApplyHeapPolicyKeepsTheUsersGOGC(t *testing.T) {
 	t.Setenv("GOGC", "50")
 	limit, percent := recordHeapPolicy(t)
 
-	applyHeapPolicy(24 * mib)
+	applyHeapPolicy(24*mib, 0)
 
 	if *percent != -1 {
 		t.Errorf("the GC percent was set to %d with GOGC in the environment", *percent)
@@ -249,7 +266,7 @@ func TestApplyHeapPolicyKeepsTheUsersMemoryLimit(t *testing.T) {
 	t.Setenv("GOGC", "")
 	limit, percent := recordHeapPolicy(t)
 
-	applyHeapPolicy(24 * mib)
+	applyHeapPolicy(24*mib, 0)
 
 	if *limit != -1 {
 		t.Errorf("the memory limit was set to %d with GOMEMLIMIT in the environment", *limit)

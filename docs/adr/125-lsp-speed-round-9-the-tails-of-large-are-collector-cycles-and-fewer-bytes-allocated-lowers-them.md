@@ -1,6 +1,8 @@
 # ADR-125: Language server speed, round 9: the tails of `large` are collector cycles, and fewer bytes allocated lowers them
 
-Status: accepted (2026-10-21)
+Status: accepted (2026-10-21). The memory limit it kept is amended by
+[ADR-142](142-the-language-servers-soft-memory-limit-adds-the-runtimes-own-memory.md) (2026-10-23): this round
+measured at GOMAXPROCS=8, where the runtime's own memory is small.
 
 ## Context
 

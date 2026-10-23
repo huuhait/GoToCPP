@@ -32,7 +32,7 @@ func (b Budget) knownFor(project string) string {
 }
 
 // Budgets are the budgets of the language server that the benchmarks can
-// measure: README §2.1, one row each. The memory budget is MemoryBudgetMiB.
+// measure: README §2.1, one row each. The memory budget is MemoryBudgetMet.
 var Budgets = []Budget{
 	{ScInit, 30, "server start → initialize answered < 30 ms (the contract: 100 ms)", nil, "", nil},
 	{ScOpenWarm, 150, "open a project → first diagnostics < 150 ms (warm cache; the contract: 300 ms)", nil, "", nil},
@@ -62,8 +62,16 @@ var Budgets = []Budget{
 	{ScTypingReqsHover, 30, "hover after a keystroke in a file with a syntax error < 30 ms", []string{"macro", "bigpkg"}, "", nil},
 }
 
-// MemoryBudgetMiB is the memory budget: 400 MB for a 50k-line project.
-const MemoryBudgetMiB = 400
+// MemoryBudgetMet reports whether the memory of gocpp on a project is within the memory budget:
+// its peak resident set at most gopls's on the same project in the same report (ADR-142, user
+// 2026-10-23; it replaces the fixed 400 MiB for a 50k-line project of README §2.1). measured is
+// false when either server has no figure (gopls did not run on the project): no verdict then.
+func MemoryBudgetMet(gocpp, gopls *ProjectResult) (met, measured bool) {
+	if gocpp == nil || gopls == nil || gocpp.PeakRSS <= 0 || gopls.PeakRSS <= 0 {
+		return false, false
+	}
+	return gocpp.PeakRSS <= gopls.PeakRSS, true
+}
 
 // BudgetFor returns the budget of the scenario for the project, if it
 // has one.

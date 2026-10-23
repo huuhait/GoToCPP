@@ -256,12 +256,12 @@ func (r *Report) Markdown(w io.Writer) {
 			if o != nil {
 				p(", gopls %.0f (peak %.0f)", o.RSS, o.PeakRSS)
 			}
-			if name == "large" || name == "medium" {
+			if met, ok := MemoryBudgetMet(g, o); ok {
 				verdict := "met"
-				if g.PeakRSS > MemoryBudgetMiB {
+				if !met {
 					verdict = "MISSED"
 				}
-				p(". Budget: %d MiB for a 50k-line project: %s", MemoryBudgetMiB, verdict)
+				p(". Budget: a peak at most gopls's (%.0f MiB): %s", o.PeakRSS, verdict)
 			}
 			p(".\n\n")
 		}
@@ -310,7 +310,10 @@ const methodText = `## Method and caveats
   (a number, or an undefined name with a number in it, in turn), which is what an editor causes: every
   check misses. *completion-dot*: the completions after the dot of ` + "`r.mu.Lock()`" + ` with nothing
   changed; *completion-edit*: a comment line with a number and then ` + "`r.`" + ` typed at the start of a line
-  and the completion asked at once (new text each time).
+  and the completion asked at once (new text each time). *keystroke-generic* and *completion-generic* are
+  keystroke-new and completion-edit with a file of generic declarations in the hot package (written by the
+  rows' own preparation): gocpp's quick check of an edit inside a function body declines for a package with
+  generics (ADR-115), so these rows measure its full check of each edit.
   *hover*, *definition* (names of the project: gocpp does not go into the embedded standard library yet),
   *signature-help*, *document-symbol*, *semantic-tokens*, *workspace-symbol* at places and queries that
   rotate. *references-popular*: the type embedded in every type of the project; *references-local*: a type
@@ -326,6 +329,8 @@ const methodText = `## Method and caveats
 - **Timing of a session.** The first scenario starts one second after the open of the files (the user
   reads before asking; a server may prepare: gopls loads the workspace, gocpp checks the importers of the
   open packages).
+- **Runs.** The tree of the project is written again before each run, so each run measures the generated
+  project, not the files that the last run's scenarios left on disk.
 - **Statistics.** Each scenario repeats (two warm-up repetitions are not counted, but the very first
   request of its kind is shown as "first"); a p95 is the nearest-rank percentile of the repetitions of one run,
   so with fewer than 20 repetitions it is the maximum. By default each session runs five times from a new

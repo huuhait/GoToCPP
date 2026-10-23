@@ -11,7 +11,6 @@ Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engin
 
 ## Now: jobs in progress (2026-10-22)
 
-- [~] Job 11.lspgap5 (branch job/11.lspgap5): LSP speed rows (target: every row at most 2x gopls p95, user 2026-10-22); also the open 11.14 and 11.13 acceptance lines.
 - [~] Job dev.walltests (branch job/dev.walltests, 46 test files): wall-clock bounds in tests become counted work, event waits and one-minute hang limits. Covers `TestLSPProcess`, `TestProbeCancelStopsTheCompiler`, the 1-2 s bounds listed by the 12.racefix reviewer (probe cache_review_test.go `a_cut_answer_is_not_complete`, lsp/server stale_test.go, lsp/cache versions_test.go, lsp/server edits_test.go) and, by the manager's note, the tests that fail when TMPDIR contains `..` (`internal/interop` TestProbeCommand, `internal/load` TestLoadModule/TestTestFiles/TestNoFiles/TestTestOnlyExternal). Not audited by todo.audit.
 - [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
 - [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks. 12.14b (ADR-121) merged 2026-10-21: cold typed overhead 0.47-1.56 s; the < 0.5 s criterion was reworded (user accepted ADR-121 2026-10-21). Smaller preambles were withdrawn; cold first-run performance stays separate from a run that retains a precompiled header.
@@ -161,9 +160,10 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### LSP
 
-- [ ] p95 budgets on the final reference projects, every row at most 2x gopls p95 (user 2026-10-22: winning rows is not a goal; was every-row wins and 1.5x) (job 11.lspgap5 is running; see "Now") (was L63, L230, L268, L281).
+- [ ] LSP: typing in a package with generic declarations is a full check (ADR-115's focused check declines), about 1.3-2.2 ms more per edit than gopls; `large keystroke-generic` is 2.05-2.26x gopls p95, the only row over 2x after job 11.lspgap5 (ADR-142 Measurements). Repro: `lspbench -projects large -only keystroke-new,keystroke-generic -runs 5`.
+- [ ] docs/benchmarks/lsp.md is from 2026-10-18 (before 11.lspgap5): regenerate it with one `make lsp-bench` on a quiet machine (load under ~16); the 2026-10-23 figures are in ADR-142.
 - [ ] 11.11: references/rename on never-opened packages have no budget row (cold 0.6-1.1 s); the 11.8 numbers in docs/guides/editors.md were taken under load (was L218).
-- [ ] 14.5 lows carried: no server-side file watcher (client `didChangeWatchedFiles` only), `large` misses the 400 MiB budget (432-464 MiB), docs/benchmarks/lsp.md carries the old 371 MiB figure, dead UNC share stalls the first request 5 s (was L293).
+- [ ] 14.5 lows carried: no server-side file watcher (client `didChangeWatchedFiles` only), dead UNC share stalls the first request 5 s (was L293).
 - [ ] Unexplained, seen once: `TestRandomEdits` seed 77 under `ulimit -n` 28-48 kept `package .../mid is not in module` (was L231).
 - [ ] Completion nits: a stray blank line before `AdditionalTextEdits` (internal/lsp/server/completion.go:158); `TestFixDangling` builds `cache.ParsedFile` without `Mode` (was L182).
 - [ ] Re-measure the formatting and organize-imports benchmarks on a quiet machine in 11.11's harness (was L183).
@@ -172,7 +172,6 @@ Items inside a running job (see "Now") are not repeated here.
 
 - [ ] `internal/cppgen` `TestUnsupported/bytes-named-elem` and `runes-named-elem` fail on dev (`got <nil>, want an *Error`) since ffe1c8d5 (phase 9 step 9.11 tier-2 packages); found by the dev.debugtests review.
 - [ ] lldb shows a variable captured by reference as a C++ reference (the dev.debugtests reference printer is gdb only); a captured C enum or C pointer still prints as `&GREEN @0x...` under gdb.
-- [ ] `TestRandomEdits` (internal/lsp/server) seeds 101, 108, 111 and 112 (1200 edits) fail on dev: the incremental server's `workspace/symbol` "New" for mid/mid.gp lacks `containerName` (found by the 11.lspgap5 review).
 - [ ] `TestSourceMemoCompilerRunsPerEdit` (internal/lsp/cache) is timing-dependent: it polls with 1 s waits and counts compiler runs, so a loaded machine can start extra runs (5 runs, want <=3); passes 20 of 20 alone (dev.walltests family).
 - [ ] gdb printers: `info locals` and raw gdb `print` still show raw closure structs on clang++ and `n = &6` for a g++ box; exotic Go types (a struct or interface with members, an array length that is a name) print as `func(...)`; a generic type argument that is a type parameter prints the parameter name inside a generic function.
 - [ ] 13.2 lows: the stop line, `frame`, `up` and `info locals` still print C++ names and temporaries; a boxed local is unwrapped by reading the `.gp` declaration line; `gp print` has no map indexing or calls; `$gp_blocked()` counts only channel waits; the lldb script got no robustness pass (was L240).

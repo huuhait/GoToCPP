@@ -49,7 +49,7 @@ never let clang (C/C++ knowledge) sit on the hot path.
 | hover, go-to-definition, signature help | < 30 ms |
 | format a 1,000-line file | < 20 ms |
 | find references / rename across the workspace | < 300 ms |
-| memory, 50k-line project | < 400 MB |
+| memory, 50k-line project | at most gopls's peak on the same project (user 2026-10-23, ADR-142; was < 400 MB) |
 
 **Reference projects** for the budgets:
 1. A real Go library/CLI (about 30k lines) copied as `.gp`. Because gocpp *is* Go syntax, **the same

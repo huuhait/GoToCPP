@@ -386,3 +386,26 @@ func TestIndexNameOfSecondFile(t *testing.T) {
 	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":2}]}`, c.uri("p/b.gp")))
 	sameList(t, "after the fix", c.workspaceSymbols("Bsym"), []string{"Bsym (example.com/idx/p) p/b.gp:3"})
 }
+
+// TestWorkspaceSymbolAfterSave: a save changes no snapshot but can change the module index. An open
+// document whose file was deleted on disk is a folder without a package path; when the editor saves
+// it, the file is back on disk, the folder is a package of the module again, and the next query on
+// the same snapshot gives its symbols the import path (TestRandomEdits seeds 101, 108, 111 and 112:
+// the list of the snapshot was kept from before the save).
+func TestWorkspaceSymbolAfterSave(t *testing.T) {
+	c := startRefsRoot(t, wsFiles)
+	c.open("util/util.gp", wsFiles["util/util.gp"])
+	want := []string{"Double (example.com/ws/util) util/util.gp:6"}
+	sameList(t, "before", c.workspaceSymbols("Double"), want)
+	path := filepath.Join(c.root, "util", "util.gp")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":3}]}`, c.uri("util/util.gp")))
+	sameList(t, "deleted on disk, open", c.workspaceSymbols("Double"), []string{"Double () util/util.gp:6"})
+	if err := os.WriteFile(path, []byte(wsFiles["util/util.gp"]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.notify("textDocument/didSave", docParams(c.uri("util/util.gp")))
+	sameList(t, "saved", c.workspaceSymbols("Double"), want)
+}

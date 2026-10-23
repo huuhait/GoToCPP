@@ -108,15 +108,14 @@ func (s *samples) fail(name string, err error) {
 // RunProject measures the server of t on the project: cfg.Runs times, a
 // cold open (empty caches), a warm open (the caches of the cold one) and
 // the scenarios in the warm session. The tree of the project is written to
-// cfg.WorkDir.
+// cfg.WorkDir, again before each run: the scenarios of a run change files on
+// disk (the extra file of the rename forms, saves), and the next run is to
+// measure the same project, not the one the last run left.
 func RunProject(ctx context.Context, cfg Config, proj *Project, t Target) (*ProjectResult, error) {
 	cfg.defaults()
 	dir := filepath.Join(cfg.WorkDir, proj.Spec.Name+"-"+t.Name)
 	tree := filepath.Join(dir, "tree")
 	if err := os.RemoveAll(dir); err != nil {
-		return nil, err
-	}
-	if err := proj.Write(tree, t.Ext); err != nil {
 		return nil, err
 	}
 	identity, err := identifyResult(proj, t)
@@ -133,6 +132,12 @@ func RunProject(ctx context.Context, cfg Config, proj *Project, t Target) (*Proj
 	var rss, peak []float64
 	for r := 0; r < cfg.Runs; r++ {
 		cfg.Log("%s on %s: run %d of %d", t.Name, proj.Spec.Name, r+1, cfg.Runs)
+		if err := os.RemoveAll(tree); err != nil {
+			return res, err
+		}
+		if err := proj.Write(tree, t.Ext); err != nil {
+			return res, err
+		}
 		cache := filepath.Join(dir, fmt.Sprintf("cache%d", r))
 		smp, mem, stats, err := runOnce(ctx, cfg, proj, t, tree, cache)
 		os.RemoveAll(cache) // the cold run's caches are big; the next run is cold again

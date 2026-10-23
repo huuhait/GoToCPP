@@ -160,19 +160,60 @@ func (g *idleGC) idle(gen uint64) {
 // before it collects, and the resident set of a big project ends well over that
 // (garbage that is not swept yet, fragmentation): a project of 90,000 lines has
 // 155 MiB of live data and 430 MiB resident. A soft limit makes the runtime
-// collect sooner as the total approaches it. It follows the live heap, so it
-// never makes a big project thrash: memFloor for the projects whose pacer goal
-// is under it anyway (the budget of the speed contract is 400 MiB for 50,000
-// lines), and above that memFactor times the live heap and memSlack.
+// collect sooner as the total approaches it. It follows the live heap: memFloor for
+// the projects whose pacer goal is under it anyway (the budget of the speed contract
+// is 400 MiB for 50,000 lines), and above that memFactor times the live heap and
+// memSlack, which is the room for garbage, plus the memory of the runtime that is no
+// heap object (runtimeOverhead).
+//
+// The limit counts all of the runtime's memory (ADR-142), and that overhead grows with GOMAXPROCS
+// (the per-P caches of spans, fragmentation, metadata): on a machine of 192 threads it
+// was 86 to 93 MiB for a live heap of 150 to 200 MiB on the large benchmark project, so a
+// limit from the live heap alone left the heap about 10 MiB of room (gctrace: a goal of
+// 156 MiB for 146 MiB live) and the runtime collected every keystroke or two, a cycle of
+// 70 ms each time (keystroke-imported p95 4.7 times gopls's; with GOMAXPROCS=8 the same
+// build had no such cycles). The overhead counts at most once more the live heap, so the
+// limit stays under what the pacer's own goal needs.
 const (
 	memFloor  = 256 << 20
 	memFactor = 14 // tenths
 	memSlack  = 64 << 20
 )
 
-// memoryLimitFor returns the soft limit for a live heap of live bytes.
-func memoryLimitFor(live uint64) int64 {
-	return int64(max(memFloor, live/10*memFactor+memSlack))
+// memoryLimitFor returns the soft limit for a live heap of live bytes and a runtime overhead
+// of overhead bytes (runtimeOverhead).
+func memoryLimitFor(live, overhead uint64) int64 {
+	return int64(max(memFloor, live/10*memFactor+memSlack+min(overhead, live)))
+}
+
+var overheadSamples = sync.Pool{New: func() any {
+	return []metrics.Sample{
+		{Name: "/memory/classes/total:bytes"},
+		{Name: "/memory/classes/heap/released:bytes"},
+		{Name: "/memory/classes/heap/free:bytes"},
+		{Name: "/memory/classes/heap/objects:bytes"},
+	}
+}}
+
+// runtimeOverhead returns the memory that the soft limit counts and that is neither a heap
+// object (live, or dead and not swept yet) nor free: fragmentation, stacks, metadata, the
+// per-P caches.
+func runtimeOverhead() uint64 {
+	s := overheadSamples.Get().([]metrics.Sample)
+	defer overheadSamples.Put(s)
+	metrics.Read(s)
+	var v [4]uint64
+	for i := range s {
+		if s[i].Value.Kind() != metrics.KindUint64 {
+			return 0
+		}
+		v[i] = s[i].Value.Uint64()
+	}
+	total, released, free, objects := v[0], v[1], v[2], v[3]
+	if used := released + free + objects; total > used {
+		return total - used
+	}
+	return 0
 }
 
 // The pacer's GC percent. GOGC 100 collects when the heap has doubled, which for a small project is
@@ -204,11 +245,12 @@ var heapPolicy = struct {
 	setGCPercent   func(int) int
 }{debug.SetMemoryLimit, debug.SetGCPercent}
 
-// applyHeapPolicy sets the soft memory limit and the GC percent for a live heap of live bytes. The
-// user's GOMEMLIMIT and GOGC are theirs: the matching setting is left alone.
-func applyHeapPolicy(live uint64) {
+// applyHeapPolicy sets the soft memory limit and the GC percent for a live heap of live bytes and
+// a runtime overhead of overhead bytes. The user's GOMEMLIMIT and GOGC are theirs: the matching
+// setting is left alone.
+func applyHeapPolicy(live, overhead uint64) {
 	if os.Getenv("GOMEMLIMIT") == "" {
-		heapPolicy.setMemoryLimit(memoryLimitFor(live))
+		heapPolicy.setMemoryLimit(memoryLimitFor(live, overhead))
 	}
 	if os.Getenv("GOGC") == "" {
 		heapPolicy.setGCPercent(gcPercentFor(live))
@@ -231,12 +273,12 @@ func followLiveHeap() {
 	if !followsLiveHeap() {
 		return
 	}
-	applyHeapPolicy(0)
+	applyHeapPolicy(0, 0)
 	var arm func()
 	arm = func() {
 		runtime.SetFinalizer(&gcSentinel{}, func(*gcSentinel) {
 			_, live := readHeap()
-			applyHeapPolicy(live)
+			applyHeapPolicy(live, runtimeOverhead())
 			arm()
 		})
 	}

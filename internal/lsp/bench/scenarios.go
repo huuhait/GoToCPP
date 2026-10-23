@@ -69,6 +69,12 @@ const (
 	ScRenameGenFunc   = "rename-generic-func"
 	ScRenameGenType   = "rename-generic-type"
 	ScRenameGenMethod = "rename-generic-method"
+	// keystroke-new and completion-edit again, in the hot file, with a file of generic declarations
+	// in its package (extraFile): ADR-115's focused check declines for such a package, so these
+	// rows measure the full check of every edit on purpose.
+	ScKeystrokeGeneric  = "keystroke-generic"
+	ScCompletionGeneric = "completion-generic"
+
 	ScWorkspaceSymbol = "workspace-symbol"
 	ScDocumentSymbol  = "document-symbol"
 	ScSemanticTokens  = "semantic-tokens"
@@ -113,6 +119,7 @@ var order = []string{ScInit, ScOpenCold, ScOpenWarm, ScCppOpenCold, ScCppOpenWar
 	ScRenameType, ScRenameMethod, ScRenameField, ScRenameLocal,
 	ScRenameVar, ScRenameConst, ScRenameFanout, ScRenameIface,
 	ScRenameHidden, ScRenameAlias, ScRenameGenFunc, ScRenameGenType, ScRenameGenMethod,
+	ScKeystrokeGeneric, ScCompletionGeneric,
 	ScWorkspaceSymbol, ScDocumentSymbol, ScSemanticTokens,
 	ScFormat, ScSwitchFile, ScAPIChange, ScAPIFix,
 	ScHoverMacro, ScHoverBang, ScInlayBang, ScTokensMacro, ScCompletionMacro, ScCodeAction,
@@ -214,8 +221,39 @@ func scenarios(p *Project) []scenario {
 		renameInExtra(p, ScRenameGenFunc, "func Pick[", 5, "Choose%d"),
 		renameInExtra(p, ScRenameGenType, "type Pair[", 5, "Duo%d"),
 		renameInExtra(p, ScRenameGenMethod, ") Swap(", 2, "Flip%d"),
+		withExtra(p, keystrokeNew(ScKeystrokeGeneric, hot, 40, 3)),
+		withExtra(p, completionAt(ScCompletionGeneric, hot, "\tr.mu.Lock()\n", "\tr.\n", 3, 30)),
 	)
 	return scs
+}
+
+// withExtra is sc with extraFile's file on disk and open before its prep (written there when an
+// earlier scenario of the session has not), so that the hot package has generic declarations.
+func withExtra(p *Project, sc scenario) scenario {
+	rel, text := extraFile(p)
+	inner := sc.prep
+	sc.prep = func(ctx context.Context, s *Session) error {
+		if err := s.ensureExtra(ctx, rel, text); err != nil {
+			return err
+		}
+		if inner != nil {
+			return inner(ctx, s)
+		}
+		return nil
+	}
+	return sc
+}
+
+// ensureExtra writes the file rel with text and opens it, unless the session has it open.
+func (s *Session) ensureExtra(ctx context.Context, rel, text string) error {
+	if s.docs[rel] != nil {
+		return nil
+	}
+	if err := os.WriteFile(s.path(rel), []byte(text), 0o644); err != nil {
+		return err
+	}
+	_, err := s.openAndWait(ctx, rel)
+	return err
 }
 
 // extraFile returns the file that the rename scenarios of the generic and import-alias forms use,
@@ -245,13 +283,8 @@ func renameInExtra(p *Project, name string, anchor string, delta int, format str
 	sc := renameFormAny(name, rel, []mark{{anchor, delta}}, format)
 	inner := sc.prep
 	sc.prep = func(ctx context.Context, s *Session) error {
-		if s.docs[rel] == nil {
-			if err := os.WriteFile(s.path(rel), []byte(text), 0o644); err != nil {
-				return err
-			}
-			if _, err := s.openAndWait(ctx, rel); err != nil {
-				return err
-			}
+		if err := s.ensureExtra(ctx, rel, text); err != nil {
+			return err
 		}
 		return inner(ctx, s)
 	}

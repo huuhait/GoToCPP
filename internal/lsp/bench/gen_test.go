@@ -121,6 +121,13 @@ func TestGenerateSizes(t *testing.T) {
 			}
 		}
 	}
+	// The method that rename-method renames is in the hot file of every project (a project of
+	// short files has it there only).
+	for _, spec := range Specs() {
+		if p := Generate(spec); !strings.Contains(p.Source(p.Hot), ") Collect(f func") {
+			t.Errorf("%s: the hot file %s has no Collect", spec.Name, p.Hot)
+		}
+	}
 	// The long file of the format budget has about a thousand lines.
 	if n := strings.Count(Generate(Small).Source(Generate(Small).Big), "\n"); n < 1000 || n > 1300 {
 		t.Errorf("the big file has %d lines", n)

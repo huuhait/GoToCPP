@@ -88,6 +88,7 @@ func TestLSPBudgets(t *testing.T) {
 		var results []*bench.ProjectResult
 		for _, spec := range []bench.Spec{bench.Small, bench.Medium} {
 			proj := bench.Generate(spec)
+			byTarget := map[string]*bench.ProjectResult{}
 			for _, tg := range targets {
 				if tg.Name == "gopls" && spec.Name != "small" {
 					continue // gopls on the medium project doubles the time of the test
@@ -97,8 +98,13 @@ func TestLSPBudgets(t *testing.T) {
 					t.Fatal(err)
 				}
 				results = append(results, res)
-				if tg.Name == "gocpp" && res.PeakRSS > bench.MemoryBudgetMiB {
-					t.Errorf("%s: peak memory %.0f MiB is over the budget of %d MiB", spec.Name, res.PeakRSS, bench.MemoryBudgetMiB)
+				byTarget[tg.Name] = res
+			}
+			// The memory budget is gopls's peak on the same project (bench.MemoryBudgetMet): where
+			// gopls did not run, there is no memory verdict.
+			if g, o := byTarget["gocpp"], byTarget["gopls"]; o != nil {
+				if met, ok := bench.MemoryBudgetMet(g, o); ok && !met {
+					t.Errorf("%s: peak memory %.0f MiB is over gopls's %.0f MiB", spec.Name, g.PeakRSS, o.PeakRSS)
 				}
 			}
 		}

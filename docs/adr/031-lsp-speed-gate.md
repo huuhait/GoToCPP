@@ -1,6 +1,8 @@
 # ADR-031: The speed gate of the language server: 3x the budget and 2.5x gopls, opt-in; the 1.5x goal is not met yet
 
-Status: accepted (2026-10-18)
+Status: accepted (2026-10-18). The fixed 400 MiB memory limit of the gate is amended by
+[ADR-142](142-the-language-servers-soft-memory-limit-adds-the-runtimes-own-memory.md) (2026-10-23): the memory
+budget is gopls's peak on the same project.
 
 ## Context
 

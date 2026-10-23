@@ -227,6 +227,12 @@ func (g *generator) deps(i int) []int {
 	return out
 }
 
+// hotIndexes returns the package and the file number of the hot file (Project.Hot) of the spec: a
+// package in the middle of the dependency chain, its fourth file (or its last).
+func hotIndexes(s Spec) (pkg, file int) {
+	return s.Packages / 2, min(3, s.Files-1)
+}
+
 func (g *generator) add(rel, content string, kind FileKind) {
 	g.files = append(g.files, File{Rel: rel, Content: content, Kind: kind})
 }
@@ -262,9 +268,9 @@ func (g *generator) generate() *Project {
 	p.APIFile, p.APIUser = fmt.Sprintf("%s/f00", pkgName(s.Packages-1)), "cmd/app/main"
 	g.add("cmd/app/main", g.mainFile(allDeps), Source)
 
-	hot := s.Packages / 2
+	hot, hotFile := hotIndexes(s)
 	p.HotPkg = pkgName(hot)
-	p.Hot = fmt.Sprintf("%s/f%02d", p.HotPkg, min(3, s.Files-1))
+	p.Hot = fmt.Sprintf("%s/f%02d", p.HotPkg, hotFile)
 	dep := 0
 	if len(allDeps[hot]) > 0 {
 		dep = allDeps[hot][len(allDeps[hot])-1]
@@ -281,7 +287,7 @@ func (g *generator) generate() *Project {
 			break
 		}
 	}
-	p.Queries = []string{"New" + typeName(0, 0), "Sum" + typeName(hot, min(3, s.Files-1)), typeName(s.Packages-1, 0), "Label"}
+	p.Queries = []string{"New" + typeName(0, 0), "Sum" + typeName(hot, hotFile), typeName(s.Packages-1, 0), "Label"}
 	sort.Slice(g.files, func(i, j int) bool { return g.files[i].Rel < g.files[j].Rel })
 	p.Files = g.files
 	for _, f := range p.Files {
@@ -437,6 +443,10 @@ func (g *generator) file(i, k int, deps []int) string {
 	b.use("sync")
 	b.use(g.spec.Module + "/core")
 	full := !g.spec.Lite
+	// The hot file (Project.Hot) of a project of short files has the method Collect too: the
+	// rename-method row renames it (a method that no interface lists).
+	hotPkg, hotK := hotIndexes(g.spec)
+	hotFile := i == hotPkg && k == hotK
 
 	b.printf("// %s keeps a set of tags for one %s.\ntype %s struct {\n\tcore.Base\n\tTitle string\n\tCount int\n\tTags  []string\n\tindex map[string]int\n\tmu    sync.Mutex\n}\n\n", T, strings.ToLower(noun), T)
 	b.printf("// New%s returns an empty %s called name.\nfunc New%s(name string) *%s {\n\treturn &%s{Base: core.NewBase(name), Title: name, index: map[string]int{}}\n}\n\n", T, T, T, T, T)
@@ -451,6 +461,8 @@ func (g *generator) file(i, k int, deps []int) string {
 	if full {
 		b.printf("// Self returns the value itself, which only a %s can: %sLike is satisfied by no other type.\nfunc (r *%s) Self() *%s { return r }\n\n", T, T, T, T)
 		b.printf("// %sLike is what the users of a %s need.\ntype %sLike interface {\n\tAdd(tag string) (int, error)\n\tFind(tag string) (int, error)\n\tSelf() *%s\n\tcore.Namer\n}\n\nvar _ %sLike = (*%s)(nil)\n\n", T, T, T, T, T, T)
+	}
+	if full || hotFile {
 		b.printf("// Collect applies f to every tag in its own goroutine and gathers the results.\nfunc (r *%s) Collect(f func(string) int) []int {\n\tout := make(chan int, len(r.Tags))\n\tvar wg sync.WaitGroup\n\tfor _, t := range r.Tags {\n\t\twg.Add(1)\n\t\tgo func(t string) {\n\t\t\tdefer wg.Done()\n\t\t\tout <- f(t)\n\t\t}(t)\n\t}\n\twg.Wait()\n\tclose(out)\n\tvar res []int\n\tfor v := range out {\n\t\tres = append(res, v)\n\t}\n\treturn res\n}\n\n", T)
 	}
 	// Sum calls a function of a package that this one imports.

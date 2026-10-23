@@ -62,7 +62,10 @@ func (s *Snapshot) decref() {
 // shared by the requests on it and goes away with it. f must not change what it reads. An error is
 // not kept (a request that was cancelled while f ran must not leave its error for the others): the
 // next call runs f again. A value that records its own failure keeps it as long as the snapshot, and a
-// caller that waits for another caller's f cannot be cancelled meanwhile.
+// caller that waits for another caller's f cannot be cancelled meanwhile. A value that also depends on
+// state outside the snapshot puts that state's version into the key: the server's workspace symbols
+// and module imports depend on the module index, which a save changes without a new snapshot, so
+// their keys carry the index's generation.
 func (s *Snapshot) Memo(key any, f func() (any, error)) (any, error) {
 	e, ok := s.memo.Load(key)
 	if !ok {
