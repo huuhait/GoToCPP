@@ -277,11 +277,11 @@
             # compiler's content tells two Nix wrappers apart (store files all have mtime 1).
             # gocpp compiles in a new temporary folder every build, so with -g the default
             # hash_dir never hits; the paths in the commands are absolute, so the folder adds
-            # nothing (a cold build of examples/wc: 7.8 s, 2.9 s from ccache). The sloppiness
-            # lets compiles that use gocpp's precompiled headers be cached.
+            # nothing (a cold build of examples/wc: 7.8 s, 2.7 s from ccache). No sloppiness: with
+            # pch_defines ccache also caches the making of a precompiled header, and clang refuses
+            # a restored one that names another folder (TestPCHCutOffIsMadeAgainWithTheSameAnswers).
             CCACHE_COMPILERCHECK = "content";
             CCACHE_NOHASHDIR = "1";
-            CCACHE_SLOPPINESS = "pch_defines,time_macros";
             CCACHE_MAXSIZE = "100G";
 
             # The links come first in PATH, so g++, clang++ and the others called by name (as

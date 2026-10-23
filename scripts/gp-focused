@@ -44,6 +44,9 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+# The compiler's name as a -run pattern: g++ -> g\+\+.
+cxxre=$(printf '%s' "$cxx" | sed 's/+/\\+/g')
+
 root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "gp-focused: run it inside a gocpp worktree" >&2; exit 2; }
 cd "$root"
 
@@ -136,16 +139,16 @@ while IFS= read -r f; do
 	runtime/src/*|runtime/include/*)
 		stem=$(basename "$f"); stem=${stem%%.*}
 		if [ -f "runtime/test/${stem}_test.cpp" ]; then
-			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$/^$stem\$' ./runtime"
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$/^$stem\$' ./runtime"
 		else
-			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$' ./runtime"
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$' ./runtime"
 		fi
 		names=$(namedtests "$stem")
 		[ -n "$names" ] && emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestRun\$/^($names)\$' ./tests"
 		;;
 	runtime/test/*_test.cpp)
 		stem=$(basename "$f" _test.cpp)
-		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$/^$stem\$' ./runtime"
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$/^$stem\$' ./runtime"
 		;;
 	stdlib/*)
 		pkg=$(dirname "${f#stdlib/}")
