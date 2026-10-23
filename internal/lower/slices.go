@@ -119,16 +119,7 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		} else {
 			elem = fg.g.cxxType(et, arg.Pos()) // (reports it)
 		}
-		args := make([]cppir.Expr, len(c.Args)-1)
-		for i, a := range c.Args[1:] {
-			if t := fg.g.info.TypeOf(a); fg.g.info.Types[a].Value == nil && (t == nil || !complete(t)) {
-				// A size that is a C number, enum or bool (C.size_t, an enum): as cgo, any integer.
-				args[i] = templateCall("gp::cgo::as", []cppir.Node{typeName("int64_t")}, fg.expr(a))
-				continue
-			}
-			args[i] = fg.intExpr(a)
-		}
-		return templateCall("gp::make_slice", []cppir.Node{elem}, args...)
+		return templateCall("gp::make_slice", []cppir.Node{elem}, fg.makeSizes(c.Args[1:])...)
 	case "append":
 		s := fg.movedExpr(arg)
 		if c.Ellipsis.IsValid() {
@@ -136,6 +127,9 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 			// untyped: it is a nil slice of s's type, gp::slice<T>().
 			if fg.g.info.Types[c.Args[1]].IsNil() {
 				return call("gp::append_slice", s, construct(fg.g.cxxType(t, arg.Pos())))
+			}
+			if mk := fg.appendOfMake(c); mk != nil {
+				return call("gp::append_make", s, fg.makeSizes(mk.Args[1:2])[0])
 			}
 			return call("gp::append_slice", s, fg.exactExpr(c.Args[1]))
 		}
@@ -146,6 +140,49 @@ func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	default: // clear
 		return call("gp::clear", fg.expr(arg))
 	}
+}
+
+// makeSizes returns the C++ of the length and capacity arguments of make([]T, ...): Go integers,
+// or a C number, enum or bool (C.size_t, an enum), which is any integer, as in cgo.
+func (fg *funcGen) makeSizes(sizes []ast.Expr) []cppir.Expr {
+	args := make([]cppir.Expr, len(sizes))
+	for i, a := range sizes {
+		if t := fg.g.info.TypeOf(a); fg.g.info.Types[a].Value == nil && (t == nil || !complete(t)) {
+			args[i] = templateCall("gp::cgo::as", []cppir.Node{typeName("int64_t")}, fg.expr(a))
+			continue
+		}
+		args[i] = fg.intExpr(a)
+	}
+	return args
+}
+
+// appendOfMake returns the make of append(s, make([]T, n)...), a make with a length only, or
+// nil. gc compiles such an append without the make (walk/assign.go: isAppendOfMake,
+// extendSlice): one allocation, and the panics of growslice (gp::append_make), so slices.Grow(s,
+// math.MaxInt) says "growslice: len out of range", not "makeslice". (gc does it unless it
+// compiles with -N or for the race detector; gocpp always does.) The order (appendArgs) sees
+// the length as the append's argument, so the make never goes into a temporary of its own;
+// except in m[k] = append(m[k], make([]T, n)...), where gc's mapAppend copies the make into a
+// temporary first and so keeps it (keepMake: "makeslice" for a bad n, as in gc).
+func (fg *funcGen) appendOfMake(c *ast.CallExpr) *ast.CallExpr {
+	if len(c.Args) != 2 || !c.Ellipsis.IsValid() || !fg.isBuiltin(c, "append") || fg.keepMake[c] {
+		return nil
+	}
+	mk, ok := ast.Unparen(c.Args[1]).(*ast.CallExpr)
+	if !ok || len(mk.Args) != 2 || !fg.isBuiltin(mk, "make") || !isSlice(fg.g.info.TypeOf(mk)) {
+		return nil
+	}
+	return mk
+}
+
+// appendArgs returns the arguments of the call c that its order sees: those of the call, but
+// s and n for append(s, make([]T, n)...) (appendOfMake), which gc orders so too (walk/order.go:
+// "order x", "order y"; the make is no unit of its own). Other calls: c.Args.
+func (fg *funcGen) appendArgs(c *ast.CallExpr) []ast.Expr {
+	if mk := fg.appendOfMake(c); mk != nil {
+		return []ast.Expr{c.Args[0], mk.Args[1]}
+	}
+	return c.Args
 }
 
 // sliceConversion returns the C++ of a conversion to or from a slice type: []T(nil) is

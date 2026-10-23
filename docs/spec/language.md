@@ -476,10 +476,13 @@ fmt.Println(unsafe.Sizeof(struct{}{}), unsafe.Sizeof(struct {
   a field, so `struct{ a struct{}; b int64 }` is 16 bytes (Go: 8) and `[3]struct{}` is 3.
   `[0]T` is 1 byte too, with alignment 1. An array `[N]T` is `N` times the size of `T`. Each
   generated struct has a `static_assert` that its C++ size and alignment are these.
-  A slice of empty structs therefore uses memory: `make([]struct{}, n)` allocates `n` bytes, and a
-  huge `n` (Go allows `math.MaxInt`, because its zero-size elements take no memory) fails with an
-  out-of-memory error in gocpp. (`append` is not affected: it gives a zero-size element no
-  memory and `cap == len`, as Go does.)
+  A slice of empty structs still takes no memory: `make([]struct{}, n)` and `append` give an
+  empty struct or `[0]T` no array (any length up to `math.MaxInt` works, as in Go), since those
+  elements are never read or written. A zero-size Go type that holds a field in C++
+  (`struct{ z [0]int }`, `[3]struct{}`) is stored to, so `make` allocates its 1 or more bytes per
+  element, and a length that can't be allocated (Go allows `math.MaxInt`) is the fatal error
+  `runtime: out of memory` in gocpp. (`append` gives such an element no new memory each time and
+  `cap == len`, as Go does.)
 - **The capacity after `append`** is Go's, although the sizes above are not: the runtime
   computes Go's size and pointer-ness of the element type (`gocpp/golayout.hpp`), so a
   `[]string` grows `1 2 4 8 16 32 71 143 ...` as in Go (`tests/run/append_cap_*.gp`).

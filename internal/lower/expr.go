@@ -84,6 +84,9 @@ type funcGen struct {
 	force   map[ast.Expr]bool   // the calls that order.go must put into temporaries
 	moves   map[ast.Expr]bool   // the slices that s = append(s, ...) and s = s[a:b] move (slices.go)
 	stores  map[ast.Expr]bool   // the map entries m[k] that op= or ++ changes (maps.go: markStores)
+	// keepMake: the appends m[k] = append(m[k], make([]T, n)...) whose make gc keeps (maps.go:
+	// mapPre; slices.go: appendOfMake).
+	keepMake map[*ast.CallExpr]bool
 
 	// bigTemps are the argument snapshots of a defer or go statement that hold a value larger
 	// than 128 KiB in a gp::detail::big_arg (order.go: emitArgumentSnapshots), by name, with
@@ -186,6 +189,7 @@ func newFuncGen(g *gen, names *funcNames, fn *funcInfo) *funcGen {
 		force:      make(map[ast.Expr]bool),
 		moves:      make(map[ast.Expr]bool),
 		stores:     make(map[ast.Expr]bool),
+		keepMake:   make(map[*ast.CallExpr]bool),
 
 		memberStores: make(map[ast.Expr]ast.Expr),
 		storesNoted:  make(map[*ast.AssignStmt]bool),

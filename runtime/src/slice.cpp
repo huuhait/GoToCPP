@@ -149,7 +149,8 @@ void panic_make(int64_t len, int64_t /*cap*/, std::size_t size) {
     // the slice escapes to the heap (runtime.makeslice). For a slice that doesn't escape, Go's
     // compiler emits its own checks, and they say "cap out of range"; gocpp always gives the
     // heap form.
-    auto limit = static_cast<uint64_t>(max_alloc) / size;
+    auto limit =
+        size == 0 ? static_cast<uint64_t>(INT64_MAX) : static_cast<uint64_t>(max_alloc) / size;
     if (len < 0 || static_cast<uint64_t>(len) > limit) {
         throw panic_error{"runtime error: makeslice: len out of range"_gs,
                           {panic_identity::gp_runtime, 0, 0}};

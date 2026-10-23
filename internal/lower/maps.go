@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -510,6 +511,19 @@ func (fg *funcGen) mapAppend(s ast.Stmt) *ast.CallExpr {
 	return c
 }
 
+// plainName reports whether e is a name to gc (ONAME, which its cheapExpr doesn't copy): an
+// identifier, or a variable of another package, pkg.V (a selector in Go's syntax).
+func (fg *funcGen) plainName(e ast.Expr) bool {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		_, isVar := fg.g.qualifiedObj(x).(*types.Var)
+		return isVar
+	}
+	return false
+}
+
 // wrappedKey reports whether gc wraps a map key of type k in a conversion before a map call
 // (walk/order.go: mapKeyTemp): for the fast map calls (walk/walk.go: mapfast), a key whose type
 // is not the call's own key type, uint32, uint64, unsafe.Pointer or string, is converted to it:
@@ -635,7 +649,9 @@ func singleFast(t types.Type) bool {
 
 // sameSafe reports whether a and b are the same expression that can be evaluated twice with the
 // same result and no effect but a panic (gc's ir.SameSafeExpr): the same variable or constant
-// (or nil), and *x, x[i], an operator or a conversion to a basic type of such expressions.
+// (or nil), and *x, x[i], x.f (a field, also promoted through embedded fields: gc's ODOT and
+// ODOTPTR; a variable of another package, pkg.V), an operator or a conversion to a basic type
+// of such expressions.
 func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 	a, b = ast.Unparen(a), ast.Unparen(b)
 	ta, tb := fg.g.info.Types[a], fg.g.info.Types[b]
@@ -656,6 +672,19 @@ func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 	case *ast.StarExpr:
 		y, ok := b.(*ast.StarExpr)
 		return ok && fg.sameSafe(x.X, y.X)
+	case *ast.SelectorExpr:
+		y, ok := b.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		sx, sy := fg.g.info.Selections[x], fg.g.info.Selections[y]
+		if sx == nil || sy == nil {
+			// pkg.V: the same variable of another Go package (a name to gc: plainName).
+			v, isVar := fg.g.qualifiedObj(x).(*types.Var)
+			return sx == nil && sy == nil && isVar && v == fg.g.qualifiedObj(y)
+		}
+		return sx.Kind() == types.FieldVal && sy.Kind() == types.FieldVal && sx.Obj() == sy.Obj() &&
+			slices.Equal(sx.Index(), sy.Index()) && fg.sameSafe(x.X, y.X)
 	case *ast.IndexExpr:
 		y, ok := b.(*ast.IndexExpr)
 		return ok && fg.sameSafe(x.X, y.X) && fg.sameSafe(x.Index, y.Index)
@@ -739,10 +768,13 @@ func (fg *funcGen) mapPre(s ast.Stmt) []cppir.Stmt {
 			if fg.constValue(e) != nil || fg.g.info.Types[e].IsNil() {
 				continue
 			}
-			if _, name := ast.Unparen(e).(*ast.Ident); !name || e == lhs.Index && wrappedKey(under(fg.g.info.TypeOf(lhs.X)).(*types.Map).Key()) {
+			if !fg.plainName(e) || e == lhs.Index && wrappedKey(under(fg.g.info.TypeOf(lhs.X)).(*types.Map).Key()) {
 				temp(e)
 			}
 		}
+		// gc's mapAppend copies make([]T, n) of m[k] = append(m[k], make([]T, n)...) into a
+		// temporary too, so the make stays (not gp::append_make): "makeslice" for a bad n.
+		fg.keepMake[c] = true
 		pre = append(pre, fg.order(false, c.Args[1:]...)...)
 		fg.ordered[c] = true // its arguments were ordered here, not as a unit (simpleScope)
 		for _, x := range c.Args[1:] {

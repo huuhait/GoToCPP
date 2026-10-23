@@ -694,6 +694,7 @@ array, as in Go, and `append` writes into it while it has room.
 | `s[i]`, `len(s)`, `cap(s)` | `s[i]`, `gp::len(s)`, `gp::cap(s)` | `s[i]` is a `T&` (`s[i] = v`, `s[i] += v`, `s[i]++`), bounds checked |
 | `s[a:b]`, `s[a:b:c]` | `gp::sub(s, a, b)`, `gp::sub(s, a, b, c)` | shares the array; `slice bounds out of range [:5] with capacity 3` |
 | `append(s, a, b)`, `append(s, t...)` | `gp::append(s, a, b)`, `gp::append_slice(s, t)` | also `append(b, str...)` for a `[]byte`; the capacity after growth is Go 1.25's (`growslice`), for every element type |
+| `append(s, make([]T, n)...)` | `gp::append_make(s, n)` | no `make`, as gc's `extendslice`: zero values, one allocation, `growslice: len out of range` for a too big `n`, `makeslice: len out of range` for a negative one; `m[k] = append(m[k], make([]T, n)...)` keeps the `make`, as gc does; gc also keeps it under `-race` (and `-gcflags=-N`), so `go run -race` says `makeslice` where gocpp, also with `-race`, says `growslice` |
 | `s = append(s, x)`, `s = s[1:]` | `s = gp::append(static_cast<gp::slice<T>&&>(s), x)` | `s` is moved into the call (no reference count traffic) when no other argument can read it; into `gp::sub` only for a local variable that is not boxed and not a named result, since its bounds check can panic |
 | `copy(dst, src)`, `clear(s)` | `gp::copy(dst, src)`, `gp::clear(s)` | overlap safe; also `copy(b, str)` |
 | `&s[i]` | `gp::ptr<T>(s.gp_owner(), &s[i])`, or `gp::elem_ptr(f(), i)` | the pointer keeps the array alive |
@@ -1730,8 +1731,10 @@ Sources: [Phase 03 §2.10](../../plans/2026-10-13-gocpp/phase-03-core-language/R
   a negative shift count of a signed type, `make` with a bad length or capacity
   (`makeslice: len out of range`, also when the element is too big for the length), a store
   into a nil map (`assignment to entry in nil map`), and an `append` whose length overflows
-  (`growslice: len out of range`, which a slice of 1-byte empty structs (D15) can't reach: its
-  `make` fails first). Reading a nil map, `delete` and `clear` of one, and `make` of a map
+  (`growslice: len out of range`, also for `append(s, make([]T, n)...)` and `slices.Grow(s, n)`
+  with a too big `n`, which gc compiles without the `make`; a negative `n` there is
+  `makeslice: len out of range`). `make` of zero-size elements takes no memory and any length
+  up to `math.MaxInt`, as in Go. Reading a nil map, `delete` and `clear` of one, and `make` of a map
   with a negative hint don't panic, as in Go; nor does the conversion of an out-of-range float
   to an integer, which gives the values of Go on amd64 (`gp::f2i`). TestPanics
   (internal/cppgen) runs each check and compares stderr and the exit code with real Go.

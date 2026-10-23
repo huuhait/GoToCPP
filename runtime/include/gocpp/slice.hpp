@@ -71,11 +71,23 @@
 // before anything is written, as in Go: s = append(s[:1], s[2:]...), copy(s[1:], s) and
 // s = append(s, s...) work.
 //
-// Zero-size elements (a divergence, D15): Go's struct{} and [0]T take no memory, and Go points
-// every slice of them at zerobase. append does the same (grow: the data pointer is zerobase,
-// whatever the length, and the elements are never copied: copy_elems and clear skip an empty
-// class). But in C++ an empty struct is 1 byte, so make([]struct{}, n) allocates and zeroes n
-// bytes, and an n that Go allows (math.MaxInt) fails with "makeslice: len out of range".
+// Zero-size elements: Go's struct{} and [0]T take no memory, and Go points every slice of them
+// at zerobase. make and append do the same for a zero-size Go type that is an empty class
+// (detail::no_data; make_slice, grow: the data pointer is zerobase, whatever the length up to
+// math.MaxInt, and the elements are never copied: copy_elems and clear skip them), although
+// C++ gives it 1 byte. s[i] and sub still add the index (1 byte each), as arrays,
+// conversions to array pointers and reflect do, so two pointers to one element are equal; but
+// &s[i] != &s[j] (Go: equal). A type
+// that is zero-size in Go but holds a field in C++ (struct{ z [0]int }, [3]struct{}: a
+// divergence, D15) is stored to, so its elements need real memory: make allocates sizeof(T)
+// bytes each and accepts the lengths Go accepts, and one that can't be allocated is Go's
+// fatal error "runtime: out of memory" (Go allocates nothing).
+//
+// make's checks are Go's, with Go's size of the element (golayout.hpp): a negative or too big
+// length is "makeslice: len out of range", a capacity below it or too big "makeslice: cap out
+// of range". append(s, make([]T, n)...) is append_make, which makes no slice, as gc doesn't
+// (walk's extendslice): a negative n is "makeslice: len out of range", a length that
+// overflows or an array too big "growslice: len out of range".
 //
 // Lifetimes: a slice's owner is released through gp::detail::release (ptr.hpp), so freeing a
 // long chain (a list of nodes that hold slices of pointers to the next node) never runs out
@@ -133,6 +145,22 @@ template <typename T>
 inline constexpr bool zero_bits =
     std::is_trivially_default_constructible_v<T> && std::is_trivially_copyable_v<T>;
 
+// no_data<T>: an element that takes no memory: a zero-size Go type that is an empty class in
+// C++ too (struct{}, [0]T). A slice of them points at zerobase, whatever its length (make_slice,
+// grow), and none of its elements is ever constructed, copied or cleared (s[i] is zerobase + i,
+// an address that is never read or written). An empty C++ class from interop has Go size 1
+// (golayout.hpp): it is a real object, in a real array.
+template <typename T>
+constexpr bool no_data_of() noexcept {
+    if constexpr (std::is_empty_v<T>) {
+        return detail::go_layout<T>().size == 0; // (go_layout only for an empty class)
+    } else {
+        return false;
+    }
+}
+template <typename T>
+inline constexpr bool no_data = detail::no_data_of<T>();
+
 // In runtime/src/slice.cpp.
 //
 // grow_cap: the capacity of the new array when a slice of capacity old_cap must hold new_len
@@ -149,8 +177,14 @@ int64_t grow_cap(int64_t new_len, int64_t old_cap, uint64_t size, bool noscan);
 uint64_t roundup_size(uint64_t size, bool noscan);
 
 // panic_make: make's panic, "makeslice: len out of range" or "makeslice: cap out of range",
-// chosen as Go's makeslice does.
+// chosen as Go's makeslice does; size is Go's size of the element (0: any length up to
+// math.MaxInt is good).
 [[noreturn]] void panic_make(int64_t len, int64_t cap, std::size_t size);
+
+// out_of_memory (panic.hpp, the new handler): Go's fatal error "runtime: out of memory"; it
+// never returns. make_slice calls it for an array that Go could make but C++ can't even ask for
+// (a zero-size Go type that is not an empty class).
+void out_of_memory();
 
 // new_array: a new backing array of cap > 0 elements. The elements from index zero_from on are
 // zero values; the ones before it are for the caller to set (for a zero_bits T they are not
@@ -177,7 +211,7 @@ void copy_elems(T* dst, const T* src, int64_t n) {
     if (n <= 0 || dst == src) {
         return;
     }
-    if constexpr (std::is_empty_v<T>) {
+    if constexpr (no_data<T>) {
         return; // nothing to copy (and a zero-size slice's data is zerobase, whatever its length)
     } else if constexpr (std::is_trivially_copyable_v<T>) {
         std::memmove(static_cast<void*>(dst), static_cast<const void*>(src),
@@ -342,17 +376,33 @@ int64_t cap(const slice<T>& s) noexcept {
 // make_slice<T>(n): make([]T, n). make_slice<T>(n, c): make([]T, n, c). All c elements are
 // zero values. A negative or too big n panics with "runtime error: makeslice: len out of
 // range", a c below n or too big with "makeslice: cap out of range" (an unsigned value that
-// doesn't fit in int64 counts as negative, as in Go). make([]T, 0) is empty but not nil.
+// doesn't fit in int64 counts as negative, as in Go). Too big is Go's: more than max_alloc
+// bytes of Go's size of T; a zero-size T takes any length up to math.MaxInt, and an empty
+// class takes no memory (zerobase, as in Go). make([]T, 0) is empty but not nil.
 template <typename T, go_int L, go_int C>
 slice<T> make_slice(L len, C cap) {
     auto n = static_cast<int64_t>(len);
     auto c = static_cast<int64_t>(cap);
-    if (static_cast<uint64_t>(c) > static_cast<uint64_t>(detail::max_alloc) / sizeof(T) ||
-        static_cast<uint64_t>(n) > static_cast<uint64_t>(c)) [[unlikely]] {
-        detail::panic_make(n, c, sizeof(T));
+    constexpr uint64_t size = detail::go_layout<T>().size;
+    constexpr uint64_t limit = size == 0 ? static_cast<uint64_t>(INT64_MAX)
+                                         : static_cast<uint64_t>(detail::max_alloc) / size;
+    if (static_cast<uint64_t>(c) > limit || static_cast<uint64_t>(n) > static_cast<uint64_t>(c))
+        [[unlikely]] {
+        detail::panic_make(n, c, size);
     }
     if (c == 0) {
         return slice<T>(std::shared_ptr<void>(), detail::empty_data<T>(), 0, 0);
+    }
+    if constexpr (detail::no_data<T>) {
+        // No memory: like grow, the elements are at zerobase and have an owner (&s[i] isn't nil).
+        return slice<T>(gp::static_owner(), detail::empty_data<T>(), n, c);
+    } else if constexpr (sizeof(T) > size) {
+        // The C++ element is bigger than Go's (D15): an array that Go can make may be more than
+        // C++ can ask for (a zero-size struct{ z [0]int } of length math.MaxInt).
+        if (static_cast<uint64_t>(c) > static_cast<uint64_t>(PTRDIFF_MAX) / sizeof(T))
+            [[unlikely]] {
+            detail::out_of_memory();
+        }
     }
     std::shared_ptr<T[]> a = detail::new_array<T>(c, 0);
     T* d = a.get();
@@ -465,6 +515,72 @@ slice<T> append_slice(slice<T> s, const slice<T>& t) {
     }
 }
 
+namespace detail {
+
+// extend: append_make's work. s is left as it is when it panics (the moved slice of
+// s = append(s, make([]T, n)...) is still s, which a recover can see), and moved into the
+// result otherwise.
+template <typename T>
+slice<T> extend(slice<T>& s, int64_t k) {
+    if (k <= 0) {
+        if (k < 0) [[unlikely]] {
+            detail::panic_make(k, k, 1);
+        }
+        return std::move(s);
+    }
+    int64_t len = s.gp_len();
+    auto new_len = static_cast<int64_t>(static_cast<uint64_t>(len) + static_cast<uint64_t>(k));
+    constexpr bool zero_size = detail::go_layout<T>().size == 0;
+    if (static_cast<uint64_t>(new_len) > static_cast<uint64_t>(s.gp_cap())) {
+        // grow's new array: the elements from new_len on are zero values; the ones before it
+        // that s doesn't have are zeroed here (of a type that is not zero_bits, it constructed
+        // them all: they are zero values already).
+        slice<T> g = detail::grow(s, new_len);
+        if constexpr (detail::zero_bits<T> && !zero_size) {
+            std::memset(static_cast<void*>(g.gp_data() + len), 0,
+                        static_cast<std::size_t>(k) * sizeof(T));
+        }
+        g.gp_reslice(g.gp_data(), new_len, g.gp_cap());
+        return g;
+    }
+    // In place, as gc's memclr of the new part: the elements past len may hold old values.
+    slice<T> r(std::move(s));
+    r.gp_reslice(r.gp_data(), new_len, r.gp_cap());
+    if constexpr (!zero_size) {
+        T* d = r.gp_data() + len;
+        if constexpr (detail::zero_bits<T>) {
+            std::memset(static_cast<void*>(d), 0, static_cast<std::size_t>(k) * sizeof(T));
+        } else {
+            // r owns the array: zeroing an element that holds the last other owner frees nothing
+            // that r still needs.
+            for (int64_t i = 0; i < k; i++) {
+                d[i] = T();
+            }
+        }
+    }
+    return r;
+}
+
+} // namespace detail
+
+// append_make(s, n): append(s, make([]T, n)...), which gc compiles without making the slice
+// (walk's extendslice): the length grows by n, and the new elements are zero values. A
+// negative n (an unsigned one above math.MaxInt too) panics with "makeslice: len out of
+// range", as in Go, and a length that overflows or an array too big with "growslice: len out
+// of range" (slices.Grow(s, math.MaxInt)). n == 0 gives s itself (a nil s stays nil). A moved
+// s (s = append(s, make([]T, n)...), internal/lower's markMoves) is taken by reference and
+// stays s when it panics.
+template <typename T, go_int N>
+slice<T> append_make(slice<T>&& s, N n) {
+    return detail::extend(s, static_cast<int64_t>(n));
+}
+
+template <typename T, go_int N>
+slice<T> append_make(const slice<T>& s, N n) {
+    slice<T> c(s);
+    return detail::extend(c, static_cast<int64_t>(n));
+}
+
 // append_slice(b, str): append(b, str...), the bytes of a string appended to a []byte.
 inline slice<uint8_t> append_slice(slice<uint8_t> s, const string& str) {
     return detail::append_n(std::move(s), reinterpret_cast<const uint8_t*>(str.gp_data()),
@@ -501,7 +617,7 @@ void clear(const slice<T>& s) {
         return;
     }
     T* d = s.gp_data();
-    if constexpr (std::is_empty_v<T>) {
+    if constexpr (detail::no_data<T>) {
         return; // no data (see copy_elems)
     } else if constexpr (detail::zero_bits<T>) {
         std::memset(static_cast<void*>(d), 0, static_cast<std::size_t>(n) * sizeof(T));
@@ -618,7 +734,7 @@ slice<T> grow(const slice<T>& s, int64_t new_len) {
     if constexpr (lay.size == 0) {
         // Go's growslice for a zero-size element takes no memory: cap == len, every time. The
         // elements have no data, so nothing is copied.
-        if constexpr (std::is_empty_v<T>) {
+        if constexpr (no_data<T>) {
             // An empty class is never read or written (copy_elems and clear skip it): the new
             // slice points at zerobase, whatever its length.
             return slice<T>(gp::static_owner(), detail::empty_data<T>(), len, c);

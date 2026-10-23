@@ -1035,6 +1035,147 @@ struct Byte8 : gp::newtype<Byte8, uint8_t> {
     using gp::newtype<Byte8, uint8_t>::newtype;
 };
 
+// An empty C++ class from interop (no gp_fields): Go size 1, a real object with a constructor,
+// a destructor and an assignment, which the slice functions run like for any C++ class.
+struct Counted {
+    static inline int made = 0;      // constructed (default or copy)
+    static inline int destroyed = 0; // destructed
+    static inline int assigned = 0;  // copy-assigned (also d = T(): no move assignment)
+    Counted() { made++; }
+    Counted(const Counted&) { made++; }
+    Counted& operator=(const Counted&) {
+        assigned++;
+        return *this;
+    }
+    ~Counted() { destroyed++; }
+};
+static_assert(std::is_empty_v<Counted> && L<Counted>.size == 1 && !gp::detail::no_data<Counted>);
+static_assert(gp::detail::no_data<Empty> && !gp::detail::no_data<GoZero>);
+
+// An empty class of C++ is a real object: its array is allocated, and its elements are
+// constructed, assigned and destroyed as for any C++ class.
+void test_counted_empty_class() {
+    Counted::made = Counted::destroyed = Counted::assigned = 0;
+    {
+        gp::slice<Counted> cs = gp::make_slice<Counted>(3, 4);
+        CHECK(Counted::made == 4 && &cs[0] != &cs[1] &&
+              cs.gp_data() != gp::detail::empty_data<Counted>());
+        gp::slice<Counted> c2 = cs; // copies the slice, not the elements
+        gp::slice<Counted> c3 =
+            std::move(c2); // NOLINT(performance-unnecessary-copy-initialization)
+        CHECK(Counted::made == 4 && Counted::destroyed == 0 && Counted::assigned == 0);
+        CHECK(c3.gp_data() == cs.gp_data());
+        // In place: each new element is assigned a zero value T() (a temporary each).
+        gp::slice<Counted> in = gp::append_make(gp::sub(cs, 0, 1), 2);
+        CHECK(in.gp_data() == cs.gp_data() && gp::len(in) == 3);
+        CHECK(Counted::assigned == 2 && Counted::made == 6 && Counted::destroyed == 2);
+        // Growing: a new array of cap(g) elements, the 3 old ones assigned into it.
+        gp::slice<Counted> g = gp::append_make(cs, 10);
+        CHECK(gp::len(g) == 13 && gp::cap(g) >= 13 && g.gp_data() != cs.gp_data());
+        CHECK(Counted::made == 6 + gp::cap(g) && Counted::assigned == 2 + 3 &&
+              Counted::destroyed == 2);
+        gp::clear(cs); // 3 zero values assigned
+        CHECK(Counted::assigned == 8 && Counted::made - Counted::destroyed == 4 + gp::cap(g));
+        CHECK_EQ(gp::copy(cs, g), INT64_C(3));
+        CHECK(Counted::assigned == 11 && Counted::made - Counted::destroyed == 4 + gp::cap(g));
+    }
+    CHECK(Counted::made > 0 && Counted::made == Counted::destroyed); // every element destroyed
+}
+
+// make and append(s, make([]T, n)...) of zero-size elements, and append_make's panics: Go's.
+void test_make_zero_size() {
+    // An empty class takes no memory: any length up to math.MaxInt, at zerobase, with an owner.
+    gp::slice<Empty> e = gp::make_slice<Empty>(INT64_MAX);
+    CHECK(gp::len(e) == INT64_MAX && gp::cap(e) == INT64_MAX);
+    CHECK(e.gp_data() == gp::detail::empty_data<Empty>() &&
+          !e.gp_owner().owner_before(gp::static_owner()) &&
+          !gp::static_owner().owner_before(e.gp_owner()));
+    CHECK(e[INT64_MAX - 1] == Empty{});
+    gp::slice<Empty> e3 = gp::make_slice<Empty>(uint8_t(3), UINT64_C(0x7fffffffffffffff));
+    CHECK(gp::len(e3) == 3 && gp::cap(e3) == INT64_MAX);
+    CHECK_EQ(gp::len(gp::sub(e3, 0, INT64_MAX)), INT64_MAX);
+    using zero_array = gp::array<int64_t, 0>; // [0]int
+    CHECK_EQ(gp::cap(gp::make_slice<zero_array>(INT64_MAX)), INT64_MAX);
+    // s[i] and sub add the index, like arrays and (*[N]T)(s): one element, one address.
+    CHECK(&e3[2] == e3.gp_data() + 2 && gp::sub(e3, 2).gp_data() == e3.gp_data() + 2);
+    CHECK(&gp::to_array_ptr<3>(e3)->gp_elems[2] == &e3[2]);
+    gp::slice<Empty> none = gp::make_slice<Empty>(0);
+    CHECK(none != nullptr && gp::cap(none) == 0);
+    CHECK_EQ(panic_text([] { gp::make_slice<Empty>(-1); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<Empty>(UINT64_MAX); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<Empty>(0, -1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<Empty>(1, UINT64_MAX); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<Empty>(2, 1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+    CHECK_EQ(panic_text([] { gp::append(gp::make_slice<Empty>(INT64_MAX), Empty{}); }),
+             std::string("runtime error: growslice: len out of range"));
+    // A zero-size Go type that is not an empty class has real bytes: a length that can be
+    // allocated works (one that can't is Go's fatal error "runtime: out of memory").
+    gp::slice<GoZero> z = gp::make_slice<GoZero>(5, 9);
+    CHECK(gp::len(z) == 5 && gp::cap(z) == 9);
+    z[4] = GoZero{};
+    CHECK_EQ(gp::cap(gp::make_slice<GoZero3>(7)), INT64_C(7));
+
+    // The limit is max_alloc bytes of Go's size of the element: a Go string is 16 bytes.
+    CHECK_EQ(panic_text([] { gp::make_slice<gp::string>((INT64_C(1) << 44) + 1); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::make_slice<gp::string>(0, (INT64_C(1) << 44) + 1); }),
+             std::string("runtime error: makeslice: cap out of range"));
+
+    // append_make(s, n): in place, the new elements are zero values (over the old ones).
+    ints a = gp::slice_of<int64_t>({1, 2, 3, 4});
+    ints b = gp::append_make(gp::sub(a, 0, 1), 2);
+    CHECK(same(a, {1, 0, 0, 4}) && gp::len(b) == 3 && gp::cap(b) == 4 &&
+          b.gp_data() == a.gp_data());
+    strs ss = gp::slice_of<gp::string>({"a"_gs, "b"_gs, "c"_gs});
+    strs st = gp::append_make(gp::sub(ss, 0, 1), uint8_t(2));
+    CHECK(st[0] == "a"_gs && st[1] == ""_gs && ss[2] == ""_gs);
+    // Growing: the capacity of append_slice with a made slice (Go's), zero values after len.
+    for (int64_t n : {1, 3, 5, 33, 100, 1000}) {
+        ints g = gp::append_make(gp::slice_of<int64_t>({9, 8, 7}), n);
+        ints want = gp::append_slice(gp::slice_of<int64_t>({9, 8, 7}), gp::make_slice<int64_t>(n));
+        CHECK(gp::len(g) == 3 + n && gp::cap(g) == gp::cap(want) && g[2] == 7);
+        bool zero = true;
+        ints all = gp::sub(g, 0, gp::cap(g));
+        for (int64_t i = 3; i < gp::cap(g); i++) {
+            zero = zero && all[i] == 0;
+        }
+        CHECK(zero);
+        strs gs = gp::append_make(gp::slice_of<gp::string>({"q"_gs}), n);
+        CHECK(gp::len(gs) == 1 + n && gs[n] == ""_gs &&
+              gp::cap(gs) == gp::cap(gp::append_slice(gp::slice_of<gp::string>({"q"_gs}),
+                                                      gp::make_slice<gp::string>(n))));
+    }
+    CHECK(gp::append_make(ints(), 0) == nullptr);
+    CHECK(gp::append_make(gp::sub(a, 0, 2), 0).gp_data() == a.gp_data());
+    gp::slice<Empty> eg = gp::append_make(gp::make_slice<Empty>(1), INT64_MAX - 1);
+    CHECK(gp::len(eg) == INT64_MAX && gp::cap(eg) == INT64_MAX);
+    gp::slice<GoZero> zg = gp::append_make(z, 100);
+    CHECK(gp::len(zg) == 105 && gp::cap(zg) == 105);
+    // Go's panics: a negative n is make's, a length that overflows or too big growslice's.
+    CHECK_EQ(panic_text([] { gp::append_make(gp::slice_of<int64_t>({1}), -1); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::append_make(bytes(), UINT64_MAX); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::append_make(gp::slice_of<int64_t>({1}), INT64_MAX); }),
+             std::string("runtime error: growslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::append_make(ints(), INT64_MAX / 8); }),
+             std::string("runtime error: growslice: len out of range"));
+    CHECK_EQ(panic_text([] { gp::append_make(gp::make_slice<Empty>(INT64_MAX), 1); }),
+             std::string("runtime error: growslice: len out of range"));
+    // A moved s that panics is still s (s = append(s, make([]T, n)...) with a recover).
+    ints keep = gp::slice_of<int64_t>({1});
+    CHECK_EQ(panic_text([&] { keep = gp::append_make(std::move(keep), INT64_MAX); }),
+             std::string("runtime error: growslice: len out of range"));
+    CHECK_EQ(panic_text([&] { keep = gp::append_make(std::move(keep), -1); }),
+             std::string("runtime error: makeslice: len out of range"));
+    CHECK(same(keep, {1})); // NOLINT(bugprone-use-after-move)
+}
+
 void test_retype() {
     auto b = gp::to_bytes("hello"_gs);
     auto n = gp::retype_slice<Byte8>(b);
@@ -1063,6 +1204,8 @@ void run_tests() {
     test_adl();
     test_keyed_range_conv();
     test_retype();
+    test_make_zero_size();
+    test_counted_empty_class();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

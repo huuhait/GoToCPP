@@ -230,7 +230,7 @@ func (fg *funcGen) simpleScope(s ast.Stmt) (list []ast.Expr, rank func(*orderIte
 	case *ast.AssignStmt:
 		if c := fg.appendInPlace(s); c != nil {
 			ops := fg.targetOperands(s.Lhs)
-			return append(ops, c.Args...), fg.storeRank(s.Lhs[0], len(ops))
+			return append(ops, fg.appendArgs(c)...), fg.storeRank(s.Lhs[0], len(ops))
 		}
 		if fg.mapAppend(s) != nil {
 			return nil, nil // m[k] = append(m[k], ...): ordered by mapPre (maps.go)

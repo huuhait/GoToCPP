@@ -290,7 +290,9 @@ template <int64_t N, typename T>
 array<T, N> to_array(const slice<T>& s) {
     gp::check_convert(N, gp::len(s));
     array<T, N> a;
-    if constexpr (N > 0) {
+    // An element with no data (struct{}: detail::no_data) is never copied: s's data may be the
+    // 64-byte zerobase, whatever its length (make([]struct{}, 100)).
+    if constexpr (N > 0 && !detail::no_data<T>) {
         const T* src = s.gp_data();
         if constexpr (detail::zero_bits<T>) {
             std::memcpy(static_cast<void*>(a.gp_elems.data()), static_cast<const void*>(src),
@@ -412,7 +414,7 @@ template <int64_t N, typename T>
 ptr<array<T, N>> new_to_array(const slice<T>& s) {
     gp::check_convert(N, gp::len(s));
     ptr<array<T, N>> p = gp::new_<array<T, N>>();
-    if constexpr (N > 0) {
+    if constexpr (N > 0 && !detail::no_data<T>) { // (as to_array)
         const T* src = s.gp_data();
         for (std::size_t i = 0; i < static_cast<std::size_t>(N); i++) {
             p->gp_elems[i] = src[i];

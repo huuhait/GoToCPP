@@ -716,7 +716,7 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 				args.formal = bigFormals(fg.deferredFunc(x).Signature(), 0) // gp_push, go_fn
 			}
 		} else {
-			args = fg.analyzeArgs(false, x.Args, iface)
+			args = fg.analyzeArgs(false, fg.appendArgs(x), iface) // append(s, make([]T, n)...): s, n
 		}
 		add(&orderItem{unit: true, inner: []*orderScope{args}, eff: effect{call: true}, force: fg.force[x]})
 	case *ast.BinaryExpr:
