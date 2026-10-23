@@ -113,6 +113,11 @@ while IFS= read -r f; do
 		n=$(basename "$f" .gp)
 		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^(TestTypedRun|TestTypedTwin)\$/$n' ./cmd/gocpp"
 		;;
+	tests/interop/*/*)
+		# A folder test (its own module with main.gp): named after the folder.
+		n=$(echo "$f" | cut -d/ -f3)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestInterop\$/^$n\$' ./tests"
+		;;
 	tests/pkgs/*)
 		n=$(echo "$f" | cut -d/ -f3)
 		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestPkgs\$/^$n\$' ./tests"
