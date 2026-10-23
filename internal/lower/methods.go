@@ -405,6 +405,12 @@ func (fg *funcGen) analyzeMethod(c *ast.CallExpr, x *ast.SelectorExpr, s *select
 		if _, stored := fg.recvs[x]; !stored {
 			sc.receiver = x
 		}
+		// A deferred or spawned method call: its thunk calls the method (also an interface's
+		// member function), which takes a large parameter by const reference, with the
+		// snapshot (order.go: big_arg).
+		if sig, ok := under(fg.typeOf(x)).(*types.Signature); ok && c == fg.deferCall {
+			sc.formal = bigFormals(sig, 0)
+		}
 	}
 	if _, stored := fg.recvs[x]; !stored {
 		fg.collectRecv(sc, x, s, 0, nil)

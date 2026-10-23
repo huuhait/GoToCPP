@@ -110,12 +110,13 @@ public:
 
     // defer f(a...) for a function f: stores f and the arguments, converted to f's parameter
     // types here, at the defer statement (a parameter that is a const reference, for a value
-    // larger than 128 KiB, stores a copy). A borrowed pointer parameter (gp::bptr<T>, ADR-086)
-    // stores the owning gp::ptr<T>: the frame keeps the object alive.
+    // larger than 128 KiB, stores a copy on the heap: detail::big_arg, made where the parameter
+    // is initialized, never a copy on the C++ stack). A borrowed pointer parameter (gp::bptr<T>,
+    // ADR-086) stores the owning gp::ptr<T>: the frame keeps the object alive.
     template <typename R, typename... P>
-    void gp_push(R (*f)(P...), std::type_identity_t<detail::owning_t<P>>... a) {
-        gp_emplace<gp_node_of<gp_plain, R (*)(P...), std::decay_t<detail::owning_t<P>>...>>(
-            f, static_cast<detail::owning_t<P>&&>(a)...);
+    void gp_push(R (*f)(P...), std::type_identity_t<detail::collect_t<P>>... a) {
+        gp_emplace<gp_node_of<gp_plain, R (*)(P...), detail::collect_t<P>...>>(
+            f, static_cast<detail::collect_t<P>&&>(a)...);
     }
 
     // The same for a function that contains recover() (an aware function, gocpp/aware.hpp): the

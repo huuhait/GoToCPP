@@ -405,6 +405,50 @@ struct owning<bptr<T>> {
 template <typename P>
 using owning_t = typename owning<std::remove_cvref_t<P>>::type;
 
+// big_arg_size: a const-reference formal of a value larger than this (128 KiB, the lowering's
+// maxStackVarSize, D24) is collected for defer/go into a heap copy (big_arg), not by value.
+inline constexpr std::size_t big_arg_size = 128 * 1024;
+
+// big_arg<X> is the owning snapshot of a defer/go argument for a const X& formal of a large X
+// (an array or struct over 128 KiB, which the lowering passes by const reference): a copy of the
+// argument on the heap. Its constructor is implicit, so the copy is made where the caller
+// initializes the parameter of gp_push or go_fn, at the same point as the by-value snapshot of
+// every other argument (owning_t), and the frame or the goroutine keeps what the defer or go
+// statement saw. A by-value snapshot would be on the C++ stack, which doesn't grow: an 8 MiB
+// array overflows the main thread's. The stored call passes it to the formal as a const X&.
+template <typename X>
+class big_arg {
+public:
+    template <typename Y>
+        requires(!std::is_same_v<std::remove_cvref_t<Y>, big_arg> &&
+                 std::is_constructible_v<X, Y &&>)
+    big_arg(Y&& v) : gp_p(new X(std::forward<Y>(v))) {}
+    big_arg(big_arg&&) noexcept = default;
+    big_arg& operator=(big_arg&&) noexcept = default;
+    big_arg(const big_arg&) = delete;
+    big_arg& operator=(const big_arg&) = delete;
+
+    operator const X&() const noexcept { return *gp_p; }
+
+private:
+    std::unique_ptr<X> gp_p;
+};
+
+// collect_t<P>: what defer and go collect for a formal of C++ type P: big_arg<X> for a const X&
+// of an X larger than big_arg_size, owning_t<P> for every other formal.
+template <typename P,
+          bool = std::is_lvalue_reference_v<P> && std::is_const_v<std::remove_reference_t<P>>>
+struct collect {
+    using type = owning_t<P>;
+};
+template <typename P>
+struct collect<P, true> {
+    using X = std::remove_cvref_t<P>;
+    using type = std::conditional_t<(sizeof(X) > big_arg_size), big_arg<X>, owning_t<P>>;
+};
+template <typename P>
+using collect_t = typename collect<P>::type;
+
 } // namespace detail
 
 namespace detail {

@@ -1372,11 +1372,16 @@ int64_t load(int64_t n) {
   that `return`, as in Go; the end of the body (and a panic) uses the exit at the closing brace.
 - **`defer f(a, b)` evaluates `f` and its arguments at the defer statement**, in Go's order (the
   same as for the call `f(a, b)`): `gp_df.gp_push(f, a, b)` stores the function pointer and the
-  arguments, converted to the parameter types. A builtin or `fmt` call is stored as a generic
-  lambda with the arguments that are not constants: `gp_df.gp_push_call([](auto&& gp_a0) {
-  gp::println(gp_a0); }, x)`. The frame keeps a few calls in a small buffer inside it, and more
-  (or bigger ones) on the heap. Defers in a loop accumulate until the function returns, and run
-  last in, first out.
+  arguments, converted to the parameter types (an array or struct larger than 128 KiB, which
+  the function takes by const reference, is copied to the heap there, `gp::detail::big_arg`, not
+  onto the C++ stack; `go f(a)`, `gp::go_fn`, does the same, and so do the ordered snapshots of
+  arguments that a sibling's C++ copy needs, but for the shapes that ADR-086 lists. A literal, a
+  call's result or a struct conversion, `gp::convert<S>(v)`, as the argument is still a C++
+  temporary on the stack: `defer f([1 << 20]int{1: 3})` still overflows it, D24). A builtin or `fmt`
+  call is stored as a generic lambda with the arguments that are not constants:
+  `gp_df.gp_push_call([](auto&& gp_a0) { gp::println(gp_a0); }, x)`. The frame keeps a few calls in
+  a small buffer inside it, and more (or bigger ones) on the heap. Defers in a loop accumulate until
+  the function returns, and run last in, first out.
 - **A panic runs the deferred calls too**: the `catch (gp::panic_error&)` keeps it (`gp_take`),
   `gp_run` runs the calls and throws the same panic again, so the trace still shows where it
   started, unless a deferred call recovered it (below). The handler for the panic is typed, and

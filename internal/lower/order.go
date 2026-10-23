@@ -215,6 +215,11 @@ type orderScope struct {
 	// their sources. Explicit Go calls keep their usual order before these value reads.
 	snapshots []ast.Expr
 	receiver  *ast.SelectorExpr
+	// formal, set when the snapshots are the arguments of the call of a defer or go statement
+	// (bigFormals), returns the parameter type for the snapshot i, or nil: a snapshot for a
+	// parameter larger than 128 KiB is a heap copy (gp::detail::big_arg), not a copy on the C++
+	// stack (D24).
+	formal func(i int) types.Type
 
 	// rank says when Go evaluates the item it, which is not a unit, against the other such
 	// items (nil: all 0): the items of a lower rank come first, and those of one rank are in
@@ -699,11 +704,17 @@ func (fg *funcGen) collect(sc *orderScope, e ast.Expr, root int, up *orderStep) 
 			if fg.foreignWork(x.Args...) {
 				sc.snapshots = list
 				sc.keepPanics = true
+				if sig, ok := under(fg.typeOf(x.Fun)).(*types.Signature); ok && x == fg.deferCall {
+					sc.formal = bigFormals(sig, 1) // gp_push_call(f, args...), go_call: list[0] is f
+				}
 			}
 			args = fg.collectScope(sc, list, func(i int, e ast.Expr) bool { return i == 0 && fg.calleeCopied(e) })
 			args.plan()
 		} else if fg.g.loweredCall(x) {
 			args = fg.analyzeCallArgs(x.Args, iface)
+			if x == fg.deferCall && args.snapshots != nil && fg.deferredFunc(x) != nil {
+				args.formal = bigFormals(fg.deferredFunc(x).Signature(), 0) // gp_push, go_fn
+			}
 		} else {
 			args = fg.analyzeArgs(false, x.Args, iface)
 		}
@@ -1344,6 +1355,46 @@ func (fg *funcGen) emitCollectionUnits(sc *orderScope, argument ast.Expr, pre *[
 	}
 }
 
+// bigFormals returns the formal of a scope whose snapshots are the arguments of a deferred or
+// spawned call of sig, from the index skip of the list on (the func value comes first): the type
+// of the parameter for a snapshot, when it is larger than 128 KiB (largeVar), and the lowering
+// passes it by const reference (decl.go); nil for the other snapshots and a variadic parameter.
+func bigFormals(sig *types.Signature, skip int) func(i int) types.Type {
+	return func(i int) types.Type {
+		i -= skip
+		params := sig.Params()
+		if i < 0 || i >= params.Len() || sig.Variadic() && i >= params.Len()-1 {
+			return nil
+		}
+		if t := params.At(i).Type(); largeVar(t) {
+			return t
+		}
+		return nil
+	}
+}
+
+// bigOwnType reports whether a gp::detail::big_arg of the parameter type formal can be built from
+// a value of the argument type arg as it is, without the conversion that Go's assignability
+// implies: the types are identical, or both are arrays (gp::array and a named array type convert
+// in C++). A struct of another type (an unnamed struct for a named one) needs gp::convert<S>.
+func bigOwnType(arg, formal types.Type) bool {
+	if types.Identical(arg, formal) {
+		return true
+	}
+	_, a := arg.Underlying().(*types.Array)
+	_, f := formal.Underlying().(*types.Array)
+	return a && f
+}
+
+// bigFormal returns the type of the parameter that the snapshot i is a heap copy for (formal),
+// or nil.
+func (sc *orderScope) bigFormal(i int) types.Type {
+	if sc.formal == nil {
+		return nil
+	}
+	return sc.formal(i)
+}
+
 // emitArgumentSnapshots collects argument values in source order. The resulting owners are
 // inaccessible to foreign callbacks, even while a later argument or the call copies C++ values.
 func (fg *funcGen) emitArgumentSnapshots(sc *orderScope, pre *[]cppir.Stmt) {
@@ -1374,7 +1425,7 @@ func (fg *funcGen) emitArgumentSnapshots(sc *orderScope, pre *[]cppir.Stmt) {
 		fg.recvs[x] = cxxName(name)
 	}
 
-	for _, argument := range sc.snapshots {
+	for i, argument := range sc.snapshots {
 		fg.emitCollectionUnits(sc, argument, pre)
 
 		// Restore ordinary check ordering inside this argument, after earlier argument
@@ -1388,8 +1439,28 @@ func (fg *funcGen) emitArgumentSnapshots(sc *orderScope, pre *[]cppir.Stmt) {
 		if tv := fg.g.info.Types[e]; tv.Value != nil || tv.IsNil() {
 			continue
 		}
-		x := fg.ownedValue(e, fg.exactExpr(e))
 		name := fg.names.temp("t")
+		if ft := sc.bigFormal(i); ft != nil {
+			// A value larger than 128 KiB that a defer or go statement stores: its owning copy
+			// goes to the heap here, at the same place of the order, and expr moves it into the
+			// frame or the goroutine, which pass it to the parameter as a const reference;
+			// `auto` would put it on the C++ stack (D24). An array keeps its own type: big_arg
+			// converts it to the parameter's on the heap (arr(big) would be a temporary); any
+			// other conversion (gp::convert<S>(v) of an unnamed struct) is still a temporary.
+			typ := &cppir.TypeName{Name: "gp::detail::big_arg", Args: []cppir.Node{fg.g.cxxType(ft, e.Pos())}}
+			x := fg.value(e)
+			if !bigOwnType(fg.typeOf(e), ft) {
+				x = fg.ownedValue(e, fg.exactExpr(e))
+			}
+			*pre = append(*pre, varDecl(cppir.Pos{}, typ, name, x))
+			fg.temps[e] = name
+			if fg.bigTemps == nil {
+				fg.bigTemps = make(map[string]cppir.Type)
+			}
+			fg.bigTemps[name] = typ
+			continue
+		}
+		x := fg.ownedValue(e, fg.exactExpr(e))
 		*pre = append(*pre, varDecl(cppir.Pos{}, typeName("auto"), name, x))
 		fg.temps[e] = name
 		if fg.g.pkg.Opaque.IsOpaque(e) {

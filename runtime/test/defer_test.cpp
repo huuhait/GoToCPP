@@ -116,6 +116,36 @@ struct fragile {
     }
 };
 
+// Arguments larger than 128 KiB (D24): the generated code passes them by const reference, and
+// gp_push stores a heap copy of each (detail::big_arg), never a copy on the C++ stack, which the
+// 64 MiB one would overflow. huge counts its copies and live objects.
+using arr8 = gp::array<int64_t, (1 << 20)>;  // 8 MiB
+using arr64 = gp::array<int64_t, (8 << 20)>; // 64 MiB
+arr8 g_arr8;
+arr64 g_arr64;
+void note_arr8(const arr8& a, int64_t n) {
+    note(a[1] + n);
+}
+void note_arr64(gp::string s, const arr64& a) {
+    note_str(s);
+    note(a[1] + a[(8 << 20) - 1]);
+}
+int huge_live = 0;
+int huge_copies = 0;
+struct huge {
+    int64_t v = 0;
+    unsigned char pad[200 * 1024] = {};
+    huge() { huge_live++; }
+    huge(const huge& o) : v(o.v) {
+        huge_live++;
+        huge_copies++;
+    }
+    ~huge() { huge_live--; }
+};
+void note_huge(const huge& h) {
+    note(h.v);
+}
+
 // text runs f and returns the text of its panic (the newest), or "<no panic>".
 template <typename F>
 std::string text(F f) {
@@ -243,6 +273,64 @@ void test_arguments() {
         df.gp_run();
     }
     CHECK_EQ(calls, std::string("2 1 "));
+}
+
+void test_big_arguments() {
+    // A const reference formal of a value over 128 KiB is collected into a heap copy; a smaller
+    // one, and a value formal, by value (owning_t).
+    static_assert(std::is_same_v<gp::detail::collect_t<const arr8&>, gp::detail::big_arg<arr8>>);
+    static_assert(std::is_same_v<gp::detail::collect_t<const huge&>, gp::detail::big_arg<huge>>);
+    static_assert(std::is_same_v<gp::detail::collect_t<const big&>, big>);
+    static_assert(std::is_same_v<gp::detail::collect_t<const gp::string&>, gp::string>);
+    static_assert(std::is_same_v<gp::detail::collect_t<int64_t>, int64_t>);
+    static_assert(std::is_same_v<gp::detail::collect_t<gp::bptr<int64_t>>, gp::ptr<int64_t>>);
+    static_assert(sizeof(gp::detail::big_arg<arr64>) == sizeof(void*));
+    // The limit: 128 KiB itself by value, one byte more on the heap (TestBigArgSize in
+    // internal/lower checks that big_arg_size is the lowering's maxStackVarSize).
+    static_assert(std::is_same_v<gp::detail::collect_t<const gp::array<char, 131072>&>,
+                                 gp::array<char, 131072>>);
+    static_assert(std::is_same_v<gp::detail::collect_t<const gp::array<char, 131073>&>,
+                                 gp::detail::big_arg<gp::array<char, 131073>>>);
+    // The copies are what the push saw: later changes don't reach the calls.
+    calls.clear();
+    {
+        gp::defer_frame df;
+        g_arr8[1] = 3;
+        df.gp_push(note_arr8, g_arr8, 1);
+        g_arr64[1] = 5;
+        g_arr64[(8 << 20) - 1] = 6;
+        df.gp_push(note_arr64, "x"_gs, g_arr64);
+        g_arr8[1] = 100;
+        g_arr64[1] = 100;
+        df.gp_run();
+    }
+    CHECK_EQ(calls, std::string("x 11 4 "));
+    // One copy of the argument, destroyed after its call, or with the frame if it never runs.
+    calls.clear();
+    huge_live = 0;
+    huge_copies = 0;
+    {
+        huge h;
+        h.v = 7;
+        {
+            gp::defer_frame df;
+            df.gp_push(note_huge, h);
+            h.v = 8;
+            CHECK(huge_live == 2);
+            CHECK(huge_copies == 1);
+            df.gp_run();
+            CHECK(huge_live == 1);
+        }
+        {
+            gp::defer_frame df;
+            df.gp_push(note_huge, h);
+            CHECK(huge_live == 2);
+        } // never run: freed
+        CHECK(huge_live == 1);
+        CHECK(huge_copies == 2);
+    }
+    CHECK(huge_live == 0);
+    CHECK_EQ(calls, std::string("7 "));
 }
 
 void test_panics() {
@@ -1753,6 +1841,7 @@ void run_tests() {
     test_hold();
     test_order();
     test_arguments();
+    test_big_arguments();
     test_panics();
     test_repanicked();
     if (failures > 0) {

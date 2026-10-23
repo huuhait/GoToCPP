@@ -744,13 +744,25 @@ func main() {
   box when a literal or a conversion initializes it (`a := [1 << 21]int{5: 3}`,
   `a := [1 << 21]int(s)`, also in a declaration of several variables or one that shadows
   another). `&[1 << 21]int{...}` is built in its new block. A parameter is passed by reference
-  and copied into a box when the function starts, and `range` copies a large array to the heap.
+  and copied into a box when the function starts, `defer f(a)` and `go f(a)` copy such an
+  argument to the heap (also when a sibling argument's C++ copy makes them collect the arguments
+  first, ADR-086, which lists the defer and go shapes that still copy through the stack), and
+  `range` copies a large array to the heap.
   The other values of such a type that are C++ temporaries stay on the stack: a result returned
   by value, a literal or a conversion that doesn't initialize a new variable (`a = [1 << 21]int{}`,
-  `f([1 << 21]int{})`, and a variable that `:=` redeclares, which it assigns: `x, z :=
-  [1 << 21]int{2: 1}, 4` where `x` exists), and the temporaries of the order of evaluation. At -O0
-  each of them takes its own place in the function's stack frame, and a program whose temporaries
-  add up to more than the stack crashes with a segmentation fault (exit code 139), where Go runs.
+  `f([1 << 21]int{})`, also as the argument of a defer or go statement, `defer f([1 << 21]int{})`,
+  and a variable that `:=` redeclares, which it assigns: `x, z := [1 << 21]int{2: 1}, 4` where
+  `x` exists), an implicit conversion of an argument to another named type (`f(u)` for a
+  parameter of type `arr`: `arr(u)`; also `defer t.m(u)`, `defer i.m(u)`, `defer fv(u)`, a
+  deferred func literal or generic instance, `go t.m(u)`, `go fv(u)` and a deferred function that
+  calls recover, where only `defer f(u)` and `go f(u)` of a function convert on the heap; a
+  struct, `gp::convert<S>(v)`, in every call), and the temporaries of the order of evaluation
+  (the copy of `a` in an ordinary call `f(a, foreign)` whose sibling argument's C++ copy runs
+  code, and, in a defer or go statement with such a sibling, the copy for a generic instance's or
+  a variadic function's parameter and of a large value receiver: ADR-086 lists them). At -O0
+  each of them takes its own place in the function's stack frame, and a program whose
+  temporaries add up to more than the stack crashes with a segmentation fault (exit code 139),
+  where Go runs.
   Return a pointer to the array (`*[N]T`, for example `return &[1 << 21]int{...}`) or a slice
   instead, as Go code usually does for large arrays.
 - **Structs** larger than 128 KiB (a struct with a large array field) follow the same rules: a

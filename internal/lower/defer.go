@@ -408,9 +408,17 @@ func (fg *funcGen) deferredCall(pos token.Pos, c *ast.CallExpr, spawn bool) {
 	case fn != nil:
 		how = howFunc
 		args := []cppir.Expr{cxxName(fg.cname(fn, c.Fun.Pos()))}
-		for _, a := range c.Args {
+		for i, a := range c.Args {
+			_, inTemp := fg.temps[ast.Unparen(a)]
 			if fg.g.pkg.Opaque.IsOpaque(a) && fg.constValue(a) == nil {
 				args = append(args, fg.deferArg(a)) // a C/C++ value: copied or moved into the frame (cbox.go)
+			} else if ft := fn.Signature().Params().At(i).Type(); !inTemp && fg.constValue(a) == nil &&
+				(fg.spawn || fg.deferKind(c) == "") && largeVar(ft) && bigOwnType(fg.typeOf(a), ft) {
+				// A value larger than 128 KiB with its own type: gp_push's or go_fn's
+				// gp::detail::big_arg converts it to the parameter's type on the heap, where
+				// the conversion arr(a) would be a temporary on the C++ stack (D24).
+				// gp_push_aware takes the parameter's type itself.
+				args = append(args, fg.value(a))
 			} else {
 				args = append(args, fg.expr(a))
 			}

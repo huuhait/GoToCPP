@@ -85,6 +85,11 @@ type funcGen struct {
 	moves   map[ast.Expr]bool   // the slices that s = append(s, ...) and s = s[a:b] move (slices.go)
 	stores  map[ast.Expr]bool   // the map entries m[k] that op= or ++ changes (maps.go: markStores)
 
+	// bigTemps are the argument snapshots of a defer or go statement that hold a value larger
+	// than 128 KiB in a gp::detail::big_arg (order.go: emitArgumentSnapshots), by name, with
+	// that C++ type: expr moves each into the frame or the goroutine, its one use.
+	bigTemps map[string]cppir.Type
+
 	// recvs are the receivers that a deferred method call stored (methods.go: storeRecv).
 	recvs map[*ast.SelectorExpr]cppir.Expr
 
@@ -264,6 +269,12 @@ func (fg *funcGen) cname(obj types.Object, pos token.Pos) string {
 // deduces the type from the expression.
 func (fg *funcGen) expr(e ast.Expr) cppir.Expr {
 	if t, ok := fg.temps[e]; ok {
+		if typ, big := fg.bigTemps[t]; big {
+			// A heap snapshot for defer or go (order.go), moved into its one use: a second use
+			// would see the name without the entry and fail to compile (big_arg can't be copied).
+			delete(fg.bigTemps, t)
+			return moved(typ, cxxName(t))
+		}
 		return fg.typedConvert(e, cxxName(t))
 	}
 	// Go may convert the value implicitly to another type there (step 3.9, named.go).

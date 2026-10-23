@@ -124,6 +124,32 @@ unexported functions of a library borrow. The generated code writes every borrow
   a foreign sibling's copy can call back and change its source first. Calls with implicit foreign argument
   work use the ordered snapshots above for both `go` and `defer`. Direct collections map a borrowed
   `gp::bptr` formal to an owning `gp::ptr`; adapters likewise store owners and lend them when called.
+  A const-reference formal of a value larger than 128 KiB is collected the same way, but into a heap
+  copy (`gp::detail::big_arg`, made where the parameter of `gp_push`/`go_fn` is initialized): a
+  by-value snapshot of an 8 MiB array overflowed the C++ stack (`TestDiff/fmt_large`,
+  `TestDiff/defer_go_large`). The ordered snapshots of a `defer` or `go` call with foreign
+  argument work are heap copies too for such a formal (`gp::detail::big_arg<X> gp_t0 = big;`,
+  moved into `gp_push`, `go_fn`, `gp_push_call` or `go_call`: functions, func values and
+  literals, methods, also through an interface; `TestInterop/borrow_cpp_large_arguments`).
+  An array keeps its own type there (`big_arg<arr> gp_t0 = big;`, also `gp_push(f, big)` and
+  `go_fn(f, big)` for a parameter of the named array type `arr`): big_arg converts it on the
+  heap, where `arr(big)` would be a temporary on the stack. Any other conversion is written as
+  before: an unnamed struct for a named one is `gp::convert<S>(v)`, a temporary on the stack,
+  then the heap copy.
+  These still copy a large value through the C++ stack (D24):
+  - an argument that is a literal or a call's result (`defer f([1 << 20]int{1: 3})`,
+    `defer f(g())`), and a conversion to a struct type (`gp::convert<S>(v)`, above);
+  - without a foreign sibling, the implicit conversion of an array to a parameter of another
+    array type (`arr(u)`) everywhere but `gp_push`/`go_fn`: `defer t.m(u)`, `defer t.pm(u)`,
+    `defer i.m(u)` (an interface method), `defer fv(u)`, `defer func(a arr) {...}(u)`,
+    `defer gen[arr](u)`, `go t.m(u)`, `go i.m(u)`, `go fv(u)`, and a function that calls recover
+    (`gp_push_aware(aw, arr(u))`);
+  - with a foreign sibling, the snapshots of a deferred or spawned call of a generic instance
+    (`defer gen(big, foreign)`) or of a variadic function's fixed parameters (`defer vari(big,
+    foreign, foreign)`): `auto gp_t0 = big;`; and a large value receiver (`defer b.show(big,
+    foreign)`: `auto gp_t0 = (*b);`; the method expression `defer Big.show(b, big, foreign)` takes
+    the heap path);
+  - an ordinary call with a foreign sibling (`show(big, foreign)`): `auto gp_t0 = big;`.
 - **Value receivers** are not changed: a value method is still a `const` member function that copies `*this` (or
   reads it by `const T&` when the body provably cannot change or free the object, ADR-004's audit).
 - **Nil.** A borrowed pointer may be nil: `p == nil` works, and the first `->` or `*` panics with Go's message, as

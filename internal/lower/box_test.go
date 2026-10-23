@@ -5,7 +5,9 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -249,5 +251,25 @@ func TestBoxedVars(t *testing.T) {
 		if got[k] != want[k] {
 			t.Errorf("line %s: boxed for %q, want %q", k, got[k], want[k])
 		}
+	}
+}
+
+// TestBigArgSize checks that the runtime's limit for the heap copies of defer and go arguments
+// (gp::detail::big_arg_size in gocpp/ptr.hpp) is maxStackVarSize: a const-reference parameter
+// of a larger value (decl.go) is collected into a gp::detail::big_arg, and a smaller one by value.
+func TestBigArgSize(t *testing.T) {
+	path := filepath.Join(repoRootDir(t), "runtime", "include", "gocpp", "ptr.hpp")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`inline constexpr std::size_t big_arg_size = (\d+) \* (\d+);`).FindSubmatch(b)
+	if m == nil {
+		t.Fatalf("%s: no `inline constexpr std::size_t big_arg_size = N * M;`", path)
+	}
+	x, _ := strconv.Atoi(string(m[1]))
+	y, _ := strconv.Atoi(string(m[2]))
+	if x*y != maxStackVarSize {
+		t.Errorf("gp::detail::big_arg_size is %d, maxStackVarSize %d: they must be the same", x*y, maxStackVarSize)
 	}
 }

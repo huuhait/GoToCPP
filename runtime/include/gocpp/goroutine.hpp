@@ -349,13 +349,13 @@ template <typename F>
 
 // go_fn(f, a...) is `go f(a...)` for a function f of the program: the arguments are converted to
 // f's parameter types here, in the calling goroutine (gp::defer_frame::gp_push is the same for
-// defer), and the new goroutine calls f with them.
+// defer), and the new goroutine calls f with them. An argument for a const reference parameter
+// of a value larger than 128 KiB is copied to the heap (detail::big_arg), not onto the stack.
 template <typename R, typename... P>
-[[gnu::noinline]] void go_fn(R (*f)(P...), std::type_identity_t<detail::owning_t<P>>... a) {
-    detail::go_start(
-        std::make_unique<detail::call_task<R (*)(P...), std::decay_t<detail::owning_t<P>>...>>(
-            f, static_cast<detail::owning_t<P>&&>(a)...),
-        0, __builtin_return_address(0));
+[[gnu::noinline]] void go_fn(R (*f)(P...), std::type_identity_t<detail::collect_t<P>>... a) {
+    detail::go_start(std::make_unique<detail::call_task<R (*)(P...), detail::collect_t<P>...>>(
+                         f, static_cast<detail::collect_t<P>&&>(a)...),
+                     0, __builtin_return_address(0));
 }
 
 // go_call(c, a...) is `go c(a...)` for any other callable: a func literal, a func value, a
