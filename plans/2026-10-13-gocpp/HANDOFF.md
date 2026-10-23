@@ -1,5 +1,16 @@
 # Handoff: where the work is
 
+## Recovery — 2026-10-22 evening
+
+An agent wiped the home folder; the checkout was cloned again from `origin/dev` (`fa9e70f8`) and
+every unpushed job worktree, branch and scratch file was lost (11.lspgap5, dev.probecache,
+dev.syscalldiffs, dev.stackdepth, dev.makeslice, dev.deferbig with WIP 20adcb0e, dev.walltests).
+`5cc6d452` puts ccache in front of every compiler in the dev shell (user: always use ccache).
+New rules: worktrees live at `~/worktrees/GoToCPP/<job>` and the manager removes each one after
+its merge; workers never delete outside their own worktree. Restarted from dev as coders:
+11.lspgap5, dev.stackdepth, dev.makeslice, dev.deferbig, dev.probecache (five workers). Queued
+for the next free slots: their reviewers, then dev.syscalldiffs and dev.walltests.
+
 ## Active continuation — 2026-10-20
 
 This section supersedes the older checkpoints below. The user asked to continue the work
