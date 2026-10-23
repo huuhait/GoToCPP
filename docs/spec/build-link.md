@@ -106,7 +106,7 @@ One function (`linkArgs`) makes it, in this order:
 
 | Part | Content |
 |---|---|
-| driver flags | the debug flags, the sanitizer, the flags of the target (Windows: `-static`, `-Wl,--stack,8388608`, and `-pthread` for g++), `-flto=...` (once, also when `GOCPP_LDFLAGS` has `-flto`); then `-Wl,--gc-sections` (not on macOS) |
+| driver flags | the debug flags, the sanitizer, the flags of the target (Windows: `-static`, `-Wl,--stack,1073741824`, and `-pthread` for g++), `-flto=...` (once, also when `GOCPP_LDFLAGS` has `-flto`); then `-Wl,--gc-sections` (not on macOS) |
 | objects | the generated units in the order of the packages (the loader's order: dependencies first) and of the files, then the objects of the packages' own C and C++ files, then the objects of the modules' libraries; each file once |
 | runtime | `libgocpprt.a` (or its object files), after everything that uses it |
 | system | the link flags of the packages (`//gocpp:` directives, pkg-config), the packages that import the others first, deduplicated |

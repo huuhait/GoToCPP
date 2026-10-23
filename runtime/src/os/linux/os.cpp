@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <malloc.h>
 #include <poll.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <ctime>
@@ -469,6 +470,19 @@ void fd_write(int fd, const char* data, std::size_t n) noexcept {
 
 void fd_close(int fd) noexcept {
     ::close(fd);
+}
+
+bool map_readonly_page(uintptr_t at) noexcept {
+    void* p = ::mmap(reinterpret_cast<void*>(at), 4096, PROT_READ,
+                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (p == MAP_FAILED) {
+        return false;
+    }
+    if (reinterpret_cast<uintptr_t>(p) != at) { // a kernel older than 4.17 took it as a hint
+        ::munmap(p, 4096);
+        return false;
+    }
+    return true;
 }
 
 bool interrupt_in(int ms) noexcept {

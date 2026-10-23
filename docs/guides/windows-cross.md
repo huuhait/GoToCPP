@@ -17,7 +17,7 @@ GOCPP_OS=windows gocpp build .          # the same, from the environment
 ```
 
 Only `windows/amd64` is a Windows target. The program is linked with `-static`, so it needs no
-`libstdc++-6.dll` or `libgcc_s_seh-1.dll`, and its main thread has an 8 MiB stack, like on Linux. Without `-o`
+`libstdc++-6.dll` or `libgcc_s_seh-1.dll`, and its main thread reserves a 1 GiB stack (Go's limit), as large as the Linux runtime lets its main thread grow. Without `-o`
 the file is named after the program (`hello.exe`); `-o prog` writes `prog.exe` (a name with an extension keeps it;
 `-buildmode=c-shared -o mylib` writes `mylib.dll` with its import libraries `mylib.dll.a` and `mylib.lib`, and `mylib.h`).
 A file named `x_windows.gp`, and one with `//go:build windows`, is part of such a build and not of a Linux one.

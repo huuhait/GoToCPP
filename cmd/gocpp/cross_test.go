@@ -394,7 +394,7 @@ func TestDryRunShowsTheWindowsLinkFlags(t *testing.T) {
 			link = l
 		}
 	}
-	if !strings.Contains(link, " -static ") || !strings.Contains(link, "-Wl,--stack,8388608") {
+	if !strings.Contains(link, " -static ") || !strings.Contains(link, "-Wl,--stack,1073741824") {
 		t.Errorf("the planned link line lacks the Windows link flags:\n%s\nfull output:\n%s", link, r.stdout+r.stderr)
 	}
 }
@@ -414,7 +414,7 @@ func TestExportCMakeHasTheWindowsLinkFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(text), "-static") || !strings.Contains(string(text), "--stack,8388608") {
+	if !strings.Contains(string(text), "-static") || !strings.Contains(string(text), "--stack,1073741824") {
 		t.Errorf("CMakeLists.txt lacks the Windows link flags:\n%s", text)
 	}
 }

@@ -4,8 +4,9 @@
 // Hostile nesting for encoding/json (step 9.11 review): a document or a value nested far deeper than the stack can hold is a clean error, never
 // "fatal error: stack overflow". Go grows its stacks, so it decodes up to its limit of 10000 and encodes what it is given; gocpp's stacks are fixed
 // (D24), so here the decoder and the encoder ask the runtime for the room that is left (patches/encoding__json.rules) and report
-// "exceeded max depth" when there is none. The same battery runs on the main goroutine and on another one, and all the numbers are far from
-// the limits of every compiler and mode (-O0, -O2, -asan: 200 levels succeed everywhere; 100000 and 1000000 fail everywhere).
+// "exceeded max depth" when there is none. The battery runs on a goroutine (8 MiB), and the part of it whose answer does not depend on the stack
+// on the main goroutine too (its stack grows up to 1 GiB, D7); all the numbers are far from the limits of every compiler and mode (-O0, -O2,
+// -asan: 200 levels succeed everywhere; 100000 and 1000000 fail everywhere).
 
 package main
 
@@ -61,7 +62,7 @@ func repeat(n int, open, mid, closing string) string {
 	return strings.Repeat(open, n) + mid + strings.Repeat(closing, n)
 }
 
-func battery(who string, sizes []int) {
+func battery(who string, sizes, marshalSizes []int) {
 	for _, n := range sizes {
 		objs := repeat(n, `{"a":`, "null", "}")
 		kids := repeat(n, `{"k":[`, "null", "]}")
@@ -123,7 +124,7 @@ func battery(who string, sizes []int) {
 	}
 
 	// Values nested deeply, built by the program.
-	for _, n := range []int{200, 100000} {
+	for _, n := range marshalSizes {
 		var head *Node
 		for i := 0; i < n; i++ {
 			head = &Node{head, i}
@@ -193,11 +194,15 @@ func cycle(who string) {
 
 func main() {
 	cycle("main")
-	battery("main", []int{200, 9999, 100000, 1000000})
+	// The main thread's stack grows up to 1 GiB (the runtime raises RLIMIT_STACK; without ASLR it ends
+	// at about 127 MiB): 9999 levels of Rec and a value of 100000 levels fit there or not depending on
+	// the compiler, the mode and the layout, and the guard would only answer after most of a GiB. So the
+	// main goroutine runs what is the same everywhere: 200 levels, and the scanner's limit of 10000.
+	battery("main", []int{200, 100000, 1000000}, []int{200})
 	done := make(chan bool)
 	go func() {
 		cycle("goroutine")
-		battery("goroutine", []int{200, 9999, 100000})
+		battery("goroutine", []int{200, 9999, 100000}, []int{200, 100000})
 		done <- true
 	}()
 	<-done
@@ -219,8 +224,6 @@ func main() {
 // main     200 Indent                     ok
 // main     200 Decoder.Token              401 tokens, then EOF
 // main     200 Decoder.Decode any         ok
-// main    9999 Unmarshal Rec              too deep
-// main    9999 Unmarshal Rec2             too deep
 // main  100000 Unmarshal any              too deep
 // main  100000 Unmarshal any (objects)    too deep
 // main  100000 Unmarshal map              too deep
@@ -249,15 +252,6 @@ func main() {
 // main     200 Encoder.Encode list        ok
 // main     200 Marshal derived list       ok
 // main round trip <nil> 1201
-// main  100000 Marshal linked list        too deep
-// main  100000 Marshal nested maps        too deep
-// main  100000 Marshal nested slices      too deep
-// main  100000 Marshal slice of slices    too deep
-// main  100000 Marshal map of maps        too deep
-// main  100000 MarshalIndent slices       too deep
-// main  100000 MarshalIndent maps         too deep
-// main  100000 Encoder.Encode list        too deep
-// main  100000 Marshal derived list       too deep
 // goroutine cycle through a derived type: other: json: unsupported value: encountered a cycle via *main.DNode
 // goroutine cycle through a plain type: json: unsupported value: encountered a cycle via *main.Node
 // goroutine     200 Unmarshal any              ok

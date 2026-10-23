@@ -805,8 +805,8 @@ func TestWindowsDiff(t *testing.T) {
 
 // TestWindowsDriverFlags builds the Windows OS layer's tests with the flags the 6.13 driver adds for
 // a Windows program (-pthread, -ffunction-sections -fdata-sections, -Wl,--gc-sections, and
-// -Wl,--stack,8388608), and without the stack flag: the linker directive in os.cpp that asks for
-// the 8 MiB main stack must survive --gc-sections, and agree with the flag (test_main_thread_bounds
+// -Wl,--stack,1073741824), and without the stack flag: the linker directive in os.cpp that asks for
+// the 1 GiB main stack must survive --gc-sections, and agree with the flag (test_main_thread_bounds
 // checks the size). Only GNU ld reads the directive; the clang toolchain relies on the flag.
 func TestWindowsDriverFlags(t *testing.T) {
 	c := mingw(t)
@@ -818,7 +818,7 @@ func TestWindowsDriverFlags(t *testing.T) {
 		extra []string
 	}{
 		{"gc-sections", gc},
-		{"gc-sections-and-stack-flag", append(slices.Clone(gc), "-Wl,--stack,8388608")},
+		{"gc-sections-and-stack-flag", append(slices.Clone(gc), "-Wl,--stack,1073741824")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bins := c.startBuilds(t, rt, t.TempDir(), slices.Concat(winExtraFlags, tc.extra), []prog{{src: "test/winos_test.cpp", weight: 5}})

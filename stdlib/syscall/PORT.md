@@ -25,11 +25,16 @@ not port it (assembly stubs, `//go:linkname`, the runtime's thread handling).
   system call, as Go's raw system calls do (`Read`, `Getcwd`, ...), and 0 with `EINVAL` for a path with a NUL byte (`Open`,
   `Readlink`: Go's `BytePtrFromString` fails before the call); `Uname` fills every field of `Utsname`.
 - `wait_linux.gp`: `WaitStatus` (Go's) and `Wait4`.
+- `Getrlimit` and `Setrlimit` (`syscall_linux.gp`) are the system's. `RLIMIT_STACK` shows the soft limit that the runtime
+  raised when the program started (1 GiB, at most the hard limit; a larger one stays; D7), where Go shows the 8 MiB of the
+  shell: like Go's own raise of `RLIMIT_NOFILE`, which `Getrlimit` shows too, it is not hidden. A `Setrlimit` of
+  `RLIMIT_STACK` also moves the runtime's bounds of the main thread's stack (the stack guards of `encoding/json` and
+  `path/filepath`, the overflow report). Programs that the process starts inherit the raised limit.
 
 ## Not built
 
 `Syscall`, `Syscall6`, `RawSyscall`, `ForkExec`, `StartProcess`, sockets, `ptrace`, `mmap`, `Select`, `Sysinfo`, `Statfs`, `Flock`,
-`Getrlimit`, the `Sockaddr` family, `Exec`, `Chroot`, `Mount`, and everything for other systems. `tools/stubgen`'s
+the `Sockaddr` family, `Exec`, `Chroot`, `Mount`, and everything for other systems. `tools/stubgen`'s
 `stubPackage.Partial` says that the package declares only some of Go's names; every name it declares must have Go's type.
 
 ## Windows (step 14.3, ADR-076)

@@ -99,7 +99,18 @@ func decodeAfterEating(k int, doc string) error {
 	return <-done
 }
 
+// The checks run on a goroutine, whose stack is 8 MiB: the main thread's grows up to 1 GiB (the runtime raises RLIMIT_STACK, D7), where
+// the guard would answer only after most of a GiB of recursion, and the eating below assumes 8 MiB.
 func main() {
+	done := make(chan bool)
+	go func() {
+		checks()
+		done <- true
+	}()
+	<-done
+}
+
+func checks() {
 	for _, n := range []int{200, 1000000} {
 		var v any = 1
 		for i := 0; i < min(n, 100000); i++ {

@@ -98,10 +98,13 @@ func targetNamed(c CXX) bool {
 	return false
 }
 
-// windowsStack is the size of the main thread's stack of a Windows program, the same as the
-// default of a goroutine's and of Linux's main thread (8 MiB): a PE file has a size of its own,
-// 1 MiB for the MinGW linkers, which a recursion that is fine on Linux would overflow.
-const windowsStack = 8 << 20
+// windowsStack is the size of the main thread's stack of a Windows program: 1 GiB, Go's limit
+// of a goroutine's stack, as the Linux runtime raises its main thread's RLIMIT_STACK to (a PE file
+// has a size of its own, 1 MiB for the MinGW linkers). It is a reservation: the pages are
+// committed as the stack grows, so a program pays only for the depth it reaches. Every thread that
+// C code starts without a size reserves as much address space (of the 128 TiB of a 64-bit
+// process); the runtime's goroutines ask for their own 8 MiB.
+const windowsStack = 1 << 30
 
 // LinkFlags returns the flags that the link of a program for the target of c needs, after the
 // common ones: "-static" for Windows, so that the .exe runs without the compiler's DLLs
@@ -112,7 +115,7 @@ const windowsStack = 8 << 20
 // threads are CreateThread (runtime/src/os/windows), not these libraries.
 //
 // The stack size is given twice on purpose: here, and by the runtime's .drectve linker directive
-// (ADR-053); both say 8 MiB, and the directive survives --gc-sections (checked by running the
+// (ADR-053); both say 1 GiB, and the directive survives --gc-sections (checked by running the
 // Wine programs of tests/testdata/windows with these flags: "overflow" and "large").
 func LinkFlags(c CXX) []string {
 	switch c.GOOS {

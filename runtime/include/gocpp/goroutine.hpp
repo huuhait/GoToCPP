@@ -104,8 +104,10 @@ struct goroutine {
 // so a small stack saves nothing on a 64-bit machine (the audit measured the same RSS for 10k
 // threads at 64 KiB and at 8 MiB) and a small one overflows on a modest recursion. A program
 // may set it down to 1 MiB (what is lower is raised to it): stack_size returns it,
-// set_stack_size sets it for the goroutines that start after (0 is the default again). It is
-// the main thread's too only through ulimit -s, which the program doesn't control.
+// set_stack_size sets it for the goroutines that start after (0 is the default again). The main
+// goroutine runs on the main thread, whose stack grows up to RLIMIT_STACK: the OS layer raises
+// that to 1 GiB, Go's limit, when the program starts (src/os/linux/thread.cpp; Windows: the PE
+// header's 1 GiB reservation).
 inline constexpr std::size_t default_stack_size = std::size_t(8) << 20;
 inline constexpr std::size_t min_stack_size = std::size_t(1) << 20;
 std::size_t stack_size() noexcept;

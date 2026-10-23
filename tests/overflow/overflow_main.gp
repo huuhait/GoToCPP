@@ -4,7 +4,8 @@
 // Stderr: (?m)^goroutine \d+ .*\[running\]:$
 
 // Endless recursion on the main goroutine ends with Go's "fatal error: stack overflow" and exit code 2
-// (not a bare SIGSEGV). It cannot be recovered. (gocpp's stack is 8 MiB, Go's limit is 1 GB.)
+// (not a bare SIGSEGV). It cannot be recovered. (gocpp's main stack grows up to 1 GiB, Go's limit
+// is 1 GB; TestStackOverflow runs it with a hard limit of 64 MiB, so it ends there.)
 package main
 
 import "fmt"

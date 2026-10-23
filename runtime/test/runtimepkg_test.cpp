@@ -352,6 +352,8 @@ void test_splitmix() {
 [[gnu::noinline]] int64_t eat_stack(int64_t depth, int64_t* deepest) {
     volatile char pad[2048];
     pad[0] = char(depth);
+    // The whole array is on the stack (clang -O2 keeps only the part that is used, otherwise).
+    asm volatile("" ::"r"(&pad[0]) : "memory");
     if (gp::runtime::stack_room() < 0) {
         *deepest = depth;
         return depth + pad[0] - char(depth);
@@ -362,21 +364,30 @@ void test_splitmix() {
 void test_stack_room() {
     int64_t room = gp::runtime::stack_room();
     CHECK(room > 0);
-    int64_t deepest = 0;
-    eat_stack(0, &deepest);
-    // 2 KiB for each level: more than 100 levels and (the stack is 8 MiB or less) less than 4096 of
-    // them
-    CHECK(deepest > 100 && deepest < 4096);
-    CHECK(gp::runtime::stack_room() > room / 2); // back at the top: the room is the same
+    // The main thread's stack grows up to the RLIMIT_STACK that os::start raised (1 GiB as a rule,
+    // os/linux/thread.cpp): the room is most of its bounds. (A recursion to its end would touch all
+    // of it; the goroutine below has 8 MiB.)
+    uintptr_t lo = 0;
+    uintptr_t hi = 0;
+    if (gp::os::stack_bounds(lo, hi)) {
+        CHECK(room < int64_t(hi - lo));
+        CHECK(room > int64_t(hi - lo) / 2);
+    }
     // A goroutine has a stack of its own, with its own room.
     int64_t g_deepest = 0;
+    int64_t g_room = 0;
+    int64_t g_room_after = 0;
     gp::waiter w;
     gp::go([&] {
+        g_room = gp::runtime::stack_room();
         eat_stack(0, &g_deepest);
+        g_room_after = gp::runtime::stack_room();
         w.gp_unpark();
     });
     w.gp_park();
+    // 2 KiB for each level: more than 100 levels and (the stack is 8 MiB) less than 4096 of them.
     CHECK(g_deepest > 100 && g_deepest < 4096);
+    CHECK(g_room_after > g_room / 2); // back at the top: the room is the same
     // A thread of the C++ library has an unknown stack: all the room there is.
     int64_t std_room = 0;
     std::thread([&] { std_room = gp::runtime::stack_room(); }).join();

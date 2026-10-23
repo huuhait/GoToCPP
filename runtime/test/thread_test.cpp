@@ -14,6 +14,7 @@
 // of minutes (a hang is a failure, a slow machine is not).
 #include <gocpp/os.hpp>
 #include <gocpp/rt.hpp>
+#include <gocpp/syscall.hpp>
 #include "threads_ended.hpp"
 
 #include <algorithm>
@@ -252,15 +253,39 @@ void test_tls() {
 void test_main_stack() {
     uintptr_t lo = 0;
     uintptr_t hi = 0;
-    if (!gp::os::stack_bounds(lo, hi)) {
-        say("note: the main thread's stack has no bounds here (ulimit -s unlimited?)\n");
-        return;
-    }
+    CHECK(gp::os::stack_bounds(lo, hi));
     uintptr_t frame = frame_here();
     CHECK(lo < frame && frame < hi);
-    // The kernel's limit is what ulimit -s says: at least 64 KiB, and (here) not a gigabyte.
     CHECK(hi - lo >= (std::size_t(64) << 10));
+#ifdef __linux__
+    // os::start set the soft RLIMIT_STACK to 1 GiB, Go's limit (or the hard limit when that is
+    // lower; also from unlimited), and the bounds are at most that: less only when exec put a
+    // mapping closer (without ASLR, about 127 MiB below the top).
+    auto [soft, hard, err] = gp::syscall::sys_getrlimit(3); // RLIMIT_STACK
+    CHECK_EQ(err, int64_t(0));
+    int64_t want = int64_t(1) << 30;
+    if (hard >= 0 && hard < want) {
+        want = hard;
+    }
+    CHECK_EQ(soft, want);
+    CHECK(hi - lo <= uintptr_t(want));
+    // The kernel keeps at least 128 MiB between the stack and mmap_base: 100 MiB fit always.
+    CHECK(hi - lo >= std::min(uintptr_t(want), uintptr_t(100) << 20));
+    // A change of the limit through the runtime (syscall.Setrlimit) moves the bounds, and back.
+    if (want >= (int64_t(64) << 20)) {
+        CHECK_EQ(gp::syscall::sys_setrlimit(3, int64_t(32) << 20, hard), int64_t(0));
+        uintptr_t lo2 = 0;
+        uintptr_t hi2 = 0;
+        CHECK(gp::os::stack_bounds(lo2, hi2));
+        CHECK_EQ(hi2, hi);
+        CHECK_EQ(hi2 - lo2, uintptr_t(32) << 20);
+        CHECK_EQ(gp::syscall::sys_setrlimit(3, soft, hard), int64_t(0));
+        CHECK(gp::os::stack_bounds(lo2, hi2));
+        CHECK_EQ(lo2, lo);
+    }
+#else
     CHECK(hi - lo <= (std::size_t(1) << 40));
+#endif
 }
 
 // The hook can be set and read back, and the one that run_main set is there at first.
@@ -549,6 +574,58 @@ void huge_frame(void*) {
     block_forever();
 }
 
+// The overflow of the main thread at its real limit, without the recursion: a write just above the
+// lowest address of the main thread's stack works (the kernel grows the mapping down to it, a page
+// is touched), and with the stack pointer moved below that address a write is the overflow that
+// a recursion would end with. So the test touches two pages, not the 1 GiB that the limit allows.
+// It prints the size of the stack first ("stack N"), then Go's report comes.
+[[noreturn]] void overflow_main_far() {
+    uintptr_t lo = 0;
+    uintptr_t hi = 0;
+    if (!gp::os::stack_bounds(lo, hi)) {
+        gp::println("no bounds"_gs);
+        gp::os::exit(3);
+    }
+    gp::println(gp::string::gp_copy("stack " + std::to_string(hi - lo)));
+    volatile char* ok = reinterpret_cast<volatile char*>(lo + (std::size_t(16) << 10));
+    *ok = 1;
+#if defined(__linux__) && defined(__x86_64__)
+    uintptr_t sp = lo - 256;
+    asm volatile("movq %0, %%rsp\n\tmovq $0, (%%rsp)\n\t" ::"r"(sp) : "memory");
+#elif defined(__linux__) && defined(__aarch64__)
+    uintptr_t sp = lo - 256;
+    asm volatile("mov sp, %0\n\tstr xzr, [sp]\n\t" ::"r"(sp) : "memory");
+#else
+    // (Windows grows a stack through its guard page: a write far below it is no overflow there.)
+    gp::println("not on this system"_gs);
+    gp::os::exit(3);
+#endif
+    __builtin_trap();
+}
+
+// Faults on the main thread just below its stack pointer that are no stack overflow: they keep the
+// old action (the crash). exec_stack runs code from a buffer on the stack (not executable: the
+// fault is the instruction fetch), write_ro_below_sp writes to a read-only page mapped 256 KiB
+// below the stack pointer (in the stack's growth area, gigabytes above its end).
+[[gnu::noinline]] void exec_stack() {
+    unsigned char buf[64];
+    for (auto& b : buf) {
+        b = 0xc3; // ret
+    }
+    asm volatile("" ::"r"(buf) : "memory");
+    auto f = reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(&buf[0]));
+    f();
+}
+
+[[gnu::noinline]] void write_ro_below_sp() {
+    uintptr_t at = (frame_here() - (std::size_t(256) << 10)) & ~uintptr_t(4095);
+    if (!gp::os::testing::map_readonly_page(at)) {
+        gp::println("no page"_gs);
+        gp::os::exit(3);
+    }
+    *reinterpret_cast<volatile char*>(at) = 1;
+}
+
 void run_case(const std::string& name) {
     // Some cases die of SIGSEGV on purpose: no core file (a core_pattern that pipes to
     // systemd-coredump holds a dying process for minutes on a loaded machine).
@@ -556,6 +633,8 @@ void run_case(const std::string& name) {
     if (name == "overflow-main") {
         gp::println("main runs"_gs);
         recurse_forever<128>(0);
+    } else if (name == "overflow-main-far") {
+        overflow_main_far();
     } else if (name == "overflow-thread") {
         in_thread(std::size_t(256) << 10, frames_small);
     } else if (name == "overflow-thread-default") {
@@ -600,6 +679,10 @@ void run_case(const std::string& name) {
         std::raise(SIGSEGV);
     } else if (name == "raise-thread") {
         in_thread(std::size_t(256) << 10, raise_thread);
+    } else if (name == "exec-stack-main") {
+        exec_stack();
+    } else if (name == "write-ro-below-sp-main") {
+        write_ro_below_sp();
     } else if (name == "segv-main") {
         gp::println("main runs"_gs);
         wild_store();

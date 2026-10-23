@@ -275,9 +275,9 @@ void test_main_thread_bounds() {
     int local = 0;
     auto sp = reinterpret_cast<uintptr_t>(&local);
     CHECK(lo < sp && sp < hi);
-    // The linker's stack size of the PE header, 8 MiB as on Linux (the driver passes
-    // -Wl,--stack; the runtime asks for it by a directive when it is linked without it).
-    CHECK(hi - lo >= (std::size_t(8) << 20) - (std::size_t(128) << 10));
+    // The linker's stack size of the PE header, 1 GiB (Go's limit; the driver passes -Wl,--stack;
+    // the runtime asks for it by a directive when it is linked without it).
+    CHECK(hi - lo >= (std::size_t(1) << 30) - (std::size_t(128) << 10));
 }
 
 void test_foreign_thread_has_no_bounds() {

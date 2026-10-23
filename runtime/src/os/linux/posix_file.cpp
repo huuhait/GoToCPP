@@ -6,6 +6,7 @@
 #include <gocpp/os.hpp>
 #include <gocpp/print.hpp>
 #include <gocpp/syscall.hpp>
+#include "linux.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -313,7 +314,13 @@ int64_t sys_setrlimit(int64_t resource, int64_t cur, int64_t max) {
     struct rlimit rl;
     rl.rlim_cur = static_cast<rlim_t>(cur);
     rl.rlim_max = static_cast<rlim_t>(max);
-    return ::syscall(SYS_prlimit64, 0, static_cast<int>(resource), &rl, nullptr) != 0 ? fail() : 0;
+    if (::syscall(SYS_prlimit64, 0, static_cast<int>(resource), &rl, nullptr) != 0) {
+        return fail();
+    }
+    if (resource == RLIMIT_STACK) {
+        gp::os::main_stack_changed(); // the main thread's stack ends somewhere else now
+    }
+    return 0;
 }
 
 int64_t sys_rmdir(const gp::string& path) {

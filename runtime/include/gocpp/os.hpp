@@ -431,6 +431,11 @@ void set_barrier_failing(bool on) noexcept;
 void fd_write(int fd, const char* data, std::size_t n) noexcept;
 void fd_close(int fd) noexcept;
 
+// map_readonly_page maps one read-only page at the page address at (not over another mapping) and
+// says whether it did: the thread layer's test of a fault on a mapped page just below the stack
+// pointer, which is no stack overflow (Linux; elsewhere false).
+bool map_readonly_page(uintptr_t at) noexcept;
+
 // interrupt_in arms a timer that, after ms milliseconds, interrupts the calling thread's system
 // call with a signal that is not restarted (EINTR); false when the system has none.
 bool interrupt_in(int ms) noexcept;

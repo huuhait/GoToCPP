@@ -102,8 +102,8 @@ func TestLinkFlags(t *testing.T) {
 	gcc := LinkFlags(CXX{Family: GCC, GOOS: "windows", GOARCH: "amd64"})
 	clang := LinkFlags(CXX{Family: Clang, GOOS: "windows", GOARCH: "amd64"})
 	for _, f := range [][]string{gcc, clang} {
-		if !slices.Contains(f, "-static") || !slices.Contains(f, "-Wl,--stack,8388608") {
-			t.Errorf("the Windows link flags %v lack -static or the 8 MiB stack", f)
+		if !slices.Contains(f, "-static") || !slices.Contains(f, "-Wl,--stack,1073741824") {
+			t.Errorf("the Windows link flags %v lack -static or the 1 GiB stack", f)
 		}
 	}
 	// -pthread: GCC's MinGW-w64 with a posix thread model needs it; llvm-mingw's libc++ does not.

@@ -233,9 +233,29 @@ wg.Wait()
   work on a machine whose limits allow it (below); millions are not. Goroutines that come and go
   cost much less: the thread of a finished goroutine waits for the next `go` statement, so a loop
   that starts a million short goroutines uses a few hundred threads and about 6 µs for each.
-- Each thread gets an 8 MiB stack by default (memory is only used when a page is touched). A
-  stack overflow, on a goroutine's stack or the main one, prints `fatal error: stack overflow`
-  and exits with code 2. An unrecovered panic in any goroutine prints `goroutine N [running]:`
+- Each thread gets an 8 MiB stack by default (memory is only used when a page is touched). The
+  main goroutine runs on the process's main thread, whose stack is larger: on Linux the runtime
+  sets the soft `RLIMIT_STACK` to 1 GiB (Go's limit of a goroutine's stack) when the program
+  starts, at most the hard limit, also from `ulimit -s unlimited`; the kernel's layout, fixed at
+  exec, can end it earlier: without ASLR (`setarch -R`, gdb's default) the stack stops at about
+  127 MiB. A pointer-recursive function of 80-byte frames (`-O0`) reaches about 13 million frames
+  with ASLR and 1.6 million without (Go: more than 30 million; with the system's 8 MiB, 105,000).
+  A soft limit above 1 GiB that the user set stays; `unlimited` becomes 1 GiB (otherwise the
+  stack could grow until the memory is gone, and an endless recursion would end with the OOM
+  killer, not Go's report). `syscall.Getrlimit(syscall.RLIMIT_STACK, ...)` shows the raised limit
+  (Go shows the shell's 8 MiB; Go raises `RLIMIT_NOFILE` and shows that the same way), and a
+  `syscall.Setrlimit` of it moves the runtime's bounds. The programs that the process starts (C's
+  `system`, `popen`) inherit the raised limit, and their C library makes it the default stack of
+  their threads (1 GiB of address space each). On Windows the program's PE header reserves 1 GiB
+  for the main thread. A stack overflow, on a goroutine's stack or the main one, prints `fatal
+  error: stack overflow` and exits with code 2, also when C code lowered the limit or a mapping
+  was put below the stack after the start (the handler takes a fault just below the main thread's
+  stack pointer as the overflow). Under `-race`, ThreadSanitizer's own call stack holds about
+  65,000 frames: a deeper recursion aborts with "ThreadSanitizer: nested bug" (60,000 frames run,
+  80,000 abort), on any goroutine. Under clang++'s `-asan`, a panic more than 8 MiB deep on the
+  main goroutine prints AddressSanitizer's warning "ignoring requested `__asan_handle_no_return`
+  ... False positive error reports may follow" (it took the main stack's size at its start); the
+  panic and the exit code are right. An unrecovered panic in any goroutine prints `goroutine N [running]:`
   and exits with code 2, as in Go.
 - What a blocked goroutine costs, measured on Linux 6.19 (`vm.max_map_count` 1M, `kernel.threads-max`
   2M, the machine shared and loaded): about 14 KB of resident memory and 8 MiB of address space, and
@@ -741,7 +761,8 @@ func main() {
 
 - **Go:** goroutine stacks grow, and Go's compiler moves large values to the heap, so an array of
   any size can be a local variable, a parameter, a result or a temporary.
-- **gocpp:** C++ stacks have a fixed size (8 MiB for the main thread on Linux by default). gocpp
+- **gocpp:** C++ stacks have a fixed size (8 MiB for a goroutine; the main thread's grows up to
+  1 GiB, [D7](#d7-goroutines-are-os-threads)). gocpp
   keeps values larger than 128 KiB (Go's own limit for stack variables) off the stack where that
   is cheap. A local variable of such a type is boxed (it lives on the heap), and is built in its
   box when a literal or a conversion initializes it (`a := [1 << 21]int{5: 3}`,

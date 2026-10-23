@@ -241,7 +241,7 @@ func TestLinkCommandFlagsDedupAcrossPackages(t *testing.T) {
 }
 
 // The link line of a Windows target keeps the flags of the target (crosstarget.go): a static
-// program with the 8 MiB stack, whatever else the link plan does.
+// program with the 1 GiB stack, whatever else the link plan does.
 func TestLinkPartsKeepTargetFlags(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -249,9 +249,9 @@ func TestLinkPartsKeepTargetFlags(t *testing.T) {
 		lto  bool
 		want []string
 	}{
-		{"mingw g++", CXX{Family: GCC, Path: "/bin/x86_64-w64-mingw32-g++", GOOS: "windows", GOARCH: "amd64"}, false, []string{"-static", "-Wl,--stack,8388608", "-pthread"}},
-		{"mingw g++ with LTO", CXX{Family: GCC, Path: "/bin/x86_64-w64-mingw32-g++", GOOS: "windows", GOARCH: "amd64"}, true, []string{"-static", "-Wl,--stack,8388608", "-pthread", "-flto=auto"}},
-		{"llvm-mingw clang++", CXX{Family: Clang, Path: "/bin/x86_64-w64-mingw32-clang++", GOOS: "windows", GOARCH: "amd64"}, false, []string{"-static", "-Wl,--stack,8388608"}},
+		{"mingw g++", CXX{Family: GCC, Path: "/bin/x86_64-w64-mingw32-g++", GOOS: "windows", GOARCH: "amd64"}, false, []string{"-static", "-Wl,--stack,1073741824", "-pthread"}},
+		{"mingw g++ with LTO", CXX{Family: GCC, Path: "/bin/x86_64-w64-mingw32-g++", GOOS: "windows", GOARCH: "amd64"}, true, []string{"-static", "-Wl,--stack,1073741824", "-pthread", "-flto=auto"}},
+		{"llvm-mingw clang++", CXX{Family: Clang, Path: "/bin/x86_64-w64-mingw32-clang++", GOOS: "windows", GOARCH: "amd64"}, false, []string{"-static", "-Wl,--stack,1073741824"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			b := &Builder{CXX: c.cxx, GOOS: "windows", Work: t.TempDir(), LTO: c.lto}
@@ -264,7 +264,7 @@ func TestLinkPartsKeepTargetFlags(t *testing.T) {
 					t.Errorf("the link line has no %q: %q", w, args)
 				}
 			}
-			if i := slices.Index(args, "a.o"); i < 0 || slices.Index(args, "-static") > i || slices.Index(args, "-Wl,--stack,8388608") > i {
+			if i := slices.Index(args, "a.o"); i < 0 || slices.Index(args, "-static") > i || slices.Index(args, "-Wl,--stack,1073741824") > i {
 				t.Errorf("the target flags must come before the objects: %q", args)
 			}
 		})

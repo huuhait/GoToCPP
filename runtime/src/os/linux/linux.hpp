@@ -29,4 +29,10 @@ namespace gp::os {
 // bounds and the SIGSEGV handler.
 void start_threads() noexcept;
 
+// main_stack_changed computes the main thread's stack bounds again from RLIMIT_STACK and the
+// mapping below the stack (thread.cpp): sys_setrlimit calls it after a change of RLIMIT_STACK, from
+// any thread, so that stack_bounds (the stack guards of encoding/json and path/filepath) and the
+// overflow report follow the new limit.
+void main_stack_changed() noexcept;
+
 } // namespace gp::os

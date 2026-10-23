@@ -19,6 +19,7 @@
 
 #include <pthread.h>
 #include <sched.h>
+#include <fcntl.h>
 #include <sys/auxv.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -35,8 +36,9 @@ namespace {
 //
 // Go's goroutine stacks grow, up to 1 GB, and a deeper recursion ends with "runtime: goroutine
 // stack exceeds 1000000000-byte limit" and "fatal error: stack overflow" (exit code 2). A gocpp
-// goroutine runs on a fixed C++ stack (8 MiB by default for a goroutine and for the main thread,
-// the ulimit -s), and a recursion that is too deep hits the end of it: a SIGSEGV, which the
+// goroutine runs on a fixed C++ stack (8 MiB by default for a goroutine; the main thread's grows
+// up to RLIMIT_STACK, which start raises: below), and a recursion that is too deep hits the end of
+// it: a SIGSEGV, which the
 // kernel would turn into a crash (exit code 139). So the runtime installs a SIGSEGV handler,
 // on a stack of its own (sigaltstack: the thread's stack is full), that tells a stack overflow
 // from other memory faults and calls the hook of the portable runtime, which prints Go's lines.
@@ -49,10 +51,16 @@ namespace {
 // didn't start) is never an overflow.
 //   - A thread of thread_start: the bounds come from pthread_getattr_np, and below them is a
 //     guard of 256 KiB, protected, so the first access past the end faults there.
-//   - The main thread: the kernel grows its stack mapping down to its top minus RLIMIT_STACK,
-//     and the top is exact: it ends just after the program's file name, the last string that
-//     exec puts on the stack (getauxval(AT_EXECFN)). Without a limit (ulimit -s unlimited)
-//     there is no such address, so no bounds, and every fault keeps the old action.
+//   - The main thread: the kernel grows its stack mapping down to its top minus RLIMIT_STACK (the
+//     limit of the moment of the fault), and the top is exact: it ends just after the program's
+//     file name, the last string that exec puts on the stack (getauxval(AT_EXECFN)). start sets the
+//     soft limit to main_stack_limit (1 GiB, Go's limit; at most the hard limit), from 8 MiB as a
+//     rule, so that the main goroutine recurses as deep as Go's. The kernel also stops the stack
+//     stack_guard_gap (1 MiB) above the mapping below it, and that mapping's place was fixed by
+//     exec with the limit of that time: mmap_base is at least 128 MiB (plus the randomization of
+//     the layout, without ASLR none) below the top of the stack. So the lowest address is the
+//     higher of the two ends, read from /proc/self/maps: with ASLR the limit (the gap is
+//     gigabytes), without ASLR (setarch -R, gdb) about 127 MiB.
 //
 // The handler only formats numbers and calls write and _exit (in the hook), which are
 // async-signal-safe: no stack trace (Go prints one), because walking the stack and reading the
@@ -65,6 +73,15 @@ namespace {
 // the stack stops up to that much higher; at most a quarter of a smaller stack.
 [[maybe_unused]] constexpr uintptr_t overflow_below = uintptr_t(1) << 20;
 constexpr uintptr_t overflow_above_max = (uintptr_t(1) << 20) + (uintptr_t(64) << 10);
+
+// The soft RLIMIT_STACK that start gives the main thread: Go's limit of a goroutine's stack (1 GB),
+// rounded to 1 GiB. A program that execs another passes the raised limit on (glibc's default stack
+// of a thread is the soft limit: only the threads that ask for no size get it).
+constexpr uintptr_t main_stack_limit = uintptr_t(1) << 30;
+
+// The gap that the kernel keeps between a stack and the mapping below it (stack_guard_gap: 256
+// pages by default, a boot parameter that a process can't read).
+constexpr uintptr_t stack_guard_gap = uintptr_t(1) << 20;
 
 // The guard below the stack of a thread of thread_start, and the alternate signal stack that
 // each of them has (64 KiB: the handler needs little, and the signal frame of a CPU with large
@@ -80,6 +97,18 @@ struct thread_stack {
     uintptr_t above;
 };
 constinit thread_local thread_stack tstack{};
+
+// The main thread's record (its tstack), for main_stack_changed, which another thread may call:
+// the fields that it changes (lo, above) are read and written with relaxed atomics. main_region is
+// how far below the top the main thread's stack may ever reach (the larger of the soft limit after
+// start and Go's 1 GiB): a fault with the stack pointer in there is the main thread's overflow even
+// when lo is out of date (on_sigsegv).
+constinit thread_stack* main_tstack = nullptr;
+constinit uintptr_t main_region = 0;
+
+uintptr_t load_relaxed(const uintptr_t& v) noexcept {
+    return __atomic_load_n(&v, __ATOMIC_RELAXED);
+}
 
 // The thread's slot (tls_get).
 constinit thread_local void* tslot = nullptr;
@@ -112,7 +141,36 @@ uintptr_t fault_sp([[maybe_unused]] void* ctx) noexcept {
 }
 
 bool near_end(const thread_stack& s, uintptr_t a) noexcept {
-    return a + overflow_below >= s.lo && a < s.lo + s.above;
+    uintptr_t lo = load_relaxed(s.lo);
+    return a + overflow_below >= lo && a < lo + load_relaxed(s.above);
+}
+
+// fault_pc returns the address of the instruction that faulted, or 0 (as fault_sp).
+uintptr_t fault_pc([[maybe_unused]] void* ctx) noexcept {
+#if defined(__x86_64__)
+    return static_cast<uintptr_t>(static_cast<ucontext_t*>(ctx)->uc_mcontext.gregs[REG_RIP]);
+#elif defined(__aarch64__)
+    return static_cast<uintptr_t>(static_cast<ucontext_t*>(ctx)->uc_mcontext.pc);
+#else
+    return 0;
+#endif
+}
+
+// main_overflow says whether a fault of the main thread is a stack overflow without its exact end:
+// a data access (not an instruction fetch: pc is not addr) to an address that nothing maps
+// (SEGV_MAPERR), just below the stack pointer (a push, a call, a frame's probe; a frame that is not
+// probed reaches at most overflow_below), with the stack pointer in the region the main stack may
+// use. Since Linux 4.20 any access in the stack's growth area grows the stack, so such a fault can
+// only be the stack that could not grow: the program lowered its RLIMIT_STACK itself (C's
+// setrlimit), a mapping was placed in the gap below the stack (mmap with a hint), or
+// /proc/self/maps could not be read at start. A fault on a page that is mapped (SEGV_ACCERR: a
+// read-only page below sp, code run from the stack, which is not executable) is no overflow.
+bool main_overflow(const thread_stack& s, const siginfo_t* info, void* ctx) noexcept {
+    auto addr = reinterpret_cast<uintptr_t>(info->si_addr);
+    uintptr_t sp = fault_sp(ctx);
+    return &s == main_tstack && info->si_code == SEGV_MAPERR && addr != fault_pc(ctx) && sp != 0 &&
+           sp < s.hi && sp + main_region + overflow_below >= s.hi && addr + overflow_below >= sp &&
+           addr < sp + (uintptr_t(4) << 10);
 }
 
 void on_sigsegv(int sig, siginfo_t* info, void* ctx) {
@@ -120,9 +178,15 @@ void on_sigsegv(int sig, siginfo_t* info, void* ctx) {
     auto addr = reinterpret_cast<uintptr_t>(info->si_addr);
     uintptr_t sp = fault_sp(ctx);
     // si_code > 0: a fault of the CPU, not a kill(2) of SIGSEGV.
-    if (info->si_code > 0 && s.lo != 0 && near_end(s, addr) && (sp == 0 || near_end(s, sp))) {
+    if (info->si_code > 0 && load_relaxed(s.lo) != 0 && near_end(s, addr) &&
+        (sp == 0 || near_end(s, sp))) {
         if (stack_overflow_hook h = overflow_hook.load(std::memory_order_acquire); h != nullptr) {
-            h(stack_fault{sp != 0 ? sp : addr, s.lo, s.hi});
+            h(stack_fault{sp != 0 ? sp : addr, load_relaxed(s.lo), s.hi});
+        }
+    } else if (main_overflow(s, info, ctx)) {
+        // The stack ended above lo: the page of sp is as low as it got.
+        if (stack_overflow_hook h = overflow_hook.load(std::memory_order_acquire); h != nullptr) {
+            h(stack_fault{sp, sp & ~uintptr_t(4095), s.hi});
         }
     }
     // Any other fault (or a hook that returned): the old action. Returning runs the faulting
@@ -232,17 +296,163 @@ void* thread_main(void* p) {
 
 } // namespace
 
-void start_threads() noexcept {
-    // The main thread's stack. Without a usable limit there is nothing to detect.
+namespace {
+
+// set_main_stack_limit raises the soft RLIMIT_STACK to main_stack_limit (at most the hard limit)
+// and returns the soft limit that holds after it (RLIM_INFINITY when it can't be read). A soft
+// limit above 1 GiB that the user set stays. Unlimited becomes 1 GiB, Go's limit: the stack would
+// otherwise grow until the memory or the swap is gone (the kernel's legacy layout of an unlimited
+// stack puts nothing below it for terabytes), and an endless recursion would end with the OOM
+// killer, not with Go's report.
+rlim_t set_main_stack_limit() noexcept {
     rlimit rl{};
-    uintptr_t top = main_stack_top();
-    if (getrlimit(RLIMIT_STACK, &rl) != 0 || rl.rlim_cur == RLIM_INFINITY || rl.rlim_cur >= top ||
-        rl.rlim_cur < (uintptr_t(64) << 10)) {
-        return; // no limit, or a strange one
+    if (getrlimit(RLIMIT_STACK, &rl) != 0) {
+        return RLIM_INFINITY;
     }
-    auto limit = static_cast<uintptr_t>(rl.rlim_cur);
-    tstack = {top - limit, top, above_of(top - limit, top)};
+    if (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur >= main_stack_limit) {
+        return rl.rlim_cur;
+    }
+    rlim_t want = main_stack_limit;
+    if (rl.rlim_max != RLIM_INFINITY && rl.rlim_max < want) {
+        want = rl.rlim_max;
+    }
+    if (rl.rlim_cur != want) {
+        rlimit next{want, rl.rlim_max};
+        if (setrlimit(RLIMIT_STACK, &next) == 0) {
+            rl.rlim_cur = want;
+        }
+    }
+    return rl.rlim_cur;
+}
+
+// below_mapping_end returns the end of the mapping right below the one that holds addr, from
+// /proc/self/maps (0: none, or the file can't be read). It reads the file in pieces into a buffer
+// of its own: no allocation, before anything else runs.
+uintptr_t below_mapping_end(uintptr_t addr) noexcept {
+    int fd = ::open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return 0;
+    }
+    char buf[4096];
+    std::size_t have = 0; // bytes of a line not yet parsed, at the start of buf
+    uintptr_t prev_end = 0;
+    uintptr_t found = 0;
+    bool done = false;
+    bool skip = false; // the rest of a line longer than the buffer comes first: not parsed
+    while (!done) {
+        ssize_t n = ::read(fd, buf + have, sizeof buf - have);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            break;
+        }
+        have += static_cast<std::size_t>(n);
+        std::size_t start = 0;
+        for (std::size_t i = 0; i < have && !done; i++) {
+            if (buf[i] != '\n') {
+                continue;
+            }
+            if (skip) {
+                skip = false;
+                start = i + 1;
+                continue;
+            }
+            // "start-end perms ...": two hex numbers.
+            uintptr_t lo = 0;
+            uintptr_t hi = 0;
+            std::size_t k = start;
+            auto hex = [&](uintptr_t& v) {
+                for (; k < i; k++) {
+                    char c = buf[k];
+                    int d = c >= '0' && c <= '9'   ? c - '0'
+                            : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                                                   : -1;
+                    if (d < 0) {
+                        break;
+                    }
+                    v = v * 16 + static_cast<uintptr_t>(d);
+                }
+            };
+            hex(lo);
+            if (k < i && buf[k] == '-') {
+                k++;
+                hex(hi);
+                if (lo <= addr && addr < hi) {
+                    found = prev_end;
+                    done = true;
+                } else if (hi <= addr) {
+                    prev_end = hi;
+                }
+            }
+            start = i + 1;
+        }
+        // Keep the part of a line that the next read completes; a line longer than the buffer is
+        // not one of the mappings this needs, its rest is skipped.
+        if (start < have && start > 0) {
+            std::memmove(buf, buf + start, have - start);
+            have -= start;
+        } else if (start == have) {
+            have = 0;
+        } else if (have == sizeof buf) {
+            have = 0;
+            skip = true;
+        }
+    }
+    ::close(fd);
+    return found;
+}
+
+// main_lo returns the lowest address of the main thread's stack for its top and the soft limit:
+// the higher of the limit's end and the end of the mapping below the stack plus the kernel's gap;
+// 0 when neither is known.
+uintptr_t main_lo(uintptr_t top, rlim_t limit) noexcept {
+    uintptr_t lo = 0;
+    if (limit != RLIM_INFINITY && limit < top) {
+        lo = top - static_cast<uintptr_t>(limit);
+    }
+    uintptr_t below = below_mapping_end(top - 1);
+    if (below != 0 && below + stack_guard_gap < top && below + stack_guard_gap > lo) {
+        lo = below + stack_guard_gap;
+    }
+    return lo;
+}
+
+} // namespace
+
+void main_stack_changed() noexcept {
+    thread_stack* m = main_tstack;
+    if (m == nullptr) {
+        return;
+    }
+    rlimit rl{};
+    if (getrlimit(RLIMIT_STACK, &rl) != 0) {
+        return;
+    }
+    if (uintptr_t lo = main_lo(m->hi, rl.rlim_cur); lo != 0) {
+        __atomic_store_n(&m->above, above_of(lo, m->hi), __ATOMIC_RELAXED);
+        __atomic_store_n(&m->lo, lo, __ATOMIC_RELAXED);
+    }
+}
+
+void start_threads() noexcept {
+    // The main thread's stack: its soft limit becomes Go's 1 GiB (or the hard limit; a larger soft
+    // limit stays), and its lowest address the higher of the limit's and the mapping's below it
+    // (the comment at the top). Only a limit and a mapping that are both unknown leave the thread
+    // without bounds.
+    uintptr_t top = main_stack_top();
+    rlim_t limit = set_main_stack_limit();
+    if (uintptr_t lo = main_lo(top, limit); lo != 0) {
+        tstack = {lo, top, above_of(lo, top)};
+    } else {
+        tstack = {0, top, 0};
+    }
+    main_tstack = &tstack;
+    main_region = limit != RLIM_INFINITY && limit > main_stack_limit ? static_cast<uintptr_t>(limit)
+                                                                     : main_stack_limit;
 #if defined(GOCPP_OWN_SEGV)
+    // The handler and the alternate stack also without bounds: a fault that is no overflow keeps
+    // its old action either way, and the threads of thread_start have bounds of their own.
     if (!use_alt_stack(main_alt_stack) || !install_handler()) {
         drop_alt_stack();
     }
@@ -366,10 +576,11 @@ void tls_on_thread_exit_stop() noexcept {
 }
 
 bool stack_bounds(uintptr_t& lo, uintptr_t& hi) noexcept {
-    if (tstack.lo == 0) {
+    uintptr_t l = load_relaxed(tstack.lo); // the main thread's may change (main_stack_changed)
+    if (l == 0) {
         return false;
     }
-    lo = tstack.lo;
+    lo = l;
     hi = tstack.hi;
     return true;
 }

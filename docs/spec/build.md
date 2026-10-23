@@ -506,7 +506,7 @@ What a target changes:
 |---|---|---|---|
 | compiler | `GOCPP_CXX`, `CXX`, clang++, g++ | `GOCPP_CXX` (on a Windows host also `CXX`), else by `GOCPP_TOOLCHAIN`: `x86_64-w64-mingw32-clang++` or `-g++` in PATH; on a Windows host also a plain `clang++`/`g++` that is MinGW (`-dumpmachine`) and the installs of MSYS2, Chocolatey, Scoop and WinGet's WinLibs; else the pinned llvm-mingw | `GOCPP_CXX`, else `aarch64-linux-gnu-g++` |
 | compile flags | common | common, `-D_WIN32_WINNT=0x0A00` (Windows 10 API), and `-Wa,-mbig-obj` for GCC (a COFF object holds 32767 sections, which a program with many generic instances goes over) | common, and `--target=aarch64-linux-gnu` for a clang that does not name its target |
-| link flags | common | `-static`, `-Wl,--stack,8388608` (the main thread has Linux's 8 MiB), `-pthread` for GCC (needed with a posix thread model, harmless with the mcf model of the dev shell's MinGW; 14.1's `.drectve` asks for the same 8 MiB stack, the two agree and survive `--gc-sections`: `TestWindowsDriverFlags`) | common |
+| link flags | common | `-static`, `-Wl,--stack,1073741824` (the main thread reserves 1 GiB, Go's limit, as the Linux runtime raises its main thread's `RLIMIT_STACK` to; committed as the stack grows), `-pthread` for GCC (needed with a posix thread model, harmless with the mcf model of the dev shell's MinGW; 14.1's `.drectve` asks for the same 1 GiB stack, the two agree and survive `--gc-sections`: `TestWindowsDriverFlags`) | common |
 | program name | `name` | `name.exe` (`-o prog` writes `prog.exe`; a name with an extension keeps it) | `name` |
 | libraries | `libx.a`, `libx.so` | `libx.a`; `-buildmode=c-shared` writes `x.dll`, the import library `x.dll.a` and its copy `x.lib`, and `x.h` | as host |
 | build constraints | the host's | `windows`, `amd64`, `_windows.go` | `linux`, `arm64`, `unix` |
@@ -547,7 +547,7 @@ a virus scanner holding a file for a moment is waited out). A message lists what
 | | |
 |---|---|
 | cache, temporary files | `%LocalAppData%\gocpp` (`gocpp env GOCPPCACHE`), `%TEMP%` |
-| program | `name.exe`; `-o prog` writes `prog.exe` (unlike `go build -o prog`, which writes the name as given; a name with an extension keeps it); linked `-static` (no DLLs next to it), main stack 8 MiB; replacing a read-only `.exe` works, a running one is an error that says so |
+| program | `name.exe`; `-o prog` writes `prog.exe` (unlike `go build -o prog`, which writes the name as given; a name with an extension keeps it); linked `-static` (no DLLs next to it), main stack 1 GiB (a reservation); replacing a read-only `.exe` works, a running one is an error that says so |
 | application manifest | linked into every program: `longPathAware` (paths over 260 characters with the plain Win32 and C calls, when the system allows), `activeCodePage` UTF-8 (the narrow functions and `fopen` read a Go string as it is), `asInvoker`, Windows 10 (the UTF-8 code page needs 1903 or later). On by default because without it `GetACP()` is 1252 and a non-ASCII argument, variable or file name is damaged on its way to C code. Go's linker writes none. `GOCPP_NO_MANIFEST=1` leaves it out. With GCC the object replaces MinGW's `default-manifest.o` (a `-B` folder that must have no space: the cache, its short name, the work folder or the private folder `%ProgramData%\gocpp-paths-<SID>`); if there is none, a warning says the program has no manifest |
 | libraries | `-buildmode=c-shared`: `x.dll` exporting the `//export` functions (`__declspec(dllexport)`) and nothing else, `x.dll.a` and `x.lib` (import libraries), `x.h`; `-o mylib` writes `mylib.dll` (`.so` is refused: a DLL is `.dll`). `c-archive`, `cpp-lib`: `.a` as on Linux |
 | long commands | a compile or link line over 30,000 characters (CreateProcess takes 32,767) is passed as a response file `@cmd-N.rsp` |
@@ -573,7 +573,7 @@ build programs with the driver and run them under Wine:
 | arguments (Go's command line rules) and environment | arm64 Windows |
 | `os.Exit`, `panic` (exit 2, Go's message and frames on stderr), a C `exit` | |
 | goroutines on threads, channels, `select`, `sync` | |
-| a stack overflow (message and exit 2), the 8 MiB main stack, big programs | |
+| a stack overflow (message and exit 2), the 1 GiB main stack, big programs | |
 | `defer`, `recover`, maps, strings, closures, generics | |
 | package `os` and `syscall` (step 14.3, [ADR-076](../adr/076-os-on-windows-over-a-generic-syscall.md)): files, directories, `RemoveAll`, environment, `Stat`, hard and symbolic links, pipes, `Chmod`, long paths, `Hostname`, `Executable`, `FindProcess` | `os/exec` and `StartProcess`, `os/signal`, `net`; `time.Local` (UTC) and zone names |
 

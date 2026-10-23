@@ -25,15 +25,16 @@
 #include <psapi.h>
 #include <shellapi.h>
 
-// The main thread's stack. Linux gives it 8 MiB (ulimit -s) and the runtime's goroutines get
-// 8 MiB too (goroutine.hpp); a Windows program has 1 MiB by default (MinGW's linker: 2 MiB), which
-// a recursion that Go and the Linux build run fine overflows. The size is in the PE header, so it
-// is the linker's: gocpp's driver passes -Wl,--stack,8388608 (the way for every linker), and this
-// directive does the same for GNU ld when someone links the runtime without the driver (GNU ld
+// The main thread's stack: 1 GiB, Go's limit of a goroutine's stack, which the Linux layer gives
+// its main thread too (it raises RLIMIT_STACK); the runtime's goroutines get 8 MiB (goroutine.hpp).
+// A Windows program has 1 MiB by default (MinGW's linker: 2 MiB). It is a reservation, committed
+// as the stack grows. The size is in the PE header, so it
+// is the linker's: gocpp's driver passes -Wl,--stack,1073741824 (the way for every linker), and
+// this directive does the same for GNU ld when someone links the runtime without the driver (GNU ld
 // reads the number after a space; LLVM's lld takes only the command line's flag, and a
 // directive it doesn't know could be an error, so clang's builds leave it out).
 #if defined(__GNUC__) && !defined(__clang__)
-asm(".section .drectve\n\t.ascii \" -stack 8388608\"\n\t.text\n");
+asm(".section .drectve\n\t.ascii \" -stack 1073741824\"\n\t.text\n");
 #endif
 
 namespace gp::os {
@@ -575,6 +576,9 @@ void restore_stdin() noexcept {}
 void fd_write(int, const char*, std::size_t) noexcept {}
 void fd_close(int) noexcept {}
 bool interrupt_in(int) noexcept {
+    return false;
+}
+bool map_readonly_page(uintptr_t) noexcept {
     return false;
 }
 

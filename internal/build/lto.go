@@ -61,7 +61,7 @@ func (b *Builder) compileFlags() []string {
 func bigObj(c CXX) bool { return c.GOOS == "windows" && c.Family == GCC }
 
 // linkFlags are the flags of the link that come before the object files: Flags, the flags of the
-// target (LinkFlags: a Windows program links statically with an 8 MiB stack), and the flag of LTO
+// target (LinkFlags: a Windows program links statically with a 1 GiB stack), and the flag of LTO
 // (the link runs the optimizer).
 func (b *Builder) linkFlags() []string {
 	flags := slices.Concat(Flags(b.CXX, b.ASan), LinkFlags(b.CXX))
