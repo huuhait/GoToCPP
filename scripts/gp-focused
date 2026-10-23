@@ -2,13 +2,16 @@
 # gp-focused: list (and with -x run) the focused checks for the files a job changed, instead of
 # `make ci` or a full `go test ./...` (which no worker runs; the user does the broad run).
 #
-#   scripts/gp-focused [-x] [-base REF] [-cxx g++|clang++] [-mem 16G] [-timeout 20m] [FILE...]
+#   scripts/gp-focused [-x] [-base REF] [-cxx g++|clang++] [-mem 16G] [-cpus 24] [-timeout 20m] [FILE...]
 #     -x        run the commands (each one in a memory-capped systemd scope with a timeout, one after
 #               the other, through scripts/in-devenv), not only print them
 #     -base     what the job is compared with (default: dev); the files are those of
 #               `git diff --name-only BASE...HEAD` plus the uncommitted and untracked ones
 #     -cxx      the compiler of the C++ test matrix (GOCPP_CXX for the runtime and tests/; default g++,
 #               run once more with clang++ before the hand-over when the runtime or the emitter changed)
+#     -cpus     CPU share of each command (CPUQuota, in cores) and go test's -parallel (default 24):
+#               several jobs share the machine, and an unbounded run (192 parallel builds) pushes the
+#               load past 1000 and makes other jobs' tests time out
 #     FILE...   these files instead of the job's changes
 # The test commands set GOCPP_TEST_PHASE=10 (as make ci; export another value for phase 11-15 tests).
 #
@@ -30,13 +33,14 @@
 set -eu
 
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
-run= base=dev cxx=g++ mem=16G tmo=20m phase=${GOCPP_TEST_PHASE:-10}
+run= base=dev cxx=g++ mem=16G cpus=24 tmo=20m phase=${GOCPP_TEST_PHASE:-10}
 while [ $# -gt 0 ]; do
 	case $1 in
 	-x) run=1; shift ;;
 	-base) base=$2; shift 2 ;;
 	-cxx) cxx=$2; shift 2 ;;
 	-mem) mem=$2; shift 2 ;;
+	-cpus) cpus=$2; shift 2 ;;
 	-timeout) tmo=$2; shift 2 ;;
 	-h|-help|--help) sed -n '2,32p' "$self"; exit 0 ;;
 	-*) echo "gp-focused: unknown flag $1" >&2; exit 2 ;;
@@ -182,8 +186,8 @@ status=0
 while IFS= read -r c; do
 	case $c in '#'*) continue ;; esac
 	echo "=== $c"
-	vc=$(printf '%s' "$c" | sed 's/go test -count=1/go test -count=1 -v/')
-	if "$root/scripts/in-devenv" systemd-run --user --scope -q -p MemoryMax="$mem" \
+	vc=$(printf '%s' "$c" | sed "s/go test -count=1/go test -count=1 -v -p 4 -parallel $cpus/")
+	if "$root/scripts/in-devenv" systemd-run --user --scope -q -p MemoryMax="$mem" -p CPUQuota="${cpus}00%" \
 		timeout "$tmo" sh -c "$vc" </dev/null >"$log" 2>&1; then
 		code=0
 	else
@@ -195,6 +199,8 @@ while IFS= read -r c; do
 		skip=$(grep -c -- '--- SKIP' "$log" || true)
 		grep -E -- '--- (FAIL|SKIP)|^(ok|FAIL|panic:)' "$log" | head -30
 		echo "=== passed $pass, skipped $skip"
+		# A package whose pattern matched nothing still prints ok (and its TestMain may log a PASS).
+		if grep -q "no tests to run" "$log"; then pass=0; fi
 		if [ "$code" = 0 ] && [ "$pass" = 0 ]; then
 			echo "=== NOTHING RAN (all skipped or no match): $c"; status=1; continue
 		fi
