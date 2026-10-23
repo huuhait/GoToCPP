@@ -217,11 +217,11 @@ while IFS= read -r c; do
 	cp "$log" "$logdir/$n.log"
 	echo "=== log: $logdir/$n.log"
 	case $c in
-	*'go test'*)
+	*'go test -count=1'*)
 		pass=$(grep -c -- '--- PASS' "$log" || true)
 		skip=$(grep -c -- '--- SKIP' "$log" || true)
-		grep -E -- '--- FAIL|^(ok|FAIL|panic:)' "$log"
-		grep -E -- '--- SKIP' "$log" | head -10
+		grep -E -- '--- FAIL|^(ok|FAIL|panic:)' "$log" || true
+		grep -E -- '--- SKIP' "$log" | head -10 || true
 		echo "=== passed $pass, skipped $skip"
 		# A package whose pattern matched nothing still prints ok (and its TestMain may log a PASS).
 		if grep -q "no tests to run" "$log"; then pass=0; fi
