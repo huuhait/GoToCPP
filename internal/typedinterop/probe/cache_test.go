@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +127,92 @@ func TestUnitHash(t *testing.T) {
 		if !strings.HasPrefix(s.Text, s.Preamble) {
 			t.Error("the preamble is not the start of the file")
 		}
+	}
+}
+
+// The answer of a unit read for the same probe of a reference with another number of digits
+// (gp_probe_4 in one program, gp_probe_10 in the next): the columns of its messages on the unit's
+// own line point at the same text. The cache kept the column of the program that wrote it, so an
+// error at the "(" of an argument was read one character early, at no argument
+// (tests/typed/err_adapt_defer.gp, then adapt_voidout.gp, warned about a void** out-parameter).
+func TestUnitCodecColumnsFollowTheNumber(t *testing.T) {
+	short := Generate(fnSet("f1"), GenConfig{Kinds: kindsOf("f1")})
+	names := []string{"f1"}
+	for i := 0; i < 12; i++ {
+		names = append(names, "a"+strconv.Itoa(i))
+	}
+	long := Generate(fnSet(names...), GenConfig{Kinds: kindsOf(names...)})
+	unit := func(s *Source) int {
+		for i, u := range s.Units {
+			if s.Keys[u.Ref] == "call(::f1|)" {
+				return i
+			}
+		}
+		t.Fatal("no unit of call(::f1|)")
+		return -1
+	}
+	si, li := unit(short), unit(long)
+	su, lu := &short.Units[si], &long.Units[li]
+	if su.Hash != lu.Hash || len(strconv.Itoa(su.Ref)) == len(strconv.Itoa(lu.Ref)) {
+		t.Fatalf("refs %d and %d, same hash %v: want one probe with numbers of other lengths", su.Ref, lu.Ref, su.Hash == lu.Hash)
+	}
+	// Each column is where a piece of text starts in the line (from 1).
+	pieces := []string{"using", "gp_probe_", "f1(", "decltype", ";"}
+	colOf := func(l Line, piece string) int {
+		i := strings.Index(l.Text, piece)
+		if i < 0 {
+			t.Fatalf("%q not in %q", piece, l.Text)
+		}
+		return i + 1
+	}
+	digit := colOf(su.Lines[0], "gp_probe_") + len("gp_probe_") // the first digit of the number
+	for _, piece := range pieces {
+		for _, dir := range []struct {
+			from, to *Source
+			fi, ti   int
+			name     string
+		}{{short, long, si, li, "short to long"}, {long, short, li, si, "long to short"}} {
+			fu, tu := &dir.from.Units[dir.fi], &dir.to.Units[dir.ti]
+			b := newBatch(dir.from, []int{dir.fi})
+			col := colOf(fu.Lines[0], piece)
+			r := &Result{OK: false, Error: "e",
+				ErrorAt:        &Diag{File: probeFileName, Line: b.first, Col: col, Severity: "error", Msg: "e"},
+				Notes:          []Diag{{File: probeFileName, Line: b.first, Col: col, Severity: "note"}, {File: "/usr/include/x.h", Line: 3, Col: col, Severity: "note"}},
+				RecoveredAt:    &Diag{File: probeFileName, Line: b.first, Col: col, Severity: "error"},
+				RecoveredNotes: []Diag{{File: probeFileName, Line: b.first, Severity: "note"}},
+			}
+			body, err := encodeUnit(b, dir.from, dir.fi, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The same program reads its own column back.
+			if got, ok := decodeUnit(body, dir.from, dir.fi); !ok || got.ErrorAt.Col != col {
+				t.Errorf("%s, %q: read back at column %d, want %d (%v)", dir.name, piece, got.ErrorAt.Col, col, ok)
+			}
+			got, ok := decodeUnit(body, dir.to, dir.ti)
+			if !ok {
+				t.Fatalf("%s: cannot decode %s", dir.name, body)
+			}
+			want := colOf(tu.Lines[0], piece)
+			for what, c := range map[string]int{"error": got.ErrorAt.Col, "note": got.Notes[0].Col, "recovered": got.RecoveredAt.Col} {
+				if c != want {
+					t.Errorf("%s, %q: the %s is at column %d, want %d", dir.name, piece, what, c, want)
+				}
+			}
+			if got.Notes[1].Col != col || got.RecoveredNotes[0].Col != 0 {
+				t.Errorf("%s: a column in a header moved (%d, want %d), or none became one (%d)", dir.name, got.Notes[1].Col, col, got.RecoveredNotes[0].Col)
+			}
+		}
+	}
+	// A column in the digits of the number is at the first digit of the other number.
+	b := newBatch(long, []int{li})
+	r := &Result{OK: false, Error: "e", ErrorAt: &Diag{File: probeFileName, Line: b.first, Col: digit + 1, Severity: "error"}}
+	body, err := encodeUnit(b, long, li, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := decodeUnit(body, short, si); !ok || got.ErrorAt.Col != digit {
+		t.Errorf("a column in the digits: %d, want %d (%v)", got.ErrorAt.Col, digit, ok)
 	}
 }
 

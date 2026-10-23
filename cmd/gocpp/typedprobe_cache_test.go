@@ -128,3 +128,42 @@ func withoutDeps(t *testing.T, text string) string {
 	b, _ := json.Marshal(m)
 	return string(b)
 }
+
+// Programs of tests/typed emitted one after the other with one probe cache say what each says with
+// a cache of its own. The same probe has another reference number in each program (gp_probe_4,
+// gp_probe_10), and the cache kept the column of the first one's error: the next program's checker
+// read the error one character early, at no argument, and reported a void** out-parameter that the
+// lowering adapts ("cannot use ... **adapt.Obj as *unsafe.Pointer").
+func TestTypedProbeCacheSharedByPrograms(t *testing.T) {
+	typedEnv(t)
+	typedIn(t)
+	needClang(t)
+	t.Setenv("GOCPP_INTEROP", "typed")
+	t.Setenv(probe.EnvNoProbeCache, "")
+	// The headers were copied a moment ago; the cache's racy rule would keep nothing.
+	defer probe.SetRacyWindow(0)()
+	for _, seq := range [][]string{
+		{"err_adapt_defer.gp", "adapt_voidout.gp"},
+		{"hresult_reassign.gp", "hresult_raw.gp", "hresult_error.gp"},
+		{"hresult_method_only.gp", "hresult_error.gp", "hresult_raw.gp"},
+	} {
+		t.Run(strings.TrimSuffix(seq[0], ".gp"), func(t *testing.T) {
+			shared := t.TempDir()
+			for i, p := range seq {
+				t.Setenv(probe.EnvProbeCache, t.TempDir())
+				alone := gocppRun("", false, "emit", p)
+				t.Setenv(probe.EnvProbeCache, shared)
+				probe.ResetCacheCounters()
+				got := gocppRun("", false, "emit", p)
+				c := probe.CacheCounters()
+				if got.code != alone.code || got.stderr != alone.stderr {
+					t.Errorf("%s after %v with one cache: exit %d\n%s\nwith a cache of its own: exit %d\n%s",
+						p, seq[:i], got.code, got.stderr, alone.code, alone.stderr)
+				}
+				if i > 0 && c.MemHits+c.DiskHits == 0 {
+					t.Errorf("%s after %v: nothing came from the cache (%+v)", p, seq[:i], c)
+				}
+			}
+		})
+	}
+}

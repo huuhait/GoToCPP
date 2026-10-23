@@ -242,34 +242,82 @@ func encodeUnit(b *batch, full *Source, ui int, r *Result) ([]byte, error) {
 	for i := range r.RecoveredNotes {
 		cr.RecNotes = append(cr.RecNotes, cl(&r.RecoveredNotes[i]))
 	}
-	// The lines are the cache's places now: clear them from the copies.
+	// The lines are the cache's places now: clear them from the copies. A column on a line of
+	// the unit's own is kept as on the line of the unit's hash (canonCol).
+	u := &full.Units[ui]
+	strip := func(d *Diag, p *cpos) {
+		if p == nil {
+			return
+		}
+		d.Line = 0
+		if p.K == "o" && p.N >= 0 && p.N < len(u.Lines) {
+			d.Col = canonCol(u.Lines[p.N], d.Col)
+		}
+	}
 	if cr.R.ErrorAt != nil {
 		d := *cr.R.ErrorAt
-		if cr.ErrAt != nil {
-			d.Line = 0
-		}
+		strip(&d, cr.ErrAt)
 		cr.R.ErrorAt = &d
 	}
 	if cr.R.RecoveredAt != nil {
 		d := *cr.R.RecoveredAt
-		if cr.RecAt != nil {
-			d.Line = 0
-		}
+		strip(&d, cr.RecAt)
 		cr.R.RecoveredAt = &d
 	}
 	cr.R.Notes = slices.Clone(r.Notes)
 	for i, p := range cr.Notes {
-		if p != nil {
-			cr.R.Notes[i].Line = 0
-		}
+		strip(&cr.R.Notes[i], p)
 	}
 	cr.R.RecoveredNotes = slices.Clone(r.RecoveredNotes)
 	for i, p := range cr.RecNotes {
-		if p != nil {
-			cr.R.RecoveredNotes[i].Line = 0
-		}
+		strip(&cr.R.RecoveredNotes[i], p)
 	}
 	return json.Marshal(unitFile{Format: cacheFormat, Kind: "u", Result: cr})
+}
+
+// The columns of a message on a line of the unit's own. The line declares the reference's name
+// (gp_probe_N), and the unit's hash is of the line with N replaced by "@" (canonLine), so the
+// answer for one reference is found again for the same probe of a reference with another number,
+// in another program. A column after the name moves with the number of N's digits: the cache keeps
+// it as on the line of the hash (canonCol), and decodeUnit puts it back on the line of the unit
+// that reads it (lineCol). Without that, an error of gp_probe_4 at column 67 read for gp_probe_10
+// was at the argument's first character instead of its "(", and the checker took it for an error
+// of no argument (a void** out-parameter that the lowering adapts was then reported).
+
+// probeDigits returns where the digits of the reference's number are in the line (a byte offset)
+// and how many there are, in the name that canonLine replaces; n is 0 when the line has none.
+func probeDigits(l Line) (at, n int) {
+	num := strconv.Itoa(l.Ref)
+	i := strings.Index(l.Text, probeDeclPrefix+num)
+	if i < 0 {
+		return 0, 0
+	}
+	return i + len(probeDeclPrefix), len(num)
+}
+
+// canonCol returns the column col (from 1; 0 is none) of the line l as a column of its canonical
+// line. A column in the digits becomes the column of the "@".
+func canonCol(l Line, col int) int {
+	at, n := probeDigits(l)
+	switch o := col - 1; {
+	case col <= 0 || n == 0 || o < at:
+		return col
+	case o < at+n:
+		return at + 1
+	default:
+		return col - n + 1
+	}
+}
+
+// lineCol is the inverse of canonCol: the column of the line l of a column of its canonical line.
+func lineCol(l Line, col int) int {
+	at, n := probeDigits(l)
+	switch o := col - 1; {
+	case col <= 0 || n == 0 || o <= at:
+		return col
+	default:
+		return col + n - 1
+	}
 }
 
 // classify returns the place of the line of file in file-independent terms, or nil for a
@@ -314,10 +362,11 @@ func decodeUnit(body []byte, full *Source, ui int) (Result, bool) {
 		case "p":
 			d.Line = p.N
 		case "o":
-			if p.N < 0 || p.N >= len(u.At) {
+			if p.N < 0 || p.N >= len(u.At) || p.N >= len(u.Lines) {
 				return false
 			}
 			d.Line = u.At[p.N]
+			d.Col = lineCol(u.Lines[p.N], d.Col)
 		case "a":
 			at, ok := full.aliasAt[p.A]
 			if !ok {
