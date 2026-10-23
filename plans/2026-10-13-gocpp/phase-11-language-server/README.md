@@ -54,7 +54,7 @@ never let clang (C/C++ knowledge) sit on the hot path.
 **Reference projects** for the budgets:
 1. A real Go library/CLI (about 30k lines) copied as `.gp`. Because gocpp *is* Go syntax, **the same
    code** can be opened in gopls (as `.go`) and in `gocpp lsp` (as `.gp`), which gives an honest
-   side-by-side comparison. Goal: within 1.5× of gopls on every row.
+   side-by-side comparison. Goal: within 2× of gopls on every row (user 2026-10-22; was 1.5×; winning rows is not a goal).
 2. An interop-heavy program (raylib game + std containers + sqlite).
 3. The gocpp standard library itself.
 
@@ -221,7 +221,7 @@ M1 in the one-person order).
 ## 5. Exit criteria
 
 - Every budget in 2.1 is met (p95) on all three reference projects.
-- On the shared reference project, every row is within 1.5× of gopls. **Not met yet** (2026-10-18:
+- On the shared reference project, every row is within 2× of gopls (was 1.5×; user 2026-10-22). **Not met yet** (2026-10-18:
   keystroke 14-18× on small and medium because of the 30 ms debounce, references 3-12×, rename 6×);
   tracked by the language-server performance job in TODO.md, see
   [ADR-031](../../../docs/adr/031-lsp-speed-gate.md).

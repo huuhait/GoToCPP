@@ -11,7 +11,7 @@ Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engin
 
 ## Now: jobs in progress (2026-10-22)
 
-- [~] Job 11.lspgap5 (branch job/11.lspgap5): LSP speed rows, every-row gopls wins; also the open 11.14 and 11.13 acceptance lines.
+- [~] Job 11.lspgap5 (branch job/11.lspgap5): LSP speed rows (target: every row at most 2x gopls p95, user 2026-10-22); also the open 11.14 and 11.13 acceptance lines.
 - [~] Job dev.walltests (branch job/dev.walltests, 46 test files): wall-clock bounds in tests become counted work, event waits and one-minute hang limits. Covers `TestLSPProcess`, `TestProbeCancelStopsTheCompiler`, the 1-2 s bounds listed by the 12.racefix reviewer (probe cache_review_test.go `a_cut_answer_is_not_complete`, lsp/server stale_test.go, lsp/cache versions_test.go, lsp/server edits_test.go) and, by the manager's note, the tests that fail when TMPDIR contains `..` (`internal/interop` TestProbeCommand, `internal/load` TestLoadModule/TestTestFiles/TestNoFiles/TestTestOnlyExternal). Not audited by todo.audit.
 - [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
 - [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks. 12.14b (ADR-121) merged 2026-10-21: cold typed overhead 0.47-1.56 s; the < 0.5 s criterion was reworded (user accepted ADR-121 2026-10-21). Smaller preambles were withdrawn; cold first-run performance stays separate from a run that retains a precompiled header.
@@ -152,7 +152,7 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### LSP
 
-- [ ] Every-row gopls wins, p95 budgets on the final reference projects, 1.5x of gopls on the shared project (job 11.lspgap5 is running; see "Now") (was L63, L230, L268, L281).
+- [ ] p95 budgets on the final reference projects, every row at most 2x gopls p95 (user 2026-10-22: winning rows is not a goal; was every-row wins and 1.5x) (job 11.lspgap5 is running; see "Now") (was L63, L230, L268, L281).
 - [ ] 11.11: references/rename on never-opened packages have no budget row (cold 0.6-1.1 s); the 11.8 numbers in docs/guides/editors.md were taken under load (was L218).
 - [ ] 14.5 lows carried: no server-side file watcher (client `didChangeWatchedFiles` only), `large` misses the 400 MiB budget (432-464 MiB), docs/benchmarks/lsp.md carries the old 371 MiB figure, dead UNC share stalls the first request 5 s (was L293).
 - [ ] Unexplained, seen once: `TestRandomEdits` seed 77 under `ulimit -n` 28-48 kept `package .../mid is not in module` (was L231).
