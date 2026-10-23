@@ -162,7 +162,17 @@ func (fg *funcGen) funcValue(fl *ast.FuncLit) cppir.Expr {
 	if _, local := fg.g.localLits[fl]; local {
 		// A local closure (localclosure.go): the lambda itself, called where it is made or through
 		// the variable `auto f` that holds it.
-		return fg.lambda(fl)
+		lam := fg.lambda(fl)
+		if lam.Body.Inline {
+			return lam
+		}
+		// Over several lines, in parentheses: `auto f = ([count]() {`, the body, `}`, and `);`
+		// on a line of its own at the statement's line (cppir.Lambda). When nothing follows the
+		// lambda in its expression, g++ gives the code that makes the closure object (the copies
+		// of the captures, such as a box's gp::ptr) the line of the lambda's closing brace, so a
+		// debugger's next over `f := func() {` would stop at the literal's last line; with the
+		// parentheses it is the line of `)`, as for gp::func(...) and with clang++.
+		return &cppir.Paren{X: lam}
 	}
 	if fg.rawLits[fl] {
 		// The argument of a macro's closure parameter (a template parameter of the instance): the

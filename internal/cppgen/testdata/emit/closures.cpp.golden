@@ -238,22 +238,22 @@ void main() {
     gp::ptr<int64_t> count = gp::new_<int64_t>(0);
 #line 159 "$DIR/closures.gp"
     int64_t limit = 3;
-    auto bump = [count, &limit]<int = 7>() mutable -> bool {
+    auto bump = ([count, &limit]<int = 7>() mutable -> bool {
         (*count)++;
         return (*count) < limit;
     }
 #line 160 "$DIR/closures.gp"
-    ;
+    );
 #line 164 "$DIR/closures.gp"
     while (bump()) {
     }
     gp::fmt::Println("count"_gs, (*count));
 #line 169 "$DIR/closures.gp"
-    auto outer = [count]<int = 8>(int64_t k) mutable -> gp::func<void()> {
+    auto outer = ([count]<int = 8>(int64_t k) mutable -> gp::func<void()> {
         return gp::func<void()>([count, k]<int = 1>() mutable -> void { (*count) = (*count) + k; });
     }
 #line 169 "$DIR/closures.gp"
-    ;
+    );
 #line 172 "$DIR/closures.gp"
     outer(5)();
     gp::fmt::Println("count"_gs, (*count));

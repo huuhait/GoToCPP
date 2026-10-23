@@ -12,3 +12,8 @@ python print(classify(unwrap(v.type)))
 up
 #filter ^NEVER
 python print(classify(unwrap(v.type)))
+# A variable that the local closure captures by reference: the value, formatted by gdb (/x too).
+break closures.gp:@ref
+continue
+print k
+print/x k

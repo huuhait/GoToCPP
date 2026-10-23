@@ -1,10 +1,10 @@
-### 00 break closures.gp:20
-Breakpoint 1 at 0xADDR: file closures.gp, line 20.
+### 00 break closures.gp:22
+Breakpoint 1 at 0xADDR: file closures.gp, line 22.
 
 ### 01 run
 
-Breakpoint 1, at closures.gp:20
-20		fmt.Println(add(1), text, err, anon) // @show
+Breakpoint 1, at closures.gp:22
+22		fmt.Println(add(1), text, err, anon) // @show
 
 ### 02 gp locals
 add (func(int) int) = func(0xADDR closure in main.main)
@@ -24,3 +24,18 @@ closure
 ### 07 up
 ### 08 python print(classify(unwrap(v.type)))
 None
+
+### 09 break closures.gp:24
+Breakpoint 2 at 0xADDR: file closures.gp, line 24.
+
+### 10 continue
+4 hi! <nil> {3}
+
+Breakpoint 2, at closures.gp:24
+24			fmt.Println(k) // @ref
+
+### 11 print k
+$3 = 3
+
+### 12 print/x k
+$4 = 0x3

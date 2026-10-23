@@ -40,7 +40,7 @@ the lines are (a line counts once):
 |---|---|---|
 | In a running job | about 9 | recover, `&cvar`, anonymous interface field, reflect, sync.Map, paths and offline, HRESULT, LSP speed: they close at merge |
 | Real bugs a user can hit | about 16 | 8 MiB stack, generic types in functions, range over generic iterator with C++ types, `const d = x+1`, `sys/select.h`, header ending mid-declaration, `check` and `build` disagree, `make([]struct{}, MaxInt)`, builds flaky when several run in one cache, syscall small differences, `-release` traces without frames |
-| Failing or never-run tests and CI | about 9 | `tests/debug` `TestDebug` (11 stale lines), clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
+| Failing or never-run tests and CI | about 9 | clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
 | Performance (no wrong answer) | about 8 | timers, string maps, panic from a callee, `iter.Pull`, `-O0` default speed |
 | Old review leftovers ("lows" bundles) | about 20 | 6.x, 7.x, 8.x, 10.x, 12.x, 13.x, 14.x, 15.x bundles: mutants, cosmetic output, rare shapes |
 | Cosmetic, stale comments, docs | about 15 | wording, stale text, missing run tests |
@@ -161,7 +161,8 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Tooling (debugger, vet, test runner, fuzz, tests infrastructure)
 
-- [ ] `tests/debug` `TestDebug` fails on dev with 11 lines (closures.gp:23 a capture by reference prints `(int64_t &) @0x..: 5` where the test wants `5`, closures.gp:37 `next 38 42` over a local lambda declaration differs by compiler, pointers.gp:24 `x` is no longer boxed so `print *x` fails): the programs are stale since ADR-114 (done: gdb printers and `gp catch panic` in job 13.gdbprinters).
+- [ ] `internal/cppgen` `TestUnsupported/bytes-named-elem` and `runes-named-elem` fail on dev (`got <nil>, want an *Error`) since ffe1c8d5 (phase 9 step 9.11 tier-2 packages); found by the dev.debugtests review.
+- [ ] lldb shows a variable captured by reference as a C++ reference (the dev.debugtests reference printer is gdb only); a captured C enum or C pointer still prints as `&GREEN @0x...` under gdb.
 - [ ] `TestRandomEdits` (internal/lsp/server) seeds 101, 108, 111 and 112 (1200 edits) fail on dev: the incremental server's `workspace/symbol` "New" for mid/mid.gp lacks `containerName` (found by the 11.lspgap5 review).
 - [ ] `TestSourceMemoCompilerRunsPerEdit` (internal/lsp/cache) is timing-dependent: it polls with 1 s waits and counts compiler runs, so a loaded machine can start extra runs (5 runs, want <=3); passes 20 of 20 alone (dev.walltests family).
 - [ ] gdb printers: `info locals` and raw gdb `print` still show raw closure structs on clang++ and `n = &6` for a g++ box; exotic Go types (a struct or interface with members, an array length that is a name) print as `func(...)`; a generic type argument that is a type parameter prints the parameter name inside a generic function.

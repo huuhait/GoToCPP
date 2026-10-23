@@ -22,6 +22,12 @@ def load():
     g.GdbError = type("GdbError", (Exception,), {})
     g.TYPE_CODE_STRUCT = 3
     g.TYPE_CODE_PTR = 1
+    g.TYPE_CODE_INT = 8
+    g.TYPE_CODE_FLT = 9
+    g.TYPE_CODE_REF = 16
+    g.TYPE_CODE_RVALUE_REF = 17
+    g.TYPE_CODE_CHAR = 20
+    g.TYPE_CODE_BOOL = 21
     g.BreakpointEvent = type("BreakpointEvent", (), {})
     for name in ("Command", "Function", "Parameter"):
         setattr(g, name, type(name, (), {"__init__": lambda self, *a, **k: None}))
@@ -606,6 +612,66 @@ class ClosureType(unittest.TestCase):
         self.assertFalse(self.check(T("gp_anon_1", tag="gp_anon_1"), True))
         self.assertFalse(self.check(T("gpkg_main::T", tag="gpkg_main::T"), True))
         self.assertFalse(self.check(T("int", code=8), True))
+
+
+class ScalarRefs(unittest.TestCase):
+    """A reference to a scalar (a variable that a local closure captures by reference) prints as
+    the value it refers to, in a frame of a .gp file only: a C++ program's references are left to
+    gdb."""
+
+    STUB = sys.modules["gdb"]
+
+    class Type:
+        def __init__(self, code, target=None):
+            self.code = code
+            self._target = target
+
+        def strip_typedefs(self):
+            return self
+
+        def target(self):
+            return self._target
+
+    class Value:
+        def __init__(self, t, referenced=None):
+            self.type = t
+            self.referenced = referenced
+
+        def referenced_value(self):
+            return self.referenced
+
+    def ref(self, code, rvalue=False):
+        g = self.STUB
+        return self.Type(g.TYPE_CODE_RVALUE_REF if rvalue else g.TYPE_CODE_REF, self.Type(code))
+
+    def lookup(self, v, in_go):
+        old = G._in_go_frame
+        G._in_go_frame = lambda: in_go
+        try:
+            return G.lookup(v)
+        finally:
+            G._in_go_frame = old
+
+    def test_scalar_references(self):
+        g = self.STUB
+        for code in (g.TYPE_CODE_INT, g.TYPE_CODE_FLT, g.TYPE_CODE_BOOL, g.TYPE_CODE_CHAR):
+            self.assertTrue(G.is_scalar_ref(self.ref(code)), code)
+            self.assertTrue(G.is_scalar_ref(self.ref(code, rvalue=True)), code)
+
+    def test_other_types_are_not_scalar_references(self):
+        g = self.STUB
+        self.assertFalse(G.is_scalar_ref(self.Type(g.TYPE_CODE_INT)))  # the value, not a reference
+        self.assertFalse(G.is_scalar_ref(self.ref(g.TYPE_CODE_PTR)))
+        self.assertFalse(G.is_scalar_ref(self.ref(g.TYPE_CODE_STRUCT)))  # a gp:: type: its Printer
+
+    def test_in_a_go_frame_it_prints_the_value(self):
+        five = object()
+        p = self.lookup(self.Value(self.ref(self.STUB.TYPE_CODE_INT), five), True)
+        self.assertIsInstance(p, G.RefPrinter)
+        self.assertIs(p.to_string(), five)  # the gdb.Value, which gdb formats (print/x)
+
+    def test_outside_a_go_frame_gdb_prints_it(self):
+        self.assertIsNone(self.lookup(self.Value(self.ref(self.STUB.TYPE_CODE_INT)), False))
 
 
 class PanicStops(unittest.TestCase):

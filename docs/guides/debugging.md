@@ -181,7 +181,10 @@ without Python gdb still debugs the program, with C++ names and without printers
   `gp::local_ptr<T>`, which holds the object itself). `gocpp build -gp:m` says which variables are
   which. In a closure, `gp locals` lists the
   captured variables too (under their Go names; the C++ calls them `__count` in g++; a variable that
-  the closure captures by reference is read through the reference).
+  the closure captures by reference is read through the reference). gdb's own `print` shows such a
+  variable as its value too, as in its function (`print k` is `5`, not `(int64_t &) @0x7ffe...: 5`):
+  a C++ reference to a number or a bool prints as the value it refers to in a frame of a `.gp` file,
+  and stays gdb's in the other frames.
 - A func literal that is only called in its function (the escape analysis keeps it local) is a plain C++
   lambda on the stack, not a `gp::func`. `print`, `info locals` and `gp locals` show it as a func value,
   `inc (func()) = func(0x7fffffffe2a8 closure in main.main)`: the address is the closure object's, and

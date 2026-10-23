@@ -135,9 +135,14 @@ What the debugger shows in this phase (the gdb and lldb pretty printers come wit
 - **Closures.** A func literal is a C++ lambda whose body keeps its `.gp` lines
   ([closures.gp](closures.gp)): `break` and `next` work in it, and `print` shows its parameters,
   its locals and what it captured by their Go names (a variable that the closure shares with its
-  function is boxed: `print *count`), and `next` over a statement that makes a closure goes on to
+  function is boxed: `print *count`; one that only a local closure uses, a literal that is only
+  called where it is made ([ADR-114](../../docs/adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)),
+  is captured by reference, and gdb without gocpp's printers shows the reference:
+  `(int64_t &) @0x7fffffff9300: 5`), and `next` over a statement that makes a closure goes on to
   the next statement (the C++ after the lambda's closing brace, `);`, is mapped to the
-  statement's line, not to the brace's). gdb names the lambda's frame `operator()<>(int64_t)` (g++)
+  statement's line, not to the brace's; a local closure `f := func() {` is `auto f = ([...]() {`
+  for that, as g++ would give the copies of its captures the brace's line without the `)`). gdb
+  names the lambda's frame `operator()<>(int64_t)` (g++)
   or `gpkg_main::main()::$_0::operator()<1>(long)` (clang++); the `<1>` is the literal's number in
   its function, as in Go's `main.main.func1`. Between the lambda and the frame that called the
   func value are two frames of `gp::func` (`gocpp/func.hpp`): `operator()` (or `gp_call`) and

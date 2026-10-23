@@ -1823,9 +1823,36 @@ class Printer:
         return None
 
 
+def is_scalar_ref(t):
+    """Whether the type t is a C++ reference to a bool, an integer, a character or a floating-point
+    number: a variable that a local closure captures by reference (ADR-114), or a reference that
+    an expression returns."""
+    t = t.strip_typedefs()
+    if t.code not in (gdb.TYPE_CODE_REF, gdb.TYPE_CODE_RVALUE_REF):
+        return False
+    scalars = (gdb.TYPE_CODE_BOOL, gdb.TYPE_CODE_INT, gdb.TYPE_CODE_CHAR, gdb.TYPE_CODE_FLT)
+    return t.target().strip_typedefs().code in scalars
+
+
+class RefPrinter:
+    """A reference to a scalar prints as the value it refers to, the way the variable itself
+    prints: in a closure that captured k by reference, print k is 5, not (int64_t &) @0x...: 5.
+    to_string returns the value, not its text, so gdb formats it (print/x k is 0x5)."""
+
+    def __init__(self, v):
+        self.v = v
+
+    def to_string(self):
+        return self.v.referenced_value()
+
+
 def lookup(v):
-    """gdb's printer lookup: a Printer for the values of the runtime's and the emitter's types."""
+    """gdb's printer lookup: a Printer for the values of the runtime's and the emitter's types, and
+    a RefPrinter for a reference to a scalar in a frame of a .gp file (a C++ program's references
+    are left to gdb)."""
     try:
+        if is_scalar_ref(v.type):
+            return RefPrinter(v) if _in_go_frame() else None
         t = unwrap(v.type)
         if t.code != gdb.TYPE_CODE_STRUCT:
             return None
