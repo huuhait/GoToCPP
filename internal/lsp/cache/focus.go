@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/huuhait/gocpp/internal/check"
+	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/memoize"
 	"github.com/huuhait/gocpp/internal/syntax/gpast"
@@ -31,13 +32,20 @@ import (
 //   - the configuration, the module, the imports with their API hashes, the metadata of the imports
 //     and the list of the files are the same, and exactly one file differs (focusBase.changed);
 //   - the base is a plain package: nothing from C or C++ in it, no macros, `!` forms, #Derive
-//     lines, directives or generics, no line mappings in any file, and no error of loading
+//     lines or directives, no line mappings in any file, and no error of loading
 //     (Package.focusEligible);
+//   - with generic declarations in the package, the gates allow generics at the phase; and no
+//     instantiation, in the base or in the focused check, has a type argument that gives
+//     go/types' check of instantiation cycles an edge of weight 1 (weightedInstance), so that
+//     neither check can report a cycle;
 //   - the change lies inside the body of one function, between its braces, and the braces of the
 //     new text are where the change puts them (proveBodyEdit); the new text has no syntax error and
 //     its edit brought no C, namespace, macro or `!` form (focusRequest.accept);
 //   - the initializer of no package-level variable uses a function or a variable of the package,
-//     so that no initialization cycle goes through a function body (initializersUseLocals).
+//     so that no initialization cycle goes through a function body (initializersUseLocals);
+//   - no file but the edited one has an error in a body that the focused check leaves out, or an
+//     error that go/types leaves out after a first error (focusErrorFiles): go/types reports some
+//     errors only when none came before them.
 //
 // A plain package has no C or C++ in it and no directive, so its check asks for no probe (the
 // compiler, a header, pkg-config) and replaces no constant; the body of a function cannot change
@@ -46,6 +54,23 @@ import (
 // With those, go/types sees the same package-level declarations, and the same bodies in every file
 // but the edited one: what it reports for the other files has not changed, and what it reports for
 // the edited file does not depend on their bodies.
+//
+// Generics. go/types checks the body of a generic function once, with its type parameters, and an
+// instantiation of it or of a generic type at the place of the instantiation, from the
+// declarations alone (the signature, the constraints, the methods of the type): no function body
+// of another file is needed for the answers in the edited file. Two things are not of one place:
+//
+//   - a generic function without a body is an error of go/types ("generic function is missing
+//     function body"), so the focused check keeps the bodies of the generic functions of the other
+//     files (check.stripOtherBodies, parser.SkipFuncBodies). A method of a generic type has no
+//     type parameters of its own and loses its body as any other;
+//   - the check of instantiation cycles (go/types, mono.go) runs over the instantiations of the
+//     whole package, when the package has no other error, and reports the first cycle it finds,
+//     which can be at any file. A cycle needs an edge of weight 1: an instantiation of a generic
+//     of the package with a type argument that is not a type parameter itself but has one in it
+//     (F[[]T], Box[Pair[K, V]]), or that has a type declared in a generic function. With no such
+//     argument in the base (all the bodies, the old one of the edited function too) and none in
+//     the focused check (the new body), neither check reports a cycle.
 
 // errFocusDeclined is what a focused check returns when it finds that the shortcut does not apply.
 var errFocusDeclined = errors.New("cache: no focused check")
@@ -54,6 +79,10 @@ var errFocusDeclined = errors.New("cache: no focused check")
 type focusBase struct {
 	env   Hash // the key of the check without the content of the files (focusEnv)
 	files []focusFile
+
+	// genericsOpen says that the gates of the phase allow generic functions and types
+	// (check.GenericsOpen): a base with generic declarations is eligible only then.
+	genericsOpen bool
 
 	// memo holds the focused checks made against this base, by the content of the file they are for:
 	// the base, the environment and the content of the one file that differs say everything that the
@@ -135,7 +164,10 @@ func (p *Pipeline) newFocusBase(h *handle, k *keyed) *focusBase {
 	if h.id.std || h.cyclic || h.variant || k.variant {
 		return nil
 	}
-	b := &focusBase{env: p.focusEnv(h, k), files: make([]focusFile, len(h.files))}
+	b := &focusBase{
+		env: p.focusEnv(h, k), files: make([]focusFile, len(h.files)),
+		genericsOpen: check.GenericsOpen(p.cfg.Phase),
+	}
 	for i, f := range h.files {
 		b.files[i] = focusFile{f.path, f.hash}
 	}
@@ -183,7 +215,7 @@ func (s *Snapshot) Focused(ctx context.Context, dir string, base *Package) (*Pac
 		return nil, err
 	}
 	path, ok := base.focus.changed(st.p.focusEnv(h, k), h.files)
-	if !ok {
+	if !ok || otherErrors(base, path) {
 		return nil, nil
 	}
 	var newSrc []byte
@@ -285,7 +317,12 @@ func plainPackage(root *load.Package) bool {
 // focusEligible reports whether focused checks may follow the check pkg (see above): it is a plain
 // Go package without the forms that tie the function bodies to the declarations.
 func (pkg *Package) focusEligible() bool {
-	pkg.focusOnce.Do(func() { pkg.focusOK = pkg.computeFocusEligible() })
+	pkg.focusOnce.Do(func() {
+		pkg.focusOK = pkg.computeFocusEligible()
+		if pkg.focusOK {
+			pkg.focusErrFiles = focusErrorFiles(pkg)
+		}
+	})
 	return pkg.focusOK
 }
 
@@ -310,15 +347,98 @@ func (pkg *Package) computeFocusEligible() bool {
 	if cp.Load != root || !plainPackage(root) {
 		return false
 	}
+	generic := false
 	for _, f := range root.Files {
-		if hasGenerics(f.AST) || len(gpast.Leftovers(f.AST)) != 0 {
+		if len(gpast.Leftovers(f.AST)) != 0 {
 			return false
 		}
 		if hasLineDirective(pkg.Program.Fset, f.AST) {
 			return false
 		}
+		generic = generic || hasGenerics(f.AST)
 	}
-	return true
+	if generic && (pkg.focus == nil || !pkg.focus.genericsOpen) {
+		return false
+	}
+	// Also without a generic declaration at the package level: a generic type can be declared in
+	// a function (ADR-141).
+	return !weightedInstance(cp.Types, cp.Info)
+}
+
+// focusErrorFiles returns the files of the base pkg whose errors make a focused check of any other
+// file decline: go/types leaves out a later error whose message has "invalid operand" or "invalid
+// type" after its start once it has reported an error (errors.go, report), so the errors that the
+// two checks see before an error of the edited file must be the same.
+//
+//   - An error in a function body that the focused check of another file leaves out: the full check
+//     reports it, the focused one does not, and such an error of the edited file would be left out
+//     by one and reported by the other. (go/types checks the bodies in an order of its own, the
+//     methods before the functions, so every such body counts, wherever it is.)
+//   - An error whose message has either text after its start: go/types reported it with no error
+//     before it, and an edit that adds the first error before it would make the full check leave
+//     it out, while the focused check publishes the edited file only and the old error stays.
+//
+// A base that has neither for a file other than the edited one gives both checks the same errors
+// of the other files up to the end of the bodies (the errors of the declarations are the same; the
+// focused check's own "imported and not used" errors come after the bodies). An edit that removes
+// the first error and so lets a dropped error of another file back is not covered (ADR-115,
+// amendment).
+func focusErrorFiles(pkg *Package) map[string]bool {
+	files := make(map[string]bool)
+	diags := pkg.Check.Errors.Diagnostics()
+	if len(diags) == 0 {
+		return files
+	}
+	fset := pkg.Program.Fset
+	type span struct{ from, to int }
+	bodies := make(map[string][]span) // the bodies that a focused check of another file strips
+	for _, f := range pkg.Program.Roots[0].Files {
+		for _, decl := range f.AST.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Type.TypeParams != nil || fn.Recv == nil && fn.Name.Name == "init" {
+				continue
+			}
+			from := fset.PositionFor(fn.Body.Lbrace, false)
+			to := fset.PositionFor(fn.Body.Rbrace, false)
+			bodies[from.Filename] = append(bodies[from.Filename], span{from.Offset, to.Offset})
+		}
+	}
+	for _, d := range diags {
+		if d.Severity != diag.Error {
+			continue
+		}
+		if d.Replaces {
+			// A gate error in the place of one of go/types: go/types reported that one, whose
+			// message is not known here (it could have either text), so it counts wherever it is.
+			files[d.Pos.Filename] = true
+			continue
+		}
+		if d.Gate {
+			continue // not an error of go/types
+		}
+		if strings.Index(d.Msg, "invalid operand") > 0 || strings.Index(d.Msg, "invalid type") > 0 {
+			files[d.Pos.Filename] = true
+			continue
+		}
+		for _, b := range bodies[d.Pos.Filename] {
+			if b.from <= d.Pos.Offset && d.Pos.Offset <= b.to {
+				files[d.Pos.Filename] = true
+				break
+			}
+		}
+	}
+	return files
+}
+
+// otherErrors reports whether the base has an error that makes a focused check of the file path
+// decline (focusErrorFiles) in a file other than path.
+func otherErrors(base *Package, path string) bool {
+	for name := range base.focusErrFiles {
+		if name != path {
+			return true
+		}
+	}
+	return false
 }
 
 // hasLineDirective recognizes directives in parsed comments, not text in string literals. As in
@@ -341,8 +461,8 @@ func hasLineDirective(fset *token.FileSet, file *ast.File) bool {
 	return false
 }
 
-// hasGenerics reports whether the file declares a type parameter (go/types checks the
-// instantiations of the whole package together, through its bodies).
+// hasGenerics reports whether the file declares a generic function or a generic type at the
+// package level.
 func hasGenerics(f *ast.File) bool {
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
@@ -355,6 +475,122 @@ func hasGenerics(f *ast.File) bool {
 				if ts, ok := spec.(*ast.TypeSpec); ok && ts.TypeParams != nil {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+// weightedInstance reports whether an instantiation that info records (pkg is the package that
+// info is of) is of a generic function or type of pkg, with a type argument that gives go/types'
+// graph of instantiation cycles (mono.go) an edge of weight 1: one that is not a type parameter
+// itself but has a type parameter in it (F[[]T], Box[Pair[K, V]]), or that has a type declared in a
+// generic function. go/types reports a cycle of that graph only when it has such an edge, and it
+// makes edges only for the generics of its own package. It errs on the side of true: an
+// instantiation whose generic is not known, or a type it does not know how to walk.
+func weightedInstance(pkg *types.Package, info *types.Info) bool {
+	for id, inst := range info.Instances {
+		obj := info.Uses[id]
+		if obj == nil {
+			return true
+		}
+		if obj.Pkg() != pkg {
+			continue
+		}
+		if inst.TypeArgs == nil {
+			return true
+		}
+		for targ := range inst.TypeArgs.Types() {
+			if _, ok := targ.(*types.TypeParam); ok {
+				continue // an edge of weight 0 (an alias of one is not: go/types compares the types)
+			}
+			if flowsParam(pkg, targ, 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// flowsParam reports whether the type t, a type argument, has a type parameter in it, or a type of
+// pkg declared in a generic function, where go/types' walk of a type argument (mono.go, assign)
+// finds them: the type arguments of a named type, the elements and keys of the composite types, the
+// methods of an interface, the parameters and results of a signature, the fields of a struct.
+func flowsParam(pkg *types.Package, t types.Type, depth int) bool {
+	if depth > 100 {
+		return true
+	}
+	depth++
+	switch t := types.Unalias(t).(type) {
+	case *types.TypeParam:
+		return true
+	case *types.Named:
+		if obj := t.Origin().Obj(); obj.Pkg() == pkg && obj.Parent() != pkg.Scope() && inGenericScope(pkg, obj) {
+			return true
+		}
+		for a := range t.TypeArgs().Types() {
+			if flowsParam(pkg, a, depth) {
+				return true
+			}
+		}
+		return false
+	case *types.Basic:
+		return false
+	case *types.Array:
+		return flowsParam(pkg, t.Elem(), depth)
+	case *types.Chan:
+		return flowsParam(pkg, t.Elem(), depth)
+	case *types.Pointer:
+		return flowsParam(pkg, t.Elem(), depth)
+	case *types.Slice:
+		return flowsParam(pkg, t.Elem(), depth)
+	case *types.Map:
+		return flowsParam(pkg, t.Key(), depth) || flowsParam(pkg, t.Elem(), depth)
+	case *types.Interface:
+		for i := range t.NumMethods() {
+			if flowsParam(pkg, t.Method(i).Type(), depth) {
+				return true
+			}
+		}
+		return false
+	case *types.Signature:
+		return flowsTuple(pkg, t.Params(), depth) || flowsTuple(pkg, t.Results(), depth)
+	case *types.Struct:
+		for i := range t.NumFields() {
+			if flowsParam(pkg, t.Field(i).Type(), depth) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// flowsTuple is flowsParam for each variable of the tuple.
+func flowsTuple(pkg *types.Package, tup *types.Tuple, depth int) bool {
+	for v := range tup.Variables() {
+		if flowsParam(pkg, v.Type(), depth) {
+			return true
+		}
+	}
+	return false
+}
+
+// inGenericScope reports whether a type parameter is declared before obj, a type of pkg declared in
+// a function, in a scope around it: the type is then implicitly parameterized by it (mono.go,
+// localNamedVertex). A scope chain that does not end at the package errs on the side of true.
+func inGenericScope(pkg *types.Package, obj *types.TypeName) bool {
+	for s := obj.Parent(); s != pkg.Scope(); s = s.Parent() {
+		if s == nil {
+			return true
+		}
+		for _, name := range s.Names() {
+			tn, ok := s.Lookup(name).(*types.TypeName)
+			if !ok || tn.IsAlias() || tn.Pos() >= obj.Pos() {
+				continue
+			}
+			if _, ok := tn.Type().(*types.TypeParam); ok {
+				return true
 			}
 		}
 	}
@@ -554,6 +790,11 @@ func (p *Pipeline) focusedPackage(
 		return nil, errFocusDeclined
 	}
 	if initializersUseLocals(root, cp) {
+		return nil, errFocusDeclined
+	}
+	// The new body can instantiate the generics of the package (the base's are known not to give
+	// a cycle: focusEligible).
+	if weightedInstance(cp.Types, cp.Info) {
 		return nil, errFocusDeclined
 	}
 	src := make(map[string][]byte, len(h.files))

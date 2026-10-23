@@ -255,11 +255,13 @@ type Package struct {
 
 	// For focused checks (focus.go): focus is what a check that may have focused checks after it
 	// keeps (nil: none may), focused is the file of a focused package, and focusOK says whether the
-	// package is plain enough for them (focusOnce).
-	focus     *focusBase
-	focused   string
-	focusOnce sync.Once
-	focusOK   bool
+	// package is plain enough for them (focusOnce). focusErrFiles are the files whose errors make a
+	// focused check of another file decline (focusErrorFiles).
+	focus         *focusBase
+	focused       string
+	focusOnce     sync.Once
+	focusOK       bool
+	focusErrFiles map[string]bool
 }
 
 type memoEntry struct {

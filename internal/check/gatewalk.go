@@ -1203,7 +1203,9 @@ func (g *gateChecker) apply() {
 			for _, i := range at[d.Pos] {
 				if r := g.replacements[i]; !used[i] && r.match(d.Msg) {
 					used[i] = true
-					return []diag.Diagnostic{toDiag(r.finding)}
+					gd := toDiag(r.finding)
+					gd.Replaces = true
+					return []diag.Diagnostic{gd}
 				}
 			}
 			return []diag.Diagnostic{d}

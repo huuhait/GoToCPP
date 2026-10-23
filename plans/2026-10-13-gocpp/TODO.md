@@ -165,7 +165,8 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### LSP
 
-- [ ] LSP: typing in a package with generic declarations is a full check (ADR-115's focused check declines), about 1.3-2.2 ms more per edit than gopls; `large keystroke-generic` is 2.05-2.26x gopls p95, the only row over 2x after job 11.lspgap5 (ADR-142 Measurements). Repro: `lspbench -projects large -only keystroke-new,keystroke-generic -runs 5`.
+- [ ] LSP focused check, error order (ADR-115 amendment, case 3): an edit that removes the only earlier error of a package lets a go/types follow-on error ("invalid operand/type") of another file come back; the client gets it only at the settle run, 100 ms later.
+- [ ] LSP focused check, speed only: a package with any weight-1 instantiation (`List[Pair[K, V]]` in a generic map) declines every focused check after the next full check; a precise version would rebuild mono.go's graph (base edges minus the old body plus the new body) and decline only on a new cycle.
 - [ ] docs/benchmarks/lsp.md is from 2026-10-18 (before 11.lspgap5): regenerate it with one `make lsp-bench` on a quiet machine (load under ~16); the 2026-10-23 figures are in ADR-142.
 - [ ] 11.11: references/rename on never-opened packages have no budget row (cold 0.6-1.1 s); the 11.8 numbers in docs/guides/editors.md were taken under load (was L218).
 - [ ] 14.5 lows carried: no server-side file watcher (client `didChangeWatchedFiles` only), dead UNC share stalls the first request 5 s (was L293).

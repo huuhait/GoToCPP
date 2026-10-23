@@ -52,6 +52,15 @@ func (c Config) phase() int {
 	return max(p, floorPhase)
 }
 
+// GenericsOpen reports whether the gates of the phase (as Config.Phase has it) allow generic
+// functions and generic types, so that no gate error reports a type parameter. The language
+// server's focused check (internal/lsp/cache, focus.go) needs it: its gates see the type parameter
+// lists of the edited file only, and could name the wrong one of the two features.
+func GenericsOpen(phase int) bool {
+	p := Config{Phase: phase}.phase()
+	return features[featGenerics].allowed(p) && features[featGenericTypes].allowed(p)
+}
+
 // A featureID names a row of the features table.
 type featureID int
 

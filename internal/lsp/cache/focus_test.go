@@ -296,14 +296,55 @@ func TestFocusedDeclines(t *testing.T) {
 			},
 		},
 		{
-			name: "a generic function in another file",
+			// A generic function of another file instantiates one with a type argument made of its
+			// type parameter: an edge of weight 1 of go/types' graph of instantiation cycles.
+			name: "a weighted instantiation in another file",
 			files: func() map[string]string {
 				f := focusModule()
-				f["lib/b.gp"] += "\nfunc Pick[T any](x, y T) T { return x }\n"
+				f["lib/b.gp"] += "\nfunc Pick[T any](x, y T) T { return x }\n\n" +
+					"func Nest[T any](x T) []T { return Pick[[]T](nil, nil) }\n"
 				return f
 			},
 			edits: func(f map[string]string) map[string]string {
 				return editA(f, "c.n += k + 1")
+			},
+		},
+		{
+			name: "the constraint of a generic function",
+			files: func() map[string]string {
+				f := focusModule()
+				f[a] += "\nfunc Pick[T any](x, y T) T {\n\treturn x // GEDIT\n}\n"
+				return f
+			},
+			edits: func(f map[string]string) map[string]string {
+				return map[string]string{a: strings.Replace(f[a], "Pick[T any]", "Pick[T comparable]", 1)}
+			},
+		},
+		{
+			name: "the type parameters of a generic type",
+			files: func() map[string]string {
+				f := focusModule()
+				f[a] += "\ntype Box[T any] struct{ v T }\n\nfunc (b Box[T]) Get() T {\n\treturn b.v // GEDIT\n}\n"
+				return f
+			},
+			edits: func(f map[string]string) map[string]string {
+				text := strings.Replace(f[a], "Box[T any] struct{ v T }", "Box[T, U any] struct{ v T }", 1)
+				return map[string]string{a: strings.Replace(text, "(b Box[T])", "(b Box[T, U])", 1)}
+			},
+		},
+		{
+			// The body of the generic function instantiates it with []T: a cycle, which go/types
+			// reports when the package has no other error.
+			name: "an instantiation cycle typed in a generic function",
+			files: func() map[string]string {
+				f := focusModule()
+				f[a] += "\nfunc Pick[T any](x, y T) T {\n\treturn x // GEDIT\n}\n"
+				return f
+			},
+			loaded: true,
+			edits: func(f map[string]string) map[string]string {
+				return map[string]string{a: strings.Replace(f[a], "return x // GEDIT",
+					"_ = Pick[[]T](nil, nil)\n\treturn x // GEDIT", 1)}
 			},
 		},
 		{

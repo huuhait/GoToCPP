@@ -3,17 +3,21 @@ package cache
 import (
 	"context"
 	"go/ast"
+	"go/token"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/huuhait/gocpp/internal/lsp/bench"
+	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
 // The sweep: in every function of every file of a body of code, three edits of its body, each
@@ -226,4 +230,109 @@ func TestFocusedSweepCorpus(t *testing.T) {
 			t.Logf("%d modules, %d of %d edits answered", len(modules), answered, total)
 		})
 	}
+}
+
+// TestFocusedSweepGenericSplit runs the sweep over the programs of tests/run with generic
+// declarations, each split into two files (splitDecls), so that the edited file uses the generics
+// of the other file and the other file's bodies are left out of the focused check.
+func TestFocusedSweepGenericSplit(t *testing.T) {
+	names, err := filepath.Glob(filepath.Join("..", "..", "..", "tests", "run", "*.gp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(names)
+	var modules []map[string]string
+	for _, name := range names {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a, b, ok := splitDecls(string(data)); ok {
+			modules = append(modules, map[string]string{"gocpp.mod": "module example.com/t\n", "a.gp": a, "b.gp": b})
+		}
+	}
+	if len(modules) < 100 {
+		t.Fatalf("%d programs with generics, want 100 or more", len(modules))
+	}
+	for _, phase := range focusPhases {
+		t.Run(phaseName(phase), func(t *testing.T) {
+			total, answered := 0, 0
+			for _, files := range modules {
+				edits, n := sweepFocused(t, files, phase)
+				total += edits
+				answered += n
+			}
+			if answered == 0 {
+				t.Fatalf("the focused check answered none of the %d edits", total)
+			}
+			t.Logf("%d programs, %d of %d edits answered", len(modules), answered, total)
+		})
+	}
+}
+
+// splitDecls splits the program src, when it has a generic declaration and none of the forms that
+// the focused check declines anyway, into two files of the same package: the declarations in turn,
+// each file with the imports whose names its text uses.
+func splitDecls(src string) (a, b string, ok bool) {
+	if strings.Contains(src, "//gocpp:") || strings.Contains(src, "//line") || strings.Contains(src, "/*line") || strings.Contains(src, "#") {
+		return "", "", false
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x.gp", src, parser.ParseComments|parser.Phase10Syntax)
+	if err != nil || !hasGenerics(f) {
+		return "", "", false
+	}
+	tok := fset.File(f.Pos())
+	var imports []*ast.ImportSpec
+	var parts [2][]string
+	n := 0
+	for _, decl := range f.Decls {
+		if gd, ok := decl.(*ast.GenDecl); ok && gd.Tok == token.IMPORT {
+			for _, spec := range gd.Specs {
+				imports = append(imports, spec.(*ast.ImportSpec))
+			}
+			continue
+		}
+		start := decl.Pos()
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Doc != nil {
+				start = d.Doc.Pos()
+			}
+		case *ast.GenDecl:
+			if d.Doc != nil {
+				start = d.Doc.Pos()
+			}
+		}
+		parts[n%2] = append(parts[n%2], src[tok.Offset(start):tok.Offset(decl.End())])
+		n++
+	}
+	if len(parts[1]) == 0 {
+		return "", "", false
+	}
+	file := func(decls []string) string {
+		body := strings.Join(decls, "\n\n")
+		var b strings.Builder
+		b.WriteString("package " + f.Name.Name + "\n\n")
+		for _, spec := range imports {
+			p, _ := strconv.Unquote(spec.Path.Value)
+			name := path.Base(p)
+			if regexp.MustCompile(`^v[0-9]+$`).MatchString(name) {
+				name = path.Base(path.Dir(p))
+			}
+			if spec.Name != nil {
+				name = spec.Name.Name
+			}
+			if name == "_" || name == "." || regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\.`).MatchString(body) {
+				b.WriteString("import ")
+				if spec.Name != nil {
+					b.WriteString(spec.Name.Name + " ")
+				}
+				b.WriteString(spec.Path.Value + "\n")
+			}
+		}
+		b.WriteString("\n" + body + "\n")
+		return b.String()
+	}
+	return file(parts[0]), file(parts[1]), true
 }

@@ -1,12 +1,12 @@
 diff --git a/internal/syntax/parser/gocpp_skipbodies_test.go b/internal/syntax/parser/gocpp_skipbodies_test.go
 new file mode 100644
-index 00000000..af732f9e
+index 00000000..6db68235
 --- /dev/null
 +++ b/internal/syntax/parser/gocpp_skipbodies_test.go
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,176 @@
 +// The tests of gocpp's patch 8 (../FORK.md §4): SkipFuncBodies leaves the bodies of functions out
-+// of the tree. This file is gocpp's own, not upstream's: ../patches/0008-skip-func-bodies.patch
-+// adds it.
++// of the tree, but not those of init, macros and generic functions. This file is gocpp's own, not
++// upstream's: ../patches/0008-skip-func-bodies.patch adds it.
 +
 +package parser
 +
@@ -43,6 +43,14 @@ index 00000000..af732f9e
 +}
 +
 +func Last() {}
++
++func Gen[T any](x T) T {
++	return x
++}
++
++type Box[T any] struct{ v T }
++
++func (b Box[T]) Get() T { return b.v }
 +
 +var after = 1
 +`
@@ -84,6 +92,13 @@ index 00000000..af732f9e
 +	})
 +	t.Run("init keeps its body", func(t *testing.T) {
 +		if !got["init"] {
++			t.Errorf("bodies: %v", got)
++		}
++	})
++	// go/types reports a generic function without a body ("generic function is missing function
++	// body"); a method of a generic type has no type parameters of its own, and loses its body.
++	t.Run("a generic function keeps its body", func(t *testing.T) {
++		if !got["Gen"] || got["Get"] {
 +			t.Errorf("bodies: %v", got)
 +		}
 +	})
@@ -166,19 +181,19 @@ index 00000000..af732f9e
 +	}
 +}
 diff --git a/internal/syntax/parser/interface.go b/internal/syntax/parser/interface.go
-index aeb3d854..d4264d22 100644
+index aeb3d854..03e0c2c0 100644
 --- a/internal/syntax/parser/interface.go
 +++ b/internal/syntax/parser/interface.go
 @@ -55,6 +55,7 @@ const (
  	SpuriousErrors                                    // same as AllErrors, for backward-compatibility
  	SkipObjectResolution                              // skip deprecated identifier resolution; see ParseFile
  	Phase10Syntax                                     // gocpp: parse the syntax of Phase 10 (F!(x), func f!(), #Name(...), macro, lazy); see ../FORK.md
-+	SkipFuncBodies                                    // gocpp: leave function bodies out of the tree; see ../FORK.md
++	SkipFuncBodies                                    // gocpp: leave the bodies of functions (not init, macros, generic functions) out of the tree; see ../FORK.md
  	AllErrors            = SpuriousErrors             // report all errors (not just the first 10 on different lines)
  )
  
 diff --git a/internal/syntax/parser/parser.go b/internal/syntax/parser/parser.go
-index 124433c9..d664101a 100644
+index 124433c9..10a3b891 100644
 --- a/internal/syntax/parser/parser.go
 +++ b/internal/syntax/parser/parser.go
 @@ -1556,6 +1556,27 @@ func (p *parser) parseBody() *ast.BlockStmt {
@@ -214,7 +229,7 @@ index 124433c9..d664101a 100644
  	switch p.tok {
  	case token.LBRACE:
 -		body = p.parseBody()
-+		if p.mode&SkipFuncBodies != 0 && !macro && !(recv == nil && ident.Name == "init") {
++		if p.mode&SkipFuncBodies != 0 && !macro && tparams == nil && !(recv == nil && ident.Name == "init") {
 +			p.skipBody()
 +		} else {
 +			body = p.parseBody()

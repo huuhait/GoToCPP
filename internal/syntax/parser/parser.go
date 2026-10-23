@@ -2966,7 +2966,7 @@ func (p *parser) parseFuncDeclRest(doc *ast.CommentGroup, pos token.Pos, macro b
 	var body *ast.BlockStmt
 	switch p.tok {
 	case token.LBRACE:
-		if p.mode&SkipFuncBodies != 0 && !macro && !(recv == nil && ident.Name == "init") {
+		if p.mode&SkipFuncBodies != 0 && !macro && tparams == nil && !(recv == nil && ident.Name == "init") {
 			p.skipBody()
 		} else {
 			body = p.parseBody()

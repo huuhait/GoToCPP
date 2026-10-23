@@ -391,3 +391,87 @@ func TestDiagnoseOnlyTheEditedFile(t *testing.T) {
 		}
 	})
 }
+
+// errorOrderCases are the edits of the error-order guard of the focused check (focusErrorFiles in
+// internal/lsp/cache): go/types leaves out a later error with "invalid operand" or "invalid type"
+// after the start of its message once it has reported one. Case 1: an error in a body of another
+// file, which the focused check leaves out, comes first in the full check, so the full check drops
+// the edited file's error. Case 2: the edit adds the first error, so the full check drops another
+// file's error, which the quick publish would leave on the client. Each in a plain package and with
+// methods of generic types; case 1 also with a gate error in the place of an error of go/types.
+var errorOrderCases = []struct {
+	name     string
+	a, b     string
+	edit     string // lib/a.gp or lib/b.gp
+	old, new string
+}{
+	{"case 1, plain",
+		"package lib\n\nfunc A() {\n\tunusedA := 1\n}\n",
+		"package lib\n\nfunc B() error {\n\treturn nil\n}\n",
+		"lib/b.gp", "return nil", "return \"invalid type\""},
+	{"case 1, a method of a generic type",
+		"package lib\n\ntype Box[T any] struct{ v T }\n\nfunc (b Box[T]) Get() T {\n\tunusedA := 1\n\treturn b.v\n}\n",
+		"package lib\n\nfunc B() error {\n\treturn nil\n}\n",
+		"lib/b.gp", "return nil", "return \"invalid type\""},
+	// errors.Trace is undefined for go/types; at the product's phase a gate error takes the place of
+	// that error (diag.Diagnostic.Replaces).
+	{"case 1, a gate error in the place of an error of go/types",
+		"package lib\n\nimport \"errors\"\n\nfunc A() {\n\t_ = errors.Trace\n}\n",
+		"package lib\n\nfunc B() error {\n\treturn nil\n}\n",
+		"lib/b.gp", "return nil", "return \"invalid type\""},
+	{"case 2, plain",
+		"package lib\n\nfunc A() {\n\t_ = 1\n}\n",
+		"package lib\n\nfunc B() error {\n\treturn \"invalid type\"\n}\n",
+		"lib/a.gp", "_ = 1", "unusedA := 1"},
+	{"case 2, a method of a generic type",
+		"package lib\n\ntype Box[T any] struct{ v T }\n\nfunc (b Box[T]) Get() T {\n\t_ = 1\n\treturn b.v\n}\n",
+		"package lib\n\ntype Pair[T any] struct{ v T }\n\nfunc (p Pair[T]) B() error {\n\treturn \"invalid type\"\n}\n",
+		"lib/a.gp", "_ = 1", "unusedA := 1"},
+}
+
+// TestDiagnosticsQuickErrorOrder: for each of errorOrderCases, the first publish of the edited
+// version and the last publish of the other file are those of a server without the focused check.
+func TestDiagnosticsQuickErrorOrder(t *testing.T) {
+	for _, phase := range []int{check.LastPhase, version.Phase} {
+		for _, tt := range errorOrderCases {
+			t.Run(fmt.Sprintf("phase %d/%s", phase, tt.name), func(t *testing.T) {
+				checkGoroutines(t)
+				files := map[string]string{"gocpp.mod": "module example.com/m\n", "lib/a.gp": tt.a, "lib/b.gp": tt.b}
+				other := "lib/a.gp"
+				if tt.edit == other {
+					other = "lib/b.gp"
+				}
+				run := func(noFocus bool) (first, last string) {
+					cfg := testConfig()
+					cfg.Phase = phase
+					var srv *Server
+					c := startDiag(t, cfg, files, func(s *Server) {
+						s.diags.settle = time.Hour // a quick publish stays what the client has
+						s.diags.noFocus = noFocus
+						srv = s
+					})
+					c.open("lib/a.gp", files["lib/a.gp"])
+					c.open("lib/b.gp", files["lib/b.gp"])
+					c.firstPublishAt("lib/a.gp", 1)
+					c.firstPublishAt("lib/b.gp", 1)
+					srv.untilIdle(t)
+					c.change(tt.edit, 2, strings.Replace(files[tt.edit], tt.old, tt.new, 1))
+					first = c.firstPublishAt(tt.edit, 2)
+					if n := srv.pipeline.FocusedChecks(); n != 0 {
+						t.Fatalf("%d focused checks (the first publish:\n%s)", n, first)
+					}
+					srv.untilIdle(t)
+					return first, c.lastPublish(other)
+				}
+				gotFirst, gotLast := run(false)
+				wantFirst, wantLast := run(true)
+				if gotFirst != wantFirst {
+					t.Errorf("the first publish of %s:\n%s\nwithout the focused check:\n%s", tt.edit, gotFirst, wantFirst)
+				}
+				if gotLast != wantLast {
+					t.Errorf("%s:\n%s\nwithout the focused check:\n%s", other, gotLast, wantLast)
+				}
+			})
+		}
+	}
+}

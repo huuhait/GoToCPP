@@ -19,6 +19,8 @@ var focusTree = map[string]string{
 		"func init() {\n\t_ = xinit\n}\n\n" +
 		"type T struct{}\n\nfunc (T) M() int {\n\treturn xm\n}\n",
 	"c.gp": "package main\n\nfunc main() {\n\t_ = xc\n}\n",
+	"d.gp": "package main\n\nfunc G[T any](x T) T {\n\t_ = xg\n\treturn x\n}\n\n" +
+		"type Box[T any] struct{ v T }\n\nfunc (b Box[T]) Get() T {\n\t_ = xget\n\treturn b.v\n}\n",
 }
 
 // loadFocusTree loads the package of focusTree.
@@ -73,7 +75,7 @@ func TestStripOtherBodies(t *testing.T) {
 		prog, dir := loadFocusTree(t)
 		stripOtherBodies(prog.Roots[0], filepath.Join(dir, "a.gp"))
 		got := bodies(prog)
-		for _, name := range []string{"b.gp b", "b.gp M", "c.gp main"} {
+		for _, name := range []string{"b.gp b", "b.gp M", "c.gp main", "d.gp Get"} {
 			if got[name] {
 				t.Errorf("%s keeps its body", name)
 			}
@@ -84,6 +86,15 @@ func TestStripOtherBodies(t *testing.T) {
 		stripOtherBodies(prog.Roots[0], filepath.Join(dir, "a.gp"))
 		if got := bodies(prog); !got["b.gp init"] {
 			t.Errorf("init lost its body: %v", got)
+		}
+	})
+	// go/types reports a generic function without a body ("generic function is missing function
+	// body"), before the bodies of the focus file are checked.
+	t.Run("a generic function keeps its body", func(t *testing.T) {
+		prog, dir := loadFocusTree(t)
+		stripOtherBodies(prog.Roots[0], filepath.Join(dir, "a.gp"))
+		if got := bodies(prog); !got["d.gp G"] {
+			t.Errorf("G lost its body: %v", got)
 		}
 	})
 	t.Run("a file that is not in the package changes nothing", func(t *testing.T) {
@@ -105,7 +116,8 @@ func TestFocusedCheck(t *testing.T) {
 	if focused {
 		t.Fatal("a check without a focus is Focused")
 	}
-	wanted := []string{"undefined: xa", "undefined: xb", "undefined: xc", "undefined: xm", "undefined: xinit"}
+	wanted := []string{"undefined: xa", "undefined: xb", "undefined: xc", "undefined: xm", "undefined: xinit",
+		"undefined: xg", "undefined: xget"}
 	for _, want := range wanted {
 		if !strings.Contains(full, want) {
 			t.Fatalf("the full check lacks %q:\n%s", want, full)
@@ -125,7 +137,7 @@ func TestFocusedCheck(t *testing.T) {
 		}
 	})
 	t.Run("it leaves the other bodies out", func(t *testing.T) {
-		for _, name := range []string{"xb", "xc", "xm"} {
+		for _, name := range []string{"xb", "xc", "xm", "xget"} {
 			if strings.Contains(got, "undefined: "+name) {
 				t.Errorf("an error in the body of another file:\n%s", got)
 			}
@@ -134,6 +146,11 @@ func TestFocusedCheck(t *testing.T) {
 	t.Run("it keeps the body of init", func(t *testing.T) {
 		if !strings.Contains(got, "b.gp: undefined: xinit") {
 			t.Errorf("no error in init:\n%s", got)
+		}
+	})
+	t.Run("it keeps the body of a generic function", func(t *testing.T) {
+		if !strings.Contains(got, "d.gp: undefined: xg") || strings.Contains(got, "generic function is missing function body") {
+			t.Errorf("the generic function lost its body:\n%s", got)
 		}
 	})
 }

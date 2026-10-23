@@ -166,8 +166,8 @@ type Config struct {
 	SkipOpaque bool
 
 	// Focus, if not empty, is the name of one file (as load.File.Path has it): the function bodies
-	// of the other files of the package are not checked (stripOtherBodies), and the gates look at
-	// that file alone. The package is Focused then. See focus.go.
+	// of the other files of the package are not checked (stripOtherBodies; init and the generic
+	// functions keep theirs), and the gates look at that file alone. The package is Focused then. See focus.go.
 	Focus string
 }
 
@@ -245,7 +245,8 @@ type Package struct {
 	hresultCalls map[*ast.CallExpr]bool
 	hresultVars  map[types.Object]bool
 
-	// Focused says that the function bodies of the files other than Config.Focus were left out.
+	// Focused says that the function bodies of the files other than Config.Focus were left out
+	// (but those of init and of the generic functions).
 	Focused bool
 
 	// Load is the loaded package: its files (whose ASTs go/types

@@ -91,6 +91,12 @@ type Diagnostic struct {
 	// packages that import a package whose only errors are gates.
 	Gate bool
 
+	// Replaces reports that a gate error took the place of an error that go/types reported at the
+	// same place (undefined: errors.Trace becomes "errors.Trace is not available yet"): go/types did
+	// report an error there, which matters to what it reports after it (the language server's
+	// focused check, internal/lsp/cache, focus.go).
+	Replaces bool
+
 	// Related lists more places that belong to the message, such as
 	// "other declaration of x". Print shows each one on its own line,
 	// after a tab, under the message.

@@ -1,6 +1,6 @@
 # ADR-115: Language server speed, round 7: the focused check of an edit inside a function body
 
-Status: accepted (2026-10-20)
+Status: accepted (2026-10-20); amended 2026-10-23 (packages with generic declarations)
 
 ## Context
 
@@ -85,8 +85,8 @@ micro-optimisations alone could not remove it.
    check always follows (speculate, then verify), so a gap in the proofs shows as a late correction, not as
    a state that stays.
 2. **The focused check declines unless it can prove that the answer is the full check's.**
-   - once per package (`focusEligible`): not a variant, no import cycle, no generics anywhere (also a generic
-     type), no `!` form or must function, macro or derive, no C or C++ file, no directive, include or
+   - once per package (`focusEligible`): not a variant, no import cycle, generics only under the conditions
+     of the amendment below (until 2026-10-23: no generics anywhere, also a generic type), no `!` form or must function, macro or derive, no C or C++ file, no directive, include or
      namespace rename, no probe record, no load error, and no `//line` or `/*line` mapping in any
      package file;
    - at each request: the environment (configuration, module, file set, what the metadata read, the API
@@ -99,8 +99,9 @@ micro-optimisations alone could not remove it.
      add an initialization-order edge).
 
    Targeted tests cover the guards called out in review; this is not exhaustive mutation coverage.
-   Removing the generic-type check, metadata digest, brace checks, early syntax check, or `SkipBodies`
-   wiring fails its focused tests. The quick-publish guards are covered by their dedicated version,
+   Removing the metadata digest, brace checks, early syntax check, or `SkipBodies` wiring fails its
+   focused tests (and, since the amendment below, the decline of instantiations with an edge of
+   weight 1 in the base or in the focused check). The quick-publish guards are covered by their dedicated version,
    related-position, broken-overlay and replaced-base tests, not by the random session test alone.
    `TestFocusEligibleCheckRewrites` isolates the base's `Must` and `Consts` guards with synthetic check
    results over otherwise eligible source, and removing either guard fails its subtest. This does not
@@ -117,8 +118,9 @@ micro-optimisations alone could not remove it.
    whole workspace. Preserving mapping provenance through partial checks is deferred.
 
    Redundant guards were removed: the probe record of the focused check (a plain package asks for no
-   probe: `plainPackage` has no C, C++ or directive), the second check of `Must` and `Consts` and of
-   generics after the check (the first, on the base, is what the edit cannot change), the comparison of
+   probe: `plainPackage` has no C, C++ or directive), the second check of `Must` and `Consts` after
+   the check (the first, on the base, is what the edit cannot change; for generics the amendment below
+   adds a check after the focused check, of the instantiations of the new body), the comparison of
    the function name (the text before the change is the same, so the name is) and the variant test of
    `Snapshot.Focused` (it asks for the folder's handle, never a variant).
 3. **Completion uses the same check** (`Server.focusedQuery`) when its snapshot has a base, so the completion
@@ -216,6 +218,159 @@ What this shows, and what it does not:
 Where the time of a focused check goes now (cache level, ~1.8 ms): go/types 0.8, the opaque pass 0.27,
 the load 0.6 (of which the parse is a small part after patch 8), the gates and `must` pass 0.13.
 
+## Amendment (2026-10-23, job 11.lspgeneric): packages with generic declarations
+
+Until this amendment `focusEligible` declined any package with a generic function or type, so typing there was
+a full check: `large keystroke-generic` was the only benchmark row over 2 times gopls's p95 (2.05 to 2.26 in
+ADR-142's measurements). The decline was wider than what is unsafe. go/types checks the body of a generic
+function once, with its type parameters, and checks an instantiation at its place from the declarations (the
+signature, the constraints, the methods of the type), which the focused check keeps. Two things of go/types are
+not local to the edited file:
+
+1. **A generic function without a body is an error** (`generic function is missing function body`, go/types
+   decl.go), reported while the declarations are checked, so before the bodies of the edited file: stripping it
+   would add an error at another file and set go/types' first error early (go/types then leaves out some
+   follow-on errors, those with `invalid operand` or `invalid type` after the start of the message, and runs
+   the check of instantiation cycles only without any error). **The focused check keeps the bodies of the
+   generic functions** of the other files: `check.stripOtherBodies` and parser patch 8 (`SkipFuncBodies`,
+   `tparams == nil`). A method of a generic type has no type parameters of its own (go/types reports nothing
+   for it) and loses its body like any other.
+2. **The check of instantiation cycles** (go/types mono.go) runs over the instantiations of the whole package,
+   only when the package has no other error, and reports the first cycle it finds, at whatever file. The
+   focused check sees a subgraph (the other bodies are missing), and usually has errors that the full check
+   has not (the imports that only the missing bodies use), so it would not report a cycle that the full check
+   reports, or report another one. A cycle needs an edge of weight 1: an instantiation of a generic of the
+   package with a type argument that is not a type parameter itself but has one in it (`F[[]T]`,
+   `Box[Pair[K, V]]`, an alias of a type parameter), or that has a type declared in a generic function.
+   **`weightedInstance` declines the base when any instantiation of `Info.Instances` has such an argument**
+   (all the bodies, the old one of the edited function too; also a package without generic declarations at
+   the package level, for a generic type declared in a function, ADR-141), **and declines the focused check
+   when its own instantiations have one** (the new body). With neither, the full check's graph has edges of
+   weight 0 only, the focused check's graph is a part of it, and neither reports a cycle. It walks the type
+   arguments as mono.go does and errs towards declining (an unknown generic, a type it does not walk).
+   Instantiations of imported generics give no edge (mono.go skips them) and are ignored.
+
+A third guard is about gocpp's own gates: in a focused check they see the type parameter lists of the edited
+file only, and tell a type parameter of a generic function from one of a generic type by those lists. A base
+with generic declarations is eligible only when the gates allow both features at the phase
+(`check.GenericsOpen`; from phase 5 on, so always in the product, whose phase is at least 5).
+
+Everything else stays as decided above: an edit of a signature, a constraint or a type parameter list is not
+inside a body and declines (`findBodyEdit`).
+
+**The order of the errors (review of this amendment).** go/types leaves out a later error whose first
+message has `invalid operand` or `invalid type` after its start once it has reported any error (errors.go,
+report). The focused check reports fewer errors before the edited file's than the full check (the bodies it
+leaves out), so the two could disagree. This was so before the amendment for plain packages too; the
+amendment makes it reach the generic ones (the methods of a generic type lose their bodies). Two declines
+(`focusErrorFiles`, `otherErrors`, computed once per base), for a file other than the edited one:
+
+- **case 1**: the base has an error in a function body that the focused check leaves out (every such body
+  counts: go/types checks the methods before the functions, not in the order of the files). The full check
+  reports it first and then leaves out the edited file's `cannot use "invalid type" ...`, which the focused
+  check would publish. A gate error is no error of go/types and does not count, except one that takes the
+  place of an error of go/types (`undefined: errors.Trace` becomes `errors.Trace is not available yet
+  (Phase 10)` at phase 5): the gates mark it (`diag.Diagnostic.Replaces`, set where `gates.apply` makes the
+  replacement), and it counts wherever it is, for both cases, since the message that go/types reported is
+  not known (third review round);
+- **case 2**: the base has an error whose message has either text after its start. go/types reported it with
+  no error before it; an edit that adds the first error makes the full check leave it out, while the quick
+  publish sends the edited file only and the client keeps the old error until the settle run.
+
+Not covered (**case 3**, a known gap): an edit that removes the only error before a dropped error of another
+file lets that error back in the full check; the quick publish does not send the other file, so the client
+gets it at the settle run (100 ms later), not at once. Tests: `TestFocusedErrorOrder` (cache) and
+`TestDiagnosticsQuickErrorOrder` (server, first publish and the other file against a server without the
+focused check), each case in a plain package and with methods of generic types, and case 1 with
+`errors.Trace`, at phases 15 and 5; removing the decline fails the cache cases, and removing the count of
+`Replaces` fails the `errors.Trace` one at phase 5. The other rewrites of errors in internal/check (C++
+members, HRESULT calls, must functions, the loader's package errors) are of packages that are not eligible.
+
+### Equivalence
+
+- `TestFocusedGenerics` (cache): 37 statements at three places of the edited file (an ordinary method, a
+  generic function and a method of a generic type of another file), each at phases 15 and 5: inference,
+  explicit instantiation, constraint violations, wrong type arguments, methods of instances, generic values
+  without instantiation, type parameters of the edited function, local types. 77 of 89 edits per phase are
+  answered with the full check's diagnostics for the edited file, the other files unchanged; the 12 with an
+  edge of weight 1 decline. The base has no go/types error there, so the full check runs the cycle check.
+- `TestFocusedGenericCycle`: `First[[]T](nil)` typed in `First` makes a cycle that the full check reports at the
+  edited file; the focused check declines. Without the decline of the focused check's instantiations the
+  focused answer is empty (no cycle) where the full check reports one: the test fails.
+- `TestFocusedGenericFile`: 11 edits of the file of the generic declarations, of which 4 must decline (an edge
+  of weight 1, a changed constraint, type parameter list or result list).
+- `TestFocusedDeclinesBase`: an edge of weight 1 in another file (a slice of a type parameter, a generic type of
+  a generic type, an alias of a type parameter, a type declared in a generic function, a generic type declared
+  in a function, an instantiation cycle) and phase 4's gates make the base ineligible;
+  `TestFocusedDeclines` adds a changed constraint, changed type parameters and a typed cycle;
+  `TestFocusedLoadSkipsOtherBodies`, `TestStripOtherBodies`, `TestFocusedCheck` and `TestSkipFuncBodies` show
+  that generic functions keep their bodies and methods of generic types do not.
+- Sweeps (every answered edit equal to the full check): `TestFocusedSweepGenericSplit`, new, the 280 programs of
+  `tests/run` with generic declarations, each split into two files by declaration: 3,878 of 6,153 edits
+  answered (none before: all of them have generics). `TestFocusedSweepExamples` 149 to 165 of 273,
+  `TestFocusedSweepCorpus` 1,817 to 2,405 of 4,521 (both phases each).
+- Server: `TestDiagnosticsQuickMatchesFullRunGenerics`, the session test of the quick publish over a module with
+  generic declarations in two files of lib, a generic function and a method of a generic type in the edited
+  file, the statements above (with and without type parameters, with edges of weight 1 and a cycle) and
+  changes of generic signatures: 40 seeds, 720 first publishes per phase, about 100 focused checks (147 before
+  the error-order declines below), all equal; 200 seeds (3,600 publishes per phase, about 540 focused checks)
+  were equal in three runs, one of them at a 1-minute load of 151. The "busy for a minute" stop of the first
+  round (phase 5 seed 106) was a race of the test, not a hang of the server: the test's flush ran the full runs
+  of the folders that had a run waiting, but lib's full run published a changed API and ran main again with
+  the focused check, and that quick run armed its settle run, which the test delays by an hour, so the
+  debouncer stayed busy with nothing running. The flush (`flushFull`) now runs again the full runs of whatever
+  is left until nothing waits. Seed 106 at phase 15, 150 times: 31 stops with the old flush, none with the
+  new. `TestCompletionFocusedMatchesFullGenerics`:
+  22 places in an ordinary function and in a generic one (fields and methods of instances, inferred results,
+  methods of a type parameter's constraint), equal, with the labels that each answer must have.
+- `TestRandomEdits` seeds 101, 108, 111 and 112 at `GOCPP_LSP_FUZZ_EDITS=1200`: pass (its project has no
+  generics; the test guards the rest of the server).
+- Bounded evidence, not a proof, as above.
+
+### Measurements
+
+`lspbench -projects large,cpp -only keystroke-generic,completion-generic,keystroke-new -runs 5`, gopls v0.21.1
+with diagnosticsDelay 30 ms, default GOMAXPROCS (192), go1.25.14 (the dev shell), the temporary work folder of
+lspbench (a `-workdir` inside the repository's worktree breaks gopls: `missing metadata for import of "fmt"`,
+33 ms per keystroke; those runs were discarded). Base: dev `8b0d1505` (sha256 `704a20d0...`); candidate: this
+job (`ecfbeaf5`, sha256 `370cdd37...`; round 1's candidate was `d3e742a2`, sha256 `8ea5407e...`, the same for
+these projects: they have no generic type declared in a function). p95 in ms, gocpp / gopls / ratio, the median
+over 5 runs of each run's p95. Loads (1, 5, 15 minutes) at the start and the end of each run:
+
+| run | time (UTC) | load at start / end |
+|---|---|---|
+| R1 base | 20:32 | 10.5 27.6 39.8 / 179 74.3 54.2 |
+| R1 candidate | 20:39 | 15.2 40.4 45.4 / 157 87.1 61.6 |
+| R2 candidate | 20:52 | 15.3 56.7 65.4 / 79.7 65.7 67.1 |
+| R2 base | 20:55 | 39.9 57.1 64.1 / 17.2 40.6 56.8 |
+| R3 base | 20:58 | 17.2 40.6 56.8 / 17.8 30.5 50.5 |
+| R3 candidate | 21:00 | 17.8 30.5 50.5 / 94.7 65.9 61.0 |
+
+Every run started under a 1-minute load of 40; other work on the machine raised it during some runs (the ends).
+
+| project / row | base R1 | base R2 | base R3 | candidate R1 | candidate R2 | candidate R3 |
+|---|--:|--:|--:|--:|--:|--:|
+| large keystroke-generic | 15.0 / 5.94 / 2.53 | 12.6 / 5.20 / 2.43 | 15.6 / 5.90 / 2.65 | 8.01 / 8.28 / 0.97 | 7.38 / 6.01 / 1.23 | 8.16 / 5.99 / 1.36 |
+| large completion-generic | 12.7 / 8.64 / 1.47 | 12.1 / 7.65 / 1.59 | 12.1 / 9.39 / 1.29 | 7.59 / 11.0 / 0.69 | 7.87 / 10.0 / 0.78 | 7.39 / 9.50 / 0.78 |
+| large keystroke-new (control) | 8.32 / 6.19 / 1.35 | 7.14 / 5.26 / 1.36 | 7.03 / 5.43 / 1.30 | 7.65 / 8.62 / 0.89 | 7.91 / 4.99 / 1.59 | 6.89 / 5.59 / 1.23 |
+| cpp keystroke-generic | 10.5 / 7.04 / 1.49 | 10.7 / 7.14 / 1.50 | 10.0 / 6.62 / 1.52 | 7.03 / 7.22 / 0.97 | 6.32 / 5.99 / 1.06 | 7.39 / 5.49 / 1.35 |
+| cpp completion-generic | 13.6 / 8.95 / 1.52 | 14.3 / 9.27 / 1.55 | 13.2 / 7.48 / 1.77 | 7.43 / 8.97 / 0.83 | 7.91 / 8.53 / 0.93 | 7.50 / 8.99 / 0.83 |
+| cpp keystroke-new (control) | 6.50 / 6.98 / 0.93 | 6.00 / 7.35 / 0.82 | 5.79 / 5.34 / 1.08 | 6.02 / 6.74 / 0.89 | 5.56 / 6.98 / 0.80 | 6.78 / 6.00 / 1.13 |
+
+- The generic rows are within 2 times gopls's p95 in every run of the candidate (large keystroke-generic 0.97 to
+  1.36, from 2.43 to 2.65); their p50 is now that of keystroke-new (large 2.84 to 3.56 ms against 4.12 to 4.38
+  for the base). The control row does not move beyond the spread between runs.
+- The p95s of these runs are higher than ADR-142's quiet ones for both servers (gopls's large keystroke-new 5.0
+  to 8.6 ms against 2.6), because of the load; the ratios are of the same runs.
+- docs/benchmarks/lsp.md is not regenerated (the machine was not quiet); the next quiet `make lsp-bench` does it.
+- After the error-order declines (round 2 of the review; candidate `92b27bb1`, sha256 `ec7d6151...`), one more
+  round, R4 (candidate 21:57, load 28.5 54.3 50.4 / 18.0 38.4 44.9; base 21:59, load 18.0 38.4 44.9 / 128 59.3
+  50.7), p95 gocpp / gopls / ratio: large keystroke-generic 7.73 / 5.05 / 1.53 (base 13.1 / 5.71 / 2.30), large
+  completion-generic 7.18 / 8.62 / 0.83 (base 12.8 / 9.55 / 1.35), large keystroke-new 7.04 / 5.53 / 1.27 (base
+  7.93 / 6.67 / 1.19), cpp keystroke-generic 6.66 / 6.56 / 1.02 (base 11.6 / 6.85 / 1.70), cpp
+  completion-generic 8.42 / 9.10 / 0.92 (base 12.8 / 8.77 / 1.46), cpp keystroke-new 6.70 / 6.87 / 0.98 (base
+  6.77 / 6.84 / 0.99). The declines do not touch these rows (their errors are in the edited file).
+
 ## Tried and not kept
 
 - `-idle-gc` and `GOGC=200`: three alternating rounds each; the differences between them were not larger
@@ -227,7 +382,8 @@ the load 0.6 (of which the parse is a small part after patch 8), the gates and `
 
 - A focused check for edits that change a declaration (a signature, a type, an import): they take the full
   check as before. Proving them equal to the full check needs the dependency graph of the declarations.
-- Packages with generics, macros, `!` forms or C/C++ files are never answered from the focused check; the
+- Packages with macros, `!` forms or C/C++ files are never answered from the focused check (packages with
+  generics are since the amendment below); the
   benchmark's `medium` project has none, the sweeps over the repository's programs answered about 40 percent
   of the generated and example edits.
 - A measurement in which the settle full check runs inside the loop (think times above 100 ms), and the

@@ -1,6 +1,6 @@
 // The tests of gocpp's patch 8 (../FORK.md §4): SkipFuncBodies leaves the bodies of functions out
-// of the tree. This file is gocpp's own, not upstream's: ../patches/0008-skip-func-bodies.patch
-// adds it.
+// of the tree, but not those of init, macros and generic functions. This file is gocpp's own, not
+// upstream's: ../patches/0008-skip-func-bodies.patch adds it.
 
 package parser
 
@@ -37,6 +37,14 @@ func init() {
 }
 
 func Last() {}
+
+func Gen[T any](x T) T {
+	return x
+}
+
+type Box[T any] struct{ v T }
+
+func (b Box[T]) Get() T { return b.v }
 
 var after = 1
 `
@@ -78,6 +86,13 @@ func TestSkipFuncBodies(t *testing.T) {
 	})
 	t.Run("init keeps its body", func(t *testing.T) {
 		if !got["init"] {
+			t.Errorf("bodies: %v", got)
+		}
+	})
+	// go/types reports a generic function without a body ("generic function is missing function
+	// body"); a method of a generic type has no type parameters of its own, and loses its body.
+	t.Run("a generic function keeps its body", func(t *testing.T) {
+		if !got["Gen"] || got["Get"] {
 			t.Errorf("bodies: %v", got)
 		}
 	})

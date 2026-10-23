@@ -312,8 +312,8 @@ const methodText = `## Method and caveats
   changed; *completion-edit*: a comment line with a number and then ` + "`r.`" + ` typed at the start of a line
   and the completion asked at once (new text each time). *keystroke-generic* and *completion-generic* are
   keystroke-new and completion-edit with a file of generic declarations in the hot package (written by the
-  rows' own preparation): gocpp's quick check of an edit inside a function body declines for a package with
-  generics (ADR-115), so these rows measure its full check of each edit.
+  rows' own preparation): gocpp's quick check of an edit inside a function body answers there too since the
+  amendment of ADR-115 (before, it declined for a package with generics and these rows measured its full check).
   *hover*, *definition* (names of the project: gocpp does not go into the embedded standard library yet),
   *signature-help*, *document-symbol*, *semantic-tokens*, *workspace-symbol* at places and queries that
   rotate. *references-popular*: the type embedded in every type of the project; *references-local*: a type

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -51,11 +52,54 @@ func main() {
 `,
 }
 
-// startFocusComp starts a server over focusCompFiles with the focused checks on or off, and opens
-// the files.
-func startFocusComp(t *testing.T, focus bool, phase int) (*compClient, *Server) {
+// focusCompGenericFiles are focusCompFiles with generic declarations in g.gp, and a generic
+// function in a.gp whose body has the marker // GBODY.
+func focusCompGenericFiles() map[string]string {
+	files := make(map[string]string)
+	for name, text := range focusCompFiles {
+		files[name] = text
+	}
+	files["a.gp"] += `
+func firstOf[E Sized](xs []E) int {
+	var e E
+	// GBODY
+	return e.Len() + len(xs)
+}
+`
+	files["g.gp"] = `package main
+
+// Sized has a length.
+type Sized interface{ Len() int }
+
+// Pick returns x.
+func Pick[V any](x, y V) V { return x }
+
+// Box holds a value.
+type Box[V any] struct{ Value V }
+
+// Get returns the value.
+func (b Box[V]) Get() V { return b.Value }
+
+// NewBox makes a box.
+func NewBox[V any](v V) *Box[V] { return &Box[V]{Value: v} }
+
+// Pair holds a key and a value.
+type Pair[K comparable, V any] struct {
+	Key K
+	Val V
+}
+
+// Swap returns the pair.
+func (p Pair[K, V]) Swap() Pair[K, V] { return p }
+`
+	return files
+}
+
+// startFocusComp starts a server over the files with the focused checks on or off, and opens the
+// .gp files.
+func startFocusComp(t *testing.T, focus bool, phase int, files map[string]string) (*compClient, *Server) {
 	t.Helper()
-	root := writeTree(t, focusCompFiles)
+	root := writeTree(t, files)
 	cfg := testConfig()
 	cfg.Phase = phase
 	s := newServer(nil, cfg, debounce.RealClock{})
@@ -66,8 +110,15 @@ func startFocusComp(t *testing.T, focus bool, phase int) (*compClient, *Server) 
 	}), root: root}, versions: make(map[string]int)}
 	c.call("initialize", snippetInit)
 	c.notify("initialized", "{}")
-	for _, name := range []string{"a.gp", "b.gp"} {
-		c.open(name, focusCompFiles[name])
+	var names []string
+	for name := range files {
+		if strings.HasSuffix(name, ".gp") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		c.open(name, files[name])
 		c.versions[name] = 1
 		c.next(name)
 	}
@@ -77,30 +128,83 @@ func startFocusComp(t *testing.T, focus bool, phase int) (*compClient, *Server) 
 func TestCompletionFocusedMatchesFull(t *testing.T) {
 	for _, phase := range []int{check.LastPhase, version.Phase} {
 		t.Run(fmt.Sprintf("phase %d", phase), func(t *testing.T) {
-			completionFocusedMatchesFull(t, phase)
+			completionFocusedMatchesFull(t, phase, focusCompFiles, "// BODY", focusCompPlaces, nil)
 		})
 	}
 }
 
-func completionFocusedMatchesFull(t *testing.T, phase int) {
-	checkGoroutines(t)
-	places := []struct{ name, body string }{
-		{"a field", "t.|\n\t_ = 1"},
-		{"a field with a prefix", "t.Na|\n\t_ = 1"},
-		{"a method", "t.De|\n\t_ = 1"},
-		{"an imported package", "fmt.|\n\t_ = 1"},
-		{"an imported function with a prefix", "strings.To|\n\t_ = 1"},
-		{"a function of another file", "He|\n\t_ = 1"},
-		{"a type of the package", "var x T|\n\t_ = x"},
-		{"a local variable", "loc := 1\n\t_ = lo|"},
-		{"a parameter", "_ = t|"},
-		{"a keyword", "ret|"},
+// TestCompletionFocusedMatchesFullGenerics is TestCompletionFocusedMatchesFull in a package with
+// generic declarations, in an ordinary function and in a generic one.
+func TestCompletionFocusedMatchesFullGenerics(t *testing.T) {
+	generic := []compPlace{
+		{"a generic function", "Pi|\n\t_ = 1"},
+		{"a generic type", "var b Bo|\n\t_ = b"},
+		{"the fields of an instance", "b := Box[T]{}\n\tb.|\n\t_ = 1"},
+		{"the methods of an inferred instance", "NewBox(t).|\n\t_ = 1"},
+		{"the result of an inferred call", "Pick(t, t).|\n\t_ = 1"},
+		{"the fields of a struct of two type parameters", "p := Pair[string, T]{}\n\tp.|\n\t_ = 1"},
+		{"the methods of a generic type", "Pair[int, int]{}.Sw|"},
 	}
-	with, withSrv := startFocusComp(t, true, phase)
-	without, withoutSrv := startFocusComp(t, false, phase)
+	params := []compPlace{
+		{"a type parameter's methods", "e.|\n\t_ = 1"},
+		{"a type parameter", "var x E|\n\t_ = x"},
+		{"an instance with a type parameter", "Box[E]{}.|\n\t_ = 1"},
+		{"an inferred instance with a type parameter", "Pick(e, e).|\n\t_ = 1"},
+		{"a parameter", "_ = x|"},
+	}
+	// Labels that the answer at a place must have, so that the comparison is not of two empty lists.
+	wants := map[string][]string{
+		"a generic function":                            {"Pick"},
+		"a generic type":                                {"Box"},
+		"the fields of an instance":                     {"Value", "Get"},
+		"the methods of an inferred instance":           {"Value", "Get"},
+		"the result of an inferred call":                {"Name", "Describe"},
+		"the fields of a struct of two type parameters": {"Key", "Val", "Swap"},
+		"the methods of a generic type":                 {"Swap"},
+		"a type parameter's methods":                    {"Len"},
+		"an instance with a type parameter":             {"Value", "Get"},
+		"an inferred instance with a type parameter":    {"Len"},
+	}
+	for _, phase := range []int{check.LastPhase, version.Phase} {
+		t.Run(fmt.Sprintf("phase %d/an ordinary function", phase), func(t *testing.T) {
+			completionFocusedMatchesFull(t, phase, focusCompGenericFiles(), "// BODY", append(generic, focusCompPlaces...), wants)
+		})
+		t.Run(fmt.Sprintf("phase %d/a generic function", phase), func(t *testing.T) {
+			completionFocusedMatchesFull(t, phase, focusCompGenericFiles(), "// GBODY", params, wants)
+		})
+	}
+}
+
+// A compPlace is a text that a test of the focused completions puts at the marker of a.gp: | is the
+// place of the completion.
+type compPlace struct{ name, body string }
+
+var focusCompPlaces = []compPlace{
+	{"a field", "t.|\n\t_ = 1"},
+	{"a field with a prefix", "t.Na|\n\t_ = 1"},
+	{"a method", "t.De|\n\t_ = 1"},
+	{"an imported package", "fmt.|\n\t_ = 1"},
+	{"an imported function with a prefix", "strings.To|\n\t_ = 1"},
+	{"a function of another file", "He|\n\t_ = 1"},
+	{"a type of the package", "var x T|\n\t_ = x"},
+	{"a local variable", "loc := 1\n\t_ = lo|"},
+	{"a parameter", "_ = t|"},
+	{"a keyword", "ret|"},
+}
+
+// completionFocusedMatchesFull compares the completions of a server with the focused checks with
+// those of one without, at each place put at the marker of a.gp; wants are the labels that the
+// answer at a place (by name) must have.
+func completionFocusedMatchesFull(
+	t *testing.T, phase int, files map[string]string, marker string, places []compPlace, wants map[string][]string,
+) {
+	checkGoroutines(t)
+	with, withSrv := startFocusComp(t, true, phase, files)
+	without, withoutSrv := startFocusComp(t, false, phase, files)
 	for _, p := range places {
-		text := strings.Replace(focusCompFiles["a.gp"], "// BODY", p.body, 1)
-		got, err := json.Marshal(with.complete("a.gp", text))
+		text := strings.Replace(files["a.gp"], marker, p.body, 1)
+		items := with.complete("a.gp", text)
+		got, err := json.Marshal(items)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,6 +220,11 @@ func completionFocusedMatchesFull(t *testing.T, phase int) {
 				t.Errorf("completions of the focused check:\n%.2000s\nof the full check:\n%.2000s",
 					gotText, wantText)
 			}
+			for _, label := range wants[p.name] {
+				if item(items, label) == nil {
+					t.Errorf("no %s in %v", label, labels(items))
+				}
+			}
 		})
 	}
 	t.Run("the places were answered by focused checks", func(t *testing.T) {
@@ -128,7 +237,10 @@ func completionFocusedMatchesFull(t *testing.T, phase int) {
 	})
 	t.Run("the items are not empty", func(t *testing.T) {
 		var items []protocol.CompletionItem
-		text := strings.Replace(focusCompFiles["a.gp"], "// BODY", "t.|\n\t_ = 1", 1)
+		if marker != "// BODY" {
+			return
+		}
+		text := strings.Replace(files["a.gp"], marker, "t.|\n\t_ = 1", 1)
 		items = with.complete("a.gp", text)
 		if item(items, "Describe") == nil || item(items, "Name") == nil {
 			t.Errorf("t. offers %v", labels(items))

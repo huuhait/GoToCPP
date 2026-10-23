@@ -16,9 +16,13 @@ import (
 // the edit cannot change anything else before it asks for such a check.
 
 // stripOtherBodies takes the bodies off the functions of the files of lp other than the file named
-// focus, and reports whether it did: whether lp has the file. A func init keeps its body, because
-// go/types reports an init without one ("func init must have a body"), which the function is
-// not meant to have in a focused check.
+// focus, and reports whether it did: whether lp has the file. A func init and a generic function
+// keep their bodies, because go/types reports them without one ("func init must have a body",
+// "generic function is missing function body"), which the functions are not meant to have in a
+// focused check. (Such an error would also come before the bodies of the focused file are checked,
+// and go/types leaves out some errors that follow a first error: those with "invalid operand" or
+// "invalid type" after the start of the message.) A method of a generic type has no type
+// parameters of its own and loses its body like any other.
 func stripOtherBodies(lp *load.Package, focus string) bool {
 	found := false
 	for _, f := range lp.Files {
@@ -35,7 +39,7 @@ func stripOtherBodies(lp *load.Package, focus string) bool {
 		}
 		for _, decl := range f.AST.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if ok && fn.Body != nil && !(fn.Recv == nil && fn.Name.Name == "init") {
+			if ok && fn.Body != nil && fn.Type.TypeParams == nil && !(fn.Recv == nil && fn.Name.Name == "init") {
 				fn.Body = nil
 			}
 		}

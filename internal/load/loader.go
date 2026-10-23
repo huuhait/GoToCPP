@@ -91,9 +91,9 @@ type Config struct {
 	AllErrors bool
 
 	// SkipBodies, if not nil, says for the name of a file whether the parser leaves the bodies of
-	// its functions out (parser.SkipFuncBodies; the body of init stays). The language server's
-	// focused check uses it for the files that it does not look at the bodies of
-	// (internal/lsp/cache, focus.go).
+	// its functions out (parser.SkipFuncBodies; the bodies of init and of generic functions stay).
+	// The language server's focused check uses it for the files that it does not look at the
+	// bodies of (internal/lsp/cache, focus.go).
 	SkipBodies func(path string) bool
 
 	// NoEmbedFiles makes //go:embed and #embed (step 10.8) check the
@@ -522,7 +522,8 @@ type File struct {
 	// rename and the hints take the user's own names only.
 	Synthetic map[*ast.Ident]bool
 	// BodiesSkipped says that the parser left the function bodies of the file out of the tree
-	// (Config.SkipBodies): the type checker sees the declarations only.
+	// (Config.SkipBodies): the type checker sees the declarations, and the bodies of init and of
+	// the generic functions, only.
 	BodiesSkipped bool
 
 	// Src is the text of the file, for the macro #text(x) (the text of

@@ -130,10 +130,13 @@ func TestFocusEnvHashesWhatItNames(t *testing.T) {
 }
 
 // TestFocusedLoadSkipsOtherBodies: the load of a focused check leaves the bodies of the other files
-// out of the tree (load.Config.SkipBodies), and keeps those of the edited file and of init.
+// out of the tree (load.Config.SkipBodies), and keeps those of the edited file, of init and of the
+// generic functions (go/types reports one without a body), but not those of the methods of a
+// generic type.
 func TestFocusedLoadSkipsOtherBodies(t *testing.T) {
 	files := focusModule()
-	files["lib/b.gp"] += "\nfunc init() {\n\t_ = Helper(1)\n}\n"
+	files["lib/b.gp"] += "\nfunc init() {\n\t_ = Helper(1)\n}\n\nfunc Pick[T any](x, y T) T {\n\treturn x\n}\n\n" +
+		"type Box[T any] struct{ v T }\n\nfunc (b Box[T]) Get() T {\n\treturn b.v\n}\n"
 	w, base := focusRun(t, files)
 	bodies := make(map[string]bool)
 	w.p.testLoaded = func(prog *load.Program) {
@@ -154,7 +157,7 @@ func TestFocusedLoadSkipsOtherBodies(t *testing.T) {
 	}
 	want := map[string]bool{
 		"a.gp.Add": true, "a.gp.Describe": true,
-		"b.gp.Join": false, "b.gp.Twice": false, "b.gp.init": true,
+		"b.gp.Join": false, "b.gp.Twice": false, "b.gp.init": true, "b.gp.Pick": true, "b.gp.Get": false,
 		"c.gp.Helper": false, "c.gp.Area": false,
 	}
 	for name, has := range want {
@@ -167,18 +170,38 @@ func TestFocusedLoadSkipsOtherBodies(t *testing.T) {
 // TestFocusedDeclinesBase: the forms of another file that make the base ineligible.
 func TestFocusedDeclinesBase(t *testing.T) {
 	tests := []struct {
-		name string
-		add  string // appended to lib/b.gp
+		name  string
+		add   string // appended to lib/b.gp
+		phase int    // the phase of the gates, or 0 for the last
 	}{
-		{"a generic type", "\ntype Box[T any] struct{ v T }\n"},
-		{"a generic function", "\nfunc Pick[T any](x, y T) T { return x }\n"},
-		{"a must function", "\nfunc Parse!() int { return 1 }\n\nfunc UseParse() int { return Parse!() }\n"},
+		{name: "a must function", add: "\nfunc Parse!() int { return 1 }\n\nfunc UseParse() int { return Parse!() }\n"},
+		// The instantiations that give go/types' graph of instantiation cycles an edge of weight 1
+		// (weightedInstance), with or without a cycle.
+		{name: "a generic type of a slice of a type parameter",
+			add: "\ntype Box[T any] struct{ v T }\n\nfunc Nest[T any]() Box[[]T] { return Box[[]T]{} }\n"},
+		{name: "a generic type of a generic type", add: "\ntype Box[T any] struct{ v T }\n\n" +
+			"type Pair[K comparable, V any] struct {\n\tk K\n\tv V\n}\n\ntype Boxes[K comparable, V any] struct{ b Box[Pair[K, V]] }\n"},
+		{name: "an alias of a type parameter",
+			add: "\nfunc Pick[T any](x, y T) T { return x }\n\nfunc Same[T any](x T) T {\n\ttype A = T\n\treturn Pick[A](x, x)\n}\n"},
+		{name: "a type declared in a generic function", add: "\nfunc Pick[T any](x, y T) T { return x }\n\n" +
+			"func Local[T any]() {\n\ttype pair struct{ a T }\n\t_ = Pick(pair{}, pair{})\n}\n"},
+		{name: "a generic type declared in a function",
+			add: "\nfunc Local() {\n\ttype Box[T any] struct{ next *Box[*T] }\n\tvar b Box[int]\n\t_ = b\n}\n"},
+		{name: "an instantiation cycle", add: "\nfunc Grow[T any](n int) {\n\tif n > 0 {\n\t\tGrow[*T](n - 1)\n\t}\n}\n"},
+		// The gates of phase 4 report generics, and see the type parameter lists of one file only
+		// in a focused check.
+		{name: "a generic function where the gates report generics", phase: 4,
+			add: "\nfunc Pick[T any](x, y T) T { return x }\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			files := focusModule()
 			files["lib/b.gp"] += tt.add
-			w, base := focusRun(t, files)
+			phase := tt.phase
+			if phase == 0 {
+				phase = check.LastPhase
+			}
+			w, base := focusRunAt(t, files, phase)
 			if base.focusEligible() {
 				t.Error("the base is eligible")
 			}

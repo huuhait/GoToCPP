@@ -41,7 +41,7 @@
 ## Exit criteria
 
 - [ ] Revalidate all p95 budgets on the final integrated reference projects. The 2026-10-18 table is historical; the 2026-10-20 round-6 integration smoke covers only small/medium opens and four scenarios, not all projects or combined 11.13 behavior.
-- [ ] Within 2× of gopls p95 on every row of the shared projects (user 2026-10-22; was 1.5×): met after job 11.lspgap5 except `large keystroke-generic` (2.05-2.26×, ADR-142)
+- [ ] Within 2× of gopls p95 on every row of the shared projects (user 2026-10-22; was 1.5×): met on every measured row since job 11.lspgeneric (large keystroke-generic 1.14-1.53×, ADR-115 amendment; the rest in ADR-142); measured on a shared machine, so confirm with one quiet `make lsp-bench` (it also regenerates docs/benchmarks/lsp.md)
 - [x] Random-edit differential test passes (vs `gocpp check -interop=opaque`)
 - [ ] VS Code checklist passes (incl. `!` and macro features)
 
