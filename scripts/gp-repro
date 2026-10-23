@@ -1,0 +1,107 @@
+#!/bin/sh
+# gp-repro: run a small .gp program with the gocpp of the current worktree and, by default, the same
+# program with real Go, and compare stdout, stderr and the exit code (the job workers' repro loop).
+#
+#   scripts/gp-repro [-cxx g++|clang++] [-flags "gocpp run flags"] [-nogo] [-stderr] FILE.gp|DIR [-- ARGS...]
+#     -cxx      the compiler (GOCPP_CXX; default: the dev shell's choice)
+#     -flags    extra flags for `gocpp run` (-release, -asan, -race, -O2 ...)
+#     -nogo     do not run real Go (a program that is not valid Go: `!`, macros, C/C++ imports)
+#     -stderr   compare stderr too (default: only stdout and the exit code; panics print goroutine
+#               traces whose addresses differ)
+#
+# FILE.gp is copied as main.go into a fresh module for Go; a DIR runs as `gocpp run .` in it and,
+# for Go, gets a copy with every .gp renamed to .go. The gocpp binary is built from the worktree
+# into <worktree>/.scratch/bin/gocpp (go's build cache makes a rebuild after an edit take seconds),
+# so the run always uses the code as it is now. Outputs stay in <worktree>/.scratch/repro/<name>/
+# (gocpp.out, gocpp.err, go.out, go.err) for a closer look. GOCPP_GATE_PHASE defaults to 15.
+#
+# Runs itself in the dev shell (scripts/in-devenv: ccache, the pinned compilers) when it is not in
+# one already. It writes only inside <worktree>/.scratch.
+#
+# Exit code: 0 when the outputs agree (or with -nogo, gocpp's own exit code), 1 when they differ,
+# 2 on a usage or build error.
+set -eu
+
+self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+if [ -z "${GOCPP_IN_DEVENV-}" ] && [ -z "${IN_NIX_SHELL-}" ] && [ -x "$(dirname "$self")/in-devenv" ]; then
+	exec "$(dirname "$self")/in-devenv" "$self" "$@"
+fi
+
+cxx= flags= nogo= cmpstderr=
+while [ $# -gt 0 ]; do
+	case $1 in
+	-cxx) cxx=$2; shift 2 ;;
+	-flags) flags=$2; shift 2 ;;
+	-nogo) nogo=1; shift ;;
+	-stderr) cmpstderr=1; shift ;;
+	-h|-help|--help) sed -n '2,22p' "$self"; exit 0 ;;
+	-*) echo "gp-repro: unknown flag $1" >&2; exit 2 ;;
+	*) break ;;
+	esac
+done
+[ $# -ge 1 ] || { echo "usage: gp-repro [-cxx C] [-flags F] [-nogo] [-stderr] FILE.gp|DIR [-- ARGS...]" >&2; exit 2; }
+target=$1; shift
+[ "${1-}" = -- ] && shift
+[ -e "$target" ] || { echo "gp-repro: $target does not exist" >&2; exit 2; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "gp-repro: run it inside a gocpp worktree" >&2; exit 2; }
+scratch=$root/.scratch
+name=$(basename "$target" .gp)
+out=$scratch/repro/$name
+mkdir -p "$scratch/bin" "$out"
+
+(cd "$root" && go build -o "$scratch/bin/gocpp" ./cmd/gocpp) || { echo "gp-repro: building gocpp failed" >&2; exit 2; }
+
+export GOCPP_GATE_PHASE="${GOCPP_GATE_PHASE:-15}"
+[ -n "$cxx" ] && export GOCPP_CXX="$cxx"
+
+abs=$(cd "$(dirname "$target")" && pwd)/$(basename "$target")
+set +e
+if [ -d "$abs" ]; then
+	# shellcheck disable=SC2086 # $flags is a list of flags
+	(cd "$abs" && "$scratch/bin/gocpp" run $flags . "$@") >"$out/gocpp.out" 2>"$out/gocpp.err" </dev/null
+else
+	# shellcheck disable=SC2086
+	"$scratch/bin/gocpp" run $flags "$abs" "$@" >"$out/gocpp.out" 2>"$out/gocpp.err" </dev/null
+fi
+gcode=$?
+set -e
+echo "gocpp: exit $gcode ($out/gocpp.out, gocpp.err)"
+
+if [ -n "$nogo" ]; then
+	head -c 4000 "$out/gocpp.out"; head -c 4000 "$out/gocpp.err" >&2
+	exit "$gcode"
+fi
+
+# The Go twin: a module of its own in the output folder, made again on each run (only this
+# folder's own files are replaced).
+twin=$out/twin
+mkdir -p "$twin"
+find "$twin" -mindepth 1 -maxdepth 1 -name '*.go' -exec rm -f {} +
+if [ -d "$abs" ]; then
+	for f in "$abs"/*.gp; do [ -e "$f" ] && cp "$f" "$twin/$(basename "$f" .gp).go"; done
+else
+	cp "$abs" "$twin/main.go"
+fi
+[ -f "$twin/go.mod" ] || printf 'module repro\n\ngo 1.25\n' >"$twin/go.mod"
+# Built, then run: `go run` exits 1 for any failed program, the program itself may exit 2.
+(cd "$twin" && GOFLAGS=-mod=mod go build -o prog .) || { echo "gp-repro: go build of the twin failed (not valid Go? use -nogo)" >&2; exit 2; }
+set +e
+"$twin/prog" "$@" >"$out/go.out" 2>"$out/go.err" </dev/null
+ocode=$?
+set -e
+echo "go:    exit $ocode ($out/go.out, go.err)"
+
+same=1
+if ! cmp -s "$out/gocpp.out" "$out/go.out"; then
+	same=; echo "--- stdout differs (gocpp vs go):"; diff "$out/gocpp.out" "$out/go.out" | head -40
+fi
+if [ -n "$cmpstderr" ] && ! cmp -s "$out/gocpp.err" "$out/go.err"; then
+	same=; echo "--- stderr differs (gocpp vs go):"; diff "$out/gocpp.err" "$out/go.err" | head -40
+fi
+if [ "$gcode" != "$ocode" ]; then
+	same=; echo "--- exit code differs: gocpp $gcode, go $ocode"
+	[ -s "$out/gocpp.err" ] && { echo "gocpp stderr:"; head -20 "$out/gocpp.err"; }
+fi
+if [ -n "$same" ]; then echo "SAME"; exit 0; fi
+echo "DIFFERENT"; exit 1

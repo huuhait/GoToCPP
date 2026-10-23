@@ -1,0 +1,200 @@
+#!/bin/sh
+# gp-focused: list (and with -x run) the focused checks for the files a job changed, instead of
+# `make ci` or a full `go test ./...` (which no worker runs; the user does the broad run).
+#
+#   scripts/gp-focused [-x] [-base REF] [-cxx g++|clang++] [-mem 16G] [-timeout 20m] [FILE...]
+#     -x        run the commands (each one in a memory-capped systemd scope with a timeout, one after
+#               the other, through scripts/in-devenv), not only print them
+#     -base     what the job is compared with (default: dev); the files are those of
+#               `git diff --name-only BASE...HEAD` plus the uncommitted and untracked ones
+#     -cxx      the compiler of the C++ test matrix (GOCPP_CXX for the runtime and tests/; default g++,
+#               run once more with clang++ before the hand-over when the runtime or the emitter changed)
+#     FILE...   these files instead of the job's changes
+# The test commands set GOCPP_TEST_PHASE=10 (as make ci; export another value for phase 11-15 tests).
+#
+# The rules (one or more commands per changed file, without repeats):
+#   *.go in a package          gofmt -l, go vet, go test of that package; for the heavy packages
+#                              (cmd/gocpp, tests, runtime) only the Test functions of the changed
+#                              _test.go files, else a note to pick them with -run
+#   tests/<kind>/<name>.gp     that one test (run -> TestRun/name, diff -> TestDiff/name, ...)
+#   tests/pkgs/<name>/...      TestPkgs/name; examples/<name>/... TestExamples/name
+#   tests/typed/<name>.gp      cmd/gocpp TestTypedRun and TestTypedTwin for name
+#   runtime/src, runtime/include  TestCXX/<cxx>/O0 (only the runtime/test/<stem>_test.cpp group when
+#                              one matches the file's name), plus the tests/run programs with the
+#                              stem in their name (defer.hpp -> defer_*)
+#   stdlib/<pkg>/...           the tests/run programs that import the package, and tools/stdgocount
+#   internal/lower, internal/cppgen  also TestGolden
+#   docs/spec/interop*.md      TestDocSnippets
+# The list is a start, not a proof: add the tests your change really needs, and say in the report
+# what ran.
+set -eu
+
+self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+run= base=dev cxx=g++ mem=16G tmo=20m phase=${GOCPP_TEST_PHASE:-10}
+while [ $# -gt 0 ]; do
+	case $1 in
+	-x) run=1; shift ;;
+	-base) base=$2; shift 2 ;;
+	-cxx) cxx=$2; shift 2 ;;
+	-mem) mem=$2; shift 2 ;;
+	-timeout) tmo=$2; shift 2 ;;
+	-h|-help|--help) sed -n '2,32p' "$self"; exit 0 ;;
+	-*) echo "gp-focused: unknown flag $1" >&2; exit 2 ;;
+	*) break ;;
+	esac
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "gp-focused: run it inside a gocpp worktree" >&2; exit 2; }
+cd "$root"
+
+files=$(mktemp "${TMPDIR:-/tmp}/gp-focused-files.XXXXXX")
+cmds=$(mktemp "${TMPDIR:-/tmp}/gp-focused-cmds.XXXXXX")
+trap 'rm -f "$files" "$cmds"' EXIT
+
+if [ $# -gt 0 ]; then
+	printf '%s\n' "$@" >"$files"
+else
+	{
+		git diff --name-only "$base...HEAD" 2>/dev/null || true
+		git status --porcelain --untracked-files=all | sed 's/^...//; s/.* -> //'
+	} | grep -v '^\.scratch/' | sort -u >"$files"
+fi
+[ -s "$files" ] || { echo "gp-focused: no changed files (base $base)"; exit 0; }
+
+emit() { printf "%s\n" "$*" >>"$cmds"; }
+# testnames FILE...: the Test functions defined in the files, as one -run alternation.
+testnames() {
+	grep -ho '^func Test[A-Za-z0-9_]*' "$@" 2>/dev/null | sed 's/^func //' | sort -u | paste -sd'|' -
+}
+# runtests PATTERN: the tests/run programs whose text matches PATTERN (at most 12), as TestRun names.
+runtests() {
+	grep -lE "$1" tests/run/*.gp 2>/dev/null | head -12 | sed 's|.*/||; s|\.gp$||' | paste -sd'|' -
+}
+# namedtests STEM: the tests/run programs with STEM in their file name (at most 12).
+namedtests() {
+	ls tests/run/*"$1"*.gp 2>/dev/null | head -12 | sed 's|.*/||; s|\.gp$||' | paste -sd'|' -
+}
+
+gofiles=$(grep '\.go$' "$files" || true)
+if [ -n "$gofiles" ]; then
+	existing=$(for f in $gofiles; do [ -f "$f" ] && echo "$f"; done)
+	[ -n "$existing" ] && emit "gofmt -l $(echo $existing)"
+fi
+
+while IFS= read -r f; do
+	case $f in
+	*.go)
+		dir=$(dirname "$f")
+		[ -d "$dir" ] || continue
+		case $dir in
+		cmd/gocpp|tests|runtime)
+			names=$(testnames $(grep "^$dir/[^/]*_test\.go\$" "$files" | while read -r t; do [ -f "$t" ] && echo "$t"; done) </dev/null)
+			emit "go vet ./$dir"
+			if [ -n "$names" ]; then
+				emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^($names)\$' ./$dir"
+			else
+				emit "# ./$dir is heavy: pick the tests that cover $f with -run (rg the function names in ${dir}/*_test.go)"
+			fi
+			;;
+		testdata*|*/testdata*) ;;
+		*)
+			emit "go vet ./$dir"
+			emit "go test -count=1 ./$dir"
+			;;
+		esac
+		case $dir in internal/lower|internal/lower/*|internal/cppgen|internal/cppgen/*)
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestGolden\$' ./tests" ;;
+		esac
+		;;
+	tests/typed/*.gp)
+		n=$(basename "$f" .gp)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^(TestTypedRun|TestTypedTwin)\$/$n' ./cmd/gocpp"
+		;;
+	tests/pkgs/*)
+		n=$(echo "$f" | cut -d/ -f3)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestPkgs\$/^$n\$' ./tests"
+		;;
+	examples/*/*)
+		n=$(echo "$f" | cut -d/ -f2)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestExamples\$/^$n\$' ./tests"
+		;;
+	tests/*/*.gp|tests/*/*.golden|tests/*/*.cpp.golden)
+		kind=$(echo "$f" | cut -d/ -f2)
+		n=$(basename "$f"); n=${n%%.*}
+		case $kind in
+		run) t=TestRun ;; diff) t=TestDiff ;; errors) t=TestErrors ;; golden) t=TestGolden ;;
+		interop) t=TestInterop ;; overflow) t=TestStackOverflow ;; zoo) t=TestZoo ;;
+		race) t=TestRace ;; debug) t=TestDebug ;; gdb) t=TestGDBPrinters ;;
+		*) t= ;;
+		esac
+		if [ -n "$t" ]; then
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^$t\$/^$n\$' ./tests"
+		else
+			emit "# $f: find the test that reads tests/$kind (rg '\"$kind\"' tests/*_test.go cmd/gocpp/*_test.go)"
+		fi
+		;;
+	runtime/src/*|runtime/include/*)
+		stem=$(basename "$f"); stem=${stem%%.*}
+		if [ -f "runtime/test/${stem}_test.cpp" ]; then
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$/^$stem\$' ./runtime"
+		else
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$' ./runtime"
+		fi
+		names=$(namedtests "$stem")
+		[ -n "$names" ] && emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestRun\$/^($names)\$' ./tests"
+		;;
+	runtime/test/*_test.cpp)
+		stem=$(basename "$f" _test.cpp)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxx\$/^O0\$/^$stem\$' ./runtime"
+		;;
+	stdlib/*)
+		pkg=$(dirname "${f#stdlib/}")
+		names=$(runtests "\"$pkg\"")
+		[ -n "$names" ] && emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestRun\$/^($names)\$' ./tests"
+		emit "go run ./tools/stdgocount -detail $pkg   # Go's own tests of the package (minutes for big ones)"
+		;;
+	docs/spec/interop*.md)
+		emit "go test -count=1 -run '^TestDocSnippets\$' ./tests"
+		;;
+	esac
+done <"$files"
+
+echo "changed files (base $base):"; sed 's/^/  /' "$files"
+echo "focused checks:"
+awk '!seen[$0]++' "$cmds" >"$cmds.u" && mv "$cmds.u" "$cmds"
+sed 's/^/  /' "$cmds"
+
+[ -n "$run" ] || exit 0
+
+# Each go test runs with -v so that a test that was skipped is not taken for a pass: the summary
+# line counts the passed and skipped tests, and a command whose tests all skipped counts as failed.
+log=$(mktemp "${TMPDIR:-/tmp}/gp-focused-log.XXXXXX")
+trap 'rm -f "$files" "$cmds" "$log"' EXIT
+status=0
+while IFS= read -r c; do
+	case $c in '#'*) continue ;; esac
+	echo "=== $c"
+	vc=$(printf '%s' "$c" | sed 's/go test -count=1/go test -count=1 -v/')
+	if "$root/scripts/in-devenv" systemd-run --user --scope -q -p MemoryMax="$mem" \
+		timeout "$tmo" sh -c "$vc" </dev/null >"$log" 2>&1; then
+		code=0
+	else
+		code=$?
+	fi
+	case $c in
+	*'go test'*)
+		pass=$(grep -c -- '--- PASS' "$log" || true)
+		skip=$(grep -c -- '--- SKIP' "$log" || true)
+		grep -E -- '--- (FAIL|SKIP)|^(ok|FAIL|panic:)' "$log" | head -30
+		echo "=== passed $pass, skipped $skip"
+		if [ "$code" = 0 ] && [ "$pass" = 0 ]; then
+			echo "=== NOTHING RAN (all skipped or no match): $c"; status=1; continue
+		fi
+		;;
+	*) cat "$log" ;;
+	esac
+	if [ "$code" != 0 ]; then
+		tail -40 "$log"; echo "=== FAILED (exit $code): $c"; status=1
+	fi
+done <"$cmds"
+exit $status
