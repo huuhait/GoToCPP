@@ -70,8 +70,15 @@ fi
 
 emit() { printf "%s\n" "$*" >>"$cmds"; }
 # testnames FILE...: the Test functions defined in the files, as one -run alternation.
+# The suite runners (each runs every program of a folder: minutes, a sweep) are left out; a
+# change to them gets a note to pick subtests instead.
+suites='^(TestRun|TestRunVsGo|TestRunWindows|TestDiff|TestExamples|TestInterop|TestErrors|TestGolden|TestRace|TestRaceVsGo|TestPkgs|TestPkgsVsGo|TestPkgErrors|TestZoo|TestDebug|TestGDBPrinters|TestLLDBPrinters|TestStackOverflow|TestTypedCheckCorpus|TestCorpusTyped|TestCXX)$'
 testnames() {
-	grep -ho '^func Test[A-Za-z0-9_]*' "$@" 2>/dev/null | sed 's/^func //' | sort -u | paste -sd'|' -
+	grep -ho '^func Test[A-Za-z0-9_]*' "$@" 2>/dev/null | sed 's/^func //' | grep -Ev "$suites" | grep -v '^TestMain$' | sort -u | paste -sd'|' -
+}
+# suitenames FILE...: the suite runners defined in the files.
+suitenames() {
+	grep -ho '^func Test[A-Za-z0-9_]*' "$@" 2>/dev/null | sed 's/^func //' | grep -E "$suites" | sort -u | paste -sd' ' -
 }
 # runtests PATTERN: the tests/run programs whose text matches PATTERN (at most 12), as TestRun names.
 runtests() {
@@ -95,7 +102,10 @@ while IFS= read -r f; do
 		[ -d "$dir" ] || continue
 		case $dir in
 		cmd/gocpp|tests|runtime)
-			names=$(testnames $(grep "^$dir/[^/]*_test\.go\$" "$files" | while read -r t; do [ -f "$t" ] && echo "$t"; done) </dev/null)
+			tfiles=$(grep "^$dir/[^/]*_test\.go\$" "$files" | while read -r t; do [ -f "$t" ] && echo "$t"; done)
+			names=$(testnames $tfiles </dev/null)
+			big=$(suitenames $tfiles </dev/null)
+			[ -n "$big" ] && emit "# $dir: the change touches the suite runner(s) $big: pick a few subtests by name (-run '^TestRun\$/^(a|b)\$'), never the whole suite"
 			emit "go vet ./$dir"
 			if [ -n "$names" ]; then
 				emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^($names)\$' ./$dir"
@@ -180,6 +190,9 @@ sed 's/^/  /' "$cmds"
 
 # Each go test runs with -v so that a test that was skipped is not taken for a pass: the summary
 # line counts the passed and skipped tests, and a command whose tests all skipped counts as failed.
+logdir=$root/.scratch/gp-focused
+mkdir -p "$logdir"
+n=0
 log=$(mktemp "${TMPDIR:-/tmp}/gp-focused-log.XXXXXX")
 trap 'rm -f "$files" "$cmds" "$log"' EXIT
 status=0
@@ -199,11 +212,16 @@ while IFS= read -r c; do
 	else
 		code=$?
 	fi
+	# Each command's whole output stays in the worktree's .scratch (git-ignored) for a closer look.
+	n=$((n + 1))
+	cp "$log" "$logdir/$n.log"
+	echo "=== log: $logdir/$n.log"
 	case $c in
 	*'go test'*)
 		pass=$(grep -c -- '--- PASS' "$log" || true)
 		skip=$(grep -c -- '--- SKIP' "$log" || true)
-		grep -E -- '--- (FAIL|SKIP)|^(ok|FAIL|panic:)' "$log" | head -30
+		grep -E -- '--- FAIL|^(ok|FAIL|panic:)' "$log"
+		grep -E -- '--- SKIP' "$log" | head -10
 		echo "=== passed $pass, skipped $skip"
 		# A package whose pattern matched nothing still prints ok (and its TestMain may log a PASS).
 		if grep -q "no tests to run" "$log"; then pass=0; fi
