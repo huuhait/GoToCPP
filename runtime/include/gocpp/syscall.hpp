@@ -104,6 +104,19 @@ std::tuple<int64_t, int64_t> sys_readlink(const gp::string& path, const gp::slic
 int64_t sys_chdir(const gp::string& path);
 int64_t sys_fchdir(int64_t fd);
 
+// The *at calls that package os's RemoveAll uses (Go's removeall_at.go): sys_openat is openat(2)
+// with O_CLOEXEC added (as sys_open), (fd, 0) or (-1, errno); sys_unlinkat is unlinkat(2) (flags 0
+// or AT_REMOVEDIR, 0x200); sys_readlinkat is readlinkat(2), with sys_readlink's results.
+std::tuple<int64_t, int64_t> sys_openat(int64_t dirfd, const gp::string& path, int64_t flags,
+                                        int64_t perm);
+int64_t sys_unlinkat(int64_t dirfd, const gp::string& path, int64_t flags);
+std::tuple<int64_t, int64_t> sys_readlinkat(int64_t dirfd, const gp::string& path,
+                                            const gp::slice<uint8_t>& buf);
+
+// sys_copy_file_range is copy_file_range(2) from rfd to wfd at their file offsets (no offset
+// pointers, flags 0) for at most len bytes: (bytes copied, 0) or (0, errno).
+std::tuple<int64_t, int64_t> sys_copy_file_range(int64_t rfd, int64_t wfd, int64_t len);
+
 // sys_getcwd writes the current directory and a NUL byte into buf and returns the byte count
 // including the NUL (Linux's getcwd system call).
 std::tuple<int64_t, int64_t> sys_getcwd(const gp::slice<uint8_t>& buf);
@@ -165,6 +178,10 @@ int64_t sys_kill(int64_t pid, int64_t sig);
 // isrss, minflt, majflt, nswap, inblock, oublock, msgsnd, msgrcv, nsignals, nvcsw, nivcsw).
 std::tuple<int64_t, int64_t> sys_wait4(int64_t pid, int64_t options, const gp::slice<int64_t>& out);
 
+// sys_waitid is waitid(2) with idtype P_PID (1) for pid and the options as Linux has them
+// (WEXITED = 4, WNOWAIT = 0x1000000); the siginfo it fills is dropped: it returns the errno.
+int64_t sys_waitid(int64_t pid, int64_t options);
+
 // sys_fcntl_getfl returns the file status flags of fd (F_GETFL).
 std::tuple<int64_t, int64_t> sys_fcntl_getfl(int64_t fd);
 
@@ -188,8 +205,9 @@ std::tuple<int64_t, int64_t> sys_selftest_retry();
 std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr();
 #endif // GOCPP_RUNTIME_TEST
 
-// sys_nodename is the host name (uname(2)'s nodename).
-std::tuple<gp::string, int64_t> sys_nodename();
+// sys_uname is uname(2): buf (at least 6*65 bytes) gets the six fields of struct utsname (sysname,
+// nodename, release, version, machine, domainname), 65 bytes each with their NUL padding.
+int64_t sys_uname(const gp::slice<uint8_t>& buf);
 
 // sys_exit is gp::os::exit (flush, leak check in an ASan build, _exit): no deferred function runs.
 [[noreturn]] void sys_exit(int64_t code);

@@ -30,7 +30,10 @@ during a `Read` is safe, the last reference closes the descriptor), `Read`/`Prea
   (also as in Go). Reads of a pipe that has no data cost `read` (EAGAIN), the wake `eventfd` (once) and `ppoll`.
   Windows has no `pollDesc`: `fd_deadline.gp` (tag `windows`) keeps `ErrNoDeadline` there, and `Close` of a pipe cancels the I/O
   (below).
-- Not taken: the socket functions, `sendfile`, `splice`, `copy_file_range`, `writev`, `Accept`, `ReadFrom`/`WriteTo` of sockets.
+- `copy_file_range_linux.gp`, `copy_file_range_unix.gp`: Go's `CopyFileRange` (for `os.File.ReadFrom`), with
+  `unix.CopyFileRange` as the native `gp::syscall::sys_copy_file_range` (no offsets, flags 0; it repeats a call that a
+  signal interrupted) and `unix.KernelVersion` as `kernelVersion` (the same parse of `syscall.Uname`'s `Release`).
+- Not taken: the socket functions, `sendfile`, `splice`, `writev`, `Accept`, `ReadFrom`/`WriteTo` of sockets.
 
 ## Windows (step 14.3, ADR-076)
 

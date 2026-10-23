@@ -83,7 +83,7 @@ and counts as a hang. The columns:
 | maps | 24 | 24 | 24 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
 | math | 111 | 111 | 111 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
 | math/bits | 62 | 62 | 62 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
-| os | 278 | 180 | 163 | 1 | 0 | 15 | 1 | 98 | 91.1 | 58.6 |
+| os | 278 | 180 | 164 | 0 | 0 | 15 | 1 | 98 | 91.6 | 59.0 |
 | path | 17 | 17 | 17 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
 | regexp | 75 | 75 | 75 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
 | regexp/syntax | 12 | 12 | 12 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
@@ -95,11 +95,11 @@ and counts as a hang. The columns:
 | unicode | 42 | 42 | 42 | 0 | 0 | 0 | 0 | 0 | 100.0 | 100.0 |
 | unicode/utf16 | 9 | 9 | 8 | 0 | 0 | 0 | 1 | 0 | 100.0 | 88.9 |
 | unicode/utf8 | 31 | 31 | 30 | 0 | 0 | 0 | 1 | 0 | 100.0 | 96.8 |
-| total | 1769 | 1661 | 1606 | 4 | 1 | 24 | 26 | 108 | 98.2 | 90.8 |
+| total | 1769 | 1661 | 1607 | 3 | 1 | 24 | 26 | 108 | 98.3 | 90.8 |
 
-98.2 % of the selected functions pass (1606 of the 1635 that remain without the 26 divergences), and 90.8 % of all the 1769 functions of Go's test files for these packages.
+98.3 % of the selected functions pass (1607 of the 1635 that remain without the 26 divergences), and 90.8 % of all the 1769 functions of Go's test files for these packages.
 
-**`os` is the weak row, and the headline needs that qualifier.** `os` is 91.1 % of its selected functions but only **58.6 % of all its 278 functions** (57.6 % before the review of step 9.10
+**`os` is the weak row, and the headline needs that qualifier.** `os` is 91.6 % of its selected functions but only **59.0 % of all its 278 functions** (58.6 % before `TestRemoveAllLongPath` passed, 2026-10-23; 57.6 % before the review of step 9.10
 took `exec_unix_test.go` and half of `TestHostname` into the selection). The budget is met on the selected files only; 98 functions are in files that are not taken (Root, deadlines, processes and
 fifo/zero-copy coverage), and the 15 functions cut out of selected files count as not passing. Do not read the table as "every package is over 90 %" without that:
 every package is over 90 % of its *selected* functions, and `os` is the one where the selection leaves out the most. No other package is below 86 % of all its functions.
@@ -116,11 +116,12 @@ Every function that does not pass is listed with its reason by `go run ./tools/s
 
 - **Allocation counts** (`AllocsPerRun`; 25 functions, class `divergence`): gocpp counts C++ `operator new`, and a `string(bytes)` or `append(s, make(S, n)...)` allocates a temporary
   where Go does not. The allocation checks are not patched out: a test with one counts as a divergence as a whole, so no pass comes from a test with its check removed.
-- **Unavailable APIs or excluded coverage**: `os.StartProcess`, `os/exec` and `os/signal` (the tests that start processes), `os.Root`, the upstream read/write deadline files (see the selection caveat above), the zero-copy `ReadFrom` and `WriteTo`
-  (`copy_file_range`, `splice`, `sendfile`), `internal/syscall/unix` (nonblocking opens), `syscall.Mmap`, package `net` (sockets, `net.IP`), `net/http`, `encoding/gob`, `testing/synctest`,
+- **Unavailable APIs or excluded coverage**: `os.StartProcess`, `os/exec` and `os/signal` (the tests that start processes), `os.Root`, the upstream read/write deadline files (see the selection caveat above), the zero-copy paths that need package
+  `net` (`splice`, `sendfile`; `ReadFrom` does use `copy_file_range`, but its tests need `net` and `internal/testpty` too), `internal/syscall/unix` (nonblocking opens), `syscall.Mmap`, package `net` (sockets, `net.IP`), `net/http`, `encoding/gob`, `testing/synctest`,
   `runtime.AddCleanup`, `GODEBUG=asynctimerchan`, and the `GOROOT/lib/time/zoneinfo.zip` that Go's `time` tests read (they read the zone database of the machine here).
 - **Bugs of gocpp that the tests found** (not fixed; each has a reason in its manifest): a slice of zero-size elements (`[]struct{}`) with a huge length costs one byte for each element, so
-  `makeslice` panics (`slices.TestConcat_too_large`, `TestRepeat`); `os.RemoveAll` is path based and fails on a tree deeper than `PATH_MAX` (`TestRemoveAllLongPath`); the builtin `print` does not print an interface value.
+  `makeslice` panics (`slices.TestConcat_too_large`, `TestRepeat`); the builtin `print` does not print an interface value. (`os.RemoveAll`, path based until 2026-10-23, now uses
+  `openat`/`unlinkat` and passes `TestRemoveAllLongPath`.)
 - **D24** (the 26th divergence): `io/fs.TestCVE202230630` recurses 10001 times in `Glob`, which overflows the fixed 8 MiB stack of an unoptimized goroutine.
 
 ## The deferred suites

@@ -42,7 +42,9 @@ reads, the order of the checks in `RemoveAll`, `MkdirAll`, `CreateTemp`. All of 
 6. **`fmt.Fprint*(os.Stdout, ...)` goes through the `*os.File` in the variable**, as an `io.Writer` (the `fmt` shim's
    `stdout_`/`stderr_` special case is gone), so assigning `os.Stdout` works. `fmt.Print*` still writes to descriptor 1 until 9.7.
 7. **Not built**: `os.Root`/`OpenRoot`, `StartProcess` (ENOSYS), pidfd, `os/exec`, `os/signal`, deadlines, zero-copy
-   `ReadFrom`/`WriteTo`, finalizers (an unclosed `*File` keeps its descriptor until the program ends).
+   `ReadFrom`/`WriteTo`, finalizers (an unclosed `*File` keeps its descriptor until the program ends). (Superseded in part
+   2026-10-23, job dev.syscalldiffs: `ReadFrom` tries `copy_file_range` as Go does; `sendfile` and `splice` still wait for
+   package `net`.)
 
 ## Alternatives
 
@@ -61,6 +63,7 @@ EINTR retry through a signal, threads setting the environment).
 
 Bad: `RemoveAll` is Go's portable path-walking version, not the `openat` one, so a tree deeper than about 2000 levels
 fails with `lstat ...: file name too long`, `RemoveAll("file/x")` on a regular file returns nil, and permission texts differ
-(stdlib/os/PORT.md lists them). (Amended 2026-10-19: `Close` now wakes a `Read` or `Write` blocked on a pipe, FIFO or tty, see point 3.) Compiling a program that imports `os` compiles `os`, `syscall`, `internal/poll`, `io`, `io/fs`, `time` (cached by Phase 06).
+(stdlib/os/PORT.md lists them). (Superseded 2026-10-23, job dev.syscalldiffs: on Linux `RemoveAll` is Go's
+`removeall_at.go` over `openat`/`unlinkat` natives; only Windows keeps the path-walking version.) (Amended 2026-10-19: `Close` now wakes a `Read` or `Write` blocked on a pipe, FIFO or tty, see point 3.) Compiling a program that imports `os` compiles `os`, `syscall`, `internal/poll`, `io`, `io/fs`, `time` (cached by Phase 06).
 An unclosed file leaks its descriptor. `SIGPIPE` on standard output ends the program as Go's does only through the
 natives' `die_of_sigpipe` (`fmt` and `os.Stdout.Write` both).

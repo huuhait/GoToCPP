@@ -162,15 +162,15 @@ func sysGetgroups(out []int) (n int, errno int)
 //gocpp:native gp::syscall::sys_kill
 func sysKill(pid int, sig int) (errno int)
 
-//gocpp:native gp::syscall::sys_nodename
-func sysNodename() (name string, errno int)
+//gocpp:native gp::syscall::sys_uname
+func sysUname(buf []byte) (errno int)
 
 //gocpp:native gp::syscall::sys_exit
 func sysExit(code int)
 
 func Open(path string, mode int, perm uint32) (fd int, err error) {
 	if hasNUL(path) {
-		return -1, EINVAL
+		return 0, EINVAL // BytePtrFromString fails before the call: the count stays 0
 	}
 	fd, e := sysOpen(path, mode, int(perm))
 	if e != 0 {
@@ -386,7 +386,7 @@ func Symlink(oldpath string, newpath string) (err error) {
 
 func Readlink(path string, buf []byte) (n int, err error) {
 	if hasNUL(path) {
-		return -1, EINVAL
+		return 0, EINVAL // BytePtrFromString fails before the call: the count stays 0
 	}
 	n, e := sysReadlink(path, buf)
 	if e != 0 {
@@ -409,7 +409,7 @@ func Fchdir(fd int) (err error) {
 func Getcwd(buf []byte) (n int, err error) {
 	n, e := sysGetcwd(buf)
 	if e != 0 {
-		return 0, errnoErr(Errno(e))
+		return -1, errnoErr(Errno(e))
 	}
 	return n, nil
 }
@@ -547,16 +547,19 @@ func Kill(pid int, sig Signal) (err error) {
 // functions).
 func Exit(code int) { sysExit(code) }
 
-// Uname fills buf with the system's names (only Nodename, the host name, is read: the other
-// fields are empty).
+// Uname fills buf with the system's names (uname(2): every field, NUL-padded, as Go's).
 func Uname(buf *Utsname) (err error) {
-	name, e := sysNodename()
-	if e != 0 {
+	var b [6 * 65]byte
+	if e := sysUname(b[:]); e != 0 {
 		return errnoErr(Errno(e))
 	}
-	*buf = Utsname{}
-	for i := 0; i < len(name) && i < len(buf.Nodename)-1; i++ {
-		buf.Nodename[i] = int8(name[i])
+	for i := 0; i < 65; i++ {
+		buf.Sysname[i] = int8(b[i])
+		buf.Nodename[i] = int8(b[65+i])
+		buf.Release[i] = int8(b[2*65+i])
+		buf.Version[i] = int8(b[3*65+i])
+		buf.Machine[i] = int8(b[4*65+i])
+		buf.Domainname[i] = int8(b[5*65+i])
 	}
 	return nil
 }

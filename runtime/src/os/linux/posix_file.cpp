@@ -365,6 +365,53 @@ int64_t sys_fchdir(int64_t fd) {
     return retry([&] { return ::fchdir(static_cast<int>(fd)); }) != 0 ? fail() : 0;
 }
 
+std::tuple<int64_t, int64_t> sys_openat(int64_t dirfd, const gp::string& path, int64_t flags,
+                                        int64_t perm) {
+    std::string p = c_path(path);
+    int fd = retry([&] {
+        return ::openat(static_cast<int>(dirfd), p.c_str(), static_cast<int>(flags) | O_CLOEXEC,
+                        static_cast<mode_t>(perm));
+    });
+    if (fd < 0) {
+        return {-1, fail()};
+    }
+    return {fd, 0};
+}
+
+int64_t sys_unlinkat(int64_t dirfd, const gp::string& path, int64_t flags) {
+    std::string p = c_path(path);
+    return retry([&] {
+               return ::unlinkat(static_cast<int>(dirfd), p.c_str(), static_cast<int>(flags));
+           }) != 0
+               ? fail()
+               : 0;
+}
+
+std::tuple<int64_t, int64_t> sys_readlinkat(int64_t dirfd, const gp::string& path,
+                                            const gp::slice<uint8_t>& buf) {
+    std::string p = c_path(path);
+    ssize_t r = retry([&] {
+        return ::readlinkat(static_cast<int>(dirfd), p.c_str(),
+                            reinterpret_cast<char*>(buf.gp_data()),
+                            static_cast<std::size_t>(buf.gp_len()));
+    });
+    if (r < 0) {
+        return {0, fail()};
+    }
+    return {r, 0};
+}
+
+std::tuple<int64_t, int64_t> sys_copy_file_range(int64_t rfd, int64_t wfd, int64_t len) {
+    ssize_t r = retry([&] {
+        return ::copy_file_range(static_cast<int>(rfd), nullptr, static_cast<int>(wfd), nullptr,
+                                 static_cast<std::size_t>(len), 0);
+    });
+    if (r < 0) {
+        return {0, fail()};
+    }
+    return {r, 0};
+}
+
 std::tuple<int64_t, int64_t> sys_getcwd(const gp::slice<uint8_t>& buf) {
     // The system call itself (not the C library's getcwd): it returns the length with the NUL.
     long r = retry([&] {
@@ -597,6 +644,16 @@ std::tuple<int64_t, int64_t> sys_wait4(int64_t pid, int64_t options,
     return {r, 0};
 }
 
+int64_t sys_waitid(int64_t pid, int64_t options) {
+    siginfo_t info;
+    std::memset(&info, 0, sizeof info);
+    return retry([&] {
+               return ::waitid(P_PID, static_cast<id_t>(pid), &info, static_cast<int>(options));
+           }) != 0
+               ? fail()
+               : 0;
+}
+
 std::tuple<int64_t, int64_t> sys_fcntl_getfl(int64_t fd) {
     int fl = ::fcntl(static_cast<int>(fd), F_GETFL);
     if (fl < 0) {
@@ -690,12 +747,20 @@ std::tuple<int64_t, int64_t, int64_t> sys_selftest_poll_eintr() {
 }
 #endif // GOCPP_RUNTIME_TEST
 
-std::tuple<gp::string, int64_t> sys_nodename() {
+int64_t sys_uname(const gp::slice<uint8_t>& buf) {
     struct utsname u;
-    if (::uname(&u) != 0) {
-        return {gp::string{}, fail()};
+    static_assert(sizeof u.sysname == 65 && sizeof u.domainname == 65);
+    if (buf.gp_len() < 6 * 65) {
+        return EINVAL;
     }
-    return {gp::string::gp_copy(u.nodename), 0};
+    if (::uname(&u) != 0) {
+        return fail();
+    }
+    const char* fields[6] = {u.sysname, u.nodename, u.release, u.version, u.machine, u.domainname};
+    for (int i = 0; i < 6; i++) {
+        std::memcpy(buf.gp_data() + i * 65, fields[i], 65);
+    }
+    return 0;
 }
 
 void sys_exit(int64_t code) {

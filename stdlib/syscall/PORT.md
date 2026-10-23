@@ -21,7 +21,9 @@ not port it (assembly stubs, `//go:linkname`, the runtime's thread handling).
   (`runtime/src/os/linux/posix_file.cpp`, declared in `gocpp/syscall.hpp`) that returns the errno of a failure and **repeats a
   call that a signal interrupted (EINTR)** before Go code sees it. The exported functions turn the errno into an `Errno` (the
   boxed values `EAGAIN`, `EINVAL`, `ENOENT` are shared, as in Go). **Every `Open` adds `O_CLOEXEC`.** A path with a NUL byte is
-  `EINVAL` before any system call (Go's `BytePtrFromString`).
+  `EINVAL` before any system call (Go's `BytePtrFromString`). A call that returns a count returns -1 with the error of the
+  system call, as Go's raw system calls do (`Read`, `Getcwd`, ...), and 0 with `EINVAL` for a path with a NUL byte (`Open`,
+  `Readlink`: Go's `BytePtrFromString` fails before the call); `Uname` fills every field of `Utsname`.
 - `wait_linux.gp`: `WaitStatus` (Go's) and `Wait4`.
 
 ## Not built

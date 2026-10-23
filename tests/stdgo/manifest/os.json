@@ -70,11 +70,11 @@
   },
   "readfrom_linux_test.go": {
    "status": "excluded",
-   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+   "reason": "it tests splice (zero-copy ReadFrom from sockets and pipes: package net) and copy_file_range with a pseudo-terminal from internal/testpty, which gocpp does not have"
   },
   "readfrom_unix_test.go": {
    "status": "excluded",
-   "reason": "it tests the copy_file_range path of File.ReadFrom through the hooks of export_linux_test.go (copyFileHook, pollCopyFileRange), which gocpp's os does not have"
+   "reason": "it tests the copy_file_range path of File.ReadFrom through copyFileHook of readfrom_linux_test.go and the hooks of export_linux_test.go, which are left out (package net, internal/testpty, pidfd)"
   },
   "writeto_linux_test.go": {
    "status": "excluded",
@@ -106,7 +106,7 @@
   },
   "export_linux_test.go": {
    "status": "excluded",
-   "reason": "it exports the zero-copy and pidfd internals (pollCopyFileRange, pollSplice, checkPidfdOnce) to the tests that are left out; os does not have them"
+   "reason": "it exports the splice, net and pidfd internals (pollSplice, getPollFDAndNetwork, checkPidfdOnce) to the tests that are left out; os does not have them"
   },
   "root_test.go": {
    "status": "excluded",
@@ -1310,28 +1310,28 @@
    "file": "readfrom_linux_test.go",
    "kind": "test",
    "status": "excluded",
-   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+   "reason": "it tests splice (zero-copy ReadFrom from sockets and pipes: package net) and copy_file_range with a pseudo-terminal from internal/testpty, which gocpp does not have"
   },
   {
    "name": "TestProcCopy",
    "file": "readfrom_linux_test.go",
    "kind": "test",
    "status": "excluded",
-   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+   "reason": "it tests splice (zero-copy ReadFrom from sockets and pipes: package net) and copy_file_range with a pseudo-terminal from internal/testpty, which gocpp does not have"
   },
   {
    "name": "TestGetPollFDAndNetwork",
    "file": "readfrom_linux_test.go",
    "kind": "test",
    "status": "excluded",
-   "reason": "it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a pseudo-terminal from internal/testpty"
+   "reason": "it tests splice (zero-copy ReadFrom from sockets and pipes: package net) and copy_file_range with a pseudo-terminal from internal/testpty, which gocpp does not have"
   },
   {
    "name": "TestCopyFile",
    "file": "readfrom_unix_test.go",
    "kind": "test",
    "status": "excluded",
-   "reason": "it tests the copy_file_range path of File.ReadFrom through the hooks of export_linux_test.go (copyFileHook, pollCopyFileRange), which gocpp's os does not have"
+   "reason": "it tests the copy_file_range path of File.ReadFrom through copyFileHook of readfrom_linux_test.go and the hooks of export_linux_test.go, which are left out (package net, internal/testpty, pidfd)"
   },
   {
    "name": "TestRemoveAll",
@@ -2047,10 +2047,6 @@
   }
  ],
  "expected": {
-  "TestRemoveAllLongPath": {
-   "class": "bug",
-   "reason": "RemoveAll is the path-based removeall_noat: there is no unlinkat in the syscall subset, so a tree deeper than PATH_MAX (4096) fails with ENAMETOOLONG, where Go removes it relative to open directories"
-  },
   "TestWriteStringAlloc": {
    "class": "divergence",
    "reason": "it counts allocations with testing.AllocsPerRun (2 per File.WriteString: the slice made from the string and the write call), and gocpp allocates differently than Go (it counts C++ operator new); counting rule of the Phase 09 README, 2.8"

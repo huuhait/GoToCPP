@@ -18,8 +18,9 @@ import (
 
 // The part of Go's os.Process that gocpp has (Phase 09 step 9.6, stdlib/os/PORT.md): a Process
 // is a pid (Go's version also keeps a pidfd where the kernel has them), Signal and Kill are
-// kill(2), Wait is wait4(2), and the states are Go's. StartProcess is not built (it needs the
-// fork and exec of package syscall: os/exec comes in a later step); it fails with ENOSYS.
+// kill(2), Wait is waitid(2) then wait4(2) (Go's pidWait), and the states are Go's.
+// StartProcess is not built (it needs the fork and exec of package syscall: os/exec comes in a
+// later step); it fails with ENOSYS.
 
 // ErrProcessDone indicates a [Process] has finished.
 var ErrProcessDone = errors.New("os: process already finished")
@@ -168,9 +169,26 @@ func (p *Process) Kill() error {
 // On most operating systems, the Process must be a child
 // of the current process or an error will be returned.
 func (p *Process) Wait() (*ProcessState, error) {
+	// Go's pidWait (exec_unix.go): there is no pidfd here.
 	if processStatus(p.state.Load()) == statusReleased {
 		return nil, syscall.EINVAL
 	}
+
+	// If we can block until Wait4 will succeed immediately, do so.
+	ready, err := p.blockUntilWaitable()
+	if err != nil {
+		return nil, err
+	}
+	if ready {
+		// Mark the process done now, before the call to Wait4,
+		// so that Process.pidSignal will not send a signal.
+		p.doRelease(statusDone)
+		// Acquire a write lock on sigMu to wait for any
+		// active call to the signal method to complete.
+		p.sigMu.Lock()
+		p.sigMu.Unlock()
+	}
+
 	var (
 		status syscall.WaitStatus
 		rusage syscall.Rusage
@@ -182,9 +200,6 @@ func (p *Process) Wait() (*ProcessState, error) {
 		return nil, NewSyscallError("wait", err)
 	}
 	p.doRelease(statusDone)
-	// Acquire a write lock on sigMu to wait for any active call to the signal method.
-	p.sigMu.Lock()
-	p.sigMu.Unlock()
 	return &ProcessState{
 		pid:    pid1,
 		status: status,

@@ -337,6 +337,64 @@ void test_cwd() {
     CHECK(sc::sys_chdir(gs(old)) == 0);
 }
 
+// The *at calls of RemoveAll, copy_file_range (File.ReadFrom) and waitid (Process.Wait), all inside
+// dir/at, which the test empties and removes itself.
+void test_at_calls() {
+    constexpr int64_t O_DIRECTORY_ = 0200000, O_NOFOLLOW_ = 0400000, AT_REMOVEDIR_ = 0x200,
+                      ELOOP_ = 40, ECHILD_ = 10, WEXITED_ = 4, WNOWAIT_ = 0x1000000;
+    CHECK(sc::sys_mkdir(gs(p("at")), 0755) == 0);
+    auto [dfd, e] = sc::sys_open(gs(p("at")), O_DIRECTORY_, 0);
+    CHECK(e == 0 && dfd >= 0);
+    write_file(p("at/f"), "data");
+    write_file(p("at/g"), "");
+    CHECK(sc::sys_mkdir(gs(p("at/sub")), 0755) == 0);
+    CHECK(sc::sys_symlink(gs("sub"), gs(p("at/ln"))) == 0);
+
+    auto [sfd, se] = sc::sys_openat(dfd, gs("sub"), O_DIRECTORY_ | O_NOFOLLOW_, 0);
+    CHECK(se == 0 && sfd >= 0);
+    sc::sys_close(sfd);
+    std::tie(sfd, se) = sc::sys_openat(dfd, gs("ln"), O_DIRECTORY_ | O_NOFOLLOW_, 0);
+    // O_DIRECTORY on a symlink with O_NOFOLLOW: Linux says ENOTDIR (ELOOP without O_DIRECTORY)
+    CHECK(sfd == -1 && se == ENOTDIR_);
+    std::tie(sfd, se) = sc::sys_openat(dfd, gs("ln"), O_NOFOLLOW_, 0);
+    CHECK(sfd == -1 && se == ELOOP_);
+    std::tie(sfd, se) = sc::sys_openat(dfd, gs("f"), O_DIRECTORY_, 0);
+    CHECK(sfd == -1 && se == ENOTDIR_);
+    std::tie(sfd, se) = sc::sys_openat(dfd, gs("none"), 0, 0);
+    CHECK(sfd == -1 && se == ENOENT_);
+
+    auto buf = gp::make_slice<uint8_t>(16);
+    auto [n, le] = sc::sys_readlinkat(dfd, gs("ln"), buf);
+    CHECK(le == 0 && text(buf, n) == "sub");
+    std::tie(n, le) = sc::sys_readlinkat(dfd, gs("f"), buf);
+    CHECK(le == EINVAL_);
+
+    auto [rfd, re] = sc::sys_openat(dfd, gs("f"), 0, 0);
+    auto [wfd, we] = sc::sys_openat(dfd, gs("g"), O_WRONLY_, 0);
+    CHECK(re == 0 && we == 0);
+    auto [c, ce] = sc::sys_copy_file_range(rfd, wfd, 100);
+    CHECK(ce == 0 && c == 4);
+    std::tie(c, ce) = sc::sys_copy_file_range(rfd, wfd, 100);
+    CHECK(ce == 0 && c == 0); // at the end of f
+    std::tie(c, ce) = sc::sys_copy_file_range(wfd, rfd, 100);
+    CHECK(ce == EBADF_ && c == 0); // the write end is not readable
+    sc::sys_close(rfd);
+    sc::sys_close(wfd);
+    CHECK(read_file(p("at/g")) == "data");
+
+    CHECK(sc::sys_unlinkat(dfd, gs("sub"), 0) == EISDIR_);
+    CHECK(sc::sys_unlinkat(dfd, gs("f"), AT_REMOVEDIR_) == ENOTDIR_);
+    for (const char* name : {"f", "g", "ln"}) {
+        CHECK(sc::sys_unlinkat(dfd, gs(name), 0) == 0);
+    }
+    CHECK(sc::sys_unlinkat(dfd, gs("sub"), AT_REMOVEDIR_) == 0);
+    CHECK(sc::sys_unlinkat(dfd, gs("sub"), AT_REMOVEDIR_) == ENOENT_);
+    sc::sys_close(dfd);
+    CHECK(sc::sys_rmdir(gs(p("at"))) == 0);
+
+    CHECK(sc::sys_waitid(1, WEXITED_ | WNOWAIT_) == ECHILD_); // init is not our child
+}
+
 void test_pipe_dup_nonblock() {
     auto fds = gp::make_slice<int64_t>(2);
     CHECK(sc::sys_pipe2(fds, 0) == 0);
@@ -434,8 +492,11 @@ void test_ids_and_misc() {
     CHECK(sc::sys_getpid() > 0 && sc::sys_getppid() >= 0);
     CHECK(sc::sys_getpagesize() >= 4096);
     CHECK(sc::sys_getuid() >= 0 && sc::sys_geteuid() >= 0 && sc::sys_getgid() >= 0);
-    auto [name, e] = sc::sys_nodename();
-    CHECK(e == 0 && name.gp_view().size() > 0);
+    auto un = gp::make_slice<uint8_t>(6 * 65);
+    CHECK(sc::sys_uname(un) == 0);
+    CHECK(std::string(reinterpret_cast<const char*>(un.gp_data())) == "Linux"); // sysname
+    CHECK(un[65] != 0 && un[2 * 65] != 0);                                      // nodename, release
+    CHECK(sc::sys_uname(gp::make_slice<uint8_t>(64)) == EINVAL_);
     auto [n0, e0] = sc::sys_getgroups(gp::slice<int64_t>());
     CHECK(e0 == 0 && n0 >= 0);
     CHECK(sc::sys_kill(sc::sys_getpid(), 0) == 0);
@@ -495,6 +556,7 @@ int main() {
     test_names();
     test_getdents();
     test_cwd();
+    test_at_calls();
     test_pipe_dup_nonblock();
     test_poll_wait();
     test_poll_wait_eintr();

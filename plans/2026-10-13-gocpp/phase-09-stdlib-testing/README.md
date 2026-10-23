@@ -258,8 +258,8 @@ files pass".
    `gocpp/syscall.hpp`; EINTR retried, `O_CLOEXEC`), and a blocking-mode `internal/poll`. `io`, `io/fs` and
    `internal/filepathlite` are copied from Go (`io` and `io/fs` were too, until 9.4b replaced them with `portstd`'s output: declarations and
    `io.EOF` did not change). `os.Stdout`/`Stderr` are real `*os.File` values: `fmt.Fprint*` writes through them as `io.Writer`.
-   Not built: `os.Root`, `StartProcess` (ENOSYS), `os/exec`, `os/signal`, deadlines, zero-copy `ReadFrom`/`WriteTo`, file
-   finalizers. `RemoveAll` is Go's portable (non-`openat`) version. Tests: `tests/run/os_*.gp` (compared with real Go) and
+   Not built: `os.Root`, `StartProcess` (ENOSYS), `os/exec`, `os/signal`, deadlines, the splice/sendfile zero-copy paths (they need `net`; `ReadFrom` uses `copy_file_range` since 2026-10-23), file
+   finalizers. `RemoveAll` is Go's `openat`/`unlinkat` version on Linux since 2026-10-23 (job dev.syscalldiffs); Windows keeps the portable one. Tests: `tests/run/os_*.gp` (compared with real Go) and
    `runtime/test/syscall_test.cpp`.
 7. **9.7 `fmt`** port on the reflect subset (+ `internal/fmtsort`, C++ value printing).
 8. **9.8 `time`** (ported logic + native hooks + zoneinfo lookup).
@@ -283,7 +283,7 @@ files pass".
     (the `fmt` differential tests, the sync tests of 8.7 and `gocpp test` of 9.9 cover them), so the exit criterion "all tier-1 packages at least 90 %" is evidenced by this count for the 25 listed packages only. Deferred suites:
     `slices`/`maps`/`cmp`/`iter` 145 of 150; `test/rangegen.go` **800 of 800 units** (`rangegen_shards.py`); `test/chan` 18 of 19 (`select2.go` reads `runtime.MemStats`). Found and fixed: boxed variables
     of generic instances (`slices.Collect`, `iter.Pull`), `testing.T.Setenv` bypassed `os`, `os.File.Readdir`'s stat hook, `time`'s once-flags (`sync.Once` now). Found and open: zero-size-element slices of huge length,
-    `os.RemoveAll` beyond `PATH_MAX`, `runtime.AddCleanup`, the builtin `print` of an interface, `defer` of a native function. Guide: `docs/guides/stdlib-tests.md`.
+    `os.RemoveAll` beyond `PATH_MAX` (fixed 2026-10-23), `runtime.AddCleanup`, the builtin `print` of an interface, `defer` of a native function. Guide: `docs/guides/stdlib-tests.md`.
 11. **9.11 Tier-2 packages**, `encoding/json` first.
     *Built (ADR-102):* `encoding/json` is Go's own package (`tools/portstd`, no patch rule), on the reflect subset of 9.3 as it was (nothing was added to `reflect`);
     `encoding`, `encoding/base64`, `encoding/hex`, `encoding/binary`, `container/list`, `container/heap`, `container/ring`, `hash`, `hash/fnv`, `hash/crc32`, `text/tabwriter`, `log`, `path/filepath`, `math/rand` and `math/rand/v2` are ports too (new native `runtime.rand`).

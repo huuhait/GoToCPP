@@ -46,7 +46,8 @@ program of `test/rangegen.go` and the rest of `test/chan` were still open.
    (c) `os.File.Readdir` lacked Go's `stathook` for the file that disappears between the directory read and the stat (`TestReaddirRemoveRace`); (d) the `time` port used native once-flags that tests cannot reset; it uses `sync.Once`
    (as Go does), has Go's `loadFromEmbeddedTZData` and `gorootZoneSource` hooks and `interrupt`, so Go's `export_test.go` compiles.
 7. **Bugs and gaps that it found and did not fix** (manifests have the reasons): slices of zero-size elements with a huge length (`makeslice` panics; `slices.TestConcat_too_large`, `TestRepeat`); `os.RemoveAll` on a tree
-   deeper than `PATH_MAX` (no `unlinkat`); `runtime.AddCleanup`; the builtin `print` of an interface value; `defer` of a `//gocpp:native` function (the emitter writes an unresolved overload; found by the `time` tests, worked around
+   deeper than `PATH_MAX` (no `unlinkat`; superseded 2026-10-23, job dev.syscalldiffs: `RemoveAll` uses `openat`/`unlinkat` and
+   `TestRemoveAllLongPath` passes); `runtime.AddCleanup`; the builtin `print` of an interface value; `defer` of a `//gocpp:native` function (the emitter writes an unresolved overload; found by the `time` tests, worked around
    in the patch); `GODEBUG=asynctimerchan=1`; `Glob` of 10001 separators overflows the fixed stack (D24).
 
 ## Alternatives

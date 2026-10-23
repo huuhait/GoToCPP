@@ -6,7 +6,6 @@ package os
 
 import (
 	"internal/bytealg"
-	"io"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -72,16 +71,6 @@ func (f *File) lstatat(name string) (FileInfo, error) {
 		}
 	}
 	return Lstat(f.name + "/" + name)
-}
-
-// readFrom and writeTo are the zero-copy paths of ReadFrom and WriteTo (copy_file_range, sendfile,
-// splice on Linux): gocpp has none, so the generic io.Copy is used.
-func (f *File) readFrom(r io.Reader) (n int64, handled bool, err error) {
-	return 0, false, nil
-}
-
-func (f *File) writeTo(w io.Writer) (n int64, handled bool, err error) {
-	return 0, false, nil
 }
 
 // setFmtStdout and setFmtStdin give package fmt the means to use os.Stdout and os.Stdin, the

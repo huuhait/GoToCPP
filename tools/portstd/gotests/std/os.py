@@ -1,6 +1,6 @@
 # Go 1.25.14's tests of os; see convert_std.py. The port is Go's os for Linux over a syscall subset
-# (ADR-067): no os.Root, no StartProcess, no os/exec or os/signal, no deadlines, no zero-copy
-# ReadFrom/WriteTo; the tests of those are left out with that reason.
+# (ADR-067): no os.Root, no StartProcess, no os/exec or os/signal, no deadlines, no splice or
+# sendfile (no package net); the tests of those are left out with that reason.
 FILES = ['all']
 TESTDATA = True
 NOPROC = (
@@ -15,13 +15,14 @@ skip_file(
 )
 skip_file(
     'readfrom_linux_test.go',
-    'it tests copy_file_range and splice (zero-copy ReadFrom), which os does not have, with a '
-    'pseudo-terminal from internal/testpty',
+    'it tests splice (zero-copy ReadFrom from sockets and pipes: package net) and copy_file_range '
+    'with a pseudo-terminal from internal/testpty, which gocpp does not have',
 )
 skip_file(
     'readfrom_unix_test.go',
-    'it tests the copy_file_range path of File.ReadFrom through the hooks of export_linux_test.go '
-    "(copyFileHook, pollCopyFileRange), which gocpp's os does not have",
+    'it tests the copy_file_range path of File.ReadFrom through copyFileHook of '
+    'readfrom_linux_test.go and the hooks of export_linux_test.go, which are left out (package '
+    'net, internal/testpty, pidfd)',
 )
 skip_file(
     'writeto_linux_test.go',
@@ -74,8 +75,8 @@ drop(
 )
 skip_file(
     'export_linux_test.go',
-    'it exports the zero-copy and pidfd internals (pollCopyFileRange, pollSplice, checkPidfdOnce) '
-    'to the tests that are left out; os does not have them',
+    'it exports the splice, net and pidfd internals (pollSplice, getPollFDAndNetwork, '
+    'checkPidfdOnce) to the tests that are left out; os does not have them',
 )
 
 # os.Root is not built (ADR-067), but the tests of other functions run twice, in the current folder
@@ -208,13 +209,6 @@ expect(
     'it counts allocations with testing.AllocsPerRun (2 per File.WriteString: the slice made from '
     'the string and the write call), and gocpp allocates differently than Go (it counts C++ '
     'operator new); counting rule of the Phase 09 README, 2.8',
-)
-expect(
-    'TestRemoveAllLongPath',
-    'bug',
-    'RemoveAll is the path-based removeall_noat: there is no unlinkat in the syscall subset, so a '
-    'tree deeper than PATH_MAX (4096) fails with ENAMETOOLONG, where Go removes it relative to '
-    'open directories',
 )
 
 # exec_unix_test.go is taken: two of its tests need no process (FindProcess, Wait and Signal on a
