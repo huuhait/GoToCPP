@@ -173,9 +173,11 @@ and each claim is closed on its own.
   belong to.
 - **Review:** the reviewer checks this: a merge that fixes a claim of TODO.md and leaves it open
   is a finding (severity: should-fix), and so is a claim the report says is fixed that is not.
-- **New claims:** a review that finds something it does not fix adds it to TODO.md as one short
-  claim (file or area, what is wrong, a repro in one line), not a paragraph, grouped under the
-  area headings of the file.
+- **Review finds are fixed in the job (user, 2026-10-23):** every bug a review finds, in the ticket's
+  scope or an older one in the same area, goes back to the coder as a finding of the next round and is
+  fixed there. Only a find that needs a redesign or the user's decision becomes a TODO.md claim (one
+  short line: area, what is wrong, a one-line repro), and a job merges only when it closes more
+  TODO.md lines than it adds. Cosmetic notes go in the merge commit message, not TODO.md.
 - **Audit:** once per phase (and before each release step) the manager checks a sample of the
   open claims against the code; a claim that cannot be reproduced is deleted. The last full
   audit is in AUDIT-2026-10-22.md.

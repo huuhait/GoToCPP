@@ -48,5 +48,7 @@ Review of job <name>, round N: changes requested | clean
 3. [nit] ...
 Checked: <commands run and results>
 ```
-Clean = no blocker and no should-fix left. Findings you don't fix and that are out of scope go
-into the report as one-line TODO.md claims (area, what is wrong, a one-line repro).
+Clean = no blocker and no should-fix left. Every bug you find, also an older one in the same area
+("also on dev"), is a numbered finding for the coder to fix in the next round, not a TODO.md
+claim (user, 2026-10-23). Mark a find "needs a redesign or a user decision" only when it really
+does; the manager decides whether that one becomes a TODO.md line.
