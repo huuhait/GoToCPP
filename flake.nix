@@ -204,6 +204,14 @@
             mingwBin
             pkgs.wine64Packages.stable
           ];
+
+          # Compiler names that are links to ccache (its masquerade mode), see shellHook.
+          ccacheLinks = pkgs.runCommandLocal "gocpp-ccache-links" { } ''
+            mkdir -p $out/bin
+            for n in gcc g++ cc c++ clang clang++ x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++; do
+              ln -s ${pkgs.ccache}/bin/ccache $out/bin/$n
+            done
+          '';
         in
         {
           default = pkgs.mkShell {
@@ -218,6 +226,7 @@
               # by name to get a specific one.
               llvm.clang # clang, clang++
               gcc # gcc, g++
+              pkgs.ccache # ccache -s; the compiler links are in shellHook
               pkgs.gdb
               llvm.lldb
               pkgs.cmake
@@ -263,6 +272,26 @@
             # Keep Wine from adding menu entries, MIME types and icons to ~/.local/share
             # (whatever WINEPREFIX is). A script that sets WINEDLLOVERRIDES must keep it.
             WINEDLLOVERRIDES = "winemenubuilder.exe=d";
+
+            # ccache in front of every compiler (user 2026-10-22: always use it). Hashing the
+            # compiler's content tells two Nix wrappers apart (store files all have mtime 1).
+            # gocpp compiles in a new temporary folder every build, so with -g the default
+            # hash_dir never hits; the paths in the commands are absolute, so the folder adds
+            # nothing (a cold build of examples/wc: 7.8 s, 2.9 s from ccache). The sloppiness
+            # lets compiles that use gocpp's precompiled headers be cached.
+            CCACHE_COMPILERCHECK = "content";
+            CCACHE_NOHASHDIR = "1";
+            CCACHE_SLOPPINESS = "pch_defines,time_macros";
+            CCACHE_MAXSIZE = "100G";
+
+            # The links come first in PATH, so g++, clang++ and the others called by name (as
+            # the tests do) go through ccache, which runs the next one in PATH.
+            # GOCPP_NO_CCACHE=1 before entering the shell leaves them out.
+            shellHook = ''
+              if [ -z "''${GOCPP_NO_CCACHE-}" ]; then
+                export PATH=${ccacheLinks}/bin:$PATH
+              fi
+            '';
           };
         }
       );
