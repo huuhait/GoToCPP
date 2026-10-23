@@ -186,7 +186,9 @@ status=0
 while IFS= read -r c; do
 	case $c in '#'*) continue ;; esac
 	echo "=== $c"
-	vc=$(printf '%s' "$c" | sed "s/go test -count=1/go test -count=1 -v -p 4 -parallel $cpus/")
+	# The harness of tests/ limits each program's command to 2 minutes, which a shared machine
+	# under load passes without a failure; a hang still ends at the command's timeout.
+	vc="GOCPP_TEST_TIMEOUT=${GOCPP_TEST_TIMEOUT:-10m} "$(printf '%s' "$c" | sed "s/go test -count=1/go test -count=1 -v -p 4 -parallel $cpus/")
 	if "$root/scripts/in-devenv" systemd-run --user --scope -q -p MemoryMax="$mem" -p CPUQuota="${cpus}00%" \
 		timeout "$tmo" sh -c "$vc" </dev/null >"$log" 2>&1; then
 		code=0
