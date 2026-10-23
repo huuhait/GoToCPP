@@ -53,22 +53,20 @@ func mapElem(info *types.Info, lit ast.Expr) types.Type {
 	return nil
 }
 
-// genericCMsg starts the error of a generic instance with a C/C++ type argument (the words of lower's).
-const genericCMsg = "an instance of a generic type with a C/C++ type argument ("
-
-// isElidedCError reports whether msg is one of the errors of an elided literal of a C/C++ type.
+// isElidedCError reports whether msg is the error of an elided literal of a C/C++ type.
 func isElidedCError(msg string) bool {
-	return strings.HasPrefix(msg, elidedCTypeMsg) || strings.HasPrefix(msg, genericCMsg)
+	return strings.HasPrefix(msg, elidedCTypeMsg)
 }
 
 // elidedCMessage is the error of the elided literal lit in the map literal mapLit, whose element type
-// elem has a C/C++ part: the limit is the instance of a generic type with a C/C++ type argument (Phase
-// 04) when the written element type has one, else the C/C++ type.
+// elem has a C/C++ part: the C/C++ type; or none ("") when the written element type has an instance of
+// a generic type with a C/C++ type argument: that instance is the limit, which checkGenericCArgs
+// reports at its place in the type (genericc.go).
 func (m *mapValues) elidedCMessage(lit *ast.CompositeLit, mapLit ast.Expr) string {
 	if ml, ok := mapLit.(*ast.CompositeLit); ok {
 		if mt, ok := ml.Type.(*ast.MapType); ok {
 			if inst := m.genericWithC(mt.Value); inst != nil {
-				return genericCMsg + types.ExprString(inst) + ") is not supported yet: the type arguments of a generic type are Go types"
+				return ""
 			}
 		}
 	}
@@ -137,7 +135,9 @@ func (m *mapValues) check(root, mapLit ast.Expr) bool {
 		// pointer of it: go/types gives the literal that type, only the field is invalid, and the value is
 		// checked below like any other.)
 		if lit, ok := root.(*ast.CompositeLit); ok && lit.Type == nil {
-			m.report(pos, types.Error{Fset: m.fset, Pos: pos, Msg: m.elidedCMessage(lit, mapLit)})
+			if msg := m.elidedCMessage(lit, mapLit); msg != "" {
+				m.report(pos, types.Error{Fset: m.fset, Pos: pos, Msg: msg})
+			}
 			return true
 		}
 		return false

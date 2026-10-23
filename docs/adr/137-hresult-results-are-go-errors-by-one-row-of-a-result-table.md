@@ -316,6 +316,8 @@ keystroke benchmark does not move (p50 5.5 ms, p95 36 ms, dev the same).
   gets the words of that limit, `an instance of a generic type with a C/C++ type argument (Gen[C.NTSTATUS]) is not supported yet:
   the type arguments of a generic type are Go types`, which are also the build's words for the full form
   `Gen[hresult.NTSTATUS]{...}` (`gocpp check` does not refuse the full form yet: check and build disagree there, a Phase 04 gap).
+  *(Superseded 2026-10-23, dev.genericcxx, ADR-141: check reports every written instance with a C/C++ type argument, at the
+  instance in the type, `map[any]Gen[hresult.NTSTATUS]` here, and the elided literal gets no error of its own.)*
   A `type D hresult.Surface` is refused at its declaration (Phase 04). Not specific to HRESULT (any C/C++ key does it).
   An **anonymous** Go struct with a C/C++ field (`map[any]struct{ S hresult.Surface; N int }{k: {N: 1}}`, also behind a pointer, slice or
   array) is not a named Go type here: the elided form is refused by `check`, the editor and the build with the C/C++ literal message above,

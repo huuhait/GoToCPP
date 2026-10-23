@@ -231,6 +231,11 @@ type Package struct {
 	// and variables, and nothing in the package or its imports is C.
 	typesClean bool
 
+	// typeErrors says that the package has an error of go/types that is not about something unused
+	// (a false error on opaque code, which Check drops, does not count): a type can be invalid for a
+	// reason that is not C/C++, so the limits of C/C++ types are not reported next to it (genericc.go).
+	typeErrors bool
+
 	// notConst holds the values of const declarations that are errors because they hold a variable or a
 	// call of a Go function (constvalues.go): the gate of the C names in constant expressions leaves them.
 	notConst map[ast.Expr]bool
@@ -456,6 +461,7 @@ func (p *Package) Checked() bool {
 // at the other packages.
 func Check(prog *load.Program, cfg Config) *Result {
 	gates := newGates(prog.Fset, cfg.phase())
+	sums := newGenericSums() // genericcinst.go
 	r := &Result{Fset: prog.Fset, byLoad: make(map[*load.Package]*Package, len(prog.Packages))}
 	checked := make(map[*load.Package]*types.Package)
 	// failed holds the packages with hard errors, or that import one,
@@ -551,6 +557,14 @@ func Check(prog *load.Program, cfg Config) *Result {
 			}
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
+			sums.add(p) // its generic functions, for itself and its importers
+			if !p.typesClean {
+				// After the opaque pass: limits of the lowering, not errors that leave a type
+				// incomplete, so they do not turn the pass's sanity rule off, nor the checks of the
+				// importers, whose types they do not change (genericc.go, pkgcvars.go).
+				p.reportGenericCArgs(prog.Fset, sums)
+				p.reportPkgCVars(prog.Fset)
+			}
 		}
 		gates.focus = ""
 		if p.Focused {
@@ -874,7 +888,7 @@ func checkFiles(fset *token.FileSet, lp *load.Package, checked map[*load.Package
 	}, func(err types.Error) bool {
 		return inPlainMacroUse(err.Pos) || dropFalse && falseErrs.drop(err)
 	})
-	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs, typesClean: clean}, c.blocking
+	return &Package{Load: lp, Types: pkg, Info: info, Errors: errs, typesClean: clean, typeErrors: c.typeErrors}, c.blocking
 }
 
 // newInfo returns an empty types.Info that records everything.
@@ -1032,6 +1046,9 @@ type collector struct {
 	// skipped expressions, which flush adds after found.
 	argErrors []types.Error
 
+	// typeErrors says that flush kept an error of go/types that is not about something unused.
+	typeErrors bool
+
 	// seen holds the errors added so far (to found or to list), so that
 	// an error that CheckExpr finds again (in an argument that go/types
 	// checked too) is not reported twice.
@@ -1185,6 +1202,9 @@ func (c *collector) flush(used, falseError func(err types.Error) bool) {
 		if keep {
 			if msg, ok := c.hinter.hint(c.fset, f.err); ok && !strings.HasPrefix(f.err.Msg, "\t") {
 				f.err.Msg = msg
+			}
+			if code := diag.ErrorCode(f.err); code != diag.UnusedImport && code != diag.UnusedVar {
+				c.typeErrors = true
 			}
 			c.list.Collect(f.err)
 		}

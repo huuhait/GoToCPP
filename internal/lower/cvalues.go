@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"slices"
 
 	"github.com/huuhait/gocpp/internal/check"
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -54,7 +55,12 @@ func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 	if t := g.declaredType(v, pos); t != nil {
 		return t
 	}
-	if v.IsField() || v.Parent() == nil || isPkgLevel(v) {
+	if isPkgLevel(v) {
+		// (check reports it first: pkgcvars.go)
+		g.notYet(pos, g.pkgCVarMessage(v))
+		return typeName("gp_unsupported")
+	}
+	if v.IsField() || v.Parent() == nil {
 		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
 		return typeName("gp_unsupported")
 	}
@@ -75,6 +81,66 @@ func (g *gen) declaredType(v *types.Var, pos token.Pos) cppir.Type {
 	}
 	if lit := g.pkgVarLit(v); lit != nil {
 		return g.typeWith(v.Type(), lit.Type, pos) // the literal's type, with an inferred array's length (clits.go)
+	}
+	if t := g.pkgVarInstResult(v); t != nil {
+		return g.cxxType(t, pos)
+	}
+	return nil
+}
+
+// pkgCVarMessage is check's error of the package variable v, which has no type that the lowering can
+// write (check.PkgCVarMessage): with the type parameters of the generic function whose call is its
+// value, when C++ deduces some of them.
+func (g *gen) pkgCVarMessage(v *types.Var) string {
+	for _, init := range g.info.InitOrder {
+		if !slices.Contains(init.Lhs, v) {
+			continue
+		}
+		call, ok := ast.Unparen(init.Rhs).(*ast.CallExpr)
+		if !ok {
+			break
+		}
+		fg := &funcGen{g: g}
+		if r := fg.instRef(call.Fun); r != nil && r.gf != nil && len(r.open) > 0 {
+			var names []string
+			for tp := range r.fn.Signature().TypeParams().TypeParams() {
+				names = append(names, tp.Obj().Name())
+			}
+			return check.PkgCVarMessage(v.Name(), r.fn.Name(), names)
+		}
+		break
+	}
+	return check.PkgCVarMessage(v.Name(), "", nil)
+}
+
+// pkgVarInstResult returns the type of the package variable v of this package that is declared without
+// a type from a call of an instance of a generic function whose type arguments are all known, written
+// or given by go/types (var it = Seq[std.string](words), var a, b = Two[std.string](x)): the result
+// type of the instance, with the written C/C++ types in it. go/types types neither the call nor v. It returns nil for any other
+// variable, also for an instance with a type argument that C++ deduces (var it = Seq(words)), whose
+// result type only the C++ compiler knows (check reports it: pkgcvars.go).
+func (g *gen) pkgVarInstResult(v *types.Var) types.Type {
+	if v.Parent() != g.pkg.Types.Scope() {
+		return nil
+	}
+	for _, init := range g.info.InitOrder {
+		k := slices.Index(init.Lhs, v)
+		if k < 0 {
+			continue
+		}
+		call, ok := ast.Unparen(init.Rhs).(*ast.CallExpr)
+		if !ok {
+			return nil
+		}
+		fg := &funcGen{g: g}
+		r := fg.instRef(call.Fun)
+		if r == nil || r.gf == nil || r.sig == nil || len(r.open) > 0 || r.sig.Results().Len() != len(init.Lhs) {
+			return nil
+		}
+		if t := r.sig.Results().At(k).Type(); complete(t) {
+			return t
+		}
+		return nil
 	}
 	return nil
 }

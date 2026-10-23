@@ -103,7 +103,8 @@ names (an *instance*), as an ordinary C++ function, by the package that names it
    types, and a placeholder cannot be baked into a text that every package shares (the placeholder's
    spelling would have to be part of the identity, and only the declaring package could ask for the
    instance: designed, not built). A generic *function* with a C++ type argument that makes an instance
-   of a generic type of that argument is the same error, at the instantiation. 
+   of a generic type of that argument is the same error, at the instantiation. *(2026-10-23, ADR-141's
+   dev.genericcxx section: check reports both, the second at the use of the generic function.)* 
 
    **Types declared in generic functions** (`type box struct{ v T }` in `F[T any]`, also in a method of a
    generic type) are types of each instance in Go: `%T` shows `main.box[string]`, also for a local type

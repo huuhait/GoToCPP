@@ -416,6 +416,7 @@ type instRef struct {
 // instance is made from the syntax then (opaqueInstRef).
 func (fg *funcGen) instRef(e ast.Expr) *instRef {
 	g := fg.g
+	fun := e
 	var id *ast.Ident
 	var idx []ast.Expr
 	for {
@@ -459,11 +460,11 @@ func (fg *funcGen) instRef(e ast.Expr) *instRef {
 	}
 	in, ok := g.info.Instances[id]
 	if !ok {
-		return fg.opaqueInstRef(gf, idx, nil, e.Pos())
+		return fg.opaqueInstRef(gf, idx, nil, g.callOf(fun), e.Pos())
 	}
 	for _, a := range in.targs {
 		if !complete(a) || hasC(a) {
-			return fg.opaqueInstRef(gf, idx, in.targs, e.Pos()) // go/types inferred an invalid type argument
+			return fg.opaqueInstRef(gf, idx, in.targs, g.callOf(fun), e.Pos()) // go/types inferred an invalid type argument
 		}
 	}
 	sig, _ := in.typ.(*types.Signature)
@@ -478,7 +479,8 @@ func (fg *funcGen) instRef(e ast.Expr) *instRef {
 // the call: the instance is a C++ function template over those. An explicit type argument that is
 // a C/C++ type (std.vector[int]) is written into the instance, as it is spelled at the call
 // (typeExpr).
-func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []types.Type, pos token.Pos) *instRef {
+// call is the call of the instance, or nil (a func value).
+func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []types.Type, call *ast.CallExpr, pos token.Pos) *instRef {
 	g := fg.g
 	tparams := gf.fn.Signature().TypeParams()
 	r := &instRef{gf: gf, fn: gf.fn, targs: make([]types.Type, tparams.Len()), keys: make([]string, tparams.Len()), pos: pos}
@@ -509,10 +511,179 @@ func (fg *funcGen) opaqueInstRef(gf *genericFunc, idx []ast.Expr, inferred []typ
 		r.targs[i], r.keys[i] = named, "open"
 		r.open = append(r.open, named)
 	}
+	fg.shapeArgs(gf, idx, inferred, call, r)
 	g.openCores(tparams, r)
 	s := newSubster(tparams, r.targs, g.context())
 	r.sig, _ = s.typ(gf.fn.Signature()).(*types.Signature)
 	return r
+}
+
+// shapeArgs replaces the stand-in of a type parameter whose constraint has a core slice or map type
+// (S ~[]E, M ~map[K]V) by that type, made of the type arguments of E, K and V, when the type argument
+// is an unnamed slice or map of C/C++ parts: written (F[[]std.string], Keys[map[int]std.string]), or,
+// for a map, inferred by go/types from an argument (Keys(m) with m map[int]std.string, which go/types
+// infers as map[int]invalid). S is then []E and M is map[K]V, as Go's core type unification makes them,
+// so the body ranges over, indexes and takes the len of a gocpp slice or map. A part of a written type
+// argument gives E, K or V when the type parameter has no type argument of its own (a written C/C++
+// part is a written stand-in, a Go type is that type); of an inferred one, a part that go/types typed
+// (the int key), else E, K or V stays open, and C++ deduces it from gp::map<K, V>. (An inferred slice
+// stays an open S with its core, openCores: C++ deduces S, and E defaults to S's element.) A written
+// type argument that go/types has a complete type for, a slice or map of a Go type with C/C++ parts
+// (Count[[]Holder], type Holder struct{ s std.string }), is baked in as it is and gives its parts to
+// E, K and V the same way, baked in too. gocpp has no named type over a C/C++ slice or map yet, so an
+// unnamed type is the only kind there is.
+func (fg *funcGen) shapeArgs(gf *genericFunc, idx []ast.Expr, inferred []types.Type, call *ast.CallExpr, r *instRef) {
+	g := fg.g
+	tparams := gf.fn.Signature().TypeParams()
+	standIn := func(t types.Type) (*types.Named, bool) {
+		n, ok := t.(*types.Named)
+		if !ok {
+			return nil, false
+		}
+		_, ok = g.cxxNamed[n]
+		return n, ok
+	}
+	for i := range tparams.Len() {
+		self, isStandIn := standIn(r.targs[i])
+		// A written type argument that is a complete Go slice or map type with C/C++ parts ([]Holder, with
+		// type Holder struct{ s std.string }) is baked in as it is; it still gives its parts to E, K and V.
+		written := !isStandIn && i < len(idx)
+		if !isStandIn && !written {
+			continue
+		}
+		core := check.CoreType(tparams.At(i).Constraint())
+		var coreParts []types.Type
+		switch c := core.(type) {
+		case *types.Slice:
+			coreParts = []types.Type{c.Elem()}
+		case *types.Map:
+			coreParts = []types.Type{c.Key(), c.Elem()}
+		default:
+			continue
+		}
+		// The parts of the type argument: the syntax of a written one, the types of an inferred one.
+		var partExprs []ast.Expr
+		var partTypes []types.Type
+		switch {
+		case written:
+			switch t := types.Unalias(r.targs[i]).(type) {
+			case *types.Slice:
+				if _, isSlice := core.(*types.Slice); isSlice {
+					partTypes = []types.Type{t.Elem()}
+				}
+			case *types.Map:
+				if _, isMap := core.(*types.Map); isMap {
+					partTypes = []types.Type{t.Key(), t.Elem()}
+				}
+			}
+			if partTypes == nil {
+				continue
+			}
+		case i < len(idx):
+			switch x := ast.Unparen(idx[i]).(type) {
+			case *ast.ArrayType:
+				if _, isSlice := core.(*types.Slice); isSlice && x.Len == nil {
+					partExprs = []ast.Expr{x.Elt}
+				}
+			case *ast.MapType:
+				if _, isMap := core.(*types.Map); isMap {
+					partExprs = []ast.Expr{x.Key, x.Value}
+				}
+			}
+			if partExprs == nil {
+				continue
+			}
+		default:
+			if _, isMap := core.(*types.Map); !isMap {
+				continue
+			}
+			var from types.Type
+			if i < len(inferred) {
+				from = inferred[i]
+			}
+			m, ok := types.Unalias(from).(*types.Map)
+			if !ok {
+				// go/types recorded no instance (Put(m, 1, cv)): the type of the argument.
+				m, ok = types.Unalias(g.argTypeOf(gf, call, tparams.At(i))).(*types.Map)
+			}
+			if !ok {
+				continue
+			}
+			partTypes = []types.Type{m.Key(), m.Elem()}
+		}
+		parts := make([]types.Type, len(coreParts))
+		for k, cp := range coreParts {
+			tp, isParam := types.Unalias(cp).(*types.TypeParam)
+			if !isParam || tp.Index() >= tparams.Len() || tparams.At(tp.Index()) != tp {
+				if !complete(cp) || hasTypeParam(cp) {
+					parts = nil
+					break
+				}
+				parts[k] = cp // ~map[string]V: the key is string
+				continue
+			}
+			j := tp.Index()
+			if cur, isStandIn := standIn(r.targs[j]); isStandIn && g.cxxNamed[cur].open && j != i {
+				switch {
+				case partExprs != nil:
+					if tv := g.info.Types[partExprs[k]]; tv.IsType() && tv.Type != nil && complete(tv.Type) { // (as a written type argument)
+						r.targs[j], r.keys[j] = tv.Type, g.canonText(tv.Type)
+					} else {
+						name := tparams.At(j).Obj().Name()
+						r.targs[j], r.keys[j] = g.newCxxNamed(gf, name, g.typeExpr(partExprs[k]), false), "cxx:"+g.srcText(partExprs[k])
+					}
+					r.open = slices.DeleteFunc(r.open, func(n *types.Named) bool { return n == cur })
+				case complete(partTypes[k]) && (written || !hasC(partTypes[k])): // (written: as a written type argument)
+					r.targs[j], r.keys[j] = partTypes[k], g.canonText(partTypes[k])
+					r.open = slices.DeleteFunc(r.open, func(n *types.Named) bool { return n == cur })
+				}
+			}
+			parts[k] = r.targs[j]
+		}
+		if parts == nil || written {
+			continue
+		}
+		if len(parts) == 1 {
+			r.targs[i] = types.NewSlice(parts[0])
+		} else {
+			r.targs[i] = types.NewMap(parts[0], parts[1])
+		}
+		r.open = slices.DeleteFunc(r.open, func(n *types.Named) bool { return n == self })
+	}
+}
+
+// callOf returns the call whose function is fun, or nil.
+func (g *gen) callOf(fun ast.Expr) *ast.CallExpr {
+	var n ast.Node = fun
+	for {
+		p := g.parentOf(n)
+		if pe, ok := p.(*ast.ParenExpr); ok {
+			n = pe
+			continue
+		}
+		if c, ok := p.(*ast.CallExpr); ok && c.Fun == n {
+			return c
+		}
+		return nil
+	}
+}
+
+// argTypeOf returns the type of the argument of the call for the first parameter of gf whose type
+// is the type parameter tp itself (Put(m, k, v) for M), or nil.
+func (g *gen) argTypeOf(gf *genericFunc, call *ast.CallExpr, tp *types.TypeParam) types.Type {
+	if call == nil || call.Ellipsis.IsValid() {
+		return nil
+	}
+	sig := gf.fn.Signature()
+	for k := range sig.Params().Len() {
+		if sig.Variadic() && k == sig.Params().Len()-1 {
+			break
+		}
+		if types.Unalias(sig.Params().At(k).Type()) == tp && k < len(call.Args) && len(call.Args) == sig.Params().Len() {
+			return g.info.TypeOf(call.Args[k])
+		}
+	}
+	return nil
 }
 
 // openCores gives the open type parameters of an opaque instance their core slice type: S ~[]E is
@@ -551,37 +722,8 @@ func (g *gen) openCores(tparams *types.TypeParamList, r *instRef) {
 // sliceCore returns the slice type that every type of the type set of the constraint c has as its
 // underlying type (S ~[]E: []E), or nil.
 func sliceCore(c types.Type) *types.Slice {
-	it, ok := c.Underlying().(*types.Interface)
-	if !ok {
-		return nil
-	}
-	var found *types.Slice
-	for i := range it.NumEmbeddeds() {
-		var sl *types.Slice
-		switch e := it.EmbeddedType(i).(type) {
-		case *types.Union:
-			if e.Len() != 1 {
-				return nil
-			}
-			sl, _ = e.Term(0).Type().Underlying().(*types.Slice)
-		default:
-			sl = sliceCore(e)
-			if sl == nil {
-				if _, isIface := e.Underlying().(*types.Interface); isIface {
-					continue
-				}
-				sl, _ = e.Underlying().(*types.Slice)
-			}
-		}
-		if sl == nil {
-			continue
-		}
-		if found != nil {
-			return nil
-		}
-		found = sl
-	}
-	return found
+	sl, _ := check.CoreType(c).(*types.Slice)
+	return sl
 }
 
 // cxxCore returns the slice type that the C++-deduced type parameter t stands for (S ~[]E), or nil

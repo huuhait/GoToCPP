@@ -815,6 +815,14 @@ func (op *opaquePass) computeOpaque(e ast.Expr) bool {
 		if op.litTypeOpaque(e) {
 			return true
 		}
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		// Mixed[int](7, words) with words []std.string: go/types instantiates Mixed with the written
+		// int and an invalid T, records that instance under the name and the generic signature as the
+		// name's type (so the name is typed), and the instance's signature as the type of Mixed[int],
+		// which is not complete. The instance is what comes from C/C++ (as for id(xs)).
+		if id := instanceIdent(e); id != nil && op.incompleteInstance(id) {
+			return true
+		}
 	}
 	found := false
 	exprChildren(e, func(c ast.Expr) {
@@ -906,6 +914,16 @@ func (op *opaquePass) comesFromC(e ast.Expr) bool {
 // with a type argument that is not complete (slices.Sort(xs) with
 // var xs []C.int).
 func (op *opaquePass) identFromC(id *ast.Ident) bool {
+	if op.incompleteInstance(id) {
+		return true
+	}
+	obj := op.info.Uses[id]
+	return obj != nil && op.objectFromC(obj)
+}
+
+// incompleteInstance reports whether id names an instance of a generic function with a type
+// argument that is not complete (Info.Instances).
+func (op *opaquePass) incompleteInstance(id *ast.Ident) bool {
 	if inst, ok := op.info.Instances[id]; ok {
 		for i := range inst.TypeArgs.Len() {
 			if incomplete(inst.TypeArgs.At(i)) {
@@ -913,8 +931,7 @@ func (op *opaquePass) identFromC(id *ast.Ident) bool {
 			}
 		}
 	}
-	obj := op.info.Uses[id]
-	return obj != nil && op.objectFromC(obj)
+	return false
 }
 
 // litTypeOpaque reports whether the type of the composite literal lit is

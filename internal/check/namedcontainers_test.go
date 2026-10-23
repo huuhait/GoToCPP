@@ -23,6 +23,8 @@ func TestNamedContainersOfCElements(t *testing.T) {
 		{"map index", "type Dict map[string]C.int", "var d Dict\n\td[\"x\"] = 1\n\tprintln(d[\"x\"])"},
 		{"pointer deref", "type Ptr *C.int", "var p Ptr\n\tprintln(*p)"},
 		{"func call", "type Fn func() C.int", "var f Fn\n\tprintln(f())"},
+		// (an instance of a generic type with a C/C++ type argument: the limit of the build is the only
+		// error, reported after the opaque pass, which found every expression typed or opaque)
 		{"instance of a generic slice", "type Box[T any] []T", "var b Box[C.int]\n\tb = append(b, 1)\n\tprintln(b[0])"},
 		{"instance of a generic array", "type Pair[T any] [2]T", "var p Pair[C.int]\n\tp[1] = 3\n\tprintln(p[0])"},
 		{"type parameter with a core type", "func get[T ~[]C.int](x T) C.int { return x[0] }", "var l []C.int\n\tprintln(get(l))"},
@@ -33,8 +35,14 @@ func TestNamedContainersOfCElements(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			src := "package main\n\n" + c.decl + "\n\nfunc main() {\n\t" + c.body + "\n}\n"
-			if got := checkErrors(t, LastPhase, src); got != "" {
-				t.Errorf("errors:\n%s", got)
+			want := ""
+			if strings.HasPrefix(c.name, "instance of a generic") {
+				name := strings.Fields(c.decl)[1]
+				name = name[:strings.Index(name, "[")]
+				want = "./main.gp:6:8: " + genericCMsg + name + "[C.int]" + genericCTail
+			}
+			if got := checkErrors(t, LastPhase, src); strings.TrimSpace(strings.TrimPrefix(got, "# example.com/m\n")) != want {
+				t.Errorf("errors:\n%s\nwant:\n%s", got, want)
 			}
 		})
 	}

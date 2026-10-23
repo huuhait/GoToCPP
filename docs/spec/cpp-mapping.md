@@ -2926,7 +2926,17 @@ inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int6
   `append` on a value of `S` are the slice operations (`tests/interop/generics_cxx_slice_core.gp`).
   `make(S, n)`, `copy` and conversions to `S` are not built for a deduced `S`. `E` may come before `S`
   (`func Wrap[T any, S ~[]T](xs S)`): the template parameters are written with each `E` after its `S`, so
-  that the default can name it (`tests/interop/generics_cxx_range_func.gp`).
+  that the default can name it (`tests/interop/generics_cxx_range_func.gp`). A written `S` (`F[[]std.string]`) and a
+  map `M ~map[K]V` with a C++ part, written or inferred (`Keys[map[int]std.string](m)`, `Keys(m)`), are made `[]T` and
+  `map[K]V` of the element parameters, as Go's core type unification does (`generics.go: shapeArgs`); a C++ element of an
+  inferred map stays a template parameter, deduced from `gp::map<K, V>` (`tests/interop/generics_cxx_shape.gp`).
+- **Partly written type arguments** (`Mixed[int](7, words)`, a C++ `T` deduced): the written ones are baked in, the
+  others are template parameters, as above (`tests/interop/generics_cxx_partial.gp`).
+- **A package variable from a generic call** without a type (`var it = Seq[std.string](words)`) has the instance's
+  result type when every type argument is written or a Go type; with a type argument that C++ deduces (`var it =
+  Seq(words)`) it has no type gocpp can write in the header, and check says to write the type or the type arguments
+  (`tests/interop/generics_cxx_pkgvar.gp`, `generics_cxx_pkgvar_errors.gp`). Check also reports, as the build, an
+  instance of a generic type with a C/C++ type argument and a use of a generic function that would make one (ADR-141).
 - **Range over a generic iterator with a C++ type argument** (`for s := range Seq(v)`, `Seq[T any](xs []T)
   func(yield func(T) bool)`, `v []std.string`): `go/types` gives the call an invalid type, so the lowering
   does not know what the iterator yields. The loop body is a lambda with `auto` parameters, passed as it is

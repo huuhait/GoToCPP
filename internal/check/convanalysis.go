@@ -239,6 +239,12 @@ func (a *analysis) state(e ast.Expr) state {
 	if id, ok := e.(*ast.Ident); ok && a.genericFunc(id) {
 		return typed // the name of a generic function is no source of invalid: its arguments are
 	}
+	if a.partialInstance(e) {
+		// First[string] of First[string]("x", words), words []std.string: go/types instantiates with an
+		// invalid T, so the instance's signature is invalid; its sources are the arguments of the call
+		// and the written type arguments (the call's case, uninstantiated), not the function.
+		return typed
+	}
 	tv, ok := a.info.Types[e]
 	if ok && isValidType(tv.Type) && !hasInvalid(tv.Type) {
 		return typed
@@ -565,6 +571,21 @@ func (a *analysis) uninstantiated(fun ast.Expr) bool {
 		if hasInvalid(inst.TypeArgs.At(i)) {
 			return true // go/types inferred an invalid type argument from an opaque argument
 		}
+	}
+	return false
+}
+
+// partialInstance reports whether e is F[T] or F[T, U] of a generic function F whose instance
+// go/types made with an invalid type argument (one C++ deduces from an argument of the call).
+func (a *analysis) partialInstance(e ast.Expr) bool {
+	switch e.(type) {
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		id := instanceIdent(e)
+		if id == nil || !a.genericFunc(id) {
+			return false
+		}
+		_, ok := a.info.Instances[id]
+		return ok && a.uninstantiated(e)
 	}
 	return false
 }

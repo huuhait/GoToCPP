@@ -20,10 +20,36 @@ import (
 // package. It fails the test if the program has errors.
 func checkMain(t *testing.T, files map[string]string) (*load.Program, *Package) {
 	t.Helper()
+	return checkMainLimits(t, files, 0)
+}
+
+// checkMainLimits is checkMain for a program whose only errors are limits: instances of generic types
+// with a C/C++ type argument (Box[C.int], which the build refuses: genericc.go), as many as limits.
+// They are reported after the opaque pass, so its labels and its sanity rule still hold.
+func checkMainLimits(t *testing.T, files map[string]string, limits int) (*load.Program, *Package) {
+	t.Helper()
 	files["gocpp.mod"] = "module example.com/m\n"
 	root := writeTree(t, files)
 	prog, r := loadAndCheck(t, load.Config{}, root, ".")
-	if errs := errorText(t, prog, r, root, true); errs != "" {
+	errs := errorText(t, prog, r, root, true)
+	if limits > 0 {
+		var other []string
+		n := 0
+		for _, line := range strings.Split(strings.TrimSpace(errs), "\n") {
+			switch {
+			case strings.HasPrefix(line, "# "):
+			case strings.Contains(line, genericCMsg) && strings.HasSuffix(line, genericCTail):
+				n++
+			default:
+				other = append(other, line)
+			}
+		}
+		if n != limits {
+			t.Errorf("%d limits of generic types with C/C++ type arguments, want %d:\n%s", n, limits, errs)
+		}
+		errs = strings.Join(other, "\n")
+	}
+	if errs != "" {
 		t.Fatalf("errors:\n%s", errs)
 	}
 	for _, p := range r.Packages {
@@ -282,7 +308,7 @@ func main() {
 	fmt.Println(x, total, len(xs)) // args
 }
 `
-	prog, p := checkMain(t, map[string]string{"main.gp": src})
+	prog, p := checkMainLimits(t, map[string]string{"main.gp": src}, 1) // var bx Box[...]
 	checkLabels(t, prog, p, src, []labelCase{
 		// Rooted in C.
 		{"// rooted", "lib", "C.foo()", "opaque"},
@@ -916,7 +942,7 @@ loop:
 	}
 }
 `
-	prog, p := checkMain(t, map[string]string{"main.gp": src})
+	prog, p := checkMainLimits(t, map[string]string{"main.gp": src}, 1) // var bx Box[...]
 	checkLabels(t, prog, p, src, []labelCase{
 		{"// const", "1", "1", "typed"},
 		{"// iota", "iota", "iota", "opaque"},
@@ -947,6 +973,8 @@ func id[T any](x T) T { return x }
 
 func two[T, U any](t T, u U) T { return t }
 
+func second[T, U any](t T, u []U) []U { return u }
+
 func main() {
 	var xs []C.int
 	slices.Sort(xs) // sort
@@ -957,6 +985,8 @@ func main() {
 	_ = lib.Ident(xs) // lib-xs
 	cv := std.vector[int]{}
 	_ = two[int](1, cv) // partial
+	_ = two[int](1, xs) // partial-slice
+	_ = second[int](1, xs) // partial-deduced
 	_ = id(cv) // id-cv
 	_ = lib.Ident(cv) // lib-cv
 	_ = id(1) // id-int
@@ -985,6 +1015,13 @@ func Ident[T any](x T) T { return x }
 		{"// partial", "two", "two", "opaque"},
 		{"// partial", "int", "int", "typed"},
 		{"// partial", "1", "1", "typed"},
+		// go/types instantiates two[int] with U = []invalid and second[int] with an invalid U: the
+		// instance is opaque, not its generic name
+		{"// partial-slice", "two", "two[int](1, xs)", "typed"},
+		{"// partial-slice", "two", "two[int]", "opaque"},
+		{"// partial-slice", "two", "two", "typed"},
+		{"// partial-deduced", "second", "second[int](1, xs)", "opaque"},
+		{"// partial-deduced", "second", "second[int]", "opaque"},
 		{"// id-cv", "id", "id(cv)", "opaque"},
 		{"// id-cv", "id", "id", "opaque"},
 		{"// lib-cv", "lib", "lib.Ident(cv)", "opaque"},
