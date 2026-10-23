@@ -84,11 +84,24 @@ Copy Go's rewrite (its doc comment is the specification), in `internal/lower/ran
 - The yield parameters may be C/C++ types (`func(yield func(std.string) bool)`): the range variable
   has that type (the check marks it opaque, the lowering takes the C++ type from the parameter's
   type expression); `tests/interop/rangefunc_cpp_values.gp`.
-- Known gap: `for x := range G(...)` where `G` is a GENERIC function (or an instance) called with
-  C/C++ type arguments (`genEach[std.string](...)`, `Map[int, std.string](...)`) is not recognised
-  as a range over a func, because go/types gives the call an invalid type; it is lowered as a C++
-  container range and fails with "range over a C/C++ value without begin() and end()". Workaround:
-  assign the call to a typed func variable and range over that. In the plans TODO.
+- A range over a GENERIC function with C/C++ type arguments works in both forms
+  ([ADR-141](141-a-generic-type-declared-in-a-function-has-the-functions-type-parameters-first.md)):
+  - inferred (`for s := range Seq(v)` with `v []std.string`): go/types types the call as a func whose
+    deduced parts are invalid, so the lowering does not know what the iterator yields: the body is a lambda
+    with `auto` parameters, passed as it is to the iterator (`tests/interop/generics_cxx_range_func.gp`).
+    (Before that the loop failed with "package variables of C/C++ values without a type".)
+  - written (`for s := range Seq[std.string](v)`, `it := Seq[std.string](v)` then `for s := range it`, and the
+    instance itself, `for s := range genEach[std.string]`): go/types types none of it (before, these were
+    lowered as a C++ container range: "range over a C/C++ value without begin() and end()"). The lowering
+    records the instance's signature as the type of the range expression before it lowers the functions
+    (`typeExplicitIterators`), so the loop is a range over a func with the written C++ types
+    (`tests/interop/generics_cxx_range_explicit.gp`). The range variables are still C/C++ values for the
+    checks of the lowering, also one of a Go type (the `int` index of `Indexed[std.string]`): convert it,
+    `int(i)`, as a C value. A variable of a written func type (`var it func(func(std.string) bool) =
+    Seq[std.string](v)`) has Go's types.
+  - The iterator must be a func type: `iter.Seq[T]` with a C++ `T` is a generic type with a C++ type
+    argument, which is not built. Type arguments partly written and partly deduced (`Pairs[int](7, words)`)
+    are an internal error in any use, not only in a range.
 
 ## Evidence
 

@@ -229,10 +229,6 @@ func main() {
 		src:  "package main\n\nimport \"weak\"\n\ntype WP weak.Pointer[int]\n\ntype A = weak.Pointer[int]\n\nfunc main() {\n\tvar a A\n\tprintln(a.Value() == nil, WP(a) == WP{})\n}\n",
 		want: []string{"5:6: a type defined as weak.Pointer[T] is not supported in gocpp"}},
 
-	{name: "generic types declared inside functions", phase: Never,
-		src:  "package main\n\nfunc main() {\n\ttype Pair[K, V any] struct {\n\t\tk K\n\t\tv V\n\t}\n\tvar p Pair[int, string]\n\t_ = p\n}\n",
-		want: []string{"4:7: generic types declared inside functions are not supported in gocpp"}},
-
 	// Phase 04.
 	{name: "header imports", phase: 4, src: "package main\n\nimport \"<stdio.h>\"\n\nfunc main() {\n\tstdio.puts(\"x\")\n}\n",
 		want: []string{"3:8: header imports are not supported yet (Phase 04)"}},

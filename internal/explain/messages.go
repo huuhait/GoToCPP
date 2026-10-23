@@ -168,7 +168,7 @@ var gateTopics = map[string]string{
 	"type assertions": "interfaces", "type switches": "interfaces", "struct embedding": "embedding",
 	"panic with a value of a non-basic type": "panics", "generic functions": "generics", "generic types": "generics",
 	"range over functions": "range", "go statements": "goroutines", "channels": "channels",
-	"select statements": "select", "a type defined as weak.Pointer[T]": "generics", "generic types declared inside functions": "generics", "promoted fields and methods of several embedded C/C++ types": "embedding",
+	"select statements": "select", "a type defined as weak.Pointer[T]": "generics", "promoted fields and methods of several embedded C/C++ types": "embedding",
 }
 
 // describeGate writes the explanation of a gate from its table row.

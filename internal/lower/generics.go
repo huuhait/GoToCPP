@@ -10,6 +10,7 @@ import (
 	"go/types"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/huuhait/gocpp/internal/check"
@@ -306,11 +307,11 @@ func (gf *genericFunc) apply(targs []types.Type, ctxt *types.Context, cxxNamed m
 	}
 	s := newSubster(tparams, targs, ctxt)
 	if fnScope := gf.fn.Scope(); fnScope != nil {
-		s.local = func(l *types.Named) types.Type {
-			if !localTypeIn(l, fnScope) {
+		s.local = func(l *types.Named, own []types.Type) types.Type {
+			if !localTypeIn(l, fnScope) || len(own) != l.TypeParams().Len() {
 				return nil
 			}
-			return gf.owner.localInstance(l, gf.fn, tparams, targs, ctxt)
+			return gf.owner.localInstance(l, gf.fn, tparams, targs, own, ctxt)
 		}
 	}
 	params, results := s.tuple(osig.Params()), s.tuple(osig.Results())
@@ -535,9 +536,9 @@ func (g *gen) openCores(tparams *types.TypeParamList, r *instRef) {
 			j := tp.Index()
 			if j < tparams.Len() && tparams.At(j) == tp {
 				elem = r.targs[j]
-				if en, ok := elem.(*types.Named); ok && g.cxxNamed[en].open && j > i {
+				if en, ok := elem.(*types.Named); ok && g.cxxNamed[en].open && j != i {
 					ei := g.cxxNamed[en]
-					ei.from = i + 1 // 1-based: the template parameter of S
+					ei.from = named // the template parameter of S
 					g.cxxNamed[en] = ei
 				}
 			}
@@ -604,7 +605,9 @@ type cxxInfo struct {
 	// parameters when E is one (E is then given S's element type as its default).
 	core   *types.Slice
 	elemOf int
-	from   int
+	// from is, for the element E of S ~[]E, the stand-in of S: E is a template parameter that
+	// follows S and defaults to S's element, as C++ cannot deduce it from the arguments.
+	from *types.Named
 }
 
 // newCxxNamed returns a type that stands for a C/C++ type argument in the instance of gf: a named
@@ -663,6 +666,7 @@ func (g *gen) instanceName(r *instRef) cppir.Expr {
 	for _, a := range r.targs {
 		walk(a)
 	}
+	open = g.sourcesFirst(open)
 	k := instKey{g.unit, key.String()}
 	in, ok := g.insts[k]
 	if !ok {
@@ -706,6 +710,30 @@ func (g *gen) instanceName(r *instRef) cppir.Expr {
 		}
 	}
 	return fun
+}
+
+// sourcesFirst returns the open type arguments with each element E of an S ~[]E after its S, so
+// that the template parameter E can default to S's element, whatever the order of the Go type
+// parameters (Wrap[T any, S ~[]T] has T first). The order is the order of the template parameters
+// and of the explicit template arguments of a call inside another instance.
+func (g *gen) sourcesFirst(open []*types.Named) []*types.Named {
+	out := make([]*types.Named, 0, len(open))
+	placed := make(map[*types.Named]bool, len(open))
+	var place func(n *types.Named)
+	place = func(n *types.Named) {
+		if placed[n] {
+			return
+		}
+		placed[n] = true
+		if f := g.cxxNamed[n].from; f != nil && slices.Contains(open, f) {
+			place(f)
+		}
+		out = append(out, n)
+	}
+	for _, n := range open {
+		place(n)
+	}
+	return out
 }
 
 // eachPart calls f for the types that t is made of, one level down.
@@ -812,9 +840,9 @@ func (g *gen) lowerInstance(in *instance) {
 		for _, n := range in.open {
 			name := cppir.TypeString(g.cxxNamed[n].typ)
 			t.Params = append(t.Params, cppir.Param{Type: typeName("typename"), Name: name})
-			if f := g.cxxNamed[n].from; f > 0 && f <= len(in.open) {
+			if f := g.cxxNamed[n].from; f != nil && slices.Contains(in.open, f) {
 				// E of S ~[]E: C++ cannot deduce it from the arguments (a return type, a local).
-				name += " = typename gp::detail::slice_elem_of<" + cppir.TypeString(g.cxxNamed[in.open[f-1]].typ) + ">::type"
+				name += " = typename gp::detail::slice_elem_of<" + cppir.TypeString(g.cxxNamed[f].typ) + ">::type"
 			}
 			pt.Params = append(pt.Params, cppir.Param{Type: typeName("typename"), Name: name})
 		}

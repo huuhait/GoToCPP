@@ -92,7 +92,6 @@ The syntax and the meaning of these have no gate and no row below, at every phas
 | C/C++ names in constant expressions | 12 | `[cstdio.BUFSIZ]byte`, `const n = cstdio.BUFSIZ`. Typed interop (the default when clang++ is installed; `-interop=typed` requires it) probes the value of a macro, an enumerator or a `constexpr` variable and accepts them; opaque mode cannot tell those from a variable, which is never a constant, so it reports every C/C++ name there. A variable of your own (`var x C.int`, `const d = x + 1`) is always the error `x + 1 (C/C++ value) is not constant`. Write the number in a program that must build without clang++. |
 | `C.wstr` and `C.GoStringW` | 14 | Wide strings (UTF-16 on Windows) for the `W` functions: also `C.GoStringWN`. |
 | `//gocpp:no-win32-defaults` | 14 |  |
-| generic types declared inside functions | never | `func f() { type Pair[K, V any] struct{...} }`. Go accepts them; gocpp has types declared inside functions (also inside generic functions) and generic types at package level, but not both at once. Declare the generic type at package level. |
 | `//go:linkname` | never | Only the standard library uses it, and `tools/portstd` turns those uses into native functions (Phase 09). |
 
 ## Standard packages

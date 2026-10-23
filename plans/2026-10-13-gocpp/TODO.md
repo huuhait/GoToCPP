@@ -39,7 +39,7 @@ the lines are (a line counts once):
 | Kind | Lines | What it means |
 |---|---|---|
 | In a running job | about 9 | recover, `&cvar`, anonymous interface field, reflect, sync.Map, paths and offline, HRESULT, LSP speed: they close at merge |
-| Real bugs a user can hit | about 16 | 8 MiB stack, generic types in functions, range over generic iterator with C++ types, `const d = x+1`, `sys/select.h`, header ending mid-declaration, `check` and `build` disagree, `make([]struct{}, MaxInt)`, builds flaky when several run in one cache, syscall small differences, `-release` traces without frames |
+| Real bugs a user can hit | about 16 | 8 MiB stack, `const d = x+1`, `sys/select.h`, header ending mid-declaration, `check` and `build` disagree, `make([]struct{}, MaxInt)`, builds flaky when several run in one cache, syscall small differences, `-release` traces without frames |
 | Failing or never-run tests and CI | about 9 | clang++/`-asan` conformance campaigns, first GitHub CI run, full `make test-windows` |
 | Performance (no wrong answer) | about 8 | timers, string maps, panic from a callee, `iter.Pull`, `-O0` default speed |
 | Old review leftovers ("lows" bundles) | about 20 | 6.x, 7.x, 8.x, 10.x, 12.x, 13.x, 14.x, 15.x bundles: mutants, cosmetic output, rare shapes |
@@ -112,8 +112,13 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Compiler (check, lower, cppgen, generics, interop)
 
-- [ ] Generic types declared inside function bodies are a gate error (`generic types declared inside functions are not supported in gocpp`); gc accepts them (was L275).
-- [ ] Range over a generic iterator instantiated with C++ type arguments fails (`for s := range Seq(v)` with `v []std.string`: `package variables of C/C++ values without a type`); `func Wrap[T any, S ~[]T](xs S)` with a C++ element: `no matching function ... couldn't infer template argument 'T'` (was L236, L246).
+- [ ] Range over an iterator with written C++ type arguments (`range Indexed[std.string](words)`): a Go-typed yield parameter (the `int` index) is a C/C++ value to the build and needs `int(i)`; `check` is silent and the inferred form `Indexed(words)` accepts it (dev.genericgaps review).
+- [ ] Partly written, partly deduced type arguments (`Mixed[int](7, words)` with a C++ deduced argument) give `internal error: expression has no type` in any use.
+- [ ] An explicit slice type argument `F[[]std.string]` for `S ~[]T` gives `internal error ... range over gp_cxx_N_S`; `M ~map[K]V` with a C++ `V` gives `internal error ... range over gp_cxx_N_M`.
+- [ ] `check` and `vet` are silent on a generic type with a C/C++ type argument (`Box[std.string]`, local or package-level, `iter.Seq[std.string]`); only the build rejects it.
+- [ ] `var it = Seq[std.string](words)` at package level says `package variables of C/C++ values without a type: write its type` (writing the type works).
+- [ ] Typed probe cache: emitting `tests/typed/err_adapt_defer.gp` and then `adapt_voidout.gp` with one cache gives a wrong `**adapt.Obj as *unsafe.Pointer` error; a fresh cache passes (also hresult_error, hresult_raw) (job dev.probecache running).
+- [ ] `TestDiff/fmt_large` ends in `fatal error: stack overflow` since b9d4b506: defer/go `gp_push` takes its owning arguments by value, so `defer f(a)` with an 8 MiB array copies it onto the stack (job dev.deferbig running).
 - [ ] Named types over C types (`type Chars [1]C.char`, `type Count C.int`, named slices, maps, pointers and funcs over C types): `check` accepts them, the build stops with a positioned `internal error: not supported yet: named types declared over C/C++ types (T, a later step of Phase 04)` (an unused `type Fn func() C.int` used to build; every real use failed on dev).
 - [ ] check/build agreement (dev.checkagree): `const k = lib.f(1)` with gates open is reported only by the build, and opaque `const g = lib.cvar + 1` only by an internal error in the build (also on dev); `const k = C.int(1)` with gates open gives `not supported yet: the identifier k`; `a == b` on arrays with C parts is gated at Phase 12; a constraint that embeds another constraint over `~[]C.int` (`type Emb interface{ CInts }`) still gives `internal error: expression has no type: x[1]` in check.
 - [ ] Header hints and probes (dev.checkagree): the union probe does not mirror the headers of the package's own .c/.cpp files and of imported gocpp packages; the NotAName hint can fire on an undefined name that is no typo of anything in scope (`fmt.Println` without the import in a file that imports `./3d.h`); `gocpp fmt` and `gocpp doc` print the raw parser error for `select.X` (no hint); hint errors print after the file's other errors; test gaps: the loader's file-name guard for hint errors, same-offset errors, a comment before the dot, the typo-rule boundaries and the single-term constraint union clause.

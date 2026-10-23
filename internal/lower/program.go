@@ -49,6 +49,7 @@ type Program struct {
 	instObjs      map[string]*types.TypeName
 	localOrigins  map[*types.Named]*localInfo // the types declared in generic functions (localtypes.go)
 	localTagOf    map[*types.TypeName]string  // their origins' tags
+	localImplicit map[*types.TypeName]int     // their origins' leading type parameters of the function
 	instTypeNames map[string]string
 
 	// The extern functions of the program (extern.go): their declarations by function, and the

@@ -981,7 +981,9 @@ type arguments does ([ADR-030](../adr/030-generic-instances.md), [cpp-mapping.md
   `case T:` and `%T` see the type argument, and `int` and `int64` stay two types.
 - `%T`, `%v`, `%+v` and `%#v` of an instance print what Go prints: `main.Pair[string,[]int]`,
   `*main.Stack[net/url.URL]`, `main.Box[main.point·1]` for a type declared in a function (the number
-  counts such types in the package, as gc does), `main.loc[int]` for a type declared in a generic function.
+  counts such types in the package, as gc does), `main.loc[int]` for a type declared in a generic function,
+  `main.Box[int;string]` for `Box[string]`, a generic type declared in `F[int]` (the function's type
+  arguments, a semicolon, the type's own).
 - **Range over functions** (`for x := range f`, Go 1.23) is Go's own rewrite: the loop body becomes the
   `yield` function, `break`, `continue`, `return`, labels and `goto` work across any number of nested loops,
   a `defer` in the body belongs to the function with the loop, and an iterator that misuses `yield` gets

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/types"
+	"slices"
 	"strconv"
 )
 
@@ -22,6 +23,10 @@ import (
 type localInfo struct {
 	origin *types.Named
 	tag    string // the unique tag that canonText appends (two functions may declare local)
+	// implicit is the number of leading type parameters of origin that are the function's: a
+	// generic local type has its own after them, and Go writes them after a semicolon
+	// (main.Box[int,string;bool]).
+	implicit int
 }
 
 // localTypeIn reports whether t is a type declared inside the function whose scope is fn.
@@ -42,10 +47,12 @@ func localTypeIn(t *types.Named, fn *types.Scope) bool {
 }
 
 // localInstance returns the instance, for the type arguments targs of the function fn whose type
-// parameters are tparams, of the local type t.
-func (g *gen) localInstance(t *types.Named, fn *types.Func, tparams *types.TypeParamList, targs []types.Type, ctxt *types.Context) types.Type {
+// parameters are tparams, of the local type t (its origin, for a generic one), where own are the
+// type arguments of the type itself (none unless t is generic).
+func (g *gen) localInstance(t *types.Named, fn *types.Func, tparams *types.TypeParamList, targs, own []types.Type, ctxt *types.Context) types.Type {
 	li := g.localOrigin(t, fn, tparams, ctxt)
-	r, err := types.Instantiate(ctxt, li.origin, targs, false)
+	all := append(slices.Clone(targs), own...)
+	r, err := types.Instantiate(ctxt, li.origin, all, false)
 	if err != nil {
 		g.errorf(t.Obj().Pos(), "internal error: instantiating the local type %s: %v", t.Obj().Name(), err)
 		return t
@@ -61,14 +68,16 @@ func (g *gen) localOrigin(t *types.Named, fn *types.Func, tparams *types.TypePar
 	if g.prog.localOrigins == nil {
 		g.prog.localOrigins = make(map[*types.Named]*localInfo)
 		g.prog.localTagOf = make(map[*types.TypeName]string)
+		g.prog.localImplicit = make(map[*types.TypeName]int)
 	}
 	tn := types.NewTypeName(t.Obj().Pos(), t.Obj().Pkg(), t.Obj().Name(), nil)
 	o := types.NewNamed(tn, nil, nil)
 	// The tag names the declaration, not the order in which the lowering met it (the substitution
 	// walks maps): the function, the type and the place in the function.
-	li := &localInfo{origin: o, tag: "Lg" + funcTagName(fn) + "_" + t.Obj().Name() + "_" + strconv.Itoa(int(t.Obj().Pos()-fn.Pos()))}
+	li := &localInfo{origin: o, implicit: tparams.Len(), tag: "Lg" + funcTagName(fn) + "_" + t.Obj().Name() + "_" + strconv.Itoa(int(t.Obj().Pos()-fn.Pos()))}
 	g.prog.localOrigins[t] = li
 	g.prog.localTagOf[tn] = li.tag
+	g.prog.localImplicit[tn] = li.implicit
 	if owner := g.other(t.Obj().Pkg()); owner != nil {
 		if owner.genericTypes == nil {
 			owner.genericTypes = make(map[*types.TypeName]*genericType)
@@ -76,23 +85,32 @@ func (g *gen) localOrigin(t *types.Named, fn *types.Func, tparams *types.TypePar
 		owner.genericTypes[tn] = &genericType{obj: tn}
 	}
 	// Fresh type parameters (go/types binds a type parameter to one type only), with the
-	// constraints replaced the same way.
-	fresh := make([]*types.TypeParam, tparams.Len())
-	freshT := make([]types.Type, tparams.Len())
-	for i := range fresh {
-		p := tparams.At(i)
+	// constraints replaced the same way: the function's, then the type's own.
+	var old []*types.TypeParam
+	for i := range tparams.Len() {
+		old = append(old, tparams.At(i))
+	}
+	for i := range t.TypeParams().Len() {
+		old = append(old, t.TypeParams().At(i))
+	}
+	fresh := make([]*types.TypeParam, len(old))
+	freshT := make([]types.Type, len(old))
+	for i, p := range old {
 		fresh[i] = types.NewTypeParam(types.NewTypeName(p.Obj().Pos(), p.Obj().Pkg(), p.Obj().Name(), nil), types.Typ[types.Invalid])
 		freshT[i] = fresh[i]
 	}
-	s := newSubster(tparams, freshT, ctxt)
-	s.local = func(l *types.Named) types.Type {
-		if !localTypeIn(l, fn.Scope()) {
+	s := newSubster(tparams, freshT[:tparams.Len()], ctxt)
+	for i := tparams.Len(); i < len(old); i++ {
+		s.env[old[i]] = freshT[i]
+	}
+	s.local = func(l *types.Named, own []types.Type) types.Type {
+		if !localTypeIn(l, fn.Scope()) || len(own) != l.TypeParams().Len() {
 			return nil
 		}
-		return g.localInstance(l, fn, tparams, freshT, ctxt)
+		return g.localInstance(l, fn, tparams, freshT[:tparams.Len()], own, ctxt)
 	}
 	for i := range fresh {
-		fresh[i].SetConstraint(s.typ(tparams.At(i).Constraint()))
+		fresh[i].SetConstraint(s.typ(old[i].Constraint()))
 	}
 	o.SetTypeParams(fresh)
 	o.SetUnderlying(s.typ(t.Underlying()))

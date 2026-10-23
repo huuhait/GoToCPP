@@ -102,7 +102,6 @@ const (
 	featGenerics // generic functions (step 7.1, 7.2)
 	featGenericTypes
 	featRangeFunc
-	featLocalGenericTypes
 
 	// Phase 08.
 	featGo
@@ -314,10 +313,6 @@ var features = [numFeatures]feature{
 	{id: featRangeFunc, Name: "range over functions", Phase: 7, Since: 5,
 		Detect: "a range statement over a value of func type",
 		Notes:  "`for x := range f` over any func(yield func(...) bool) (step 7.8: Go's rewrite and its misuse checks), open from Phase 05 on. `iter.Seq`, `iter.Seq2`, `iter.Pull` and `iter.Pull2` are Go's own (step 7.10)."},
-
-	{id: featLocalGenericTypes, Name: "generic types declared inside functions", Plural: true, Phase: Never,
-		Detect: "a type declaration with type parameters whose type name is not in the package scope",
-		Notes:  "`func f() { type Pair[K, V any] struct{...} }`. Go accepts them; gocpp has types declared inside functions (also inside generic functions) and generic types at package level, but not both at once. Declare the generic type at package level."},
 
 	{id: featGo, Name: "go statements", Plural: true, Phase: 8,
 		Detect: "a go statement",

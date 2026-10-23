@@ -27,8 +27,10 @@ type subster struct {
 	names map[*types.TypeParam]*types.TypeName
 
 	// local, when set, returns the instance that replaces a type declared in the generic function
-	// (localtypes.go), or nil for another type.
-	local func(*types.Named) types.Type
+	// (localtypes.go), or nil for another type. It gets the declared type (the origin, when the
+	// type is generic) and the type arguments of the mention, already replaced (none for a type
+	// that is not generic).
+	local func(origin *types.Named, own []types.Type) types.Type
 
 	err error
 }
@@ -66,19 +68,16 @@ func (s *subster) typ(t types.Type) types.Type {
 		return t
 	case *types.Named:
 		targs := t.TypeArgs()
-		if targs.Len() == 0 {
-			if s.local != nil {
-				if r := s.local(t); r != nil {
-					return r
-				}
-			}
-			return t
-		}
 		args := make([]types.Type, targs.Len())
 		changed := false
 		for i := range args {
 			args[i] = s.typ(targs.At(i))
 			changed = changed || args[i] != targs.At(i)
+		}
+		if s.local != nil {
+			if r := s.local(t.Origin(), args); r != nil {
+				return r
+			}
 		}
 		if !changed {
 			return t

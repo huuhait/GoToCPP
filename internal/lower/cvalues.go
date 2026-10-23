@@ -51,6 +51,19 @@ import (
 // with, or of the composite literal that a package variable without a type is declared from;
 // auto for a local declared from a C/C++ value without a type (x := lib.f()).
 func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
+	if t := g.declaredType(v, pos); t != nil {
+		return t
+	}
+	if v.IsField() || v.Parent() == nil || isPkgLevel(v) {
+		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
+		return typeName("gp_unsupported")
+	}
+	return typeName("auto")
+}
+
+// declaredType returns the C++ type of the variable v when its gocpp type or a type expression
+// of the source gives it (varType), or nil.
+func (g *gen) declaredType(v *types.Var, pos token.Pos) cppir.Type {
 	if complete(v.Type()) {
 		return g.cxxType(v.Type(), pos)
 	}
@@ -63,11 +76,7 @@ func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 	if lit := g.pkgVarLit(v); lit != nil {
 		return g.typeWith(v.Type(), lit.Type, pos) // the literal's type, with an inferred array's length (clits.go)
 	}
-	if v.IsField() || v.Parent() == nil || isPkgLevel(v) {
-		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
-		return typeName("gp_unsupported")
-	}
-	return typeName("auto")
+	return nil
 }
 
 // sigTypes returns the type expressions of the parameters and results of the package's

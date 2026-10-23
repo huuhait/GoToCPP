@@ -2901,6 +2901,14 @@ inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int6
   origin whose type parameters are copies of the function's (`internal/lower/localtypes.go`), replaces
   every mention in an instance's body by its instance, and from there it is an instance of a generic
   type as above (no methods, a struct or a named non-struct type).
+- **Generic types declared in functions** (`func F() { type Box[T any] struct{ v T } }`; Go accepts them, and
+  they have no methods). In a function that is not generic the type is a generic type like a package-level
+  one with a name of its own (two functions may declare a `Box`: two types, also for the same arguments);
+  the C++ is that of any other instance. In a generic function the synthetic origin has the function's type
+  parameters first and the type's own after them, and `Box[string]` in `F[int]` is the instance
+  `[int, string]` of it: `%T` writes `main.Box[int;string]`, as gc does (`internal/lower/localtypes.go`,
+  `canon.go`). A local generic type with a C/C++ type argument, or inside a generic function whose type
+  argument is a C/C++ type that C++ deduces, is the same user error as a package-level one.
 - **Standard generic types.** `atomic.Pointer[T]` is `{_ [0]*T; lk uint32; v *T}` with the spin lock
   of `atomic.Value`, written in Go (`stdlib/sync/atomic/type.gp`); `iter.Seq[V]` and `iter.Seq2[K, V]` are
   generic function types: an instance is a named type whose `%T` is `iter.Seq[int]`.
@@ -2908,7 +2916,22 @@ inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int6
   C++ type, `[]std.vector[int]`), `E` is not deducible from the arguments, so the template gives it the
   default `typename gp::detail::slice_elem_of<S>::type`; `len`, `cap`, index, slice expressions, `range` and
   `append` on a value of `S` are the slice operations (`tests/interop/generics_cxx_slice_core.gp`).
-  `make(S, n)`, `copy` and conversions to `S` are not built for a deduced `S`.
+  `make(S, n)`, `copy` and conversions to `S` are not built for a deduced `S`. `E` may come before `S`
+  (`func Wrap[T any, S ~[]T](xs S)`): the template parameters are written with each `E` after its `S`, so
+  that the default can name it (`tests/interop/generics_cxx_range_func.gp`).
+- **Range over a generic iterator with a C++ type argument** (`for s := range Seq(v)`, `Seq[T any](xs []T)
+  func(yield func(T) bool)`, `v []std.string`): `go/types` gives the call an invalid type, so the lowering
+  does not know what the iterator yields. The loop body is a lambda with `auto` parameters, passed as it is
+  to the iterator (a `gp::func` converts from any callable), and the range variables are `auto` locals as
+  for `x := lib.f()`; `break`, `continue`, `return`, labels, `defer` and a variable that a closure captures
+  (boxed) work as for Go types (`tests/interop/generics_cxx_range_func.gp`,
+  `generics_cxx_range_adapters.gp`). With written type arguments (`for s := range Seq[std.string](v)`, a
+  variable `it := Seq[std.string](v)`, or the instance `Each[std.string]` as the iterator) go/types types
+  nothing, so the lowering records the instance's signature for the range expression first
+  (`rangefunc.go: typeExplicitIterators`) and the loop variables get the written C++ types; a range variable
+  of a Go type there (an `int` index) is a C/C++ value for the lowering's checks, converted with `int(i)`
+  (`generics_cxx_range_explicit.gp`). The iterator must be written as a func type: `iter.Seq[T]` with a C++
+  `T` is the generic type limit below.
 - **Not built.** A C/C++ type as a type argument of a generic type (`Box[std.string]`,
   `Stack[std.vector[int]]`), also through a generic function whose type argument is a C++ type
   (`func F[T any](v T) Box[T]`): a user error that says so at the instantiation, because the fields,

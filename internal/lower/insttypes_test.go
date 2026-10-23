@@ -499,3 +499,52 @@ func main() { _, _, _ = F(1), F("s"), G(1) }
 		}
 	}
 }
+
+// TestLocalGenericTypesDeterministic lowers generic types declared in functions: in a generic function (the
+// function's type parameters come first, a semicolon in the name separates them from the type's own) and in a
+// function that is not generic. Each (function, type, type arguments) is one struct, named like Go's %T, and two
+// lowerings of one program are the same text.
+func TestLocalGenericTypesDeterministic(t *testing.T) {
+	const src = `package main
+
+func F[T any](v T) any {
+	type Box[U any] struct {
+		u U
+		t T
+	}
+	type Pair[A, B any] struct{ a A; b B }
+	return Pair[Box[int], string]{Box[int]{1, v}, "s"}
+}
+
+func G() any {
+	type Box[U any] struct{ u U }
+	return Box[int]{1}
+}
+
+func main() { _, _, _ = F(1), F("s"), G() }
+`
+	first, err := lowerInst(t, instProgram(t, src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"main.Box[int;int]"`, `"main.Box[string;int]"`, `"main.Box[int]"`,
+		`"main.Pair[int;main.Box[int;int]\302\2671,string]"`, `"main.Pair[string;main.Box[string;int]\302\2671,string]"`, // the escaped middle dot
+	} {
+		if !strings.Contains(first, want) {
+			t.Errorf("no descriptor named %s in:\n%s", want, first)
+		}
+	}
+	if n := len(regexp.MustCompile(`(?m)^struct gp_inst_\w+ \{`).FindAllString(first, -1)); n != 5 {
+		t.Errorf("%d instance structs, want 5: Box and Pair of F[int] and F[string], Box of G", n)
+	}
+	for range 4 {
+		again, err := lowerInst(t, instProgram(t, src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again != first {
+			t.Fatal("two lowerings of one program differ")
+		}
+	}
+}

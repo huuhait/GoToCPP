@@ -69,7 +69,7 @@
 > 3^depth in the checker (a 12-deep chain took minutes). Windows (GCC) needed `-Wa,-mbig-obj` for a program with
 > many instances (not with `-release`: GCC's LTO plugin rejects big-object files). The review of the step found three more: a cross-package
 > instance nested with a function-local type argument got two identities (the local type's tag came from the asking package);
-> `type WP weak.Pointer[T]` and a generic type declared inside a function (Go accepts it; gocpp does not build it) are now clean gate
+> `type WP weak.Pointer[T]` and a generic type declared inside a function (Go accepts it; gocpp did not build it until dev.genericgaps, 2026-10-22, ADR-141) are now clean gate
 > errors ("not supported in gocpp") instead of internal errors. Nine mutants of the lowering and the runtime are all caught. **Compile time** is measured in
 > [docs/guides/generics-compile-time.md](../../../docs/guides/generics-compile-time.md): generic functions cost
 > what the same code written out costs (200 to 2000 instances: 2.9 to 17.4 s of CPU with g++ and 1.4 to 8.4 s

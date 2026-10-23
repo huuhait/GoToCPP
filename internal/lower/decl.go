@@ -259,7 +259,11 @@ func (fg *funcGen) paramBoxes() bool {
 		} else {
 			line.Stmts = append(line.Stmts, varDecl(cppir.Pos{}, box, tmp, newBox(typ, arg)))
 		}
-		sc.Head = append(sc.Head, varDecl(cppir.Pos{}, box, name, moved(box, cxxName(tmp))))
+		boxed := moved(box, cxxName(tmp))
+		if isAutoType(box) {
+			boxed = movedName(tmp) // a yield parameter whose C++ type is deduced (rangefunc.go)
+		}
+		sc.Head = append(sc.Head, varDecl(cppir.Pos{}, box, name, boxed))
 		if h := fg.holdBox(v, name); h != nil {
 			sc.Head = append(sc.Head, h) // the frame holds the box of a parameter whose address is taken
 		}

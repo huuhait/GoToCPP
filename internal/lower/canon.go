@@ -38,11 +38,14 @@ type canon struct {
 	// ordinal returns Go's number of a type declared in a function (0 for any other): gc writes
 	// main.Box[main.point·1] for a type argument that is local to a function (localOrdinal).
 	ordinal func(*types.TypeName) int
+	// implicit returns, for the origin of a type declared in a generic function, how many of its
+	// first type arguments are the function's: Go writes a semicolon after them.
+	implicit func(*types.TypeName) int
 }
 
 // canonName returns the name of t as Go's %T prints it.
 func (g *gen) canonName(t types.Type) string {
-	return (&canon{ordinal: g.localOrdinal}).str(t)
+	return (&canon{ordinal: g.localOrdinal, implicit: g.localImplicit}).str(t)
 }
 
 // localOrdinal returns the number that Go's %T appends to a type declared in a function when it is a
@@ -90,7 +93,16 @@ func (g *gen) localOrdinal(tn *types.TypeName) int {
 
 // canonText returns the identity text of t (a method's signature, for the itabs).
 func (g *gen) canonText(t types.Type) string {
-	return (&canon{ident: true, local: g.localTag}).str(t)
+	return (&canon{ident: true, local: g.localTag, implicit: g.localImplicit}).str(t)
+}
+
+// localImplicit returns how many leading type arguments of the type tn are those of the generic
+// function that declares it (a type declared in a generic function: localtypes.go), else 0.
+func (g *gen) localImplicit(tn *types.TypeName) int {
+	if g.prog == nil {
+		return 0
+	}
+	return g.prog.localImplicit[tn]
 }
 
 // localTag returns the unique tag of the type tn if it is declared in a function, else "".
@@ -209,7 +221,13 @@ func (c *canon) str(t types.Type) string {
 			for i := range args {
 				args[i] = in.str(targs.At(i))
 			}
-			s += "[" + strings.Join(args, ",") + "]"
+			list := strings.Join(args, ",")
+			if c.implicit != nil {
+				if n := c.implicit(obj); n > 0 && n < len(args) {
+					list = strings.Join(args[:n], ",") + ";" + strings.Join(args[n:], ",")
+				}
+			}
+			s += "[" + list + "]"
 		}
 		if c.inArgs && !c.ident && c.ordinal != nil {
 			if n := c.ordinal(obj); n > 0 {

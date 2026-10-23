@@ -392,9 +392,6 @@ func (g *gateChecker) visit(n ast.Node) bool {
 		if n.TypeParams != nil {
 			g.node(featGenericTypes, n.TypeParams)
 			g.typeParams = append(g.typeParams, n.TypeParams)
-			if obj, ok := g.info.Defs[n.Name].(*types.TypeName); ok && obj.Pkg() != nil && obj.Parent() != nil && obj.Parent() != obj.Pkg().Scope() {
-				g.node(featLocalGenericTypes, n.Name)
-			}
 		}
 	case *ast.FuncType:
 		if n.TypeParams != nil {

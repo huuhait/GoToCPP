@@ -530,7 +530,10 @@ type Scene struct {
 - **C/C++ types as type arguments of gocpp generics** (`Map[C.int, string]`): written type
   arguments are spelled from the syntax, and inferred ones become `decltype`-based arguments. Where
   neither works, you get an error that asks you to write the type arguments out (until Phase 12).
-  The C++ compiler checks the constraints, and its errors are your errors
+  The C++ compiler checks the constraints, and its errors are your errors. A `for` loop can range over
+  such a generic iterator, with inferred or written type arguments (`for s := range Seq(v)` with
+  `v []std.string`, `for s := range Seq[std.string](v)`): the loop variables get the C++ type that the
+  iterator yields (with written type arguments, an `int` index is a C value: `int(i)`) ([cpp-mapping](cpp-mapping.md#generics-steps-71-to-73)).
   ([Phase 07 §2.4](../../plans/2026-10-13-gocpp/phase-07-generics/README.md#24-generic-types-descriptors-aliases-interop)).
 
 ### Embedded C types

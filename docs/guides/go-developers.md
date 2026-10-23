@@ -135,8 +135,7 @@ Three additions, each of them optional and each of them off unless you write the
   `os/signal`, `plugin`, `encoding/csv`, `compress/gzip` and `archive/zip`. The tiers of the plan
   are in the [Phase 09 README](../../plans/2026-10-13-gocpp/phase-09-stdlib-testing/README.md).
   C++ libraries can stand in: any header you can include is a package.
-- `//go:linkname` in your code, `reflect.MakeFunc` and the rest of the list in D6, and generic types
-  declared inside a function (declare them at package level).
+- `//go:linkname` in your code, `reflect.MakeFunc` and the rest of the list in D6.
 - cgo: use header imports. A cgo program changes in three places: `import "C"` and its preamble
   become imports of headers (a helper that was written in the preamble goes into a header or a
   `.c` file next to the `.gp` file), `C.func(...)` becomes `header.func(...)`, and the `#cgo`

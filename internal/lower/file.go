@@ -318,7 +318,8 @@ func (g *gen) lower() bool {
 	if g.err != nil {
 		return false
 	}
-	g.markAllCValues() // cvalues.go
+	g.typeExplicitIterators() // rangefunc.go
+	g.markAllCValues()        // cvalues.go
 	g.prototypes()
 	g.unit = initUnit
 	g.packageVars()

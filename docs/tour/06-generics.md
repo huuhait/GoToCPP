@@ -96,7 +96,8 @@ main.Stack[string]
 - `cmp`, `slices`, `maps` and `iter` are Go's own packages, ported by `tools/portstd`.
 - Each instance (`Stack[string]`) is a separate struct in the C++, and `%T` prints Go's name for
   it. What generics cost to compile is in the [guide](../guides/generics-compile-time.md).
-- A generic type declared inside a function is the one thing that Go has and gocpp does not;
-  declare it at package level.
+- A generic type can be declared inside a function (also inside a generic function, where it takes the
+  function's type parameters too, [ADR-141](../adr/141-a-generic-type-declared-in-a-function-has-the-functions-type-parameters-first.md));
+  it has no methods, as in Go.
 
 Next: [Goroutines and channels](07-goroutines.md).

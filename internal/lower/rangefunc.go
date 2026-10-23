@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -62,6 +63,114 @@ import (
 func isRangeFunc(info *tinfo, s *ast.RangeStmt) bool {
 	_, ok := under(info.TypeOf(s.X)).(*types.Signature)
 	return ok
+}
+
+// typeExplicitIterators gives a type to the iterator of a range over an instance of a generic
+// function with written C/C++ type arguments, which go/types cannot type (std.string is not a
+// type for it): for s := range Seq[std.string](v), for s := range Each[std.string], and it :=
+// Seq[std.string](v) followed by for s := range it. The type is the iterator's signature in the
+// instance (opaqueInstRef), recorded for the range expression before the functions are lowered,
+// so that every part of the lowering sees a range over a func (isRangeFunc). A type argument
+// that C++ deduces is left invalid in it: the yield parameter's type is then the deduced one
+// (rfLoop.deduced).
+func (g *gen) typeExplicitIterators() {
+	var ranges []*ast.RangeStmt
+	inits := make(map[*types.Var]ast.Expr)
+	define := func(lhs []*ast.Ident, rhs []ast.Expr) {
+		if len(lhs) != len(rhs) {
+			return
+		}
+		for i, id := range lhs {
+			if v, ok := g.info.Defs[id].(*types.Var); ok {
+				inits[v] = rhs[i]
+			}
+		}
+	}
+	for _, f := range g.pkg.Load.Files {
+		ast.Inspect(f.AST, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.RangeStmt:
+				if !isRangeFunc(g.info, n) {
+					ranges = append(ranges, n)
+				}
+			case *ast.AssignStmt:
+				if n.Tok == token.DEFINE {
+					var ids []*ast.Ident
+					for _, l := range n.Lhs {
+						id, _ := l.(*ast.Ident)
+						ids = append(ids, id)
+					}
+					define(ids, n.Rhs)
+				}
+			case *ast.ValueSpec:
+				if n.Type == nil {
+					define(n.Names, n.Values)
+				}
+			}
+			return true
+		})
+	}
+	fg := &funcGen{g: g}
+	for _, s := range ranges {
+		x := ast.Unparen(s.X)
+		if id, ok := x.(*ast.Ident); ok {
+			v, _ := g.info.Uses[id].(*types.Var)
+			if v == nil || complete(v.Type()) {
+				continue
+			}
+			x = inits[v]
+		}
+		if x == nil {
+			continue
+		}
+		sig := fg.explicitIterSig(x)
+		if sig == nil {
+			continue
+		}
+		g.privateInfoOnce()
+		tv := g.info.Types[s.X]
+		tv.Type = sig
+		g.info.Types[s.X] = tv
+	}
+}
+
+// explicitIterSig returns the signature of the iterator that e is, an instance of a generic
+// function (Each[std.string]) or a call of one (Seq[std.string](v)), when it is an iterator, else
+// nil.
+func (fg *funcGen) explicitIterSig(e ast.Expr) *types.Signature {
+	call, isCall := ast.Unparen(e).(*ast.CallExpr)
+	fun := e
+	if isCall {
+		fun = call.Fun
+	}
+	r := fg.instRef(fun)
+	if r == nil || r.gf == nil || r.sig == nil {
+		return nil
+	}
+	sig := r.sig
+	if len(r.open) > 0 {
+		targs := make([]types.Type, len(r.targs))
+		for i, a := range r.targs {
+			targs[i] = a
+			if n, ok := a.(*types.Named); ok && slices.Contains(r.open, n) {
+				targs[i] = types.Typ[types.Invalid]
+			}
+		}
+		sig, _ = newSubster(r.gf.fn.Signature().TypeParams(), targs, fg.g.context()).typ(r.gf.fn.Signature()).(*types.Signature)
+	}
+	if sig != nil && isCall {
+		if sig.Results().Len() != 1 {
+			return nil
+		}
+		sig, _ = under(sig.Results().At(0).Type()).(*types.Signature)
+	}
+	if sig == nil || sig.Params().Len() != 1 {
+		return nil
+	}
+	if _, ok := under(sig.Params().At(0).Type()).(*types.Signature); !ok {
+		return nil
+	}
+	return sig
 }
 
 // hasRangeFuncReturn reports whether the body of a function (or func literal) has a return
@@ -176,6 +285,12 @@ type rfLoop struct {
 	// captures that box.
 	capNext bool
 
+	// deduced: a parameter of the yield function has a C/C++ type that the lowering does not know
+	// (the iterator is an instance of a generic function whose type argument C++ deduces), so the
+	// body is a lambda with auto parameters, passed as it is: the C++ compiler converts it to the
+	// yield func type that the iterator takes.
+	deduced bool
+
 	// What the code after its call must check (Go's checkRet, checkBreak, checkContinue and
 	// checkBranch).
 	checkRet, checkBreak, checkContinue bool
@@ -264,12 +379,21 @@ func (fg *funcGen) rangeFunc(s *ast.RangeStmt) {
 
 	fg.add(&cppir.Line{Pos: pos, Stmts: []cppir.Stmt{
 		varDecl(cppir.Pos{}, typeName("auto"), loop.state, newBox(typeName("gp::rangefunc_state"), nil)),
-		&cppir.ExprStmt{X: &cppir.Call{Fun: callee, Args: []cppir.Expr{construct(g.cxxType(yieldType, s.X.Pos()), lam)}}},
+		&cppir.ExprStmt{X: &cppir.Call{Fun: callee, Args: []cppir.Expr{fg.rfYield(loop, yieldType, lam, s.X.Pos())}}},
 	}})
 	end := g.pos(s.Body.Rbrace)
 	fg.add(&cppir.ExprStmt{Pos: end, X: stateCall(loop.state, "gp_finish")})
 	fg.rfChecks(loop, depth, end, s.For)
 	fg.close(s.Body.Rbrace)
+}
+
+// rfYield returns the yield function that the loop passes to the iterator: the body as a func of
+// the yield type.
+func (fg *funcGen) rfYield(loop *rfLoop, yieldType types.Type, lam *cppir.Lambda, pos token.Pos) cppir.Expr {
+	if loop.deduced {
+		return lam
+	}
+	return construct(fg.g.cxxType(yieldType, pos), lam)
 }
 
 // rfBody returns the lambda that is the body of the loop s (its closure over the function), whose
@@ -294,7 +418,10 @@ func (fg *funcGen) rfBody(s *ast.RangeStmt, loop *rfLoop, ysig *types.Signature,
 	vars := []ast.Expr{s.Key, s.Value}
 	for i := range ysig.Params().Len() {
 		p := ysig.Params().At(i)
-		typ := g.varType(p, s.For)
+		typ := g.declaredType(p, s.For)
+		if typ == nil {
+			typ, loop.deduced = typeName("auto"), true
+		}
 		param := cppir.Param{Type: typ}
 		var e ast.Expr
 		if i < len(vars) && vars[i] != nil && !isBlank(vars[i]) {
