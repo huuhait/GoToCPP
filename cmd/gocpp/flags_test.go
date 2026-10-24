@@ -130,6 +130,7 @@ func TestBuildFlagUsageErrors(t *testing.T) {
 		{[]string{"build", "-strip", "-debug", "hello.gp"}, 2, "-strip and -debug can't be used together"},
 		{[]string{"build", "-strip", "-race", "hello.gp"}, 2, "-strip and -race can't be used together"},
 		{[]string{"build", "-strip", "-asan", "hello.gp"}, 2, "-strip and -asan can't be used together"},
+		{[]string{"build", "-release", "-trace", "-strip", "hello.gp"}, 2, "-trace and -strip can't be used together"},
 		{[]string{"build", "-cxxflags='-DX=open", "hello.gp"}, 2, "invalid value"},
 		{[]string{"build", "-nope", "hello.gp"}, 2, "flag provided but not defined: -nope"},
 		{[]string{"run", "-n", "hello.gp"}, 2, "flag provided but not defined: -n"},
@@ -184,6 +185,7 @@ func TestExtraFlagsKeyParts(t *testing.T) {
 		"race":     {mode: build.Profile{Race: true}},
 		"debug":    {mode: build.Profile{Debug: true}},
 		"strip":    {mode: build.Profile{Strip: true}},
+		"trace":    {mode: build.Profile{Release: true, Trace: true}},
 	} {
 		if slices.Equal(base.keyParts(), e.keyParts()) {
 			t.Errorf("%s does not change the key", name)

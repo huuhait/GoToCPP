@@ -181,7 +181,19 @@ func TestBuildModeFlags(t *testing.T) {
 		// -release compiles with -flto, so the runtime library needs an archiver that reads the
 		// objects; the fake compiler's name ("fake-g++") has no tools of its own to find.
 		if c.cxx.Family == build.Clang {
-			t.Setenv("GOCPP_AR", "llvm-ar")
+			// llvm-ar is in PATH, or (the dev shell) in GOCPP_LLVM_BIN, where the driver looks too.
+			ar, err := exec.LookPath("llvm-ar")
+			if err != nil {
+				if dir := os.Getenv("GOCPP_LLVM_BIN"); dir != "" {
+					if fi, err := os.Stat(filepath.Join(dir, "llvm-ar")); err == nil && !fi.IsDir() {
+						ar = filepath.Join(dir, "llvm-ar")
+					}
+				}
+			}
+			if ar == "" {
+				t.Skip("no llvm-ar in PATH or in GOCPP_LLVM_BIN: a -release (LTO) build with clang++ needs it")
+			}
+			t.Setenv("GOCPP_AR", ar)
 		} else {
 			t.Setenv("GOCPP_AR", "gcc-ar")
 		}
@@ -191,7 +203,7 @@ func TestBuildModeFlags(t *testing.T) {
 			compile []string
 			link    []string
 		}{
-			{"-release", []string{"-O2", "-flto", "-g0"}, []string{"-O2", "-flto", "-g0"}},
+			{"-release", []string{"-O2", "-flto", "-g0", "-DGOCPP_NO_TRACE=1"}, []string{"-O2", "-flto", "-g0"}},
 			{"-strip", nil, []string{"-s"}},
 			{"-race", []string{"-fsanitize=thread"}, []string{"-fsanitize=thread"}},
 		} {

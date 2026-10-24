@@ -279,10 +279,7 @@ bool read_exe(detail::exe_image& img) {
             uintptr_t lo = static_cast<uintptr_t>(image_base) + sec.va + img.bias;
             img.code.emplace_back(lo, lo + std::max(sec.vsize, 1u));
         }
-        std::string* dst = name == ".debug_line"       ? &img.debug_line
-                           : name == ".debug_line_str" ? &img.debug_line_str
-                           : name == ".debug_str"      ? &img.debug_str
-                                                       : nullptr;
+        std::string* dst = img.dwarf_section(name);
         if (dst != nullptr && sec.rawsize != 0) {
             // The raw data is padded to the file alignment; the size in memory is the section's.
             uint32_t n = sec.vsize != 0 && sec.vsize < sec.rawsize ? sec.vsize : sec.rawsize;

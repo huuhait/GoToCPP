@@ -274,10 +274,12 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 	-release
 		build with -O2 -flto and without debug information (-g0): a
 		smaller and faster program. gdb and lldb show no source lines
-		and variables in it, and a panic prints the Go names of the
-		functions without file and line. To keep the debug information
-		of an optimized build (for perf, say), add -cflags=-g
-		-ldflags=-g
+		and variables in it, and a crash prints only its message
+		("panic: ...", "fatal error: ..."), without goroutines and
+		traces, whatever GOTRACEBACK says; runtime.Stack and
+		runtime.Callers still work. -trace keeps Go's trace. To keep
+		the debug information of an optimized build (for perf, say),
+		add -cflags=-g -ldflags=-g
 	-strip
 		drop the symbol table and the debug information from the
 		program (the linker's -s): the smallest program. A panic then
@@ -289,6 +291,13 @@ The build flags (of build and run; -emit-llvm, -n and -o are of build only) are:
 		more build tags that are satisfied, separated by commas, like
 		go build -tags: for //go:build lines and file names of .gp, C
 		and C++ files. The last -tags is the list
+	-trace
+		with -release: keep the line tables (-g1), so that a crash
+		prints Go's trace, with the .gp files and lines and the
+		inlined calls as frames, and GOTRACEBACK works as in a debug
+		build. The program is about 4 times as large as with -release
+		alone. Without -release it changes nothing (a debug build has
+		the trace); not with -strip
 	-v
 		print the import paths of the packages that are built
 	-work

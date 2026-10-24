@@ -1026,6 +1026,18 @@ std::string_view str_at(std::string_view sec, uint64_t off) {
     return s.substr(0, s.find('\0'));
 }
 
+// table_entry sets at to base + index * width, the offset of an entry of width bytes of a table
+// in a section of size bytes, when the whole entry is in the section; false when it is not, also
+// when the sum would wrap (the numbers come from the file, which may be damaged).
+bool table_entry(uint64_t base, uint64_t index, uint64_t width, std::size_t size, uint64_t& at) {
+    if (width == 0 || base > size || index > (size - base) / width ||
+        size - base - index * width < width) {
+        return false;
+    }
+    at = base + index * width;
+    return true;
+}
+
 bool absolute(std::string_view p) {
     return p.starts_with('/') || p.starts_with('\\') ||
            (p.size() > 2 && p[1] == ':' && (p[2] == '/' || p[2] == '\\'));
@@ -1146,28 +1158,60 @@ struct line_collector {
     std::unordered_map<std::string, uint32_t> ids;
 };
 
-// One unit of the line table: its header and its line program.
-// qs are the queries, sorted by address; with col, nothing is asked and every row is kept in col.
-void line_unit(reader& r, std::string_view line_str, std::string_view str,
-               const std::vector<line_query*>& qs, line_collector* col) {
-    bool dw64 = false;
-    uint64_t length = r.fixed(4);
-    if (length == 0xffffffff) {
-        dw64 = true;
-        length = r.fixed(8);
-    } else if (length >= 0xfffffff0) {
-        r.bad = true;
-        return;
+// The header of a unit of the line table: what its line program needs, and its file names.
+struct line_header {
+    uint64_t min_inst = 1, line_range = 0, opcode_base = 0;
+    int8_t line_base = 0;
+    std::vector<uint64_t> std_lengths;
+    std::vector<entry> dirs, files;
+    uint64_t file_base = 1; // DWARF 2-4 count files from 1, DWARF 5 from 0
+    const unsigned char* program = nullptr;
+
+    // The path of the file numbered file, as the trace prints it ("" for a bad number).
+    std::string path(uint64_t file) const {
+        std::string p;
+        if (file < file_base || file - file_base >= files.size()) {
+            return p;
+        }
+        const entry& f = files[static_cast<std::size_t>(file - file_base)];
+        if (absolute(f.path) || f.dir >= dirs.size()) {
+            p = std::string(f.path);
+        } else {
+            std::string_view dir = dirs[static_cast<std::size_t>(f.dir)].path;
+            if (!absolute(dir) && f.dir != 0 && !dirs.empty() && !dirs[0].path.empty()) {
+                p += dirs[0].path;
+                p += '/';
+            }
+            if (!dir.empty()) {
+                p += dir;
+                p += '/';
+            }
+            p += f.path;
+        }
+#ifdef _WIN32
+        // Go prints file names of Windows programs with slashes (C:/work/main.go); MinGW's DWARF
+        // has the backslashes of the native paths.
+        std::replace(p.begin(), p.end(), '\\', '/');
+#endif
+        // A file of the standard library is $GOCPP/stdlib/... in the compile's work folder, which
+        // the object cache maps to /gocpp-work (objcache.go). g++'s link-time compile (-flto)
+        // writes it relative to the link's folder instead, with the random work folder of the
+        // compile in it: the trace shows it as the other builds do.
+        if (std::size_t at = p.find("/$GOCPP/");
+            at != std::string::npos && !p.starts_with("/gocpp-work/$GOCPP/")) {
+            p = "/gocpp-work" + p.substr(at);
+        }
+        return p;
     }
-    if (r.bad || length > r.left()) {
-        r.bad = true;
-        return;
-    }
-    reader u{r.p, r.p + length};
-    r.p += length; // the next unit
+};
+
+// read_line_header reads the header of a unit of the line table from u, which holds the unit
+// after its length; u is then at the line program. False for a version or a header it can't read.
+bool read_line_header(reader& u, bool dw64, std::string_view line_str, std::string_view str,
+                      line_header& h) {
     uint64_t version = u.fixed(2);
     if (version < 2 || version > 5) {
-        return;
+        return false;
     }
     if (version >= 5) {
         u.fixed(1); // address_size
@@ -1175,40 +1219,38 @@ void line_unit(reader& r, std::string_view line_str, std::string_view str,
     }
     uint64_t header_length = u.fixed(dw64 ? 8 : 4);
     if (u.bad || header_length > u.left()) {
-        return;
+        return false;
     }
-    const unsigned char* program = u.p + header_length;
-    uint64_t min_inst = u.fixed(1);
+    h.program = u.p + header_length;
+    h.min_inst = u.fixed(1);
     if (version >= 4) {
         u.fixed(1); // maximum_operations_per_instruction: 1 except on VLIW
     }
     u.fixed(1); // default_is_stmt
-    auto line_base = static_cast<int8_t>(u.fixed(1));
-    uint64_t line_range = u.fixed(1);
-    uint64_t opcode_base = u.fixed(1);
-    if (u.bad || line_range == 0 || opcode_base == 0) {
-        return;
+    h.line_base = static_cast<int8_t>(u.fixed(1));
+    h.line_range = u.fixed(1);
+    h.opcode_base = u.fixed(1);
+    if (u.bad || h.line_range == 0 || h.opcode_base == 0) {
+        return false;
     }
-    std::vector<uint64_t> std_lengths(static_cast<std::size_t>(opcode_base), 0);
-    for (uint64_t k = 1; k < opcode_base; k++) {
-        std_lengths[static_cast<std::size_t>(k)] = u.fixed(1);
+    h.std_lengths.assign(static_cast<std::size_t>(h.opcode_base), 0);
+    for (uint64_t k = 1; k < h.opcode_base; k++) {
+        h.std_lengths[static_cast<std::size_t>(k)] = u.fixed(1);
     }
-    std::vector<entry> dirs, files;
-    uint64_t file_base = 1; // DWARF 2-4 count files from 1, DWARF 5 from 0
     if (version >= 5) {
-        file_base = 0;
-        if (!read_entries(u, dw64, line_str, str, dirs) ||
-            !read_entries(u, dw64, line_str, str, files)) {
-            return;
+        h.file_base = 0;
+        if (!read_entries(u, dw64, line_str, str, h.dirs) ||
+            !read_entries(u, dw64, line_str, str, h.files)) {
+            return false;
         }
     } else {
-        dirs.push_back(entry{}); // the compilation directory, which only .debug_info has
+        h.dirs.push_back(entry{}); // the compilation directory, which only .debug_info has
         for (;;) {
             std::string_view d = u.cstr();
             if (u.bad || d.empty()) {
                 break;
             }
-            dirs.push_back(entry{d, 0});
+            h.dirs.push_back(entry{d, 0});
         }
         for (;;) {
             std::string_view f = u.cstr();
@@ -1218,44 +1260,54 @@ void line_unit(reader& r, std::string_view line_str, std::string_view str,
             entry e{f, u.uleb()};
             u.uleb(); // mtime
             u.uleb(); // length
-            files.push_back(e);
+            h.files.push_back(e);
         }
     }
-    if (u.bad || program > u.end) {
+    if (u.bad || h.program > u.end) {
+        return false;
+    }
+    u.p = h.program;
+    return true;
+}
+
+// read_unit_length reads the length of a unit of a DWARF section (and whether it is the 64-bit
+// form) and returns the reader of the unit's body, moving r past the unit. False when it is bad.
+bool read_unit_length(reader& r, reader& unit, bool& dw64) {
+    dw64 = false;
+    uint64_t length = r.fixed(4);
+    if (length == 0xffffffff) {
+        dw64 = true;
+        length = r.fixed(8);
+    } else if (length >= 0xfffffff0) {
+        r.bad = true;
+        return false;
+    }
+    if (r.bad || length > r.left()) {
+        r.bad = true;
+        return false;
+    }
+    unit = reader{r.p, r.p + length};
+    r.p += length; // the next unit
+    return true;
+}
+
+// One unit of the line table: its header and its line program.
+// qs are the queries, sorted by address; with col, nothing is asked and every row is kept in col.
+void line_unit(reader& r, std::string_view line_str, std::string_view str,
+               const std::vector<line_query*>& qs, line_collector* col) {
+    bool dw64 = false;
+    reader u{nullptr, nullptr};
+    if (!read_unit_length(r, u, dw64)) {
         return;
     }
-    u.p = program;
-
-    auto path_raw = [&](uint64_t file) {
-        std::string p;
-        if (file < file_base || file - file_base >= files.size()) {
-            return p;
-        }
-        const entry& f = files[static_cast<std::size_t>(file - file_base)];
-        if (absolute(f.path) || f.dir >= dirs.size()) {
-            return std::string(f.path);
-        }
-        std::string_view dir = dirs[static_cast<std::size_t>(f.dir)].path;
-        if (!absolute(dir) && f.dir != 0 && !dirs.empty() && !dirs[0].path.empty()) {
-            p += dirs[0].path;
-            p += '/';
-        }
-        if (!dir.empty()) {
-            p += dir;
-            p += '/';
-        }
-        p += f.path;
-        return p;
-    };
-    auto path_of = [&](uint64_t file) {
-        std::string p = path_raw(file);
-#ifdef _WIN32
-        // Go prints file names of Windows programs with slashes (C:/work/main.go); MinGW's DWARF
-        // has the backslashes of the native paths.
-        std::replace(p.begin(), p.end(), '\\', '/');
-#endif
-        return p;
-    };
+    line_header h;
+    if (!read_line_header(u, dw64, line_str, str, h)) {
+        return;
+    }
+    const uint64_t min_inst = h.min_inst, line_range = h.line_range, opcode_base = h.opcode_base;
+    const int8_t line_base = h.line_base;
+    const std::vector<uint64_t>& std_lengths = h.std_lengths;
+    auto path_of = [&](uint64_t file) { return h.path(file); };
 
     // The state machine. A row covers [its address, the next row's address) in its sequence;
     // prev is the last row. A sequence whose address is set to 0 (or to a tombstone, ~0 or
@@ -1432,6 +1484,843 @@ void indexed_lines_of(std::string_view debug_line, std::string_view line_str, st
                 break;
             }
         }
+        if (q.line > 0 || q.near_hi <= q.near_lo) {
+            continue;
+        }
+        // No line at addr: the nearest row of the inlined call's range that has one, the last one
+        // before addr, else the first one after it; a row of a .gp (or .go) file first, as the
+        // range also has the code of the runtime's headers that are inlined into the call.
+        for (int pass = 0; pass < 2 && q.line <= 0; pass++) {
+            const line_span* before = nullptr;
+            const line_span* after = nullptr;
+            for (auto r = std::lower_bound(rs.begin(), rs.end(), q.near_lo,
+                                           [](const line_span& s, uint64_t a) { return s.lo < a; });
+                 r != rs.end() && r->lo < q.near_hi; ++r) {
+                const std::string& file = idx->col.files[r->file];
+                if (r->line <= 0 ||
+                    (pass == 0 && !file.ends_with(".gp") && !file.ends_with(".go"))) {
+                    continue;
+                }
+                if (r->lo <= q.addr) {
+                    before = &*r;
+                } else if (after == nullptr) {
+                    after = &*r;
+                }
+            }
+            if (const line_span* pick = before != nullptr ? before : after; pick != nullptr) {
+                q.file = idx->col.files[pick->file];
+                q.line = pick->line;
+            }
+        }
+    }
+}
+
+// --- the inlined calls (DWARF .debug_info) ---
+
+std::string* exe_image::dwarf_section(std::string_view name) noexcept {
+    if (name == ".debug_line") {
+        return &debug_line;
+    }
+    if (name == ".debug_line_str") {
+        return &debug_line_str;
+    }
+    if (name == ".debug_str") {
+        return &debug_str;
+    }
+    if constexpr (read_inlines) {
+        if (name == ".debug_info") {
+            return &debug_info;
+        }
+        if (name == ".debug_abbrev") {
+            return &debug_abbrev;
+        }
+        if (name == ".debug_addr") {
+            return &debug_addr;
+        }
+        if (name == ".debug_str_offsets") {
+            return &debug_str_offsets;
+        }
+        if (name == ".debug_rnglists") {
+            return &debug_rnglists;
+        }
+        if (name == ".debug_ranges") {
+            return &debug_ranges;
+        }
+    }
+    return nullptr;
+}
+
+namespace {
+
+// The DWARF constants of .debug_info that the reader of the inlined calls uses.
+enum : uint64_t {
+    tag_inlined_subroutine = 0x1d,
+    tag_subprogram = 0x2e,
+    at_stmt_list = 0x10,
+    at_low_pc = 0x11,
+    at_high_pc = 0x12,
+    at_abstract_origin = 0x31,
+    at_specification = 0x47,
+    at_ranges = 0x55,
+    at_call_file = 0x58,
+    at_call_line = 0x59,
+    at_linkage_name = 0x6e,
+    at_str_offsets_base = 0x72,
+    at_addr_base = 0x73,
+    at_rnglists_base = 0x74,
+    at_mips_linkage_name = 0x2007,
+    form_addr = 0x01,
+    form_flag = 0x0c,
+    form_ref_addr = 0x10,
+    form_ref1 = 0x11,
+    form_ref2 = 0x12,
+    form_ref4 = 0x13,
+    form_ref8 = 0x14,
+    form_ref_udata = 0x15,
+    form_indirect = 0x16,
+    form_sec_offset = 0x17,
+    form_exprloc = 0x18,
+    form_flag_present = 0x19,
+    form_strx = 0x1a,
+    form_addrx = 0x1b,
+    form_ref_sup4 = 0x1c,
+    form_strp_sup = 0x1d,
+    form_ref_sig8 = 0x20,
+    form_implicit_const = 0x21,
+    form_loclistx = 0x22,
+    form_rnglistx = 0x23,
+    form_ref_sup8 = 0x24,
+    form_strx1 = 0x25,
+    form_strx4 = 0x28,
+    form_addrx1 = 0x29,
+    form_addrx4 = 0x2c,
+    form_gnu_addr_index = 0x1f01,
+    form_gnu_str_index = 0x1f02,
+    form_gnu_ref_alt = 0x1f20,
+    form_gnu_strp_alt = 0x1f21,
+};
+
+// An abbreviation: a DIE's tag, whether it has children, and its attributes with their forms.
+struct abbrev_attr {
+    uint64_t at, form;
+    int64_t implicit; // the value of DW_FORM_implicit_const
+};
+struct abbrev {
+    uint64_t tag = 0;
+    bool children = false;
+    std::vector<abbrev_attr> attrs;
+};
+// The abbreviation table at an offset of .debug_abbrev, by code (codes are small and dense).
+using abbrev_table = std::vector<abbrev>;
+
+bool read_abbrevs(std::string_view sec, uint64_t off, abbrev_table& out) {
+    if (off >= sec.size()) {
+        return false;
+    }
+    const auto* p = reinterpret_cast<const unsigned char*>(sec.data());
+    reader r{p + off, p + sec.size()};
+    for (;;) {
+        uint64_t code = r.uleb();
+        if (r.bad) {
+            return false;
+        }
+        if (code == 0) {
+            return true;
+        }
+        if (code > (uint64_t(1) << 20)) {
+            return false; // not the dense numbering of a compiler
+        }
+        abbrev a;
+        a.tag = r.uleb();
+        a.children = r.fixed(1) != 0;
+        for (;;) {
+            abbrev_attr at{r.uleb(), r.uleb(), 0};
+            if (r.bad) {
+                return false;
+            }
+            if (at.at == 0 && at.form == 0) {
+                break;
+            }
+            if (at.form == form_implicit_const) {
+                at.implicit = r.sleb();
+            }
+            a.attrs.push_back(at);
+        }
+        if (out.size() <= code) {
+            out.resize(static_cast<std::size_t>(code) + 1);
+        }
+        out[static_cast<std::size_t>(code)] = std::move(a);
+    }
+}
+
+// A unit of .debug_info: where its DIEs are, how to read them, and the bases of its DWARF 5
+// indexed forms (from its unit DIE).
+struct info_unit {
+    uint64_t off = 0;  // of the unit's header in .debug_info
+    uint64_t dies = 0; // of its first DIE
+    uint64_t end = 0;  // of the next unit
+    uint64_t version = 0;
+    uint64_t addr_size = 8;
+    bool dw64 = false;
+    uint64_t abbrev_off = 0;
+    uint64_t str_offsets_base = 8; // DWARF 5's default: after the header of the first table
+    uint64_t addr_base = 8;
+    uint64_t rnglists_base = 0;
+    bool have_rnglists_base = false;
+    uint64_t low_pc = 0;
+    uint64_t stmt_list = ~uint64_t(0);
+    uint32_t table = 0; // its abbreviation table, in inline_index::tables
+};
+
+// The value of an attribute: a number (an address, a constant, an offset, an index, a reference
+// made absolute), or a string.
+struct attr_value {
+    uint64_t form = 0;
+    uint64_t num = 0;
+    std::string_view str;
+    bool is_str = false;
+};
+
+// The sections that the reader of the inlined calls looks at.
+struct info_sections {
+    std::string_view info, abbrev, str, line_str, str_offsets, addr, rnglists, ranges, line;
+};
+
+// read_form reads the value of an attribute of the form form at r, for the unit u.
+bool read_form(reader& r, uint64_t form, int64_t implicit, const info_unit& u,
+               const info_sections& s, attr_value& v) {
+    v = attr_value{};
+    v.form = form;
+    const std::size_t off_size = u.dw64 ? 8 : 4;
+    for (int indirect = 0; form == form_indirect && indirect < 4; indirect++) {
+        form = r.uleb();
+        v.form = form;
+    }
+    switch (form) {
+    case form_addr:
+        v.num = r.fixed(static_cast<std::size_t>(u.addr_size));
+        break;
+    case form_data1:
+    case form_ref1:
+    case form_flag:
+    case form_strx1:
+    case form_addrx1:
+        v.num = r.fixed(1);
+        break;
+    case form_data2:
+    case form_ref2:
+    case form_strx1 + 1:  // strx2
+    case form_addrx1 + 1: // addrx2
+        v.num = r.fixed(2);
+        break;
+    case form_strx1 + 2:  // strx3
+    case form_addrx1 + 2: // addrx3
+        v.num = r.fixed(3);
+        break;
+    case form_data4:
+    case form_ref4:
+    case form_ref_sup4:
+    case form_strx4:
+    case form_addrx4:
+        v.num = r.fixed(4);
+        break;
+    case form_data8:
+    case form_ref8:
+    case form_ref_sig8:
+    case form_ref_sup8:
+        v.num = r.fixed(8);
+        break;
+    case form_data16:
+        r.skip(16);
+        break;
+    case form_sdata:
+        v.num = static_cast<uint64_t>(r.sleb());
+        break;
+    case form_udata:
+    case form_ref_udata:
+    case form_strx:
+    case form_addrx:
+    case form_loclistx:
+    case form_rnglistx:
+    case form_gnu_addr_index:
+    case form_gnu_str_index:
+        v.num = r.uleb();
+        break;
+    case form_string:
+        v.str = r.cstr();
+        v.is_str = true;
+        break;
+    case form_strp:
+        v.str = str_at(s.str, r.fixed(off_size));
+        v.is_str = true;
+        break;
+    case form_line_strp:
+        v.str = str_at(s.line_str, r.fixed(off_size));
+        v.is_str = true;
+        break;
+    case form_ref_addr:
+        v.num = r.fixed(u.version <= 2 ? static_cast<std::size_t>(u.addr_size) : off_size);
+        break;
+    case form_sec_offset:
+    case form_strp_sup:
+    case form_gnu_ref_alt:
+    case form_gnu_strp_alt:
+        v.num = r.fixed(off_size);
+        break;
+    case form_block1:
+        r.skip(r.fixed(1));
+        break;
+    case form_block2:
+        r.skip(r.fixed(2));
+        break;
+    case form_block4:
+        r.skip(r.fixed(4));
+        break;
+    case form_block:
+    case form_exprloc:
+        r.skip(r.uleb());
+        break;
+    case form_flag_present:
+        v.num = 1;
+        break;
+    case form_implicit_const:
+        v.num = static_cast<uint64_t>(implicit);
+        break;
+    default:
+        return false; // a form this reader does not know: the unit is left
+    }
+    return !r.bad;
+}
+
+// The string of an attribute value, also of the indexed forms (strx).
+std::string_view string_of(const attr_value& v, const info_unit& u, const info_sections& s) {
+    if (v.is_str) {
+        return v.str;
+    }
+    switch (v.form) {
+    case form_strx:
+    case form_strx1:
+    case form_strx1 + 1:
+    case form_strx1 + 2:
+    case form_strx4:
+    case form_gnu_str_index: {
+        std::size_t w = u.dw64 ? 8 : 4;
+        uint64_t at = 0;
+        if (!table_entry(u.str_offsets_base, v.num, w, s.str_offsets.size(), at)) {
+            return {};
+        }
+        const auto* p = reinterpret_cast<const unsigned char*>(s.str_offsets.data());
+        reader r{p + at, p + at + w};
+        return str_at(s.str, r.fixed(w));
+    }
+    }
+    return {};
+}
+
+// The address of an attribute value, also of the indexed forms (addrx).
+bool address_of(const attr_value& v, const info_unit& u, const info_sections& s, uint64_t& out) {
+    switch (v.form) {
+    case form_addr:
+        out = v.num;
+        return true;
+    case form_addrx:
+    case form_addrx1:
+    case form_addrx1 + 1:
+    case form_addrx1 + 2:
+    case form_addrx4:
+    case form_gnu_addr_index: {
+        uint64_t at = 0;
+        if (!table_entry(u.addr_base, v.num, u.addr_size, s.addr.size(), at)) {
+            return false;
+        }
+        const auto* p = reinterpret_cast<const unsigned char*>(s.addr.data());
+        reader r{p + at, p + at + u.addr_size};
+        out = r.fixed(static_cast<std::size_t>(u.addr_size));
+        return !r.bad;
+    }
+    }
+    return false;
+}
+
+// The absolute .debug_info offset of a reference.
+bool reference_of(const attr_value& v, const info_unit& u, uint64_t& out) {
+    switch (v.form) {
+    case form_ref1:
+    case form_ref2:
+    case form_ref4:
+    case form_ref8:
+    case form_ref_udata:
+        out = u.off + v.num;
+        return true;
+    case form_ref_addr:
+        out = v.num;
+        return true;
+    }
+    return false; // a reference into another file (ref_sup, GNU_ref_alt) or a type signature
+}
+
+// ranges_of appends the address ranges [lo, hi) of a DW_AT_ranges value to out.
+void ranges_of(const attr_value& v, const info_unit& u, const info_sections& s,
+               std::vector<std::pair<uint64_t, uint64_t>>& out) {
+    if (u.version >= 5) {
+        uint64_t off = v.num;
+        if (v.form == form_rnglistx) {
+            if (!u.have_rnglists_base) {
+                return;
+            }
+            std::size_t w = u.dw64 ? 8 : 4;
+            uint64_t at = 0;
+            if (!table_entry(u.rnglists_base, v.num, w, s.rnglists.size(), at)) {
+                return;
+            }
+            const auto* p = reinterpret_cast<const unsigned char*>(s.rnglists.data());
+            reader r{p + at, p + at + w};
+            uint64_t rel = r.fixed(w); // from the base, which is in the section (table_entry)
+            if (rel >= s.rnglists.size() - u.rnglists_base) {
+                return;
+            }
+            off = u.rnglists_base + rel;
+        }
+        if (off >= s.rnglists.size()) {
+            return;
+        }
+        const auto* p = reinterpret_cast<const unsigned char*>(s.rnglists.data());
+        reader r{p + off, p + s.rnglists.size()};
+        uint64_t base = u.low_pc;
+        auto indexed = [&](uint64_t idx, uint64_t& a) {
+            attr_value x;
+            x.form = form_addrx;
+            x.num = idx;
+            return address_of(x, u, s, a);
+        };
+        const auto as = static_cast<std::size_t>(u.addr_size);
+        for (int guard = 0; guard < 1 << 20 && !r.bad; guard++) {
+            uint64_t kind = r.fixed(1);
+            uint64_t a = 0, b = 0;
+            switch (kind) {
+            case 0: // DW_RLE_end_of_list
+                return;
+            case 1: // DW_RLE_base_addressx
+                if (!indexed(r.uleb(), base)) {
+                    return;
+                }
+                break;
+            case 2: // DW_RLE_startx_endx
+                if (!indexed(r.uleb(), a) || !indexed(r.uleb(), b)) {
+                    return;
+                }
+                out.emplace_back(a, b);
+                break;
+            case 3: { // DW_RLE_startx_length
+                if (!indexed(r.uleb(), a)) {
+                    return;
+                }
+                uint64_t n = r.uleb();
+                out.emplace_back(a, a + n);
+                break;
+            }
+            case 4: // DW_RLE_offset_pair
+                a = r.uleb();
+                b = r.uleb();
+                out.emplace_back(base + a, base + b);
+                break;
+            case 5: // DW_RLE_base_address
+                base = r.fixed(as);
+                break;
+            case 6: // DW_RLE_start_end
+                a = r.fixed(as);
+                b = r.fixed(as);
+                out.emplace_back(a, b);
+                break;
+            case 7: // DW_RLE_start_length
+                a = r.fixed(as);
+                b = r.uleb();
+                out.emplace_back(a, a + b);
+                break;
+            default:
+                return;
+            }
+        }
+        return;
+    }
+    // DWARF 2-4: .debug_ranges, pairs of addresses from the unit's base, (0, 0) at the end and
+    // (~0, base) setting the base.
+    if (v.num >= s.ranges.size()) {
+        return;
+    }
+    const auto* p = reinterpret_cast<const unsigned char*>(s.ranges.data());
+    reader r{p + v.num, p + s.ranges.size()};
+    const auto as = static_cast<std::size_t>(u.addr_size);
+    const uint64_t all = as == 8 ? ~uint64_t(0) : (uint64_t(1) << (8 * as)) - 1;
+    uint64_t base = u.low_pc;
+    for (int guard = 0; guard < 1 << 20 && !r.bad; guard++) {
+        uint64_t a = r.fixed(as), b = r.fixed(as);
+        if (r.bad || (a == 0 && b == 0)) {
+            return;
+        }
+        if (a == all) {
+            base = b;
+            continue;
+        }
+        out.emplace_back(base + a, base + b);
+    }
+}
+
+// An inlined call: one range of the code of a function that the compiler inlined into another,
+// the call's place, and the function inlined (the DIE of its abstract origin).
+struct inline_site {
+    uint64_t lo = 0, hi = 0; // the range, addresses in the file
+    uint64_t origin = 0;     // .debug_info offset of the inlined function's DIE
+    int64_t line = 0;        // of the call
+    uint32_t file = 0;       // of the call: in inline_index::files
+    uint32_t depth = 0;      // 1: inlined into the function itself; 2: into that call; ...
+    uint32_t unit = 0;       // in inline_index::units
+};
+
+// What the reader keeps of the program's .debug_info (for the life of the program, as the line
+// index): the inlined calls, sorted by address, and what it needs to name their functions.
+struct inline_index {
+    const char* data = nullptr; // the .debug_info that it was read from
+    std::size_t size = 0;
+    bool built = false;
+    std::vector<inline_site> sites;
+    std::vector<std::string> files;
+    std::vector<info_unit> units; // by offset
+    std::vector<abbrev_table> tables;
+    std::unordered_map<uint64_t, go_func> names; // by the origin's offset
+};
+
+info_sections sections_of(const exe_image& img) {
+    return info_sections{img.debug_info,     img.debug_abbrev,      img.debug_str,
+                         img.debug_line_str, img.debug_str_offsets, img.debug_addr,
+                         img.debug_rnglists, img.debug_ranges,      img.debug_line};
+}
+
+// read_die reads the attributes of the DIE at r (after its code) with the abbreviation a; fn is
+// called with each attribute and its value. False when a value can't be read.
+template <class Fn>
+bool read_die(reader& r, const abbrev& a, const info_unit& u, const info_sections& s, Fn&& fn) {
+    attr_value v;
+    for (const abbrev_attr& at : a.attrs) {
+        if (!read_form(r, at.form, at.implicit, u, s, v)) {
+            return false;
+        }
+        fn(at.at, v);
+    }
+    return true;
+}
+
+// build_inlines reads every unit of .debug_info into idx.
+void build_inlines(const info_sections& s, inline_index& idx) {
+    const auto* base = reinterpret_cast<const unsigned char*>(s.info.data());
+    reader r{base, base + s.info.size()};
+    std::unordered_map<uint64_t, uint32_t> table_of; // abbreviation tables by offset
+    std::unordered_map<std::string, uint32_t> file_ids;
+    std::vector<std::pair<uint64_t, uint64_t>> rs;
+    while (!r.bad && r.left() > 0) {
+        info_unit u;
+        u.off = static_cast<uint64_t>(r.p - base);
+        reader body{nullptr, nullptr};
+        if (!read_unit_length(r, body, u.dw64)) {
+            break;
+        }
+        u.end = static_cast<uint64_t>(r.p - base);
+        u.version = body.fixed(2);
+        if (u.version < 2 || u.version > 5) {
+            continue;
+        }
+        const std::size_t off_size = u.dw64 ? 8 : 4;
+        if (u.version >= 5) {
+            uint64_t type = body.fixed(1);
+            u.addr_size = body.fixed(1);
+            u.abbrev_off = body.fixed(off_size);
+            if (type != 1 && type != 3) { // DW_UT_compile, DW_UT_partial: the others have no code
+                continue;
+            }
+        } else {
+            u.abbrev_off = body.fixed(off_size);
+            u.addr_size = body.fixed(1);
+        }
+        if (body.bad || (u.addr_size != 4 && u.addr_size != 8)) {
+            continue;
+        }
+        u.dies = static_cast<uint64_t>(body.p - base);
+        auto t = table_of.find(u.abbrev_off);
+        if (t == table_of.end()) {
+            abbrev_table table;
+            if (!read_abbrevs(s.abbrev, u.abbrev_off, table)) {
+                continue;
+            }
+            t = table_of.emplace(u.abbrev_off, static_cast<uint32_t>(idx.tables.size())).first;
+            idx.tables.push_back(std::move(table));
+        }
+        u.table = t->second;
+        const abbrev_table& table = idx.tables[u.table];
+        const auto unit_no = static_cast<uint32_t>(idx.units.size());
+
+        // The unit DIE first: the bases of the indexed forms, the base address and the line table.
+        uint64_t code = body.uleb();
+        if (body.bad || code == 0 || code >= table.size()) {
+            continue;
+        }
+        attr_value low{};
+        bool have_low = false;
+        if (!read_die(body, table[static_cast<std::size_t>(code)], u, s,
+                      [&](uint64_t at, const attr_value& v) {
+                          switch (at) {
+                          case at_low_pc:
+                              low = v;
+                              have_low = true;
+                              break;
+                          case at_stmt_list:
+                              u.stmt_list = v.num;
+                              break;
+                          case at_str_offsets_base:
+                              u.str_offsets_base = v.num;
+                              break;
+                          case at_addr_base:
+                              u.addr_base = v.num;
+                              break;
+                          case at_rnglists_base:
+                              u.rnglists_base = v.num;
+                              u.have_rnglists_base = true;
+                              break;
+                          }
+                      })) {
+            continue;
+        }
+        if (have_low) {
+            address_of(low, u, s, u.low_pc);
+        }
+        idx.units.push_back(u);
+        if (!table[static_cast<std::size_t>(code)].children) {
+            continue;
+        }
+
+        // The file names of the unit's line table, for DW_AT_call_file.
+        line_header lh;
+        bool have_lines = false;
+        if (u.stmt_list < s.line.size()) {
+            const auto* lp = reinterpret_cast<const unsigned char*>(s.line.data());
+            reader lr{lp + u.stmt_list, lp + s.line.size()};
+            reader lu{nullptr, nullptr};
+            bool ldw64 = false;
+            have_lines = read_unit_length(lr, lu, ldw64) &&
+                         read_line_header(lu, ldw64, s.line_str, s.str, lh);
+        }
+        std::unordered_map<uint64_t, uint32_t> unit_files;
+        auto file_id = [&](uint64_t f) -> uint32_t {
+            if (auto it = unit_files.find(f); it != unit_files.end()) {
+                return it->second;
+            }
+            std::string path = have_lines ? lh.path(f) : std::string();
+            auto [it, fresh] = file_ids.try_emplace(path, 0);
+            if (fresh) {
+                it->second = static_cast<uint32_t>(idx.files.size());
+                idx.files.push_back(path);
+            }
+            unit_files.emplace(f, it->second);
+            return it->second;
+        };
+
+        // The DIEs below it: the depth of inlined calls of each open DIE (0 in a function).
+        std::vector<uint32_t> open{0};
+        while (!body.bad && body.p < body.end && !open.empty()) {
+            uint64_t c = body.uleb();
+            if (c == 0) {
+                open.pop_back();
+                continue;
+            }
+            if (body.bad || c >= table.size()) {
+                break;
+            }
+            const abbrev& a = table[static_cast<std::size_t>(c)];
+            if (a.tag != tag_inlined_subroutine) {
+                if (!read_die(body, a, u, s, [](uint64_t, const attr_value&) {})) {
+                    break;
+                }
+                if (a.children) {
+                    open.push_back(a.tag == tag_subprogram ? 0 : open.back());
+                }
+                continue;
+            }
+            attr_value lo{}, hi{}, ranges{}, origin{};
+            bool have_lo = false, have_hi = false, have_ranges = false, have_origin = false;
+            uint64_t call_file = 0;
+            int64_t call_line = 0;
+            if (!read_die(body, a, u, s, [&](uint64_t at, const attr_value& v) {
+                    switch (at) {
+                    case at_low_pc:
+                        lo = v;
+                        have_lo = true;
+                        break;
+                    case at_high_pc:
+                        hi = v;
+                        have_hi = true;
+                        break;
+                    case at_ranges:
+                        ranges = v;
+                        have_ranges = true;
+                        break;
+                    case at_abstract_origin:
+                        origin = v;
+                        have_origin = true;
+                        break;
+                    case at_call_file:
+                        call_file = v.num;
+                        break;
+                    case at_call_line:
+                        call_line = static_cast<int64_t>(v.num);
+                        break;
+                    }
+                })) {
+                break;
+            }
+            uint32_t depth = open.back() + 1;
+            if (a.children) {
+                open.push_back(depth);
+            }
+            rs.clear();
+            uint64_t l = 0, h = 0;
+            if (have_ranges) {
+                ranges_of(ranges, u, s, rs);
+            } else if (have_lo && address_of(lo, u, s, l) && have_hi) {
+                if (address_of(hi, u, s, h)) {
+                    rs.emplace_back(l, h);
+                } else if (!hi.is_str) {
+                    rs.emplace_back(l, l + hi.num); // DWARF 4: the size of the range
+                }
+            }
+            // A call without its function (MinGW's g++ writes no DW_AT_abstract_origin under -flto,
+            // which has no early debug information for PE objects) is kept with origin 0: it has no
+            // frame, but the function around it gets the line of the call.
+            uint64_t org = 0;
+            if (rs.empty()) {
+                continue;
+            }
+            if (!have_origin || !reference_of(origin, u, org)) {
+                org = 0;
+            }
+            uint32_t fid = file_id(call_file);
+            for (const auto& [x, y] : rs) {
+                if (x < y && x != 0) {
+                    idx.sites.push_back(inline_site{x, y, org, call_line, fid, depth, unit_no});
+                }
+            }
+        }
+    }
+    std::sort(idx.sites.begin(), idx.sites.end(),
+              [](const inline_site& a, const inline_site& b) { return a.lo < b.lo; });
+}
+
+// origin_name returns how the trace shows the inlined function whose DIE is at off: the Go name
+// of its linkage name (DW_AT_linkage_name, on the DIE itself or on the DIE that its abstract
+// origin or its specification points to). A function without one is not shown.
+go_func origin_name(inline_index& idx, const info_sections& s, uint64_t off) {
+    if (auto it = idx.names.find(off); it != idx.names.end()) {
+        return it->second;
+    }
+    go_func f;
+    uint64_t at_off = off;
+    for (int hop = 0; hop < 4 && off != 0; hop++) {
+        auto u = std::upper_bound(idx.units.begin(), idx.units.end(), at_off,
+                                  [](uint64_t o, const info_unit& x) { return o < x.off; });
+        if (u == idx.units.begin()) {
+            break;
+        }
+        --u;
+        if (at_off < u->dies || at_off >= u->end) {
+            break;
+        }
+        const auto* base = reinterpret_cast<const unsigned char*>(s.info.data());
+        reader r{base + at_off, base + u->end};
+        const abbrev_table& table = idx.tables[u->table];
+        uint64_t code = r.uleb();
+        if (r.bad || code == 0 || code >= table.size()) {
+            break;
+        }
+        std::string_view linkage;
+        uint64_t next = 0;
+        bool have_next = false;
+        if (!read_die(r, table[static_cast<std::size_t>(code)], *u, s,
+                      [&](uint64_t at, const attr_value& v) {
+                          if (at == at_linkage_name || at == at_mips_linkage_name) {
+                              linkage = string_of(v, *u, s);
+                          } else if ((at == at_abstract_origin || at == at_specification) &&
+                                     !have_next) {
+                              have_next = reference_of(v, *u, next);
+                          }
+                      })) {
+            break;
+        }
+        if (!linkage.empty()) {
+            f = func_name(linkage);
+            break;
+        }
+        if (!have_next) {
+            break;
+        }
+        at_off = next;
+    }
+    idx.names.emplace(off, f);
+    return f;
+}
+
+} // namespace
+
+void inline_frames(const exe_image& img, uint64_t call, uint64_t func_lo, uint64_t func_hi,
+                   std::vector<inline_level>& out) {
+    out.clear();
+    if constexpr (!read_inlines) {
+        return; // not a -release -trace build (read_inlines)
+    }
+    read_inline_frames(img, call, func_lo, func_hi, out);
+}
+
+void read_inline_frames(const exe_image& img, uint64_t call, uint64_t func_lo, uint64_t func_hi,
+                        std::vector<inline_level>& out) {
+    out.clear();
+    if (img.debug_info.empty() || img.debug_abbrev.empty()) {
+        return;
+    }
+    // One index for the program, as indexed_lines_of has one: a trace of a crash waits here for a
+    // runtime.Stack of another thread that is building it (the first call reads all of
+    // .debug_info), and the threads of a report of several goroutines take it one after the other.
+    // (Made under the lock, never freed: see indexed_lines_of.)
+    static std::mutex mu;
+    static inline_index* idx = nullptr;
+    std::lock_guard<std::mutex> lk(mu);
+    if (idx == nullptr) {
+        idx = new inline_index;
+    }
+    info_sections s = sections_of(img);
+    if (!idx->built || idx->data != img.debug_info.data() || idx->size != img.debug_info.size()) {
+        *idx = inline_index{};
+        idx->data = img.debug_info.data();
+        idx->size = img.debug_info.size();
+        try {
+            build_inlines(s, *idx);
+        } catch (...) {
+            *idx = inline_index{}; // no memory: no inlined frames
+            return;
+        }
+        idx->built = true;
+    }
+    // The calls inlined into the function [func_lo, func_hi) start in it: look at those whose
+    // range has call.
+    auto first = std::lower_bound(idx->sites.begin(), idx->sites.end(), func_lo,
+                                  [](const inline_site& a, uint64_t x) { return a.lo < x; });
+    std::vector<const inline_site*> chain;
+    for (auto it = first; it != idx->sites.end() && it->lo <= call && it->lo < func_hi; ++it) {
+        if (call < it->hi) {
+            chain.push_back(&*it);
+        }
+    }
+    std::sort(chain.begin(), chain.end(),
+              [](const inline_site* a, const inline_site* b) { return a->depth < b->depth; });
+    for (const inline_site* c : chain) {
+        out.push_back(inline_level{origin_name(*idx, s, c->origin), idx->files[c->file], c->line,
+                                   c->lo, c->hi});
     }
 }
 
@@ -1441,11 +2330,16 @@ namespace {
 
 // A frame of the trace.
 struct frame {
-    go_func fn;      // with raw_pc: none
-    uint64_t call;   // the address of the call (the return address - 1), in the file
-    uint64_t offset; // of the return address in the function
-    bool raw_pc;     // no symbols: "?()" and the address
-    bool gopanic;    // the panic frame between a deferred call and the panic it ran in
+    go_func fn;           // with raw_pc: none
+    uint64_t call;        // the address of the call (the return address - 1), in the file
+    uint64_t offset;      // of the return address in the function
+    bool raw_pc;          // no symbols: "?()" and the address
+    bool gopanic;         // the panic frame between a deferred call and the panic it ran in
+    bool inlined = false; // a function that the compiler inlined: "(...)" and no offset, as Go
+    bool known = false;   // file and line are the place of a call inlined into it (inline_frames)
+    std::string file{};
+    int64_t line = 0;
+    uint64_t near_lo = 0, near_hi = 0; // the innermost inlined call's range (line_query)
 };
 
 // inner and outer are how many frames Go 1.25 prints at the top and at the bottom of a stack
@@ -1509,6 +2403,7 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
     if (have) {
         // The names of a deep recursion are the same few functions: each is parsed once.
         std::vector<std::pair<const exe_symbol*, go_func>> names;
+        std::vector<inline_level> levels;
         for (std::size_t k = 0; k < n; k++) {
             if (pcs[k] == 0) {
                 frames.push_back(frame{go_func{}, 0, 0, false, true});
@@ -1526,24 +2421,67 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
                 continue; // before the first function, or between functions
             }
             const exe_symbol& sym = *found;
-            if (sym.name == "main") {
-                break; // C++'s main: the program's start, below it libc
-            }
+            // C++'s main is the program's start, below it libc: the trace ends there, after the Go
+            // functions that the compiler inlined into it (g++'s -flto can inline a small
+            // main.main into run_main into main).
+            const bool cxx_main = sym.name == "main";
             auto named = std::find_if(names.begin(), names.end(),
                                       [&](const auto& e) { return e.first == &sym; });
             if (named == names.end()) {
-                names.emplace_back(&sym,
-                                   cached != nullptr ? shared_func_name(sym) : func_name(sym.name));
+                names.emplace_back(&sym, cxx_main            ? go_func{}
+                                         : cached != nullptr ? shared_func_name(sym)
+                                                             : func_name(sym.name));
                 named = names.end() - 1;
             }
+            // The calls that the compiler inlined at call, innermost first, as Go shows them: each
+            // inlined function at the line of the call inlined into it (the innermost at the line
+            // of its code), then the function at the line of the outermost inlined call. A
+            // function that the trace doesn't show (the runtime's helpers), or that isn't Go (C++
+            // that the program calls: its frames are shown only when they are on the stack, as in
+            // a debug build), only lends its call's line to the function around it.
+            inline_frames(img, call, sym.addr, sym.size != 0 ? sym.addr + sym.size : ~uint64_t(0),
+                          levels);
+            for (std::size_t j = levels.size(); j-- > 0;) {
+                if (!levels[j].fn.shown || levels[j].fn.raw) {
+                    continue;
+                }
+                frame f{levels[j].fn, call, 0, false, false};
+                // main.main inlined into C++'s main (g++'s -flto) is the program's own frame, as Go
+                // shows it: main.main() with an offset (into C++'s main here).
+                f.inlined = !(cxx_main && levels[j].fn.name == "main.main");
+                if (!f.inlined) {
+                    f.offset = addr - sym.addr;
+                }
+                if (j + 1 < levels.size()) {
+                    f.known = true;
+                    f.file = levels[j + 1].file;
+                    f.line = levels[j + 1].line;
+                } else {
+                    f.near_lo = levels[j].lo; // the line of its code, from the line table
+                    f.near_hi = levels[j].hi;
+                }
+                frames.push_back(std::move(f));
+            }
+            if (cxx_main) {
+                break;
+            }
             if (named->second.shown) {
-                frames.push_back(frame{named->second, call, addr - sym.addr, false, false});
+                frame f{named->second, call, addr - sym.addr, false, false};
+                if (!levels.empty()) {
+                    f.known = true;
+                    f.file = levels[0].file;
+                    f.line = levels[0].line;
+                }
+                frames.push_back(std::move(f));
             }
         }
     }
-    if (std::all_of(frames.begin(), frames.end(), [](const frame& f) { return f.gopanic; })) {
-        // No symbols (a stripped program), or none of a function that the trace shows: the
-        // addresses in the program's code, for addr2line.
+    if (std::all_of(frames.begin(), frames.end(), [](const frame& f) { return f.gopanic; }) &&
+        (!have || img.debug_line.empty())) {
+        // No symbols (a stripped program), or none of a function that the trace shows in a program
+        // without line tables: the addresses in the program's code, for addr2line. With symbols and
+        // lines, a stack of only the runtime's frames shows none (Go hides its runtime's frames
+        // too).
         frames.clear();
         for (std::size_t k = 0; k < n; k++) {
             if (pcs[k] == 0) {
@@ -1572,10 +2510,19 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
     }
 
     std::vector<line_query> lines(shown.size());
+    bool near = false; // a query with an inlined call's range: only indexed_lines_of answers it
     for (std::size_t k = 0; k < shown.size(); k++) {
-        lines[k].addr = frames[shown[k]].call;
+        const frame& f = frames[shown[k]];
+        lines[k].addr = f.call;
+        lines[k].near_lo = f.near_lo;
+        lines[k].near_hi = f.near_hi;
+        near = near || f.near_hi > f.near_lo;
+        if (f.known && f.line > 0) {
+            lines[k].file = f.file; // a line that is set is not asked of the line table
+            lines[k].line = f.line;
+        }
     }
-    if (have && cached != nullptr) {
+    if (have && (cached != nullptr || near)) {
         // A caller that keeps the image asks again and again (runtime.Stack, the race reporter).
         indexed_lines_of(img.debug_line, img.debug_line_str, img.debug_str, lines.data(),
                          lines.size());
@@ -1603,7 +2550,7 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
         }
         out += f.fn.name;
         if (!f.fn.raw || f.fn.name.find('(') == std::string::npos) {
-            out += f.fn.params ? "(...)" : "()";
+            out += f.fn.params || f.inlined ? "(...)" : "()";
         }
         out += "\n\t";
         if (lines[k].line > 0) {
@@ -1613,8 +2560,10 @@ void append_trace(std::string& out, const uintptr_t* pcs, std::size_t n, bool co
         } else {
             out += "?:0";
         }
-        out += " +";
-        print_hex(out, f.offset);
+        if (!f.inlined) {
+            out += " +";
+            print_hex(out, f.offset);
+        }
         out += '\n';
     }
     if (!complete) {
@@ -1690,6 +2639,26 @@ void append_created_by(std::string& out, const void* create_pc, uint64_t parent_
     resolve_pcs(&pc, 1, true, &fi);
     if (!fi.ok || !fi.fn.shown) {
         return;
+    }
+    if (const exe_image* img = read_inlines ? program_image() : nullptr; img != nullptr) {
+        // A go statement in code that the compiler inlined: the line of the innermost Go function
+        // there (the runtime's helpers that start the goroutine are inlined around the call too).
+        uint64_t call = pc - img->bias - 1;
+        if (const exe_symbol* sym = find_symbol(*img, call); sym != nullptr) {
+            std::vector<inline_level> levels;
+            inline_frames(*img, call, sym->addr,
+                          sym->size != 0 ? sym->addr + sym->size : ~uint64_t(0), levels);
+            std::size_t j = levels.size();
+            while (j > 0 && (!levels[j - 1].fn.shown || levels[j - 1].fn.raw)) {
+                j--;
+            }
+            // levels[j - 1] is the innermost Go function, which has the line table's line when it
+            // is the innermost call; else the line is that of the call inlined into it (j < size).
+            if (j < levels.size() && levels[j].line > 0) {
+                fi.file = levels[j].file;
+                fi.line = levels[j].line;
+            }
+        }
     }
     out += "created by ";
     out += fi.fn.name;
@@ -1768,8 +2737,15 @@ uint32_t tb_env() noexcept {
 }
 
 uint32_t tb_get() noexcept {
+#ifdef GOCPP_NO_TRACE
+    // A -release build without -trace (the driver defines GOCPP_NO_TRACE: ADR-136, the amendment
+    // of 2026-10-23): a crash prints only its message, as Go's GOTRACEBACK=none, whatever the
+    // variable or debug.SetTraceback says. runtime.Stack and runtime.Callers do not ask.
+    return 0;
+#else
     uint32_t t = tb_cache.load(std::memory_order_acquire);
     return t == tb_unset ? tb_env() : t;
+#endif
 }
 
 } // namespace

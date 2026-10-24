@@ -18,8 +18,9 @@ import (
 // do not: the user chose them. They come from three places, in this order (a later flag wins where
 // the last one wins):
 //
-//   - the mode: -race (ThreadSanitizer), -release (-O2 -flto, no debug information), -strip (the
-//     link drops the symbol table and the debug information);
+//   - the mode: -race (ThreadSanitizer), -release (-O2 -flto, no debug information, and a crash
+//     prints only its message), -trace (with -release: the line tables, so a crash prints Go's
+//     trace), -strip (the link drops the symbol table and the debug information);
 //   - the environment: GOCPP_CFLAGS (every C and C++ compile), GOCPP_CXXFLAGS (every C++ compile)
 //     and GOCPP_LDFLAGS (the link);
 //   - the build flags: -cflags, -cxxflags and -ldflags of gocpp build, which add to the environment's.
@@ -42,7 +43,8 @@ func (e EnvFlags) Layered(modeCompile, modeLink, cflags, cxxflags, ldflags []str
 // A Profile is the kind of build that the flags -debug, -release, -race and -strip ask for.
 type Profile struct {
 	Debug   bool // -debug: -O0 -g, which is what a build is without a flag
-	Release bool // -release: -O2 -flto, and no debug information (-g0)
+	Release bool // -release: -O2 -flto, and no debug information (-g0); a crash prints only its message
+	Trace   bool // -trace: with -release, the line tables (-g1) instead, and the crash prints Go's trace
 	Race    bool // -race: ThreadSanitizer
 	Strip   bool // -strip: the link drops the symbol table and the debug information (-s)
 }
@@ -64,6 +66,8 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 		return nil, nil, errors.New("-race and -release can't be used together")
 	case m.Race && goos == "windows":
 		return nil, nil, errors.New("-race is not supported for windows (the MinGW toolchains have no ThreadSanitizer)")
+	case m.Trace && m.Strip:
+		return nil, nil, errors.New("-trace and -strip can't be used together (the trace needs the symbols and the line tables that -strip drops)")
 	case m.Strip && m.Debug:
 		return nil, nil, errors.New("-strip and -debug can't be used together")
 	case m.Strip && m.Race:
@@ -85,10 +89,23 @@ func ProfileFlags(m Profile, asan bool, goos string) (compile, link []string, er
 			link = append(link, "-Wl,--export-dynamic-symbol=__tsan_default_options")
 		}
 	}
-	if m.Release {
+	switch {
+	case m.Release && m.Trace:
+		// -release -trace (ADR-136, the amendment of 2026-10-23): the line tables only (-g1; clang's
+		// -gline-tables-only, to which Builder.compileFlags adds the linkage names), at the compiles
+		// and at the link, which writes them under -flto. The crash report is Go's trace, with the
+		// inlined calls as frames (GOCPP_TRACE: the runtime reads the DWARF of the inlined calls,
+		// and g++ keeps the lambdas of go and defer statements out of line). No tail calls: a call
+		// in tail position would leave no frame of its caller on the stack (main.f calling
+		// time.Sleep last), which Go's trace always has.
+		compile = []string{"-O2", "-flto", "-g1", "-fno-optimize-sibling-calls", "-DGOCPP_TRACE=1"}
+		link = []string{"-O2", "-flto", "-g1", "-fno-optimize-sibling-calls"}
+	case m.Release:
 		// -g0 at the link too: with -flto the debug information is made by the link, from the -g that
 		// every link line has (flags.go), so only the compiles' -g0 would leave most of it.
-		compile = []string{"-O2", "-flto", "-g0"}
+		// GOCPP_NO_TRACE (ADR-136, the amendment of 2026-10-23): the runtime's crash report is the
+		// message alone, as Go's GOTRACEBACK=none, whatever GOTRACEBACK says.
+		compile = []string{"-O2", "-flto", "-g0", "-DGOCPP_NO_TRACE=1"}
 		link = []string{"-O2", "-flto", "-g0"}
 	}
 	if m.Strip {

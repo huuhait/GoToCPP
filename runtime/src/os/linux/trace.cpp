@@ -211,10 +211,7 @@ bool read_exe(detail::exe_image& img) {
         if (s.sh_type == SHT_SYMTAB) {
             symtab = &s;
         }
-        std::string* dst = name == ".debug_line"       ? &img.debug_line
-                           : name == ".debug_line_str" ? &img.debug_line_str
-                           : name == ".debug_str"      ? &img.debug_str
-                                                       : nullptr;
+        std::string* dst = img.dwarf_section(name);
         // A compressed section would need zlib or zstd: the trace goes on without lines.
         if (dst != nullptr && s.sh_type != SHT_NOBITS && (s.sh_flags & SHF_COMPRESSED) == 0) {
             if (!read_at(f.get(), size, s.sh_offset, s.sh_size, *dst)) {

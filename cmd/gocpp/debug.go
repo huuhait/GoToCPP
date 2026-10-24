@@ -128,7 +128,11 @@ func runDebug(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if f.extra.mode.Release && !keepsDebugInfo(&f.extra) {
-		fmt.Fprintln(stderr, "gocpp debug: -release builds have no debug information (add -cflags=-g and -ldflags=-g to keep it)")
+		if f.extra.mode.Trace {
+			fmt.Fprintln(stderr, "gocpp debug: -release -trace builds have only the line tables, no variables (add -cflags=-g and -ldflags=-g to keep them)")
+		} else {
+			fmt.Fprintln(stderr, "gocpp debug: -release builds have no debug information (add -cflags=-g and -ldflags=-g to keep it)")
+		}
 	}
 	args = flags.Args()
 	if df.vscode {

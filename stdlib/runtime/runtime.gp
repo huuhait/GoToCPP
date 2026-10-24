@@ -1011,20 +1011,35 @@ func funcsLock()
 func funcsUnlock()
 
 // funcs holds the Func of each function that FuncForPC or CallersFrames has described, by entry
-// address, so that a function has one *Func (as in Go, where FuncForPC(pc1) == FuncForPC(pc2)
-// for two addresses of one function).
-var funcs = map[uintptr]*Func{}
+// address and name, so that a function has one *Func (as in Go, where FuncForPC(pc1) ==
+// FuncForPC(pc2) for two addresses of one function). The name is in the key because FuncForPC
+// of a call that the compiler inlined names the inlined function with the entry of the function
+// it is inlined into, as Go's does.
+var funcs = map[funcKey]*Func{}
+
+type funcKey struct {
+	entry uintptr
+	name  string
+}
 
 // funcOf returns the *Func of the function with this name and entry address.
 func funcOf(name string, entry uintptr) *Func {
+	k := funcKey{entry, name}
 	funcsLock()
-	f := funcs[entry]
+	f := funcs[k]
 	if f == nil {
 		f = &Func{name: name, entry: entry}
-		funcs[entry] = f
+		funcs[k] = f
 	}
 	funcsUnlock()
 	return f
+}
+
+// inlinedPC reports whether pc is an address that Callers made up for a call that the compiler
+// inlined (a -release -trace program: runtime/src/frames.cpp, inlined_tag, bit 62). Go's
+// CallersFrames gives the frame of an inlined call no Func, and so does gocpp's.
+func inlinedPC(pc uintptr) bool {
+	return uint64(pc)&(uint64(1)<<62) != 0
 }
 
 // Frames may be used to get function/file/line information for a
@@ -1081,9 +1096,13 @@ func CallersFrames(callers []uintptr) *Frames {
 			// FuncForPC wants; the frame has the pc of the call.
 			pc--
 		}
+		var fn *Func
+		if !inlinedPC(callers[i]) {
+			fn = funcOf(names[i], entries[i])
+		}
 		ci.frames = append(ci.frames, Frame{
 			PC:       pc,
-			Func:     funcOf(names[i], entries[i]),
+			Func:     fn,
 			Function: names[i],
 			File:     files[i],
 			Line:     lines[i],

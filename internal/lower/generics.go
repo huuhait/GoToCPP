@@ -974,7 +974,7 @@ func (g *gen) lowerInstance(in *instance) {
 	}
 	if strings.HasPrefix(in.unit, "\x00inst:") {
 		// In the header of an instance of a generic type: inline.
-		proto.Specs, fn.Specs = []string{"inline"}, []string{"inline"}
+		proto.Specs, fn.Specs = []string{"inline"}, append([]string{"inline"}, fn.Specs...) // and GP_RECURSIVE
 	}
 	if len(in.open) > 0 || len(callable) > 0 {
 		// A function template over the type arguments that C++ deduces (opaque instances) and over

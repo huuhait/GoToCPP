@@ -9,6 +9,42 @@
 // compiler wrapper adds (see the file).
 #include <gocpp/nofortify.h>
 
+// GP_TRACE_FRAME is in the lambda of a func literal that a go or defer statement runs (internal/
+// lower deferValue): in a g++ -release -trace build (GOCPP_TRACE, ADR-136) it keeps the
+// lambda out of line. g++ inlines such a lambda into the runtime's code that runs it, and its -g1
+// line tables name an inlined lambda without a linkage name, so the trace would have no frame for
+// the func literal (main.main.func1); out of line, the symbol table names it. clang's line tables
+// have the linkage names (-fdebug-info-for-profiling), and a debug build inlines nothing.
+#if defined(GOCPP_TRACE) && defined(__GNUC__) && !defined(__clang__)
+#define GP_TRACE_FRAME __attribute__((noinline))
+#else
+#define GP_TRACE_FRAME
+#endif
+
+// GP_NOINLINE is Go's //go:noinline on a function (internal/lower/decl.go funcBuild).
+#define GP_NOINLINE __attribute__((noinline))
+
+// GP_RECURSIVE and GP_RECURSION_MARK() are on the functions that can call themselves (directly or
+// through other functions of their package: internal/lower/recursion.go), so that a recursion
+// without end overflows the stack in an optimized build too, as Go's does ("fatal error: stack
+// overflow"), instead of looping or returning. GP_RECURSIVE keeps the function's calls real calls:
+// no tail call made a jump, no recursion made a loop (clang's disable_tail_calls; g++'s
+// -fno-optimize-sibling-calls for this function only). GP_RECURSION_MARK() is an empty asm
+// volatile, which clang must treat as a side effect: without one, C++'s forward-progress rule lets
+// it assume that a recursion with no side effect returns, and drop it. It costs no instruction;
+// g++ does not drop such a recursion, so it gets nothing. A debug build (-O0) makes no tail call.
+// (GNU spellings: they may stand among the decl-specifiers, after inline, which [[...]] may not.)
+#if defined(__OPTIMIZE__) && defined(__clang__)
+#define GP_RECURSIVE __attribute__((disable_tail_calls))
+#define GP_RECURSION_MARK() __asm__ volatile("")
+#elif defined(__OPTIMIZE__) && defined(__GNUC__)
+#define GP_RECURSIVE __attribute__((optimize("no-optimize-sibling-calls")))
+#define GP_RECURSION_MARK() ((void)0)
+#else
+#define GP_RECURSIVE
+#define GP_RECURSION_MARK() ((void)0)
+#endif
+
 #include <gocpp/checks.hpp>
 #include <gocpp/string.hpp>
 #include <gocpp/ptr.hpp>

@@ -74,9 +74,10 @@ func runDeadlock(t *testing.T, bin string) {
 
 // A tracebackCase is a case of test/deadlock_test.cpp run with GOTRACEBACK set: a goroutine waits
 // on a channel and one sleeps, then the main goroutine panics (tb-panic) or ends in the fatal
-// error of an unlocked mutex (tb-fatal). Go 1.25.7 prints the other goroutines for "all" and for
-// a number from 1 (not for the default and for "single"), and nothing but the text for "none"
-// and "0". The reasons are Go's: chan receive, sleep.
+// error of an unlocked mutex (tb-fatal). For a panic Go 1.25.7 prints the other goroutines for
+// "all" and for a number from 1 (not for the default and for "single"); for a fatal error (a
+// throw) also for the default and for "single". Nothing but the text for "none" and "0". The
+// reasons are Go's: chan receive, sleep.
 type tracebackCase struct {
 	name string
 	env  string
@@ -99,6 +100,8 @@ var tracebackCases = []tracebackCase{
 	{"tb-panic", "GOTRACEBACK=none", 2, `^panic: boom\n$`},
 	{"tb-panic", "GOTRACEBACK=0", 2, `^panic: boom\n$`},
 	{"tb-fatal", "GOTRACEBACK=all", 2, tbFatal + tbOther},
+	{"tb-fatal", "GOTRACEBACK=", 2, tbFatal + tbOther},
+	{"tb-fatal", "GOTRACEBACK=single", 2, tbFatal + tbOther},
 	{"tb-fatal", "GOTRACEBACK=none", 2, `^fatal error: sync: unlock of unlocked mutex\n$`},
 	// The deadlock report is a throw: Go prints all goroutines for the default and for "single"
 	// (the cases above, in deadlockCases), and only the line for level 0: none, 0, and a word that
@@ -124,7 +127,7 @@ func runTraceback(t *testing.T, bin string) {
 			if code != c.exit || !regexp.MustCompile(c.rx).MatchString(out) {
 				t.Errorf("%s %s: exit code %d, output:\n%s\nwant exit code %d and %s", c.name, c.env, code, out, c.exit, c.rx)
 			}
-			if strings.HasPrefix(c.name, "tb-") && (strings.Contains(c.env, "single") || strings.Contains(c.env, "none") || strings.Contains(c.env, "=0")) {
+			if strings.HasPrefix(c.name, "tb-") && ((c.name == "tb-panic" && strings.Contains(c.env, "single")) || strings.Contains(c.env, "none") || strings.Contains(c.env, "=0")) {
 				if strings.Contains(out, "[chan receive]") || strings.Contains(out, "[sleep]") {
 					t.Errorf("%s %s: the output has the other goroutines:\n%s", c.name, c.env, out)
 				}

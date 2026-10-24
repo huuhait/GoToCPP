@@ -175,7 +175,7 @@ gp::error closing(const gp_anon_i3bf4b72cbb7c329e& c) {
 #line 42 "$ROOT/tests/golden/must.gp"
             gp::func<gp::error()> must_t4 = gp::func<gp::error()>(gp::aware([gp_r = gp::method_recv(c)](auto&&... gp_a) { return gp_r.Close(gp_a...); }));
 #line 42 "$ROOT/tests/golden/must.gp"
-            gp_df.gp_push_call([must_t4, err]<int = 1>() mutable -> void { { gp::error must_e7 = must_t4(); if (must_e7 != nullptr && (*err) == nullptr) { (*err) = must_e7; } } });
+            gp_df.gp_push_call([must_t4, err]<int = 1>() mutable GP_TRACE_FRAME -> void { { gp::error must_e7 = must_t4(); if (must_e7 != nullptr && (*err) == nullptr) { (*err) = must_e7; } } });
 #line 42 "$ROOT/tests/golden/must.gp"
         }
         (*err) = gp::error(); goto gp_ret0;

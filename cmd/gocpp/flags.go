@@ -147,7 +147,8 @@ func (e *extraFlags) register(flags *flag.FlagSet, forBuild bool) {
 	flags.Var(listFlag{&e.cxxflags}, "cxxflags", "trusted `flags` for every C++ compile, like GOCPP_CXXFLAGS: may load compiler plugins (-fpass-plugin=x.so, -fplugin=x.so)")
 	flags.Var(listFlag{&e.ldflags}, "ldflags", "trusted `flags` for the link, like GOCPP_LDFLAGS")
 	flags.BoolVar(&e.mode.Debug, "debug", false, "build with -O0 -g (what a build is without a flag)")
-	flags.BoolVar(&e.mode.Release, "release", false, "build with -O2 -flto and without debug information")
+	flags.BoolVar(&e.mode.Release, "release", false, "build with -O2 -flto and without debug information; a crash prints only its message")
+	flags.BoolVar(&e.mode.Trace, "trace", false, "with -release: keep the line tables (-g1), so a crash prints Go's trace with .gp file:line (a debug build has it already)")
 	flags.BoolVar(&e.mode.Strip, "strip", false, "drop the symbol table and the debug information from the program")
 	flags.BoolVar(&e.mode.Race, "race", false, "build with ThreadSanitizer")
 	flags.BoolVar(&e.rebuild, "a", false, "compile everything again: no object cache and no up-to-date check")
@@ -173,7 +174,7 @@ func (e *extraFlags) registerCompdb(flags *flag.FlagSet) {
 
 // layered reports whether the build flags change the trusted flags of the build.
 func (e *extraFlags) layered() bool {
-	return len(e.cflags)+len(e.cxxflags)+len(e.ldflags) > 0 || e.mode.Race || e.mode.Release || e.mode.Strip
+	return len(e.cflags)+len(e.cxxflags)+len(e.ldflags) > 0 || e.mode.Race || e.mode.Release || e.mode.Trace || e.mode.Strip
 }
 
 // unstamped returns why a build with these flags is not kept for the up-to-date check, or "":
@@ -201,7 +202,7 @@ func (e *extraFlags) keyParts() []string {
 		"cflags=" + strings.Join(e.cflags, "\x00"),
 		"cxxflags=" + strings.Join(e.cxxflags, "\x00"),
 		"ldflags=" + strings.Join(e.ldflags, "\x00"),
-		fmt.Sprint("mode=", e.mode.Debug, e.mode.Release, e.mode.Race, e.mode.Strip),
+		fmt.Sprint("mode=", e.mode.Debug, e.mode.Release, e.mode.Race, e.mode.Strip, e.mode.Trace),
 		fmt.Sprint("compdb-off=", e.compdb == "false"), // a build that wrote the file is not the build that did not
 	}
 	return parts

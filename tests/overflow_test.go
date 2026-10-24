@@ -8,7 +8,7 @@ import (
 
 // overflowFormat is the format of tests/overflow: a run test (an // Output: block, // ExitCode: and
 // // Stderr: lines). See tests/overflow/README.md.
-var overflowFormat = format{"overflow", outputLine | exitCodeLine | stderrLine | goBuildLine, true}
+var overflowFormat = format{"overflow", outputLine | exitCodeLine | stderrLine | goBuildLine | flagsLine, true}
 
 // TestStackOverflow runs the programs of tests/overflow: endless recursion on the main goroutine and
 // in a goroutine must end with Go's "fatal error: stack overflow" and exit code 2, not with a bare

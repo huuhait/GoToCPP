@@ -80,6 +80,42 @@ constexpr named_native natives[] = {
     {"_ZN2gp7runtime5stackE", "runtime.Stack"},
 };
 
+// The frames of the calls that the compiler inlined (-release -trace, ADR-136): runtime.Callers
+// gives one address for each frame that Go shows, also for an inlined call, as Go's does, and
+// CallersFrames, Caller and FuncForPC name it. An inlined call has no address of its own in the
+// program, so it gets a made-up one: inlined_tag, the return address of the physical frame and
+// the depth of the inlined call (1: inlined into the function). No address of a program's code has
+// the tag's bit (user space ends far below it), and the address - 1 that a caller of Callers may
+// ask about decodes the same.
+constexpr uintptr_t inlined_tag = uintptr_t(1) << 62;
+constexpr int inlined_shift = 8;
+constexpr std::size_t max_inlined_depth = (std::size_t(1) << (inlined_shift - 1)) - 1; // 127
+
+uintptr_t inlined_pc(uintptr_t pc, std::size_t depth) {
+    return inlined_tag | (pc << inlined_shift) | (static_cast<uintptr_t>(depth) << 1) | 1;
+}
+
+bool decode_inlined(uintptr_t x, uintptr_t& pc, std::size_t& depth) {
+    if ((x & inlined_tag) == 0) {
+        return false;
+    }
+    pc = (x & ~inlined_tag) >> inlined_shift;
+    depth = static_cast<std::size_t>((x & ((uintptr_t(1) << inlined_shift) - 1)) >> 1);
+    return depth > 0;
+}
+
+// The calls inlined at the return address pc of a frame in sym (inline_frames), outermost first.
+void inlines_at(const exe_image& img, const exe_symbol& sym, uintptr_t pc,
+                std::vector<inline_level>& out) {
+    uint64_t call = pc - img.bias - 1;
+    inline_frames(img, call, sym.addr, sym.size != 0 ? sym.addr + sym.size : ~uint64_t(0), out);
+}
+
+// A level that the trace shows as a frame: a Go function (not the runtime's, not C++).
+bool shown_level(const inline_level& l) {
+    return l.fn.shown && !l.fn.raw;
+}
+
 } // namespace
 
 const exe_image* program_image() {
@@ -103,6 +139,7 @@ std::vector<uintptr_t> shown_frames(std::size_t want) {
         bool done = false;
         {
             std::lock_guard<std::mutex> lk(mu);
+            std::vector<inline_level> levels;
             for (int k = 0; k < n && !done; k++) {
                 uintptr_t pc = all[static_cast<std::size_t>(k)];
                 if (!in_code(st.img, pc)) {
@@ -111,6 +148,19 @@ std::vector<uintptr_t> shown_frames(std::size_t want) {
                 const exe_symbol* sym = find_symbol(st.img, pc - st.img.bias - 1);
                 if (sym == nullptr) {
                     continue;
+                }
+                // The Go functions inlined at pc first, innermost first (also into C++'s main).
+                inlines_at(st.img, *sym, pc, levels);
+                for (std::size_t j = levels.size(); j-- > 0 && !done;) {
+                    // The depth has 7 bits in a made-up address (inlined_pc): a call inlined more
+                    // than 127 levels deep (no compiler does that) has no frame of its own.
+                    if (shown_level(levels[j]) && j + 1 <= max_inlined_depth) {
+                        out.push_back(inlined_pc(pc, j + 1));
+                        done = out.size() == want;
+                    }
+                }
+                if (done) {
+                    break;
                 }
                 if (sym->name == "main") {
                     done = true; // C++'s main: the program's start
@@ -142,17 +192,22 @@ void resolve_pcs(const uintptr_t* pcs, std::size_t n, bool call, frame_info* out
     }
     std::vector<std::size_t> todo;
     std::vector<line_query> queries;
+    std::vector<inline_level> levels;
     for (std::size_t i = 0; i < n; i++) {
         uint64_t key = (static_cast<uint64_t>(pcs[i]) << 1) | (call ? 1 : 0);
         if (auto it = cache.find(key); it != cache.end()) {
             out[i] = it->second;
             continue;
         }
-        if (!in_code(st.img, pcs[i])) {
+        uintptr_t pc = pcs[i];
+        std::size_t depth = 0;
+        bool inlined = decode_inlined(pc, pc, depth);
+        uint64_t near_lo = 0, near_hi = 0;
+        if (!in_code(st.img, pc)) {
             continue;
         }
-        uint64_t addr = pcs[i] - st.img.bias;
-        uint64_t look = call && addr > 0 ? addr - 1 : addr;
+        uint64_t addr = pc - st.img.bias;
+        uint64_t look = (call || inlined) && addr > 0 ? addr - 1 : addr;
         const exe_symbol* sym = find_symbol(st.img, look);
         if (sym == nullptr) {
             continue;
@@ -161,8 +216,31 @@ void resolve_pcs(const uintptr_t* pcs, std::size_t n, bool call, frame_info* out
         f.ok = true;
         f.fn = name_of(*sym);
         f.entry = static_cast<uintptr_t>(sym->addr + st.img.bias);
+        // The calls inlined there: an inlined call's frame is its function at the line of the call
+        // inlined into it (or of its code, the innermost one), and the function's own frame is at
+        // the line of the outermost inlined call, as in the trace (append_trace).
+        inline_frames(st.img, look, sym->addr,
+                      sym->size != 0 ? sym->addr + sym->size : ~uint64_t(0), levels);
+        if (inlined) {
+            if (depth > levels.size() || !shown_level(levels[depth - 1])) {
+                continue; // not an address that shown_frames made for this program
+            }
+            f.fn = levels[depth - 1].fn;
+            if (depth < levels.size()) {
+                f.file = levels[depth].file;
+                f.line = levels[depth].line;
+            } else {
+                near_lo = levels[depth - 1].lo; // the innermost call: the line of its code
+                near_hi = levels[depth - 1].hi;
+            }
+        } else if (!levels.empty()) {
+            f.file = levels[0].file;
+            f.line = levels[0].line;
+        }
+        bool native = false;
         for (const named_native& nn : natives) {
             if (std::string_view(sym->name).starts_with(nn.symbol)) {
+                native = true;
                 f.fn.name = nn.name;
                 f.fn.shown = true;
                 f.fn.raw = false;
@@ -172,10 +250,12 @@ void resolve_pcs(const uintptr_t* pcs, std::size_t n, bool call, frame_info* out
             }
         }
         out[i] = f;
-        if (f.file.empty()) {
+        if (!native && (f.file.empty() || f.line <= 0)) {
             todo.push_back(i);
             line_query q;
             q.addr = look;
+            q.near_lo = near_lo;
+            q.near_hi = near_hi;
             queries.push_back(q);
         } else {
             cache.emplace(key, f);

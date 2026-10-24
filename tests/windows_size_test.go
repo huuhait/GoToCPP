@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +56,10 @@ func main() {
 `
 
 func TestWindowsSizeModes(t *testing.T) {
-	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil && os.Getenv("GOCPP_CXX") == "" {
-		t.Skip("no MinGW-w64 cross compiler (x86_64-w64-mingw32-g++) in PATH, and GOCPP_CXX is not set")
+	// The builds use the MinGW-w64 g++ of PATH: GOCPP_CXX names the host's compiler in the test
+	// matrix (gp-focused, make ci), which is no Windows compiler.
+	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil {
+		t.Skip("no MinGW-w64 cross compiler (x86_64-w64-mingw32-g++) in PATH")
 	}
 	tmp := t.TempDir()
 	gocpp := filepath.Join(tmp, "gocpp")
@@ -76,14 +79,16 @@ func TestWindowsSizeModes(t *testing.T) {
 	modes := []struct {
 		name   string
 		flags  []string
-		debug  bool // has the sections of debug information (.debug_info and the like)
-		symbol bool // has the COFF symbol table
-		frames string
+		debug  bool   // has the sections of debug information (.debug_info and the like)
+		symbol bool   // has the COFF symbol table
+		frames string // "": the crash report is the message alone (-release without -trace: ADR-136)
 	}{
 		{name: "default", debug: true, symbol: true, frames: "main.main()"},
-		{name: "release", flags: []string{"-release"}, symbol: true, frames: "main.main()"},
+		{name: "release", flags: []string{"-release"}, symbol: true},
 		{name: "strip", flags: []string{"-strip"}, frames: "?()"},
-		{name: "release-strip", flags: []string{"-release", "-strip"}, frames: "?()"},
+		{name: "release-strip", flags: []string{"-release", "-strip"}},
+		// MinGW's LTO with -g1, and the trace from the PE file's .debug_* sections.
+		{name: "release-trace", flags: []string{"-release", "-trace"}, debug: true, symbol: true, frames: "main.main()"},
 	}
 	size := map[string]int64{}
 	exes := map[string]string{}
@@ -93,7 +98,7 @@ func TestWindowsSizeModes(t *testing.T) {
 		args := append(append([]string{"build", "-os", "windows"}, m.flags...), "-o", exe, "main.gp")
 		cmd := exec.CommandContext(t.Context(), gocpp, args...)
 		cmd.Dir = src
-		cmd.Env = append(os.Environ(), "XDG_CACHE_HOME="+filepath.Join(tmp, "cache"), "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_GATE_PHASE=15")
+		cmd.Env = append(withoutEnv(os.Environ(), "GOCPP_CXX", "GOCPP_CC"), "XDG_CACHE_HOME="+filepath.Join(tmp, "cache"), "GOCPP_MODCACHE=off", "GOCPP_OFFLINE=1", "GOCPP_GATE_PHASE=15")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("gocpp %v: %v\n%s", args, err, out)
 		}
@@ -169,7 +174,14 @@ func TestWindowsSizeModes(t *testing.T) {
 			if res.Code != 2 || out != "size program\n" {
 				t.Errorf("exit %d, stdout %q, stderr:\n%s", res.Code, out, errText)
 			}
-			if !strings.HasPrefix(errText, "panic: runtime error: index out of range [7] with length 3\n\ngoroutine 1 [running]:\n") {
+			const msg = "panic: runtime error: index out of range [7] with length 3\n"
+			if m.frames == "" {
+				if errText != msg {
+					t.Errorf("the panic report is:\n%s\nwant only the message:\n%s", errText, msg)
+				}
+				return
+			}
+			if !strings.HasPrefix(errText, msg+"\ngoroutine 1 [running]:\n") {
 				t.Errorf("the panic report starts with:\n%s", errText)
 			}
 			if !strings.Contains(errText, m.frames) {
@@ -177,4 +189,16 @@ func TestWindowsSizeModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withoutEnv returns env without the variables names.
+func withoutEnv(env []string, names ...string) []string {
+	var out []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(names, name) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

@@ -60,7 +60,31 @@ struct exe_image {
     // DWARF 5 file names point into. Each is empty when the file doesn't have it (or has it
     // compressed).
     std::string debug_line, debug_line_str, debug_str;
+    // The DWARF sections of the inlined calls (inline_frames): the units and their abbreviations,
+    // and the tables that DWARF 5 forms point into. Read only in a -release -trace program
+    // (read_inlines): a debug build's .debug_info is most of its file, and at -O0 nothing of the
+    // program is inlined.
+    std::string debug_info, debug_abbrev, debug_addr, debug_str_offsets, debug_rnglists,
+        debug_ranges;
+
+    // dwarf_section returns the member that keeps the section called name, or null for a section
+    // that the trace does not read (the OS layer's read_exe asks for each section of the file).
+    std::string* dwarf_section(std::string_view name) noexcept;
 };
+
+// read_inlines says whether the trace shows the calls that the compiler inlined as frames, as Go
+// does, from the DWARF of the inlined calls (DW_TAG_inlined_subroutine): in a -release -trace
+// program (the driver defines GOCPP_TRACE; the runtime is built with the program's flags), where
+// the line of a call that was inlined would be the line of the inlined function's code (often a
+// line of a runtime header). Only there: the first trace reads all of .debug_info, which costs
+// about 100 ms more for the 48 MB of a big -O2 -g program, and its index stays in memory; the
+// .debug_info of -g1 is a tenth of that. A plain -release program has no DWARF at all, and
+// without the reader its file is smaller.
+#ifdef GOCPP_TRACE
+inline constexpr bool read_inlines = true;
+#else
+inline constexpr bool read_inlines = false;
+#endif
 
 // go_func is how the trace shows the function of a frame.
 struct go_func {
@@ -105,6 +129,10 @@ struct line_query {
     uint64_t addr = 0;
     std::string file;
     int64_t line = 0;
+    // near_lo and near_hi, when near_hi > near_lo, are the range of the inlined call that addr is
+    // in: if the row of addr has no line (0, as clang gives code it merged from several places),
+    // indexed_lines_of takes the nearest row of that range that has one, before addr first.
+    uint64_t near_lo = 0, near_hi = 0;
 };
 
 // lines_of answers the queries from the DWARF line table, versions 2 to 5: debug_line is the
@@ -127,9 +155,10 @@ void indexed_lines_of(std::string_view debug_line, std::string_view line_str, st
 // shows; for a deeper one, the inner 50, "...N frames elided..." and the outer 50 (main.main
 // last). complete is false when pcs is only the top of the stack: then the inner 50 come, and
 // Go's older "...additional frames elided..." line. It reads the program's file, so it is for
-// the end of the program; when the file has no symbol table (a stripped program) or none of
-// the frames is one that the trace shows, it prints each address of the program's code as
-// "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line). An address 0 is the
+// the end of the program; when the file has no symbol table (a stripped program), or no line
+// table and none of the frames is one that the trace shows, it prints each address of the
+// program's code as "?()" and "\t?:0 pc=0x..." (an address in the file, for addr2line); with
+// both tables a stack of only the runtime's frames shows no frame. An address 0 is the
 // panic frame between a deferred call and the panic that ran it (panic_report puts it in
 // between the stacks of a panic chain): "panic(...)" and "\t?:0", where Go shows
 // runtime.gopanic as "panic({0x...?, 0x...?})" and its line in runtime/panic.go. cached is the
@@ -153,6 +182,26 @@ void append_created_by(std::string& out, const goroutine* g);
 // goroutine copies them first, in one place that the race detector does not watch).
 void append_created_by(std::string& out, const void* create_pc, uint64_t parent_id);
 
+// An inlined call at an address (inline_frames): the function inlined (not shown when it has no
+// linkage name, or is the runtime's), and the file and line of the call.
+struct inline_level {
+    go_func fn;
+    std::string file;
+    int64_t line = 0;
+    uint64_t lo = 0, hi = 0; // the range of the inlined code that has the address
+};
+
+// inline_frames sets out to the calls that the compiler inlined at call (an address in the file)
+// in the function [func_lo, func_hi), outermost first, from the DWARF of the inlined calls of img
+// (DW_TAG_inlined_subroutine). It is empty without that DWARF, and when read_inlines is false.
+// The first call reads all of .debug_info and keeps what it needs for the life of the program,
+// like indexed_lines_of; it is safe to call from several threads.
+void inline_frames(const exe_image& img, uint64_t call, uint64_t func_lo, uint64_t func_hi,
+                   std::vector<inline_level>& out);
+// read_inline_frames is inline_frames whatever read_inlines says (the unit tests' entry point).
+void read_inline_frames(const exe_image& img, uint64_t call, uint64_t func_lo, uint64_t func_hi,
+                        std::vector<inline_level>& out);
+
 // find_symbol returns the function of img that contains addr (an address in the file, before
 // relocation), or null when addr is before the first function or between two of them.
 const exe_symbol* find_symbol(const exe_image& img, uint64_t addr) noexcept;
@@ -168,8 +217,9 @@ void fatal_trace(std::string& out) noexcept;
 // add, so system and crash print what all prints, and crash ends with code 2 as a panic does).
 // traceback_level is 0 for none (a panic or a fatal error prints only its text: no "goroutine N
 // [running]:" and no trace), 1 for single, the default, and more for all, system, crash and the
-// numbers; traceback_all says whether a panic or a fatal error also prints the other goroutines
-// (all, system, crash, and any number but 0; a word that Go does not know is "all" with level 0).
+// numbers; traceback_all says whether a panic also prints the other goroutines (all, system,
+// crash, and any number but 0; a word that Go does not know is "all" with level 0). A fatal error
+// prints them at every level but 0, as Go does for a throw.
 // set_traceback_level is debug.SetTraceback: the new level replaces the last one (also a lower
 // one), but the GOTRACEBACK variable is a floor: what it sets stays set. The timeout of a test
 // uses it.

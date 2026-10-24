@@ -569,7 +569,11 @@ func (fg *funcGen) deferValue(c *ast.CallExpr) cppir.Expr {
 	var f cppir.Expr
 	push := "gp_push_call"
 	if fl, ok := ast.Unparen(c.Fun).(*ast.FuncLit); ok {
-		f = fg.lambda(fl)
+		lam := fg.lambda(fl)
+		// Out of line in a g++ -release -trace build, so that the trace names the literal's frame
+		// (gocpp/rt.hpp GP_TRACE_FRAME; ADR-136).
+		lam.Specs = append(lam.Specs, "GP_TRACE_FRAME")
+		f = lam
 		if fg.g.awareBody(fl.Body) {
 			push = "gp_push_call_aware" // the literal calls recover (recover.go)
 		}

@@ -47,7 +47,30 @@ func (b *Builder) compileFlags() []string {
 	if bigObj(b.CXX) && !b.ltoOn() {
 		flags = append(flags, "-Wa,-mbig-obj")
 	}
+	flags = append(flags, b.noICF(b.Env.CXXCompile())...)
+	if b.CXX.Family == Clang && lineTablesOnly(slices.Concat(b.CXX.Args, b.Env.CXXCompile())) {
+		// clang's line tables name an inlined function by its short name only ("boom"); with the
+		// linkage names the runtime's trace shows an inlined Go function as Go does (main.boom(...)).
+		// g++'s -g1 has them already (ADR-136, the amendment of 2026-10-23: -release -trace).
+		flags = append(flags, "-fdebug-info-for-profiling")
+	}
 	return flags
+}
+
+// lineTablesOnly reports whether the last -g flag of flags asks for the line tables only: -g1,
+// -gline-tables-only or -gmlt (the -gno-... and -gdwarf-N forms don't set the level).
+func lineTablesOnly(flags []string) bool {
+	only := false
+	for _, f := range flags {
+		switch {
+		case f == "-g1" || f == "-gline-tables-only" || f == "-gmlt":
+			only = true
+		case f == "-g" || f == "-g0" || f == "-g2" || f == "-g3" || f == "-ggdb" || f == "-glldb" ||
+			strings.HasPrefix(f, "-ggdb") || f == "-gline-directives-only":
+			only = false
+		}
+	}
+	return only
 }
 
 // bigObj reports whether the compiles for c need -Wa,-mbig-obj (before LTO is considered). A COFF
@@ -68,7 +91,31 @@ func (b *Builder) linkFlags() []string {
 	if b.LTO {
 		flags = append(flags, LTOFlags(b.CXX)...)
 	}
-	return flags
+	return append(flags, b.noICF(b.Env.LDFlags)...) // -flto: the link optimizes too
+}
+
+// noICF returns -fno-ipa-icf for an optimized g++ build (the last -O flag of the compiler's own
+// arguments and of flags is not -O0): g++'s -O2 folds identical functions into one (-fipa-icf),
+// so a panic's trace, runtime.Caller and FuncForPC would name the function that was kept, at its
+// line, for the other (two Go functions with the same body). clang folds nothing without the
+// linker's --icf, which gocpp never passes.
+func (b *Builder) noICF(flags []string) []string {
+	if b.CXX.Family != GCC || !optimized(slices.Concat(b.CXX.Args, flags)) {
+		return nil
+	}
+	return []string{"-fno-ipa-icf"}
+}
+
+// optimized reports whether the last -O flag of flags asks for optimization (-O1, -O2, -O3, -Os,
+// -Oz, -Ofast, -Og: not -O0; no -O flag is -O0).
+func optimized(flags []string) bool {
+	on := false
+	for _, f := range flags {
+		if strings.HasPrefix(f, "-O") {
+			on = f != "-O0"
+		}
+	}
+	return on
 }
 
 // rtArchiver returns the archiver for the runtime library of this build: the one that belongs to

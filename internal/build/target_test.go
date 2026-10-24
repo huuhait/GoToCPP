@@ -2,7 +2,9 @@ package build
 
 import (
 	"context"
+	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +71,28 @@ func TestFindCXXForArguments(t *testing.T) {
 	setEnv(t, dir, "'my-c++", "")
 	if _, err := FindCXXFor(context.Background(), "windows", "arm64"); err == nil || err.Error() != "GOCPP_CXX='my-c++: unterminated ' string" {
 		t.Errorf("FindCXXFor with an unterminated quote: %v", err)
+	}
+}
+
+// A host g++ in GOCPP_CXX for a Windows target is refused with a message that says so, not left to
+// fail at the assembler; a MinGW-w64 g++ there is taken.
+func TestFindCXXForWindowsRefusesHostGCC(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the host's g++ is a Windows compiler")
+	}
+	if _, err := exec.LookPath("g++"); err != nil {
+		t.Skip("no g++ in PATH")
+	}
+	t.Setenv("GOCPP_CXX", "g++")
+	_, err := FindCXXFor(context.Background(), "windows", "amd64")
+	if err == nil || !strings.Contains(err.Error(), "GOCPP_CXX=g++ is not a Windows compiler") {
+		t.Errorf("FindCXXFor(windows) with the host's g++ = %v, want the error that it is not a Windows compiler", err)
+	}
+	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil {
+		return
+	}
+	t.Setenv("GOCPP_CXX", "x86_64-w64-mingw32-g++")
+	if _, err := FindCXXFor(context.Background(), "windows", "amd64"); err != nil {
+		t.Errorf("FindCXXFor(windows) with MinGW-w64's g++ = %v, want no error", err)
 	}
 }

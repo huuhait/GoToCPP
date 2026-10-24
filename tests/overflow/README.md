@@ -10,6 +10,15 @@ limit, at most the hard limit), so `TestStackOverflow` runs the programs under a
 the endless recursion on the main goroutine ends after 64 MiB instead of touching 1 GiB. The overflow at the 1 GiB limit
 itself is checked without a recursion by the runtime's own test (`runtime/thread_test.go`, `main-stack-*`).
 
+A test may have a `// flags: -release` line (as in [tests/run](../run/README.md)): `gocpp run` builds it with
+those flags. `overflow_release_{tail,mutual,accumulator}` are the endless recursions that an optimized C++ build
+would turn into a loop, a jump or an early return (a call in tail position, two functions that call each other last,
+`return f(n+1) + x`); gocpp keeps the calls of the functions that can recurse (`GP_RECURSIVE`, `GP_RECURSION_MARK()`:
+`internal/lower/recursion.go`, language.md D7), so they overflow as in Go. Each has a debug twin,
+`overflow_debug_*`, the same program without the flag. The report of a plain `-release` program is its message
+lines only (ADR-136): `runtime: goroutine stack exceeds ...` and `fatal error: stack overflow`, without the
+`goroutine N [running]:` line, so those tests expect only the `fatal error` line.
+
 They live here and not in `tests/run` because `make ci-sanitize` and `make ci-race` run `tests/run` with a
 sanitizer, and a sanitizer reports an overflow its own way (exit code 1, `AddressSanitizer: stack-overflow`);
 `TestStackOverflow` is skipped when `GOCPP_FLAGS` has `-asan` or `-race`. The runtime's own tests

@@ -716,8 +716,10 @@ void test_dump_sleep() {
     std::atomic<bool> woke{false};
     std::atomic<bool> finish{false};
     group g;
-    g.go([&] {
-        gp::time::sleep(1'500'000'000);
+    // Not inlined, so that its frame is on the stack at -O2 too (a stack of only the runtime's
+    // frames shows none).
+    g.go([&]() __attribute__((noinline)) {
+        gp::time::sleep(3'000'000'000);
         woke = true;
         while (!finish.load()) {
             std::this_thread::yield();
@@ -732,6 +734,9 @@ void test_dump_sleep() {
     std::string block = block_of(out, "sleep");
     CHECK(!block.empty());
     CHECK(block.rfind("created by", 0) != 0); // a stack comes before "created by"
+    if (block.rfind("created by", 0) == 0) {
+        say("test_dump_sleep: the sleeping goroutine has no stack in:\n" + out);
+    }
     CHECK(wait_for([&] { return woke.load(); }));
     out.clear();
     gp::detail::append_other_goroutines(out);

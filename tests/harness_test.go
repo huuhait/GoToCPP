@@ -742,8 +742,18 @@ func (c *config) runTest(t *testing.T, p *program) {
 		exitCode: p.header.exitCode,
 		stderr:   p.header.stderr,
 	}
+	args := c.runArgs(p.arg)
+	if fs := p.header.flags; len(fs) > 0 {
+		// The test's own build flags (// flags: -release), after GOCPP_FLAGS and before the program.
+		for _, f := range c.flags {
+			if f == "-race" || f == "-debug" {
+				t.Skipf("%s builds with %s, which can't go with GOCPP_FLAGS=%s", p.path, strings.Join(fs, " "), strings.Join(c.flags, " "))
+			}
+		}
+		args = slices.Concat([]string{"run"}, c.flags, fs, []string{p.arg})
+	}
 	c.forEachCompiler(t, func(t *testing.T, cc compiler) {
-		checkRun(t, c.run(t, gocppJob(p.dir, runEnv(p.header), cc.cxx, p.header.phase, c.runArgs(p.arg)...)), want)
+		checkRun(t, c.run(t, gocppJob(p.dir, runEnv(p.header), cc.cxx, p.header.phase, args...)), want)
 	})
 }
 
@@ -786,7 +796,14 @@ func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
 		return
 	}
 	n.compared.Add(1)
-	r := c.run(t, job{dir: p.dir, name: prog, show: "the Go build of " + p.path + " (run in tests/run)"})
+	j := job{dir: p.dir, name: prog, show: "the Go build of " + p.path + " (run in tests/run)"}
+	if releaseNoTrace(p.header.flags) {
+		// A -release program's crash report is its message alone (ADR-136), which Go prints with
+		// GOTRACEBACK=none.
+		j.env = []string{"GOTRACEBACK=none"}
+		j.show = "GOTRACEBACK=none " + j.show
+	}
+	r := c.run(t, j)
 	checkRun(t, r, expect{
 		stdout:   p.header.output,
 		from:     "the // Output: block",

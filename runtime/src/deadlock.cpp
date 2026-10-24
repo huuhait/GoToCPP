@@ -56,6 +56,11 @@ constexpr int64_t other_budget_ns = 1LL * 1000000000;
 struct stack_slot {
     std::vector<uintptr_t> pcs;
     bool complete = false;
+    // g is the goroutine whose thread fills the slot (capture), and reason its reason then: what
+    // it was waiting for when its stack was taken, read with the stack (the report of the other
+    // goroutines prints the two together, append_other_goroutines).
+    const goroutine* g = nullptr;
+    const char* reason = nullptr;
 };
 
 void grab_stack(stack_slot& s) noexcept {
@@ -74,7 +79,11 @@ void grab_stack(stack_slot& s) noexcept {
 }
 
 void capture(void* p) {
-    grab_stack(*static_cast<stack_slot*>(p));
+    auto& s = *static_cast<stack_slot*>(p);
+    grab_stack(s);
+    if (s.g != nullptr) {
+        s.reason = s.g->reason(); // on the goroutine's own thread, in its wait
+    }
 }
 
 bool is_blocked(const goroutine* g) noexcept {
@@ -85,7 +94,8 @@ bool is_blocked(const goroutine* g) noexcept {
 // stack (slot; none when null, for a goroutine that is running and cannot be walked) and the line
 // "created by". idle is the text in the brackets for a goroutine that has no reason.
 void append_goroutine(std::string& out, const goroutine& g, const char* idle,
-                      const stack_slot* slot, const exe_image* img) {
+                      const stack_slot* slot, const exe_image* img,
+                      const char* const* reason = nullptr) {
     // The fields of the record are read once, here (-race does not watch these reads: race.hpp,
     // ignore_reads; no test kills a mutant without it, now that the edge of wait_for_reports orders
     // the reads before the free, but it is cheap and these are unsynchronized reads of the
@@ -98,7 +108,7 @@ void append_goroutine(std::string& out, const goroutine& g, const char* idle,
     bool locked;
     {
         race::ignore_reads ignore;
-        why = g.reason();
+        why = reason != nullptr ? *reason : g.reason();
         id = g.id;
         parent_id = g.parent_id;
         create_pc = g.create_pc;
@@ -268,7 +278,8 @@ void append_other_goroutines(std::string& out) noexcept {
             return;
         }
         std::vector<goroutine*> gs;
-        std::vector<char> parked; // 1: blocked in the runtime, or sleeping
+        std::vector<char> parked;         // 1: blocked in the runtime, or sleeping
+        std::vector<const char*> reasons; // then
         {
             // (-race does not watch these reads of the runtime's records: race.hpp, ignore_reads.)
             race::ignore_reads ignore;
@@ -278,7 +289,9 @@ void append_other_goroutines(std::string& out) noexcept {
             std::sort(gs.begin(), gs.end(),
                       [](const goroutine* a, const goroutine* b) { return a->id < b->id; });
             for (const goroutine* g : gs) {
-                parked.push_back(is_blocked(g) || g->reason() != nullptr ? 1 : 0);
+                const char* why = g->reason();
+                parked.push_back(is_blocked(g) || why != nullptr ? 1 : 0);
+                reasons.push_back(why);
             }
         }
 
@@ -288,11 +301,20 @@ void append_other_goroutines(std::string& out) noexcept {
         // A goroutine that is blocked in the runtime, or sleeps (it has a reason without a block),
         // captures its own stack on its own thread; one that runs cannot be walked from here, so it
         // is listed without a stack.
+        // The reason that a goroutine's block shows is the one of its stack: read with the stack
+        // on its thread when it took the request; for one that did not take it, the reason of the
+        // list while it still has it, else "running", without a stack (it left its wait); and the
+        // one of the list for a goroutine that was not asked. A reason read later could be a wait
+        // that the goroutine entered after the stack was taken (a goroutine that started to sleep,
+        // listed as sleeping with the stack of its start, or with none).
         std::vector<stack_slot> slots(gs.size());
         std::vector<char> posted(gs.size(), 0);
+        std::vector<char> asked(gs.size(), 0);
         for (std::size_t i = 0; i < gs.size(); i++) {
             if (parked[i] != 0) {
+                slots[i].g = gs[i];
                 posted[i] = gs[i]->park.gp_post(&capture, &slots[i]) ? 1 : 0;
+                asked[i] = posted[i];
             }
         }
         auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(other_budget_ns);
@@ -306,7 +328,19 @@ void append_other_goroutines(std::string& out) noexcept {
         }
         const exe_image* img = program_image();
         for (std::size_t i = 0; i < gs.size(); i++) {
-            append_goroutine(out, *gs[i], "running", posted[i] != 0 ? &slots[i] : nullptr, img);
+            const char* why = reasons[i];
+            if (posted[i] != 0) {
+                why = slots[i].reason;
+            } else if (asked[i] != 0) {
+                // Asked, and it did not answer: it still waits there (a wait that serves no
+                // request), or it left that wait and runs.
+                race::ignore_reads ignore;
+                if (gs[i]->reason() != reasons[i]) {
+                    why = nullptr;
+                }
+            }
+            append_goroutine(out, *gs[i], "running", posted[i] != 0 ? &slots[i] : nullptr, img,
+                             &why);
         }
     } catch (...) {
         // Without memory the report has the goroutines that it has.

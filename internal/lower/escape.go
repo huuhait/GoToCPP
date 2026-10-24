@@ -176,6 +176,20 @@ const exposureBits = 1<<boxAddr | 1<<boxMethod
 // run does the analysis.
 func (w *escWalker) run() {
 	g := w.g
+	// Pass 0: the parameters and a value receiver, which are local variables of the function too
+	// (Time.Before(u Time) lends t and u to the pointer method sec: without this each call made
+	// two heap boxes). A pointer receiver is a pointer, and its object is the caller's.
+	if fn, _ := g.info.Defs[w.d.Name].(*types.Func); fn != nil {
+		sig := fn.Signature()
+		if r := sig.Recv(); r != nil {
+			if _, ptr := types.Unalias(r.Type()).(*types.Pointer); !ptr {
+				w.levels[r] = true
+			}
+		}
+		for i := range sig.Params().Len() {
+			w.levels[sig.Params().At(i)] = true
+		}
+	}
 	// Pass 1: the variables that a statement of a block declares.
 	ast.Inspect(w.d.Body, func(n ast.Node) bool {
 		var list []ast.Stmt

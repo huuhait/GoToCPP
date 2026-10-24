@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/huuhait/gocpp/internal/toolchain"
 )
@@ -71,6 +72,9 @@ func FindCXXFor(ctx context.Context, goos, goarch string) (CXX, error) {
 	target := goos + "/" + goarch
 	if cxx, ok, err := cxxFromEnv(ctx, "GOCPP_CXX"); ok {
 		cxx.GOOS, cxx.GOARCH = goos, goarch
+		if err == nil && goos == "windows" && cxx.Family == GCC {
+			err = checkWindowsGCC(ctx, cxx)
+		}
 		return cxx, err
 	}
 	// On a Windows host CXX names the compiler, as on every host (Linux's CXX is the host's compiler,
@@ -136,4 +140,20 @@ func cxxFromEnv(ctx context.Context, name string) (CXX, bool, error) {
 		return CXX{}, true, fmt.Errorf("%s: %w", name, err)
 	}
 	return cxx, true, nil
+}
+
+// checkWindowsGCC returns an error when the g++ that GOCPP_CXX names for a Windows target builds
+// for another system (its -dumpmachine names no MinGW-w64, Cygwin or Windows target): the host's
+// g++ would fail later at the assembler (as: unrecognized option '-mbig-obj'). A clang is not
+// checked: the build gives it --target (targetFlags).
+func checkWindowsGCC(ctx context.Context, cxx CXX) error {
+	out, err := cxx.Command(ctx, "-dumpmachine").Output()
+	if err != nil {
+		return nil // the build reports a compiler that does not run
+	}
+	machine := strings.TrimSpace(string(out))
+	if strings.Contains(machine, "mingw") || strings.Contains(machine, "windows") || strings.Contains(machine, "cygwin") {
+		return nil
+	}
+	return fmt.Errorf("GOCPP_CXX=%s is not a Windows compiler (it builds for %s): set GOCPP_CXX to a MinGW-w64 compiler such as x86_64-w64-mingw32-g++, or unset it to use the one in PATH or the pinned llvm-mingw (GOCPP_TOOLCHAIN)", os.Getenv("GOCPP_CXX"), machine)
 }

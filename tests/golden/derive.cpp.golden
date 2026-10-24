@@ -88,7 +88,8 @@ gp::string Level::String() const {
 }
 
 #line 20 "$ROOT/tests/golden/derive.gp"
-bool Event::Equal(Event other) const {
+GP_RECURSIVE bool Event::Equal(Event other) const {
+    GP_RECURSION_MARK();
 #line 20 "$ROOT/tests/golden/derive.gp"
     Event e = *this;
 #line 20 "$ROOT/tests/golden/derive.gp"
@@ -185,7 +186,8 @@ bool Event::Equal(Event other) const {
 }
 
 #line 20 "$ROOT/tests/golden/derive.gp"
-Event Event::Clone() const {
+GP_RECURSIVE Event Event::Clone() const {
+    GP_RECURSION_MARK();
 #line 20 "$ROOT/tests/golden/derive.gp"
     Event e = *this;
 #line 20 "$ROOT/tests/golden/derive.gp"

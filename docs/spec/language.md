@@ -257,6 +257,21 @@ wg.Wait()
   ... False positive error reports may follow" (it took the main stack's size at its start); the
   panic and the exit code are right. An unrecovered panic in any goroutine prints `goroutine N [running]:`
   and exits with code 2, as in Go.
+  An endless recursion overflows in an optimized build too (`-release`): the functions that can
+  call themselves, directly or through other functions of their package, keep their calls (no
+  tail call made a jump or a loop, and clang may not drop a recursion without side effects:
+  `GP_RECURSIVE` and `GP_RECURSION_MARK()`, `internal/lower/recursion.go`). So a `-release`
+  program has the recursion depth of a debug build, frame for frame of its own size (1 GiB on the
+  main goroutine, 8 MiB on the others): a deep but finite recursion in tail position, which an
+  optimized C++ build would run as a loop, needs that stack, as in Go. A cycle through another
+  package, a func value or an interface method is not marked, and an optimized build may loop or
+  return there instead.
+- **Difference: a goroutine's stack is 8 MiB, where Go lets every goroutine grow to 1 GiB.** A
+  recursion that Go runs in a goroutine, `go func() { c <- count(3000000, 0) }()` with a frame of
+  a few dozen bytes (about 100 MB of Go stack), ends in gocpp with `fatal error: stack overflow`,
+  in a debug build and, since the recursion marks above, in `-release` too (where an optimized C++
+  build used to run that tail recursion as a loop). Only the main goroutine has 1 GiB. A program
+  with a deep recursion runs it on the main goroutine, or splits the work.
 - What a blocked goroutine costs, measured on Linux 6.19 (`vm.max_map_count` 1M, `kernel.threads-max`
   2M, the machine shared and loaded): about 14 KB of resident memory and 8 MiB of address space, and
   10 to 130 µs to start. 1,000 goroutines blocked on a channel start in 0.1 s, 10,000 in 0.8 s (65
@@ -803,6 +818,11 @@ func main() {
   [1 << 21]int{0: f()}`), so it is never a temporary either. A package variable initialized by
   a call's result (`var grid = makeGrid()`) gets it through a temporary on the stack, like a
   local's result.
+- Whatever overflows the stack, a large temporary or an endless recursion, ends with Go's `fatal error:
+  stack overflow` and exit code 2, in a debug and in a `-release` build (D7: the recursive functions keep
+  their calls there). The stack is 1 GiB on the main goroutine and 8 MiB on the others (D7), where Go
+  grows every goroutine's to 1 GiB: a deep recursion in a goroutine overflows in gocpp at about a hundredth
+  of the depth that Go allows.
 - **Phase:** [03](../../plans/2026-10-13-gocpp/phase-03-core-language/README.md#23-strings-slices-arrays-maps).
 
 

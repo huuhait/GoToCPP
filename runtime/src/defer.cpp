@@ -272,7 +272,10 @@ void defer_frame::gp_on_exception() {
     gp_adopt();
 }
 
-void defer_frame::gp_run() {
+// Not inlined (a -release build links with -flto, which could): the mark's return address must be
+// that of gp_run's caller, and a panic of a deferred call is told apart from the panicking
+// function by gp_run's own frame (detail::panic_chain), as Go shows the deferred call above it.
+__attribute__((noinline)) void defer_frame::gp_run() {
     // The mark for a fatal error's trace (fatal_trace): which panic runs the deferred calls, and
     // where this gp_run's caller is in the stack. A store and a load of a thread-local each.
     detail::run_mark mark{

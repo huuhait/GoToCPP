@@ -9,6 +9,7 @@
 #include <gocpp/trace.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -324,10 +325,17 @@ void test_trace() {
         CHECK(top.ends_with("\n...additional frames elided...\n"));
         CHECK(top.find("frames elided...\n") == top.find("additional frames elided...\n") + 11);
         // No frame that the trace shows (only the runtime's: os::stack, the constructor,
-        // gp::panic): the addresses, as for a stripped program.
+        // gp::panic): none, in a program with its symbols and its line table (as Go hides its
+        // runtime's frames); without the line table, the addresses, as for a stripped program.
         std::string raw;
         gp::detail::append_trace(raw, e.gp_pcs, 3, true);
-        CHECK(raw.starts_with("?()\n\t?:0 pc=0x"));
+        CHECK_EQ(raw, std::string());
+        gp::detail::exe_image img;
+        CHECK(gp::os::read_exe(img));
+        img.debug_line.clear();
+        std::string addrs;
+        gp::detail::append_trace(addrs, e.gp_pcs, 3, true, &img);
+        CHECK(addrs.starts_with("?()\n\t?:0 pc=0x"));
     }
 #ifndef __OPTIMIZE__
     // Exactly 100 frames (96 of deep, and the test's 4): all of them, nothing elided; 101: one.
@@ -458,6 +466,447 @@ void test_line_paths() {
 #endif
 }
 
+// --- the reader of the inlined calls (read_inline_frames), on DWARF written by hand ---
+
+// The bytes of a little-endian number, a ULEB128 and a C string.
+void put_le(std::string& out, uint64_t v, int bytes) {
+    for (int i = 0; i < bytes; i++) {
+        out += static_cast<char>((v >> (8 * i)) & 0xff);
+    }
+}
+void put_uleb(std::string& out, uint64_t v) {
+    do {
+        unsigned char b = v & 0x7f;
+        v >>= 7;
+        out += static_cast<char>(b | (v != 0 ? 0x80 : 0));
+    } while (v != 0);
+}
+void put_str(std::string& out, std::string_view s) {
+    out += s;
+    out += '\0';
+}
+
+// A DWARF 4 line table with no program: only the file names that DW_AT_call_file numbers (1: the
+// first).
+std::string call_files() {
+    std::string rest;
+    rest += std::string("\1\1\1\xfb\x0e\x0d", 6);
+    for (char len : {0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1}) {
+        rest += len;
+    }
+    rest += '\0'; // no include directories
+    put_str(rest, "/w/main.gp");
+    rest += std::string(3, '\0');
+    put_str(rest, "/w/gocpp/checks.hpp");
+    rest += std::string(3, '\0');
+    rest += '\0';
+    std::string unit;
+    put_le(unit, 4, 2);
+    put_le(unit, rest.size(), 4);
+    unit += rest;
+    std::string table;
+    put_le(table, unit.size(), 4);
+    return table + unit;
+}
+
+// The knobs of a DWARF 5 unit for the tests: main.get is inlined into a function at [0x1000,
+// 0x1100) over [0x1008, 0x1020), called at main.gp:25, and main.sum is inlined into it over
+// [0x1010, 0x1018) (a range list), called at main.gp:9.
+struct dwarf5 {
+    uint64_t name_strx = 0;     // DW_FORM_strx1 index of main.get's linkage name
+    uint64_t low_addrx = 1;     // DW_FORM_addrx index of the first call's low_pc
+    uint64_t rnglistx = 0;      // DW_FORM_rnglistx index of the second call's ranges
+    uint64_t addr_base = 8;     // DW_AT_addr_base
+    uint64_t form_override = 0; // a form for main.get's call_line (0: data1)
+    bool cyclic = false;        // main.sum's DIE is its own abstract origin, with no name
+    bool get_origin = true;     // the call of main.get has its DW_AT_abstract_origin (MinGW: none)
+};
+
+// make5 writes the sections of a dwarf5 unit into img.
+void make5(gp::detail::exe_image& img, const dwarf5& k) {
+    // .debug_abbrev
+    std::string ab;
+    auto attr = [&](uint64_t at, uint64_t form) {
+        put_uleb(ab, at);
+        put_uleb(ab, form);
+    };
+    put_uleb(ab, 1); // the unit
+    put_uleb(ab, 0x11);
+    ab += '\1';
+    attr(0x10, 0x17); // stmt_list sec_offset
+    attr(0x11, 0x01); // low_pc addr
+    attr(0x72, 0x17); // str_offsets_base
+    attr(0x73, 0x17); // addr_base
+    attr(0x74, 0x17); // rnglists_base
+    attr(0, 0);
+    put_uleb(ab, 2); // main.get: subprogram, linkage_name strx1
+    put_uleb(ab, 0x2e);
+    ab += '\0';
+    attr(0x6e, 0x25);
+    attr(0, 0);
+    put_uleb(ab, 3); // main.sum: subprogram, linkage_name strp (or its own origin)
+    put_uleb(ab, 0x2e);
+    ab += '\0';
+    if (k.cyclic) {
+        attr(0x31, 0x13);
+    } else {
+        attr(0x6e, 0x0e);
+    }
+    attr(0, 0);
+    put_uleb(ab, 4); // the function that the calls are inlined into
+    put_uleb(ab, 0x2e);
+    ab += '\1';
+    attr(0x11, 0x01);
+    attr(0x12, 0x06);
+    attr(0, 0);
+    put_uleb(ab, 5); // the call of main.get
+    put_uleb(ab, 0x1d);
+    ab += '\1';
+    if (k.get_origin) {
+        attr(0x31, 0x13);
+    }
+    attr(0x11, 0x1b); // low_pc addrx
+    attr(0x12, 0x06); // high_pc data4: the size
+    attr(0x58, 0x0b);
+    attr(0x59, k.form_override != 0 ? k.form_override : 0x0b);
+    attr(0, 0);
+    put_uleb(ab, 6); // the call of main.sum
+    put_uleb(ab, 0x1d);
+    ab += '\0';
+    attr(0x31, 0x13);
+    attr(0x55, 0x23); // ranges rnglistx
+    attr(0x58, 0x0b);
+    attr(0x59, 0x0f);
+    attr(0, 0);
+    ab += '\0';
+    img.debug_abbrev = ab;
+
+    // .debug_str, .debug_str_offsets, .debug_addr, .debug_rnglists
+    img.debug_str = std::string("\0", 1);
+    uint64_t get_off = img.debug_str.size();
+    put_str(img.debug_str, "_ZN9gpkg_main3getEv");
+    uint64_t sum_off = img.debug_str.size();
+    put_str(img.debug_str, "_ZN9gpkg_main3sumEv");
+    img.debug_str_offsets.clear();
+    put_le(img.debug_str_offsets, 12, 4); // the header: length, version 5, padding
+    put_le(img.debug_str_offsets, 5, 2);
+    put_le(img.debug_str_offsets, 0, 2);
+    put_le(img.debug_str_offsets, get_off, 4);
+    img.debug_addr.clear();
+    put_le(img.debug_addr, 20, 4); // the header: length, version, address size, segment size
+    put_le(img.debug_addr, 5, 2);
+    img.debug_addr += std::string("\x08\x00", 2);
+    put_le(img.debug_addr, 0x1000, 8);
+    put_le(img.debug_addr, 0x1008, 8);
+    img.debug_rnglists.clear();
+    put_le(img.debug_rnglists, 0, 4); // the header (its length is not read)
+    put_le(img.debug_rnglists, 5, 2);
+    img.debug_rnglists += std::string("\x08\x00", 2);
+    put_le(img.debug_rnglists, 1, 4); // one offset
+    put_le(img.debug_rnglists, 4, 4); // the list, 4 bytes after the offsets (rnglists_base 12)
+    img.debug_rnglists += '\x06';     // DW_RLE_start_end
+    put_le(img.debug_rnglists, 0x1010, 8);
+    put_le(img.debug_rnglists, 0x1018, 8);
+    img.debug_rnglists += '\0';
+    img.debug_line = call_files();
+
+    // .debug_info
+    std::string dies;
+    put_uleb(dies, 1);
+    put_le(dies, 0, 4); // stmt_list
+    put_le(dies, 0, 8); // low_pc
+    put_le(dies, 8, 4); // str_offsets_base
+    put_le(dies, k.addr_base, 4);
+    put_le(dies, 12, 4);        // rnglists_base
+    const uint64_t header = 12; // unit_length 4, version 2, unit_type 1, address_size 1, abbrev 4
+    uint64_t get_die = header + dies.size();
+    put_uleb(dies, 2);
+    dies += static_cast<char>(k.name_strx);
+    uint64_t sum_die = header + dies.size();
+    put_uleb(dies, 3);
+    if (k.cyclic) {
+        put_le(dies, sum_die, 4);
+    } else {
+        put_le(dies, sum_off, 4);
+    }
+    put_uleb(dies, 4);
+    put_le(dies, 0x1000, 8);
+    put_le(dies, 0x100, 4);
+    put_uleb(dies, 5);
+    if (k.get_origin) {
+        put_le(dies, get_die, 4);
+    }
+    put_uleb(dies, k.low_addrx);
+    put_le(dies, 0x18, 4);
+    dies += '\1';
+    if (k.form_override == 0) {
+        dies += static_cast<char>(25);
+    } else {
+        dies += std::string(4, '\x19');
+    }
+    put_uleb(dies, 6);
+    put_le(dies, sum_die, 4);
+    put_uleb(dies, k.rnglistx);
+    dies += '\1';
+    put_uleb(dies, 9);
+    dies += '\0'; // the end of main.get's call
+    dies += '\0'; // of the function
+    dies += '\0'; // of the unit
+    std::string unit;
+    put_le(unit, 5, 2);
+    unit += '\1'; // DW_UT_compile
+    unit += '\x08';
+    put_le(unit, 0, 4); // abbrev offset
+    unit += dies;
+    img.debug_info.clear();
+    put_le(img.debug_info, unit.size(), 4);
+    img.debug_info += unit;
+}
+
+// The levels at call, as "name file:line" lines.
+std::string levels_at(const gp::detail::exe_image& img, uint64_t call) {
+    std::vector<gp::detail::inline_level> levels;
+    gp::detail::read_inline_frames(img, call, 0x1000, 0x1100, levels);
+    std::string out;
+    for (const auto& l : levels) {
+        out += (l.fn.shown ? l.fn.name : std::string("-")) + " " + l.file + ":" +
+               std::to_string(static_cast<long long>(l.line)) + "\n";
+    }
+    return out;
+}
+
+void test_inline_reader() {
+    // Every image stays alive: the reader keeps its index by the address and size of .debug_info.
+    std::vector<std::unique_ptr<gp::detail::exe_image>> keep;
+    auto image = [&] {
+        keep.push_back(std::make_unique<gp::detail::exe_image>());
+        return keep.back().get();
+    };
+
+    // DWARF 5: the two calls, outermost first; addresses outside them have fewer levels.
+    gp::detail::exe_image* img = image();
+    make5(*img, dwarf5{});
+    CHECK_EQ(levels_at(*img, 0x1012),
+             std::string("main.get /w/main.gp:25\nmain.sum /w/main.gp:9\n"));
+    CHECK_EQ(levels_at(*img, 0x1009), std::string("main.get /w/main.gp:25\n"));
+    CHECK_EQ(levels_at(*img, 0x1020), std::string());
+    CHECK_EQ(levels_at(*img, 0x0fff), std::string());
+
+    // Missing sections: no levels.
+    gp::detail::exe_image* none = image();
+    make5(*none, dwarf5{});
+    none->debug_abbrev.clear();
+    CHECK_EQ(levels_at(*none, 0x1012), std::string());
+    gp::detail::exe_image* noinfo = image();
+    make5(*noinfo, dwarf5{});
+    noinfo->debug_info.clear();
+    CHECK_EQ(levels_at(*noinfo, 0x1012), std::string());
+    gp::detail::exe_image* nolines = image();
+    make5(*nolines, dwarf5{});
+    nolines->debug_line.clear(); // the calls without their files
+    CHECK_EQ(levels_at(*nolines, 0x1012), std::string("main.get :25\nmain.sum :9\n"));
+
+    // Indexes past the end of their tables, also so far that the offset would wrap: the call
+    // is left out (no address; the call inlined into it stays) or its function has no name, and
+    // nothing is read outside.
+    for (uint64_t big : {uint64_t(2), uint64_t(1) << 40, ~uint64_t(0) / 8 + 1, ~uint64_t(0)}) {
+        dwarf5 k;
+        k.low_addrx = big;
+        gp::detail::exe_image* a = image();
+        make5(*a, k);
+        CHECK_EQ(levels_at(*a, 0x1012), std::string("main.sum /w/main.gp:9\n"));
+        k = dwarf5{};
+        k.rnglistx = big;
+        gp::detail::exe_image* r = image();
+        make5(*r, k);
+        CHECK_EQ(levels_at(*r, 0x1012), std::string("main.get /w/main.gp:25\n"));
+    }
+    dwarf5 nostr;
+    nostr.name_strx = 200;
+    gp::detail::exe_image* ns = image();
+    make5(*ns, nostr);
+    CHECK_EQ(levels_at(*ns, 0x1012), std::string("- /w/main.gp:25\nmain.sum /w/main.gp:9\n"));
+    dwarf5 wrap; // addr_base + index * 8 wraps to 0
+    wrap.addr_base = ~uint64_t(0) - 7;
+    wrap.low_addrx = 1;
+    gp::detail::exe_image* w = image();
+    make5(*w, wrap);
+    CHECK_EQ(levels_at(*w, 0x1012), std::string("main.sum /w/main.gp:9\n"));
+
+    // A call without its function (MinGW's g++ under -flto): a level without a name, so that the
+    // function around it still gets the call's line.
+    dwarf5 noorigin;
+    noorigin.get_origin = false;
+    gp::detail::exe_image* no = image();
+    make5(*no, noorigin);
+    CHECK_EQ(levels_at(*no, 0x1012), std::string("- /w/main.gp:25\nmain.sum /w/main.gp:9\n"));
+
+    // A form the reader doesn't know: the unit is left, no levels.
+    dwarf5 unknown;
+    unknown.form_override = 0x7f;
+    gp::detail::exe_image* u = image();
+    make5(*u, unknown);
+    CHECK_EQ(levels_at(*u, 0x1012), std::string());
+
+    // A DIE that is its own abstract origin: no name, and the reader ends.
+    dwarf5 cyc;
+    cyc.cyclic = true;
+    gp::detail::exe_image* c = image();
+    make5(*c, cyc);
+    CHECK_EQ(levels_at(*c, 0x1012), std::string("main.get /w/main.gp:25\n- /w/main.gp:9\n"));
+
+    // Every truncation of each section: whatever the levels are, nothing is read outside (the
+    // -asan run of this test would see it).
+    for (int which = 0; which < 5; which++) {
+        gp::detail::exe_image full;
+        make5(full, dwarf5{});
+        std::string* sec = which == 0   ? &full.debug_info
+                           : which == 1 ? &full.debug_abbrev
+                           : which == 2 ? &full.debug_addr
+                           : which == 3 ? &full.debug_rnglists
+                                        : &full.debug_str_offsets;
+        for (std::size_t n = 0; n < sec->size(); n++) {
+            gp::detail::exe_image* t = image();
+            make5(*t, dwarf5{});
+            std::string* tsec = which == 0   ? &t->debug_info
+                                : which == 1 ? &t->debug_abbrev
+                                : which == 2 ? &t->debug_addr
+                                : which == 3 ? &t->debug_rnglists
+                                             : &t->debug_str_offsets;
+            tsec->resize(n);
+            tsec->shrink_to_fit();
+            levels_at(*t, 0x1012);
+        }
+    }
+    CHECK(true); // reached the end
+
+    // Deep nesting: 300 calls, each inlined into the one before, all over [0x1000, 0x1100).
+    {
+        gp::detail::exe_image* d = image();
+        std::string ab;
+        put_uleb(ab, 1);
+        put_uleb(ab, 0x11);
+        ab += '\1';
+        put_uleb(ab, 0x10); // stmt_list
+        put_uleb(ab, 0x06);
+        ab += std::string(2, '\0');
+        put_uleb(ab, 2); // the inlined function
+        put_uleb(ab, 0x2e);
+        ab += '\0';
+        put_uleb(ab, 0x6e);
+        put_uleb(ab, 0x08); // linkage_name string
+        ab += std::string(2, '\0');
+        put_uleb(ab, 3); // a call: DWARF 4 forms
+        put_uleb(ab, 0x1d);
+        ab += '\1';
+        const uint64_t forms[][2] = {
+            {0x31, 0x13}, {0x11, 0x01}, {0x12, 0x01}, {0x58, 0x0b}, {0x59, 0x0f}};
+        for (const auto& f : forms) {
+            put_uleb(ab, f[0]);
+            put_uleb(ab, f[1]);
+        }
+        ab += std::string(3, '\0');
+        d->debug_abbrev = ab;
+        d->debug_line = call_files();
+        std::string dies;
+        put_uleb(dies, 1);
+        put_le(dies, 0, 4);
+        const uint64_t header = 11; // DWARF 4: length 4, version 2, abbrev 4, address size 1
+        uint64_t fn = header + dies.size();
+        put_uleb(dies, 2);
+        put_str(dies, "_ZN9gpkg_main4leafEv");
+        const int depth = 300;
+        for (int i = 0; i < depth; i++) {
+            put_uleb(dies, 3);
+            put_le(dies, fn, 4);
+            put_le(dies, 0x1000, 8);
+            put_le(dies, 0x1100, 8); // high_pc as an address
+            dies += '\1';
+            put_uleb(dies, static_cast<uint64_t>(1000 + i));
+        }
+        dies += std::string(depth + 1, '\0');
+        std::string unit;
+        put_le(unit, 4, 2);
+        put_le(unit, 0, 4);
+        unit += '\x08';
+        unit += dies;
+        put_le(d->debug_info, unit.size(), 4);
+        d->debug_info += unit;
+        std::vector<gp::detail::inline_level> levels;
+        gp::detail::read_inline_frames(*d, 0x1050, 0x1000, 0x1100, levels);
+        CHECK_EQ(int64_t(levels.size()), int64_t(depth));
+        if (levels.size() == static_cast<std::size_t>(depth)) {
+            CHECK_EQ(levels.front().line, int64_t(1000));
+            CHECK_EQ(levels.back().line, int64_t(1000 + depth - 1));
+            CHECK_EQ(levels.back().fn.name, std::string("main.leaf"));
+            CHECK_EQ(levels.back().file, std::string("/w/main.gp"));
+        }
+    }
+}
+
+// A row without a line (0: clang's code merged from several lines) inside an inlined call: the
+// query with the call's range gets the nearest row of a .gp file in it (indexed_lines_of).
+void test_near_lines() {
+    std::string rest;
+    rest += std::string("\1\1\1\xfb\x0e\x0d", 6);
+    for (char len : {0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1}) {
+        rest += len;
+    }
+    rest += '\0';
+    put_str(rest, "/w/near.gp"); // file 1
+    rest += std::string(3, '\0');
+    put_str(rest, "/w/gocpp/ptr.hpp"); // file 2
+    rest += std::string(3, '\0');
+    rest += '\0';
+    std::string program;
+    program += std::string("\0\x09\x02", 3); // set_address 0x5000, line 1
+    put_le(program, 0x5000, 8);
+    program += '\x03'; // advance_line +4: line 5 of near.gp
+    program += '\x04';
+    program += '\x01'; // copy: [0x5000, 0x5004) near.gp:5
+    program += '\x02'; // advance_pc 4
+    program += '\x04';
+    program += '\x04'; // set_file 2
+    program += '\x02';
+    program += '\x03'; // advance_line +10: line 15 of ptr.hpp
+    program += '\x0a';
+    program += '\x01'; // copy: [0x5004, 0x5008) ptr.hpp:15
+    program += '\x02';
+    program += '\x04';
+    program += '\x03'; // advance_line -15: line 0
+    program += '\x71';
+    program += '\x01'; // copy: [0x5008, 0x500c) line 0
+    program += '\x02';
+    program += '\x04';
+    program += std::string("\0\1\1", 3); // end_sequence at 0x500c
+    std::string unit;
+    put_le(unit, 4, 2);
+    put_le(unit, rest.size(), 4);
+    unit += rest;
+    unit += program;
+    std::string table;
+    put_le(table, unit.size(), 4);
+    table += unit;
+
+    gp::detail::line_query plain;
+    plain.addr = 0x5009;
+    gp::detail::indexed_lines_of(table, "", "", &plain, 1);
+    CHECK_EQ(plain.line, int64_t(0)); // without the range: the row's line, 0
+    gp::detail::line_query near;
+    near.addr = 0x5009;
+    near.near_lo = 0x5000;
+    near.near_hi = 0x500c;
+    gp::detail::indexed_lines_of(table, "", "", &near, 1);
+    CHECK_EQ(near.line, int64_t(5)); // the .gp row, not ptr.hpp's nearer one
+    CHECK_EQ(near.file, std::string("/w/near.gp"));
+    gp::detail::line_query hdr;
+    hdr.addr = 0x5009;
+    hdr.near_lo = 0x5004;
+    hdr.near_hi = 0x500c;
+    gp::detail::indexed_lines_of(table, "", "", &hdr, 1);
+    CHECK_EQ(hdr.line, int64_t(15)); // no .gp row in the range: the nearest row with a line
+}
+
 void no_init() {}
 
 void run_tests() {
@@ -465,6 +914,8 @@ void run_tests() {
     test_trace();
     test_lines();
     test_line_paths();
+    test_inline_reader();
+    test_near_lines();
     if (failures > 0) {
         std::string msg =
             "FAIL: " + std::to_string(failures) + " of " + std::to_string(checks) + " checks\n";

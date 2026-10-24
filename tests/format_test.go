@@ -37,11 +37,12 @@ type headerView struct {
 	pending     string
 	stdInternal string
 	build       string
+	flags       []string
 }
 
 func view(h *header) headerView {
 	v := headerView{phase: h.phase, output: h.output, exitCode: h.exitCode, pkgConfig: h.pkgConfig,
-		display: h.display, zoneinfo: h.zoneinfo, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, stdInternal: h.stdInternal, build: h.buildLine}
+		display: h.display, zoneinfo: h.zoneinfo, diff: h.diff, cycle: h.cycle, diverges: h.diverges, pending: h.pending, stdInternal: h.stdInternal, build: h.buildLine, flags: h.flags}
 	for _, rx := range h.stderr {
 		v.stderr = append(v.stderr, rx.String())
 	}
@@ -88,6 +89,7 @@ func TestParseHeader(t *testing.T) {
 		{"diff_lsan.gp", diffFormat, headerView{phase: 3, cycle: true}},
 		{"run_pending.gp", runFormat, headerView{phase: 7, output: "ok\n", pending: "step 7.1 (generic functions)"}},
 		{"zoneinfo_ok.gp", runFormat, headerView{phase: 8, output: "ok\n", zoneinfo: true}},
+		{"flags_ok.gp", runFormat, headerView{phase: 8, output: "ok\n", flags: []string{"-release", "-trace"}}},
 		{"run_std_internal.gp", runFormat, headerView{phase: 9, output: "ok\n", stdInternal: "tests internal/bytealg"}},
 		{"run_std_internal.gp", pkgsFormat, headerView{phase: 9, output: "ok\n", stdInternal: "tests internal/bytealg"}},
 		// Every format honors a //go:build line in the header.
@@ -169,6 +171,9 @@ func TestParseHeaderMalformed(t *testing.T) {
 		{"run_std_internal.gp", diffFormat, `2: tests in tests/diff have no "// std-internal:" line`},
 		{"run_std_internal.gp", errorsFormat, `2: tests in tests/errors have no "// std-internal:" line`},
 		{"divergence_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// divergence:" line`},
+		{"flags_bad.gp", runFormat, `2: bad "// flags:" line: "-O2" is not one of -release and -trace`},
+		{"flags_empty.gp", runFormat, `2: bad "// flags:" line: want build flags, such as "// flags: -release"`},
+		{"flags_in_diff.gp", diffFormat, `2: tests in tests/diff have no "// flags:" line`},
 	}
 	for _, tt := range tests {
 		path := "testdata/header/" + tt.file

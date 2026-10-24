@@ -92,15 +92,21 @@ func TestBuildSizeModes(t *testing.T) {
 			symtab    bool
 			gdbScript bool // the section of the pretty printers is still there
 			frames    string
+			message   bool // the crash report is the message alone (-release without -trace: ADR-136)
 		}{
 			{name: "default", debug: true, symtab: true, gdbScript: true, frames: "main.main()"},
-			{name: "release", flags: []string{"-release"}, symtab: true, gdbScript: true, frames: "main.main()"},
+			{name: "release", flags: []string{"-release"}, symtab: true, gdbScript: true, message: true},
 			{name: "strip", flags: []string{"-strip"}, frames: "?()"},
-			{name: "release strip", flags: []string{"-release", "-strip"}, frames: "?()"},
+			{name: "release strip", flags: []string{"-release", "-strip"}, message: true},
 			{
 				name:  "release with debug information",
 				flags: []string{"-release", "-cflags=-g", "-ldflags=-g"}, debug: true, symtab: true, gdbScript: true,
-				frames: "main.main()",
+				message: true,
+			},
+			{
+				// The line tables, and the inlined call as a frame of its own, as Go shows it.
+				name: "release trace", flags: []string{"-release", "-trace"}, debug: true, symtab: true, gdbScript: true,
+				frames: "main.at(...)\n\t",
 			},
 		} {
 			t.Run(m.name, func(t *testing.T) {
@@ -134,11 +140,21 @@ func TestBuildSizeModes(t *testing.T) {
 					t.Errorf("the program printed %q", stdout)
 				}
 				text := stderr.String()
-				if !strings.HasPrefix(text, "panic: runtime error: index out of range [7] with length 3\n\ngoroutine 1 [running]:\n") {
+				const msg = "panic: runtime error: index out of range [7] with length 3\n"
+				if m.message {
+					if text != msg {
+						t.Errorf("the panic report is:\n%s\nwant only the message:\n%s", text, msg)
+					}
+					return
+				}
+				if !strings.HasPrefix(text, msg+"\ngoroutine 1 [running]:\n") {
 					t.Errorf("the panic report starts with:\n%s", text)
 				}
 				if !strings.Contains(text, m.frames) {
 					t.Errorf("the panic report lacks %q:\n%s", m.frames, text)
+				}
+				if m.name == "release trace" && (!strings.Contains(text, "main.gp:5\nmain.main()\n\t") || !strings.Contains(text, "main.gp:9 +0x")) {
+					t.Errorf("the panic report lacks main.at at main.gp:5 and main.main at main.gp:9:\n%s", text)
 				}
 			})
 		}
@@ -151,6 +167,7 @@ func TestBuildSizeModes(t *testing.T) {
 			factor     int64
 		}{
 			{"strip", "default", 4}, {"release", "default", 4}, {"release strip", "release", 1},
+			{"release", "release trace", 2}, // the line tables cost; the user asks for them
 		} {
 			if size[c.small]*c.factor > size[c.big] {
 				t.Errorf("%s is %d bytes and %s is %d: want it at most 1/%d of it", c.small, size[c.small], c.big, size[c.big], c.factor)

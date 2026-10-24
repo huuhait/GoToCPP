@@ -51,11 +51,11 @@ func TestModeFlags(t *testing.T) {
 	}{
 		{name: "none"},
 		{name: "debug", mode: Profile{Debug: true}},
-		{name: "release", mode: Profile{Release: true}, compile: []string{"-O2", "-flto", "-g0"}, link: []string{"-O2", "-flto", "-g0"}},
+		{name: "release", mode: Profile{Release: true}, compile: []string{"-O2", "-flto", "-g0", "-DGOCPP_NO_TRACE=1"}, link: []string{"-O2", "-flto", "-g0"}},
 		{name: "strip", mode: Profile{Strip: true}, link: []string{"-s"}},
 		{name: "strip on windows", mode: Profile{Strip: true}, goos: "windows", link: []string{"-s"}},
 		{name: "strip on darwin (ld64 has no -s)", mode: Profile{Strip: true}, goos: "darwin", link: []string{"-Wl,-S", "-Wl,-x"}},
-		{name: "release and strip", mode: Profile{Release: true, Strip: true}, compile: []string{"-O2", "-flto", "-g0"}, link: []string{"-O2", "-flto", "-g0", "-s"}},
+		{name: "release and strip", mode: Profile{Release: true, Strip: true}, compile: []string{"-O2", "-flto", "-g0", "-DGOCPP_NO_TRACE=1"}, link: []string{"-O2", "-flto", "-g0", "-s"}},
 		{name: "strip and debug", mode: Profile{Strip: true, Debug: true}, err: "-strip and -debug"},
 		{name: "strip and race", mode: Profile{Strip: true, Race: true}, err: "-strip and -race"},
 		{name: "strip and asan", mode: Profile{Strip: true}, asan: true, err: "-strip and -asan"},
@@ -67,7 +67,10 @@ func TestModeFlags(t *testing.T) {
 		{name: "race on windows", mode: Profile{Race: true}, goos: "windows", err: "-race is not supported for windows"},
 		{name: "asan on windows", asan: true, goos: "windows", err: "-asan is not supported for windows"},
 		{name: "asan on linux", asan: true, goos: "linux"},
-		{name: "release with asan", mode: Profile{Release: true}, asan: true, compile: []string{"-O2", "-flto", "-g0"}, link: []string{"-O2", "-flto", "-g0"}},
+		{name: "release with asan", mode: Profile{Release: true}, asan: true, compile: []string{"-O2", "-flto", "-g0", "-DGOCPP_NO_TRACE=1"}, link: []string{"-O2", "-flto", "-g0"}},
+		{name: "release and trace", mode: Profile{Release: true, Trace: true}, compile: []string{"-O2", "-flto", "-g1", "-fno-optimize-sibling-calls", "-DGOCPP_TRACE=1"}, link: []string{"-O2", "-flto", "-g1", "-fno-optimize-sibling-calls"}},
+		{name: "trace alone (a debug build traces already)", mode: Profile{Trace: true}},
+		{name: "trace and strip", mode: Profile{Release: true, Trace: true, Strip: true}, err: "-trace and -strip"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			compile, link, err := ProfileFlags(c.mode, c.asan, c.goos)

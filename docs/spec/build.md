@@ -214,7 +214,8 @@ and `-o` are for `build` only; `-compdb` is also a flag of `run`, `test` and `de
 | `-n` | print the commands and run none (the generated C++ is written; no object, no program, nothing recorded) |
 | `-a` | compile everything again: no object cache, no runtime cache, no up-to-date check; the new objects are stored |
 | `-tags a,b` | more build tags (comma list; the last `-tags` is the list), for `//go:build` lines and the file names of `.gp`, `.c` and `.cc/.cpp/.cxx` files; also in `check`, `emit` and `list` |
-| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto -g0`, no debug information (see [Program size](#program-size)) / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-debug` / `-release` / `-race` | `-O0 -g` (what a build is by default) / `-O2 -flto -g0`, no debug information, and a crash prints only its message (see [Program size](#program-size)) / ThreadSanitizer, on linux with Go's race report, exit code 66 and `GORACE` ([the race detector](../guides/race.md)); on darwin ThreadSanitizer's own text. `-debug` with `-release`, `-race` with `-release` or `-asan`, and `-race` for windows are errors |
+| `-trace` | with `-release`: keep the line tables (`-g1`, no sibling calls), so that a crash prints Go's trace with `.gp` files and lines, the inlined calls as frames, and `GOTRACEBACK` as in a debug build; about 4x the size of `-release` alone (below). Without `-release` it changes nothing; `-trace -strip` is an error |
 | `-strip` | drop the symbol table and the debug information from the program (the link's `-s`; on macOS `-Wl,-S -Wl,-x`). With any mode but `-debug`, `-race` and `-asan` (errors: their tools need the symbols); `-release -strip` is the small build |
 | `-asan`, `-nochecks`, `-cpperrors` | as before |
 | `-gp:m`, `-gp:m=2` | print the decisions of the escape analysis in the form of `go build -gcflags=-m` (`moved to heap: x`, `&T{} escapes to heap`, `&x does not escape`, `leaking param: p`, `v borrows xs[i]`); `=2` says why. Only the program's own packages, not the standard library. On `build`, `run` and `emit` ([ADR-114](../adr/114-escape-analysis-keeps-non-escaping-objects-on-the-stack.md)) |
@@ -251,16 +252,39 @@ libstdc++ and libc dynamically, so its file holds only the runtime and the progr
 program links statically (`-static`), so the `.exe` needs no DLLs.
 
 - **`-release`** is `-O2 -flto` and `-g0` (at the compiles and at the link: with `-flto` the compiler writes the debug
-  information at the link from the `-g` of the link line, so `-g0` there too). The symbol table stays, so a panic
-  still prints `main.main()` and the other Go function names, but no file and line (`?:0`; gdb has no source lines). To
-  keep the debug information of an optimized program, for `perf` or a debugger: `-release -cflags=-g -ldflags=-g`
-  (later flags win; the program is then as large as with `-O2` and `-g`: 5.2 MB for the Linux hello world).
+  information at the link from the `-g` of the link line, so `-g0` there too), and `-DGOCPP_NO_TRACE=1`: a crash
+  prints only its message lines and exits with 2 (`panic: boom`, a chain as Go words it, `fatal error: ...`; no
+  goroutine, no trace, no `created by`), what Go prints with `GOTRACEBACK=none`; `GOTRACEBACK` and
+  `debug.SetTraceback` don't change it; an endless recursion still ends with `fatal error: stack overflow`, as the
+  functions that can recurse keep their calls (`GP_RECURSIVE`, `GP_RECURSION_MARK()`: language.md D7) ([ADR-136](../adr/136-release-builds-have-no-debug-information-and-strip-drops-the-symbols.md),
+  the amendment of 2026-10-23). The symbol table stays, so `runtime.Stack`, `runtime.Callers` and `debug.PrintStack`
+  still name the functions (without file and line; gdb has no source lines). To keep the debug information of an
+  optimized program, for `perf` or a debugger: `-release -cflags=-g -ldflags=-g` (later flags win; the program is then
+  as large as with `-O2` and `-g`: 5.2 MB for the Linux hello world; its crash is still the message alone).
+- **`-release -trace`** keeps the line tables (`-g1` at the compiles and the link, clang's `-gline-tables-only` with
+  `-fdebug-info-for-profiling`, and `-fno-optimize-sibling-calls`) and the trace: a crash prints Go's trace with the
+  `.gp` files and lines, a call that the compiler inlined as a frame of its own (`main.get(...)`, no offset, as Go), and
+  `GOTRACEBACK` works as in a debug build. Linux sizes (bytes):
+
+  | program | compiler | `-release` | `-release -trace` |
+  |---|---|---|---|
+  | `examples/hello` | g++ 15.3 | 389,696 | 1,773,288 (4.6x) |
+  | `examples/wc` | g++ 15.3 | 2,859,624 | 11,597,952 (4.1x) |
+  | `examples/hello` | clang++ 21 | 324,144 | 1,507,032 (4.6x) |
+  | `examples/wc` | clang++ 21 | 4,091,680 | 13,917,064 (3.4x) |
+
+  g++'s `-g1` has no linkage name for an inlined lambda, so in such a build the lambdas of the func literals of
+  `go` and `defer` statements are kept out of line (`GP_TRACE_FRAME`) and have their frames; another func literal
+  that g++ inlines has none. runtime.Callers, CallersFrames and Caller see the inlined calls as Go's do. On Windows
+  (MinGW g++ with `-flto`) the DWARF of an inlined call does not name its function, so inlined calls have no frames
+  there; the lines are right. The Windows hello world: 1,222,595 bytes with `-release`, 1,817,570 with `-trace`.
 - **`-strip`** drops the symbol table and every `.debug_*` section, also the runtime's gdb printers (`.debug_gdb_scripts`,
   84 KB). A panic prints `?()` with `pc=0x...` addresses (`addr2line` on an unstripped
   build of the same program with the same flags names them). It is `-ldflags=-s` with a check: a stripped debug or
   sanitizer build is an error.
-- Both flags are part of the key of the up-to-date check (a build with another flag links again), and `-release`'s
-  flags are part of the keys of the object cache and of the runtime library (`-strip` changes the link only).
+- The flags are part of the key of the up-to-date check (a build with another flag links again), and `-release`'s
+  and `-trace`'s flags are part of the keys of the object cache and of the runtime library (`-strip` changes the link
+  only).
 - `-Os` was tried (154 KB for the Linux hello world, against 224 KB) and is not the default: g++ 15.3 for MinGW
   fails with an internal compiler error in `-Os -flto` on the Windows hello world and the dx11 demo. Use it with `-cflags=-Os -ldflags=-Os` on Linux
   if size matters more than speed.
@@ -271,7 +295,7 @@ the last one wins:
 
 | | Compile (C and C++) | Compile (C++ only) | Link |
 |---|---|---|---|
-| 1. the mode | `-fsanitize=thread` (linux: and `-DGOCPP_RACE_MODE=1`), `-O2 -flto -g0` | | `-fsanitize=thread` (linux: and `-Wl,--export-dynamic-symbol=__tsan_default_options`), `-O2 -flto -g0`, `-s` for `-strip` |
+| 1. the mode | `-fsanitize=thread` (linux: and `-DGOCPP_RACE_MODE=1`), `-O2 -flto -g0 -DGOCPP_NO_TRACE=1` (`-release`), `-O2 -flto -g1 -fno-optimize-sibling-calls -DGOCPP_TRACE=1` (`-release -trace`; clang also `-fdebug-info-for-profiling`) | | `-fsanitize=thread` (linux: and `-Wl,--export-dynamic-symbol=__tsan_default_options`), `-O2 -flto -g0` (`-release`), `-O2 -flto -g1 -fno-optimize-sibling-calls` (`-release -trace`), `-s` for `-strip` |
 | 2. the environment | `GOCPP_CFLAGS` | `GOCPP_CXXFLAGS` | `GOCPP_LDFLAGS` |
 | 3. the build flags | `-cflags` | `-cxxflags` | `-ldflags` |
 

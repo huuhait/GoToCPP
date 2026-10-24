@@ -74,7 +74,7 @@ void main() {
 #line 34 "$ROOT/tests/golden/chan_go.gp"
     gp::chan<int64_t> out = gp::make_chan<int64_t>();
     gp::go_fn(worker, in, out);
-    gp::go_call([in]<int = 1>() mutable -> void { gp::send(in, 1); gp::close(in); });
+    gp::go_call([in]<int = 1>() mutable GP_TRACE_FRAME -> void { gp::send(in, 1); gp::close(in); });
     T t{3};
     gp::go_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.Show(gp_a1); }, t, out);
     gp::go_call([](auto&& gp_a0) { gp::close(gp_a0); }, gp::make_chan<bool>());

@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"maps"
 	"strconv"
+	"strings"
 
 	"github.com/huuhait/gocpp/internal/cppir"
 	"github.com/huuhait/gocpp/internal/load"
@@ -134,8 +135,8 @@ func (f *funcInfo) signature(g *gen) {
 		}
 		if p.Name() != "" && p.Name() != "_" {
 			f.params[i].Name = f.names.declare(p)
-			if f.boxed[p] != 0 {
-				f.args = append(f.args, p)
+			if r := f.boxed[p]; r != 0 && r != boxStack {
+				f.args = append(f.args, p) // (a parameter that stays on the stack is the C++ one)
 			}
 		}
 	}
@@ -175,6 +176,16 @@ func (g *gen) funcBuild(f *funcInfo) *cppir.Func {
 	g.numberLits(f.decl, make(map[*ast.FuncLit]int)) // closures.go
 	fg := newFuncGen(g, f.names, f)
 	fn := &cppir.Func{Pos: g.pos(f.pos), Result: f.result, Name: f.name, Params: f.params, Quals: f.quals(), Body: &cppir.Block{}}
+	if hasDirective(f.decl, "//go:noinline") {
+		// Go's directive: the function is never inlined, so its frame and its name are its own
+		// (runtime.Caller, FuncForPC and the trace of an optimized build: gocpp/rt.hpp).
+		fn.Specs = append(fn.Specs, "GP_NOINLINE")
+	}
+	if g.isRecursive(f.decl) {
+		// A recursion without end overflows the stack as in Go (recursion.go).
+		fn.Specs = append(fn.Specs, "GP_RECURSIVE")
+		fn.Body.Stmts = append(fn.Body.Stmts, &cppir.ExprStmt{X: call("GP_RECURSION_MARK")})
+	}
 	fg.push(&fn.Body.Stmts, &fn.Body.End)
 	fg.funcBody()
 	fg.pop(body.Rbrace)
@@ -508,4 +519,18 @@ func localPtrType(typ cppir.Type) cppir.Type {
 func isClass(t types.Type) bool {
 	b := underBasic(t)
 	return b == nil || b.Info()&types.IsString != 0
+}
+
+// hasDirective reports whether the doc comment of the function decl has the directive line text
+// (//go:noinline), as Go reads it: a line of its own in the comment group just before the func.
+func hasDirective(decl *ast.FuncDecl, text string) bool {
+	if decl == nil || decl.Doc == nil {
+		return false
+	}
+	for _, c := range decl.Doc.List {
+		if c.Text == text || strings.HasPrefix(c.Text, text+" ") {
+			return true
+		}
+	}
+	return false
 }

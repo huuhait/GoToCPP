@@ -203,6 +203,8 @@ type gen struct {
 	// functions of the package to their declarations, for awareFunc.
 	awareBodies map[*ast.BlockStmt]bool
 	funcDecls   map[*types.Func]*ast.FuncDecl
+	// recursive holds the functions of the package that are in a cycle of calls (recursion.go).
+	recursive map[*types.Func]bool
 
 	// borrow is the result of the borrowed-parameter analysis (borrow.go), by function.
 	borrow   map[*types.Func]*borrowSum

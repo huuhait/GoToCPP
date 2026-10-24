@@ -25,7 +25,7 @@ std::tuple<int64_t, int64_t> plain(const gp::slice<int64_t>& xs) {
     int64_t n{};
 #line 8 "$ROOT/tests/golden/named_result_alias.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([]<int = 1>() mutable -> void {});
+        gp_df.gp_push_call([]<int = 1>() mutable GP_TRACE_FRAME -> void {});
         for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 10 "$ROOT/tests/golden/named_result_alias.gp"
             int64_t x = gp_it0.gp_v();
@@ -56,7 +56,7 @@ std::tuple<int64_t, gp::any> hidden(const gp::slice<int64_t>& xs, int64_t v) {
     auto& gp_res_i = i;
 #line 16 "$ROOT/tests/golden/named_result_alias.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call_aware([p]<int = 1>() mutable -> void { gp::defer_ctx gp_dc = gp::take_defer_ctx(); (*p) = gp::recover(gp_dc); });
+        gp_df.gp_push_call_aware([p]<int = 1>() mutable GP_TRACE_FRAME -> void { gp::defer_ctx gp_dc = gp::take_defer_ctx(); (*p) = gp::recover(gp_dc); });
         for (auto gp_it0 = gp::range_slice(xs); gp::range_next(gp_it0);) {
 #line 18 "$ROOT/tests/golden/named_result_alias.gp"
             int64_t i = gp_it0.gp_i; int64_t x = gp_it0.gp_v();
@@ -89,7 +89,7 @@ int64_t boxed() {
     auto& gp_res_i = i;
 #line 26 "$ROOT/tests/golden/named_result_alias.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([i]<int = 1>() mutable -> void { (*i)++; });
+        gp_df.gp_push_call([i]<int = 1>() mutable GP_TRACE_FRAME -> void { (*i)++; });
         {
             int64_t i = 7;
             (*gp_res_i) = i; goto gp_ret0;

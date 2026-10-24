@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 
 	"github.com/huuhait/gocpp/internal/cppir"
@@ -263,11 +264,11 @@ func (fg *funcGen) recvCopy() {
 		fg.add(varDecl(p, &cppir.Ref{Elem: &cppir.Const{Elem: typ}}, name, this))
 		return
 	}
-	if fg.isBoxed(v) {
+	if fg.inBox(v) {
 		fg.add(varDecl(p, ptrType(typ), name, newBox(typ, this)))
 		return
 	}
-	fg.add(varDecl(p, typ, name, this))
+	fg.add(varDecl(p, typ, name, this)) // (also a copy that stays on the stack: escape.go)
 }
 
 // readOnly reports whether the body of a value method with the receiver v provably can't
@@ -765,6 +766,12 @@ func (fg *funcGen) methodLambda(x *ast.SelectorExpr, s *selection) *cppir.Lambda
 		body = fg.g.callMethod(recv, ptr, fn, r, args, x.Pos(), s.Kind() == types.MethodExpr && isInterface(r.end))
 	})
 	lam.Body.Stmts = append(lam.Body.Stmts, &cppir.Return{X: body})
+	if !slices.ContainsFunc(lam.Params, func(p cppir.Param) bool { return p.Type == cppir.Type(auto) }) {
+		// No auto parameter (a method that borrows, with named parameters): the lambda is not
+		// generic, so it gets <int = 0>, which the stack trace and runtime.CallersFrames leave out
+		// as they leave out a generic lambda (trace.cpp gocpp_name), as Go leaves out its wrappers.
+		lam.Template = []cppir.Param{{Type: typeName("int"), Default: lit("0")}}
+	}
 	return lam
 }
 

@@ -661,9 +661,9 @@ void fatal(std::string_view msg) noexcept {
     write_stderr(std::string_view(line, static_cast<std::size_t>(p - line)));
     std::string trace;
     fatal_trace(trace);
-    if (traceback_all()) {
-        append_other_goroutines(trace);
-    }
+    // Every goroutine, at any level but 0: Go's gotraceback() sets "all" while the runtime throws
+    // (m.throwing >= throwTypeUser), also for the default and for single.
+    append_other_goroutines(trace);
     write_stderr(trace);
     os::exit(2);
 }
@@ -857,8 +857,14 @@ void on_stack_overflow(const os::stack_fault& f) noexcept {
     p = put_hex(p, f.gp_hi);
     p = put_str(p, "]\nfatal error: stack overflow\n");
     // Go's blank line and "goroutine N [running]:" (without a trace, and without Go's "runtime
-    // stack:" section); a thread that has no goroutine record has no line.
-    if (uint64_t id = detail::current_goroutine_id(); id != 0) {
+    // stack:" section); a thread that has no goroutine record has no line, and neither has a
+    // -release build without -trace (GOCPP_NO_TRACE: the message only).
+#ifdef GOCPP_NO_TRACE
+    constexpr bool no_trace = true;
+#else
+    constexpr bool no_trace = false;
+#endif
+    if (uint64_t id = no_trace ? 0 : detail::current_goroutine_id(); id != 0) {
         p = put_str(p, "\ngoroutine ");
         char digits[20];
         int n = 0;
@@ -925,10 +931,12 @@ void on_fault(const os::fault_info& f) noexcept {
             detail::print_hex(out, f.gp_pc);
             out += "]\n";
         }
-        out += "\ngoroutine ";
-        detail::print_uint(out, detail::goroutine_id());
-        out += " [running]:\n";
-        detail::append_trace(out, f.gp_pcs, static_cast<std::size_t>(f.gp_npcs), true);
+        if (detail::traceback_level() > 0) { // GOTRACEBACK=none, or -release without -trace
+            out += "\ngoroutine ";
+            detail::print_uint(out, detail::goroutine_id());
+            out += " [running]:\n";
+            detail::append_trace(out, f.gp_pcs, static_cast<std::size_t>(f.gp_npcs), true);
+        }
     } catch (...) {
         // Without memory the report is what there is.
     }

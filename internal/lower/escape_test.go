@@ -313,6 +313,37 @@ func stays_captured_by_local_closure() int {
 	return c.n
 }
 
+// A parameter and a value receiver are local variables too (Time.Before lends its copies).
+
+func stays_param_method(c Counter) int {
+	c.Inc() // esc: &c does not escape
+	return c.n
+}
+
+func stays_param_borrowed(c Counter, d Counter) int {
+	swap(&c, &d) // esc: &c does not escape; &d does not escape
+	return c.n - d.n
+}
+
+func (c Counter) StaysReceiver() int {
+	c.Inc() // esc: &c does not escape
+	return c.n
+}
+
+func heap_param_returned(c Counter) *Counter { // esc: moved to heap: c
+	return &c // esc: &c escapes to heap
+}
+
+func (c Counter) HeapReceiver() *Counter { return c.Self() } // esc: moved to heap: c; &c escapes to heap
+
+func heap_param_go(c Counter) { // esc: moved to heap: c
+	go bump(&c) // esc: &c escapes to heap
+}
+
+func heap_param_global(c Counter) { // esc: moved to heap: c
+	global = &c // esc: &c escapes to heap
+}
+
 func heap_pointer_to_pointer() **Counter {
 	p := &Counter{} // esc: moved to heap: p; &Counter{} escapes to heap
 	return &p // esc: &p escapes to heap

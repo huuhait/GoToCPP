@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,7 @@ const (
 	divergencePrefix  = "// divergence:"
 	pendingPrefix     = "// pending:"
 	stdInternalPrefix = "// std-internal:"
+	flagsPrefix       = "// flags:"
 	goBuildPrefix     = "//go:build"
 )
 
@@ -65,6 +67,7 @@ const (
 	pendingLine                         // // pending: reason (a test of a later phase that cannot pass yet)
 	stdInternalLine                     // // std-internal: tests internal/bytealg
 	goBuildLine                         // //go:build expr
+	flagsLine                           // // flags: -release (the build flags of gocpp run)
 )
 
 // optionalLines lists the optional comment lines with their prefixes.
@@ -84,6 +87,7 @@ var optionalLines = []struct {
 	{pendingLine, pendingPrefix},
 	{stdInternalLine, stdInternalPrefix},
 	{goBuildLine, goBuildPrefix},
+	{flagsLine, flagsPrefix},
 }
 
 // The modes of a diff test (its // diff: line).
@@ -103,7 +107,7 @@ type format struct {
 // Every format honors //go:build lines. The tests that run a program take // lsan: cycle and
 // // pending:; run and pkgs tests also take // std-internal:.
 var (
-	runFormat = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | zoneinfoLine | goBuildLine, true}
+	runFormat = format{"run", outputLine | exitCodeLine | stderrLine | lsanLine | divergenceLine | pendingLine | stdInternalLine | zoneinfoLine | goBuildLine | flagsLine, true}
 	// A race test (tests/race) is a run test that gocpp builds with -race: a program with a data
 	// race ends with exit code 66 and Go's report on stderr, a program without one is silent.
 	raceFormat    = format{"race", outputLine | exitCodeLine | stderrLine | pendingLine | goBuildLine, true}
@@ -143,6 +147,17 @@ type header struct {
 	stdInternal string           // why the test imports the standard library's internal packages (// std-internal: ...), or ""
 	build       constraint.Expr  // the //go:build constraint, or nil
 	buildLine   string           // the //go:build line, for messages
+	flags       []string         // the build flags of gocpp run (// flags: -release -trace), from runFlags
+}
+
+// runFlags are the build flags that a // flags: line may give: the modes whose crash report a run
+// test checks (ADR-136: a -release program prints only the message, -release -trace Go's trace).
+var runFlags = map[string]bool{"-release": true, "-trace": true}
+
+// releaseNoTrace reports whether flags build a -release program without -trace, whose crash
+// report is its message alone: real Go prints that with GOTRACEBACK=none (TestRunVsGo sets it).
+func releaseNoTrace(flags []string) bool {
+	return slices.Contains(flags, "-release") && !slices.Contains(flags, "-trace")
 }
 
 // parse reads the comment lines of a test file. path names the file in the
@@ -308,6 +323,17 @@ func (h *header) set(l lineSet, line, rest string, seen lineSet) error {
 			return fmt.Errorf("bad %q line: want the reason, such as \"// std-internal: tests internal/bytealg\"", stdInternalPrefix)
 		}
 		h.stdInternal = s
+	case flagsLine:
+		fs := strings.Fields(rest)
+		if len(fs) == 0 {
+			return fmt.Errorf("bad %q line: want build flags, such as \"// flags: -release\"", flagsPrefix)
+		}
+		for _, f := range fs {
+			if !runFlags[f] {
+				return fmt.Errorf("bad %q line: %q is not one of -release and -trace", flagsPrefix, f)
+			}
+		}
+		h.flags = fs
 	case goBuildLine:
 		expr, err := constraint.Parse(line)
 		if err != nil {
