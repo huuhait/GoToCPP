@@ -212,7 +212,8 @@ sed 's/^/  /' "$cmds"
 
 # Each go test runs with -v so that a test that was skipped is not taken for a pass: the summary
 # line counts the passed and skipped tests, and a command whose tests all skipped counts as failed.
-logdir=$root/.scratch/gp-focused
+# A folder per run, so that a second run (say with -cxx clang++) keeps the first one's logs.
+logdir=$root/.scratch/gp-focused/$(date +%Y%m%d-%H%M%S)-$cxx-$$
 mkdir -p "$logdir"
 n=0
 log=$(mktemp "${TMPDIR:-/tmp}/gp-focused-log.XXXXXX")
@@ -245,6 +246,10 @@ while IFS= read -r c; do
 		grep -E -- '--- FAIL|^(ok|FAIL|panic:)' "$log" || true
 		grep -E -- '--- SKIP' "$log" | head -10 || true
 		echo "=== passed $pass, skipped $skip"
+		# A package with no _test.go files has nothing to check: not a failure.
+		if [ "$code" = 0 ] && grep -q '\[no test files\]' "$log" && ! grep -qE '^(ok|FAIL)[[:space:]]' "$log"; then
+			echo "=== no test files (nothing to check): $c"; continue
+		fi
 		# A package whose pattern matched nothing still prints ok (and its TestMain may log a PASS).
 		if grep -q "no tests to run" "$log"; then pass=0; fi
 		if [ "$code" = 0 ] && [ "$pass" = 0 ]; then
