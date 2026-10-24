@@ -164,6 +164,8 @@ while IFS= read -r f; do
 		fi
 		names=$(namedtests "$stem")
 		[ -n "$names" ] && emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestRun\$/^($names)\$' ./tests"
+		# a library member must not gain a static initializer (.init_array / .ctors)
+		emit "GOCPP_TEST_PHASE=$phase go test -count=1 -run '^TestRuntimeObjectsHaveNoStaticInit' ./internal/build"
 		;;
 	runtime/test/*_test.cpp)
 		stem=$(basename "$f" _test.cpp)
