@@ -176,7 +176,20 @@ while IFS= read -r f; do
 		;;
 	runtime/test/*_test.cpp)
 		stem=$(basename "$f" _test.cpp)
-		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^(O0|O2)\$/^$stem\$' ./runtime"
+		if grep -q "\"test/${stem}_test.cpp\"" runtime/cxx_test.go; then
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^(O0|O2)\$/^$stem\$' ./runtime"
+		else
+			# not a TestCXX group: the Go tests that build the file (windows_test.go needs Wine)
+			names=$(for g in runtime/*_test.go; do
+				[ "$g" = runtime/windows_test.go ] && continue
+				awk -v p="\"test/${stem}_test.cpp\"" '/^func Test[A-Za-z0-9_]*\(/ { n = $2; sub(/\(.*/, "", n) } index($0, p) && n != "" { print n }' "$g"
+			done | sort -u | paste -sd'|' -)
+			if [ -n "$names" ]; then
+				emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^($names)\$' ./runtime"
+			else
+				emit "# $f: no Linux test builds it (rg 'test/${stem}_test.cpp' runtime/*_test.go)"
+			fi
+		fi
 		;;
 	stdlib/*)
 		pkg=$(dirname "${f#stdlib/}")
