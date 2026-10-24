@@ -48,7 +48,7 @@ Review of job <name>, round N: changes requested | clean
 3. [nit] ...
 Checked: <commands run and results>
 ```
-Clean = no blocker and no should-fix left. Every bug you find, also an older one in the same area
-("also on dev"), is a numbered finding for the coder to fix in the next round, not a TODO.md
-claim (user, 2026-10-23). Mark a find "needs a redesign or a user decision" only when it really
-does; the manager decides whether that one becomes a TODO.md line.
+Clean = no blocker and no should-fix left. Every issue you find, in scope, an older one in the
+same area ("also on dev"), or one unrelated to the ticket, is a numbered finding for the coder to
+fix fully in the next round, never a TODO.md claim (user, 2026-10-23). Mark a find "needs a
+multi-day redesign" only when it really does; the manager then makes it its own job.
