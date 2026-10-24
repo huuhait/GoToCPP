@@ -21,7 +21,8 @@
 #                              _test.go files, else a note to pick them with -run
 #   tests/<kind>/<name>.gp     that one test (run -> TestRun/name, diff -> TestDiff/name, ...)
 #   tests/pkgs/<name>/...      TestPkgs/name; examples/<name>/... TestExamples/name
-#   tests/typed/<name>.gp      cmd/gocpp TestTypedRun and TestTypedTwin for name
+#   tests/typed/<name>.gp      cmd/gocpp TestTypedRun and TestTypedTwin (<cxx>/name)
+#   tests/pkgs/errors/<name>/  TestPkgErrors/name
 #   runtime/src, runtime/include  TestCXX/<cxx>/O0 (only the runtime/test/<stem>_test.cpp group when
 #                              one matches the file's name), plus the tests/run programs with the
 #                              stem in their name (defer.hpp -> defer_*)
@@ -125,12 +126,18 @@ while IFS= read -r f; do
 		;;
 	tests/typed/*.gp)
 		n=$(basename "$f" .gp)
-		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^(TestTypedRun|TestTypedTwin)\$/$n' ./cmd/gocpp"
+		# both tests nest by compiler first: TestTypedRun/<cxx>/<name>
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^(TestTypedRun|TestTypedTwin)\$/.*/^$n\$' ./cmd/gocpp"
 		;;
 	tests/interop/*/*)
 		# A folder test (its own module with main.gp): named after the folder.
 		n=$(echo "$f" | cut -d/ -f3)
 		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestInterop\$/^$n\$' ./tests"
+		;;
+	tests/pkgs/errors/*)
+		# the error modules are TestPkgErrors' subtests, not TestPkgs'
+		n=$(echo "$f" | cut -d/ -f4)
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestPkgErrors\$/^$n\$' ./tests"
 		;;
 	tests/pkgs/*)
 		n=$(echo "$f" | cut -d/ -f3)
