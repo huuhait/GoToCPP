@@ -39,6 +39,7 @@
 #pragma once
 
 #include <gocpp/arith.hpp>
+#include <gocpp/array.hpp>
 #include <gocpp/checks.hpp>
 #include <gocpp/fmt.hpp>
 #include <gocpp/print.hpp>
@@ -860,6 +861,55 @@ struct map_literal {
 template <typename T>
 using map_t = typename map_literal<T>::gp_type;
 
+// value_eq(a, b) is Go's a == b of a gocpp struct or array with C/C++ parts: the struct's operator==
+// (or gp::array's), which compares the C/C++ parts with C++'s ==; a C/C++ part without one is an error
+// at the comparison's line.
+template <typename T>
+bool value_eq(const T& a, const T& b) {
+    static_assert(std::equality_comparable<T>,
+                  "gocpp: == compares the C/C++ parts of this value with C++'s ==, which a C/C++ type "
+                  "in it doesn't have (compare the other parts yourself, or declare an operator== "
+                  "for that type)");
+    if constexpr (std::equality_comparable<T>) {
+        return a == b;
+    } else {
+        return false;
+    }
+}
+
+// key_ok<K> says whether a gocpp map can hash and compare the key type K with a C/C++ part: a C/C++
+// type with std::hash and ==, a gocpp array of such elements (gp::array's own gp_hash, element by
+// element), or a gocpp struct with C/C++ fields, whose gp_hash is a template that requires key_ok
+// of those fields (lower/typedecl.go), and whose == is the defaulted one (deleted when a field has
+// none).
+template <typename K>
+struct key_ok
+    : std::bool_constant<std::equality_comparable<K> &&
+                         (requires(const K& a) { std::hash<K>{}(a); } || requires(const K& a) { a.gp_hash(); })> {};
+template <typename T, int64_t N>
+struct key_ok<gp::array<T, N>> : key_ok<T> {};
+
+// map_key<K> is the C/C++ key type K of a gocpp map (map[std.string]int, gp::map<map_key<K>, V>,
+// which is gp::map<K, V>): gp::map hashes a key that has no hash of gocpp's with std::hash and
+// compares it with ==, so a type that lacks them (std.vector[int]) is a clear error at the map's line,
+// not one deep in gocpp/hash.hpp. (After the error the key is bad_map_key, which the map can hash, so
+// that the error is the only one.)
+struct bad_map_key {
+    bool operator==(const bad_map_key&) const = default;
+    std::size_t gp_hash() const { return 0; }
+};
+template <typename K>
+struct map_key_check {
+    static constexpr bool gp_ok = key_ok<K>::value;
+    static_assert(gp_ok,
+                  "gocpp: this C/C++ type can't be the key of a gocpp map: the map hashes it with "
+                  "std::hash and compares it with ==, which it doesn't have (use a Go key, or a C++ "
+                  "map such as std.map[K, V])");
+    using gp_type = std::conditional_t<gp_ok, K, bad_map_key>;
+};
+template <typename K>
+using map_key = typename map_key_check<K>::gp_type;
+
 // star(x) is *x for a C/C++ value x (opaque mode): a raw pointer to an object is dereferenced
 // with Go's nil check (gp::deref), and so is a gocpp pointer; everything else is C++'s *x, so
 // C++ smart pointers and iterators keep their own operator* ((*sp).m, *it).
@@ -1484,6 +1534,9 @@ auto fmt_arg(fmt::described<T> x) {
                   "gocpp: fmt can't print a C++ type in this value: it has no std::formatter "
                   "and no operator<< (print its parts, or declare an operator<< for it; an "
                   "operator<< must be declared in the type's namespace)");
+    static_assert(fmt::detail::keys_ordered<T>(),
+                  "gocpp: fmt prints the keys of a map in order, and a C++ class key needs an "
+                  "operator< for that (declare one, or print the entries yourself)");
     static const bool registered = (fmt::detail::register_texts<T>(), true);
     (void)registered;
     return x;
@@ -1495,6 +1548,9 @@ auto fmt_arg(fmt::described<fmt::heap_value<T>> x) {
                   "gocpp: fmt can't print a C++ type in this value: it has no std::formatter "
                   "and no operator<< (print its parts, or declare an operator<< for it; an "
                   "operator<< must be declared in the type's namespace)");
+    static_assert(fmt::detail::keys_ordered<T>(),
+                  "gocpp: fmt prints the keys of a map in order, and a C++ class key needs an "
+                  "operator< for that (declare one, or print the entries yourself)");
     static const bool registered = (fmt::detail::register_texts<T>(), true);
     (void)registered;
     return x;

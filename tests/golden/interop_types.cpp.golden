@@ -40,6 +40,18 @@ struct File {
 #line 21 "$ROOT/tests/golden/interop_types.gp"
     static_assert(gp::cgo::field_zero<::std::vector<unsigned char>>);
     ::std::vector<unsigned char> buf{};
+    template <typename gp_S = File>
+        requires (std::same_as<gp_S, File> && std::equality_comparable<gp::cptr<::FILE>> && std::equality_comparable<char**> && std::equality_comparable<::std::vector<unsigned char>>)
+    bool operator==(const gp_S& gp_o) const {
+        const gp_S& gp_s = *this;
+        return gp_s.f == gp_o.f && gp_s.name == gp_o.name && gp_s.buf == gp_o.buf;
+    }
+    template <typename gp_S = File>
+        requires (std::same_as<gp_S, File> && gp::cgo::key_ok<gp::cptr<::FILE>>::value && gp::cgo::key_ok<char**>::value && gp::cgo::key_ok<::std::vector<unsigned char>>::value)
+    std::size_t gp_hash() const {
+        const gp_S& gp_s = *this;
+        return gp::hash_fields(gp_s.f, gp_s.name, gp_s.buf);
+    }
     static constexpr auto gp_fields = gp::fields(gp::field(&File::f, "f", false, false), gp::field(&File::name, "name", false, false), gp::field(&File::buf, "buf", false, false));
 };
 

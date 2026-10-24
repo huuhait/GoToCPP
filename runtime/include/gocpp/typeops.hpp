@@ -150,6 +150,9 @@ struct type_ops {
     fclass gp_fclass = fclass::none;
     const char* gp_go_name = nullptr;
     void (*gp_text)(std::string&, const void*) = nullptr;
+    // A C++ class with operator<: gp_cmp(a, b) is -1, 0 or +1 by it, the order in which fmt
+    // prints such map keys (fmtsort; a C++ string compares by its compare).
+    int (*gp_cmp)(const void*, const void*) = nullptr;
     // The lifetime of a C++ object of the type (reflect: New, Zero, MakeSlice, Set). gp_trivial:
     // the zero value is all-zero bytes, a copy is memcpy and there is nothing to destroy (numbers,
     // bools, plain structs of them): gp_ctor and gp_dtor are null then. Otherwise gp_ctor
@@ -532,6 +535,14 @@ struct is_cptr : std::false_type {};
 template <typename E>
 struct is_cptr<cptr<E>> : std::true_type {};
 
+// less_compare<U>(a, b) orders two U by U's operator< (type_ops::gp_cmp).
+template <typename U>
+int less_compare(const void* a, const void* b) {
+    const U& x = *static_cast<const U*>(a);
+    const U& y = *static_cast<const U*>(b);
+    return x < y ? -1 : y < x ? 1 : 0;
+}
+
 // foreign_ops_of<U>() classifies the C/C++ type U.
 template <typename U>
 type_ops foreign_ops_of() {
@@ -559,7 +570,15 @@ type_ops foreign_ops_of() {
         o.gp_fclass = fclass::null_ptr;
     }
     o.gp_go_name = foreign_go_name<U>();
+    if constexpr (std::is_class_v<U> && requires(const U& a, const U& b) {
+                      { a < b } -> std::convertible_to<bool>;
+                  }) {
+        o.gp_cmp = &less_compare<U>;
+    }
     set_lifetime<U>(o);
+    // A gp::map with a C/C++ key or value (map[int]std.string in an instance of maps.Clone, whose
+    // any(m) is a foreign value): maps.Clone copies it as it copies a Go map.
+    set_map_clone<U>(o, static_cast<U*>(nullptr));
     return o;
 }
 

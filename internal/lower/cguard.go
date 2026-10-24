@@ -468,15 +468,23 @@ func (g *gen) calledSig(c *ast.CallExpr) *types.Signature {
 			return sig
 		}
 	case *ast.SelectorExpr:
-		if fn := g.qualifiedFunc(f); fn != nil && g.isGeneric(fn) {
-			return fn.Signature() // pkg.F(...), F a generic function of another package of the program
+		if fn := g.qualifiedFunc(f); fn != nil {
+			// pkg.F(...), F a function of another package of the program (also one with C/C++
+			// parameters, lib.Len(std.string("x")), or a generic one)
+			return fn.Signature()
 		}
 		if explicit {
 			return nil
 		}
 		if sel := g.info.Selections[f]; sel != nil && (sel.Kind() == types.MethodVal || sel.Kind() == types.MethodExpr) {
-			if fn, ok := sel.Obj().(*types.Func); ok && fn.Pkg() == g.pkg.Types {
+			if fn, ok := sel.Obj().(*types.Func); ok && (fn.Pkg() == g.pkg.Types || g.other(fn.Pkg()) != nil) {
 				sig, _ := g.info.TypeOf(f).(*types.Signature)
+				return sig
+			}
+		}
+		if sel := g.info.Selections[f]; sel != nil && sel.Kind() == types.FieldVal {
+			if t := g.info.TypeOf(f); t != nil {
+				sig, _ := t.Underlying().(*types.Signature) // a func value in a field, h.f(x) (closures.go)
 				return sig
 			}
 		}
@@ -546,6 +554,11 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 	case *ast.IncDecStmt:
 		return g.assignableOK(e)
 	case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr:
+		if sel, ok := p.(*ast.SelectorExpr); ok && e == ast.Unparen(sel.X) && g.deducedContainer(e) {
+			// r.size() of r := Grow(words, x): r is a gocpp slice or map (deducedres.go), which has no members.
+			g.userError(sel.Sel.Pos(), "%s undefined (%s is a gocpp %s of C/C++ values, which has no field or method %s)", g.srcText(sel), g.srcText(e), g.deducedKind(e), sel.Sel.Name)
+			return false
+		}
 		// The parent is a C/C++ name of its own, a gocpp field, a member or an index of a
 		// C/C++ value, which is checked as an opaque expression too (cExprOK); or a gocpp
 		// index with a C/C++ value as its index (xs[n]), which Go allows for any integer.
@@ -611,6 +624,13 @@ func (g *gen) cPlaceOK(e ast.Expr, parent ast.Node) bool {
 					}
 					g.unsupported(e.Pos(), "make of C/C++ values")
 				case "len", "cap":
+					if g.fromGenericCall(e) {
+						// A result that typeDeducedResults could not type (deducedres.go): no C++ advice, as it is
+						// a gocpp container whose C++ type only the compiler knows.
+						g.userError(e.Pos(), "invalid argument: %s (C/C++ value) for built-in %s: the result of a generic function whose type arguments C++ deduces has no type that gocpp knows here: declare the variable with its type (var x []T = ...) or write the type arguments",
+							g.srcText(e), b.Name())
+						break
+					}
 					g.userError(e.Pos(), "invalid argument: %s (C/C++ value) for built-in %s: call its C++ function, %s.size() or std.size(%s)",
 						g.srcText(e), b.Name(), g.srcText(e), g.srcText(e))
 				case "min", "max":
@@ -880,6 +900,9 @@ func (w *cWalk) targetOK(e ast.Expr, parent ast.Node) bool {
 	if p, ok := parent.(*ast.AssignStmt); ok && len(p.Lhs) == 2 && len(p.Rhs) == 1 && isRecv(p.Rhs[0]) != nil &&
 		(ast.Unparen(p.Lhs[1]) == ast.Unparen(e) || ast.Unparen(p.Rhs[0]) == ast.Unparen(e)) {
 		return true // v, ok = <-ch of C/C++ values: the receive gives the value and a Go bool (chans.go)
+	}
+	if ok, done := g.deducedTupleOK(e, parent); done {
+		return ok // v, ok = Get(m, k): deducedres.go
 	}
 	t := w.targetOf(e, parent)
 	if t.to == nil || !complete(t.to) {

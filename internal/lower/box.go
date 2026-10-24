@@ -374,6 +374,9 @@ func cAddr(info *tinfo, e *ast.UnaryExpr) bool {
 		return false
 	}
 	v, ok := info.Uses[id].(*types.Var)
+	if ok && id == x && gocppHolder(v.Type()) {
+		return false // &f of a gocpp func, slice, map or channel of C/C++ values: a gocpp pointer (cvalues.go: cUnary)
+	}
 	return ok && !complete(v.Type())
 }
 

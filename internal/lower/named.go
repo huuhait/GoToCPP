@@ -144,6 +144,11 @@ func (g *gen) newtypeDef(si *structInfo) []cppir.Decl {
 	// itself if it is called newtype (or, from step 3.10, a method named newtype).
 	s.Members = append(s.Members, &cppir.Using{Name: cppir.TypeString(base) + "::newtype"})
 	s.Members = append(s.Members, g.methodDecls(si)...) // methods.go
+	if hasC(si.under) {
+		// type A [2]S with a C/C++ field in S: only the C++ compiler knows its size (check.Sizes
+		// guesses a word for a C/C++ type), as for a struct with such a field (typedecl.go: structDef).
+		return []cppir.Decl{s}
+	}
 	return []cppir.Decl{s, g.layoutAssert(si)}
 }
 

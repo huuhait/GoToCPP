@@ -102,6 +102,25 @@ func (o *Opaque) IsOpaque(e ast.Expr) bool {
 	return o != nil && o.exprs[e]
 }
 
+// SetOpaque marks e as opaque or not, and returns whether it was. The lowering gives a few
+// expressions that go/types left without a type a Go type of its own (len(r) of a deduced generic
+// result, internal/lower/deducedres.go) for the time it lowers the package, and puts the mark back.
+func (o *Opaque) SetOpaque(e ast.Expr, opaque bool) bool {
+	if o == nil {
+		return false
+	}
+	old := o.exprs[e]
+	if opaque {
+		if o.exprs == nil {
+			o.exprs = make(map[ast.Expr]bool)
+		}
+		o.exprs[e] = true
+	} else {
+		delete(o.exprs, e)
+	}
+	return old
+}
+
 // TypeExpr returns the type expression that the object obj of the package
 // was declared with, if obj's type is not complete because it contains a
 // C/C++ type: *SDL.SDL_Window for the parameter w of

@@ -394,6 +394,7 @@ func (gf *genericFunc) apply(targs []types.Type, ctxt *types.Context, cxxNamed m
 		}
 		info.Selections[x] = &selection{kind: sel.kind, recv: recv, obj: o, index: index, indirect: indirect}
 	}
+	gf.owner.prog.noteVarOrigins(s)
 	return obj, s.err
 }
 
@@ -1145,6 +1146,27 @@ func (g *gen) hasCxxNamed(t types.Type) bool {
 				found = true
 				return
 			}
+		}
+		g.eachPart(t, walk)
+	}
+	walk(t)
+	return found
+}
+
+// hasOpenOutOfScope reports whether t is made of a type argument that C++ deduces (an open stand-in)
+// that is not a template parameter of the instance being lowered: its name means nothing here.
+func (g *gen) hasOpenOutOfScope(t types.Type) bool {
+	found := false
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type)
+	walk = func(t types.Type) {
+		if found || seen[t] {
+			return
+		}
+		seen[t] = true
+		if n, ok := types.Unalias(t).(*types.Named); ok && g.cxxNamed[n].open && !g.curOpen[n] {
+			found = true
+			return
 		}
 		g.eachPart(t, walk)
 	}

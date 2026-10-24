@@ -239,6 +239,11 @@ func (a *analysis) state(e ast.Expr) state {
 	if id, ok := e.(*ast.Ident); ok && a.genericFunc(id) {
 		return typed // the name of a generic function is no source of invalid: its arguments are
 	}
+	if sel, ok := e.(*ast.SelectorExpr); ok && a.genericFunc(sel.Sel) {
+		// The same for a generic function of another package, sync.OnceValue(f) with f a func() std.string:
+		// go/types records the instance's signature, with an invalid type argument, for the selector.
+		return typed
+	}
 	if a.partialInstance(e) {
 		// First[string] of First[string]("x", words), words []std.string: go/types instantiates with an
 		// invalid T, so the instance's signature is invalid; its sources are the arguments of the call

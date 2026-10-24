@@ -146,9 +146,14 @@ func (fg *funcGen) constValue(e ast.Expr) constant.Value {
 
 func (fg *funcGen) binary(e *ast.BinaryExpr) cppir.Expr {
 	if t := fg.g.info.TypeOf(e.X); (e.Op == token.EQL || e.Op == token.NEQ) && t != nil && cmpHasC(t) {
-		// A struct or an array with a C/C++ part: its == is the C++ compiler's (typedecl.go).
-		fg.g.unsupported(e.OpPos, "== on values with C/C++ parts (Phase 12)")
-		return placeholder
+		// A struct or an array with a C/C++ part: its == compares the C/C++ parts with C++'s == (the
+		// struct's operator==, typedecl.go: cKeyMembers; gp::array's), and gp::cgo::value_eq says so at
+		// the line when a C/C++ part has none.
+		x := cppir.Expr(call("gp::cgo::value_eq", fg.expr(e.X), fg.expr(e.Y)))
+		if e.Op == token.NEQ {
+			x = &cppir.Unary{Op: "!", X: x}
+		}
+		return fg.g.wrapNamed(fg.typeOf(e), x, e.Pos())
 	}
 	if (e.Op == token.SHL || e.Op == token.SHR) && fg.constValue(e.X) != nil {
 		// A constant shifted by a count that is not a constant: the constant has the type
@@ -576,6 +581,14 @@ func (fg *funcGen) conversion(c *ast.CallExpr, to types.Type) cppir.Expr {
 	}
 	arg := c.Args[0]
 	from := fg.g.info.TypeOf(arg)
+	// S ~[]E that C++ deduces (generics.go): S(nil), S(xs) and []E(s) convert as the slice []E, which S
+	// is in C++ (gocpp has no named type over a slice of C/C++ values).
+	if core := fg.g.cxxCore(to); core != nil {
+		to = core
+	}
+	if core := fg.g.cxxCore(from); core != nil {
+		from = core
+	}
 	fg.g.noteConv(c.Pos(), to, from) // why.go
 	if isInterface(to) {
 		// T(x) to an interface type: any(1), Shape(r), error(e) (iconv.go)

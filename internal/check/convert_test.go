@@ -657,6 +657,47 @@ func main() {
 	}
 }
 
+// TestConversionQualifiedGeneric checks the conversion of a value that a call of a generic function
+// of another package returns when go/types instantiated it with an invalid type argument
+// (sync.OnceValue(f) with f a func() std.string, lib.Keep(cv)): the function's name is no source of
+// invalid, as the name of a generic function of the package is not, so the value is opaque and the
+// conversion is rewritten (the build said "passing C/C++ values to this function" before).
+func TestConversionQualifiedGeneric(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gocpp.mod":  "module example.com/m\n",
+		"lib/lib.gp": "package lib\n\nfunc Keep[T any](f func() T) func() T { return f }\n",
+		"main.gp": `package main
+
+import (
+	"sync"
+
+	"example.com/m/lib"
+	"<string>"
+)
+
+func Own[T any](f func() T) func() T { return f }
+
+func main() {
+	a := sync.OnceValue(func() std.string { return std.string("a") })
+	b := lib.Keep(func() std.string { return std.string("b") })
+	c := Own(func() std.string { return std.string("c") })
+	n := int(a().size()) + int(b().size()) + int(c().size())
+	_ = n + "x"
+}
+`,
+	})
+	prog, r := loadAndCheck(t, load.Config{}, root, ".")
+	want := "# example.com/m\n" +
+		"./main.gp:17:6: invalid operation: n + \"x\" (mismatched types int and untyped string)\n"
+	if errs := errorText(t, prog, r, root, true); errs != want {
+		t.Errorf("errors:\n%s\nwant:\n%s", errs, want)
+	}
+	wantConv := "16:7 int(a().size())\n16:25 int(b().size())\n16:43 int(c().size())\n"
+	if got := conversionList(prog.Fset, mainPkg(t, prog, r)); got != wantConv {
+		t.Errorf("conversions:\n%s\nwant:\n%s", got, wantConv)
+	}
+}
+
 // TestConversionOpaqueArg checks a conversion in a type argument of an
 // opaque instantiation, which the CheckExpr pass checks: it is rewritten,
 // and the import of gocpp/cgoh counts as used.

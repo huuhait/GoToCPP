@@ -821,12 +821,7 @@ func TestCGuard(t *testing.T) {
 		"std::string::npos": interop.Value, "std::vector": interop.Template, "std::swap": interop.ValueTemplate,
 	}
 	tests := []struct{ src, want string }{
-		{"var h H; switch h { case h: }", "switch on values with C/C++ parts (Phase 12)"},
-		{"var h, k H; _ = h == k", "== on values with C/C++ parts (Phase 12)"},
-		{"var m map[H]int; _ = m", "this use of a C/C++ type (a later step of Phase 04)"},
 		{"var a A; _ = a", "aliases of C/C++ types (A): write the C/C++ type (a later step of Phase 04)"},
-		{"m := map[lib.FILE]int{{}: 1}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
-		{"m := []map[lib.FILE]int{{}}; _ = m", "this type with C/C++ parts: map[C.FILE]int"},
 		{"p := &struct{ n C.int }{1}; _ = p", "this type with C/C++ parts: struct{n C.int}"},
 		{"lib.f(1, lib.g()...)", "... in a call of a C/C++ function"},
 		{"var v std.vector[int]; v.push_back(lib.g()...)", "... in a call of a C/C++ function"},
@@ -844,6 +839,60 @@ func TestCGuard(t *testing.T) {
 		var e *Error
 		if !errors.As(err, &e) || !strings.HasPrefix(e.Msg, "not supported yet: ") || !strings.HasPrefix(e.Msg[len("not supported yet: "):], tt.want) {
 			t.Errorf("%s:\n got %v\nwant not supported yet: %s", tt.src, err, tt.want)
+		}
+	}
+}
+
+// TestCMapKeys checks gocpp maps with a C/C++ key, and == of a struct with C/C++ fields: the key type is gp::cgo::map_key<K> (K itself),
+// which checks at the map's line that std::hash and == take it (interop.hpp); they were "not supported
+// yet" (dev.genericstd).
+func TestCMapKeys(t *testing.T) {
+	src := `package main
+
+import (
+	"<lib.h>"
+	"<string>"
+)
+
+var g map[std.string]int
+
+func main() {
+	m := map[lib.FILE]int{{}: 1}
+	l := []map[lib.FILE]int{{}}
+	k := make(map[std.string]bool)
+	var h map[H]int
+	var h1, h2 H
+	_, _, _, _, _ = m, l, k, g, h
+	switch h1 {
+	case h2:
+	}
+	_ = h1 == h2
+}
+
+type H struct {
+	p *lib.FILE
+	q C.int
+	s string
+}
+`
+	fset, pkg, _ := checkInterop(t, src)
+	kinds := map[string]interop.Kind{"FILE": interop.Type, "std::string": interop.Type}
+	f, err := Package(fset, pkg, fakeInterop(pkg, kinds))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpp := string(cppir.Print(f, ""))
+	for _, want := range []string{
+		"gp::map_of<gp::cgo::map_key<::FILE>, int64_t>({{::FILE{}, 1}})",
+		"gp::map<gp::cgo::map_key<::FILE>, int64_t>",
+		"gp::make_map<gp::cgo::map_key<::std::string>, bool>()",
+		"gp::map<gp::cgo::map_key<::std::string>, int64_t> g",
+		"gp::map<gp::cgo::map_key<H>, int64_t> h",
+		"gp::cgo::value_eq(h1, h2)",                                                                                   // Go's == of a struct with C/C++ parts (ops.go: binary), also in a switch
+		"requires (std::same_as<gp_S, H> && gp::cgo::key_ok<gp::cptr<::FILE>>::value && gp::cgo::key_ok<int>::value)", // H's gp_hash: its C/C++ fields
+	} {
+		if !strings.Contains(cpp, want) {
+			t.Errorf("no %q in:\n%s", want, cpp)
 		}
 	}
 }

@@ -113,6 +113,20 @@ func (g *gen) typeExplicitIterators() {
 	fg := &funcGen{g: g}
 	for _, s := range ranges {
 		x := ast.Unparen(s.X)
+		if se, ok := x.(*ast.SelectorExpr); ok {
+			// lib.It of var It = Seq[std.string](words) in another package of the program: the
+			// instance's signature, with the C/C++ types invalid (the loop's variables are auto).
+			if v, ok := g.qualifiedObj(se).(*types.Var); ok && !complete(v.Type()) {
+				if o := g.other(v.Pkg()); o != nil {
+					if sig, ok := under(o.invalidStandIns(o.pkgVarInstResult(v))).(*types.Signature); ok && sig.Params().Len() == 1 {
+						tv := g.info.Types[s.X]
+						tv.Type = sig
+						g.setTypeTemp(s.X, tv) // (deducedres.go)
+					}
+				}
+			}
+			continue
+		}
 		if id, ok := x.(*ast.Ident); ok {
 			v, _ := g.info.Uses[id].(*types.Var)
 			if v == nil || complete(v.Type()) {
@@ -724,4 +738,37 @@ func (fg *funcGen) rfChecks(loop *rfLoop, j int, end cppir.Pos, at token.Pos) {
 	if loop.checkContinue || loop.checkBreak {
 		ifNext(">", 0, ret(up, "gp_exit"))
 	}
+}
+
+// invalidStandIns returns t with the stand-ins of C/C++ type arguments (generics.go) replaced by
+// the invalid type, the type go/types gives a C/C++ type: t for another package, whose lowering does
+// not know the stand-ins of this one.
+func (g *gen) invalidStandIns(t types.Type) types.Type {
+	if tup, ok := t.(*types.Tuple); ok {
+		vars := make([]*types.Var, tup.Len())
+		for i := range tup.Len() {
+			v := tup.At(i)
+			vars[i] = types.NewParam(v.Pos(), v.Pkg(), v.Name(), g.invalidStandIns(v.Type()))
+		}
+		return types.NewTuple(vars...)
+	}
+	if t == nil || !g.hasCxxNamed(t) {
+		return t
+	}
+	switch t := types.Unalias(t).(type) {
+	case *types.Named:
+		if g.isCxxNamed(t) {
+			return types.Typ[types.Invalid]
+		}
+		return t
+	case *types.Slice:
+		return types.NewSlice(g.invalidStandIns(t.Elem()))
+	case *types.Pointer:
+		return types.NewPointer(g.invalidStandIns(t.Elem()))
+	case *types.Map:
+		return types.NewMap(g.invalidStandIns(t.Key()), g.invalidStandIns(t.Elem()))
+	case *types.Signature:
+		return types.NewSignatureType(nil, nil, nil, g.invalidStandIns(t.Params()).(*types.Tuple), g.invalidStandIns(t.Results()).(*types.Tuple), t.Variadic())
+	}
+	return types.Typ[types.Invalid]
 }

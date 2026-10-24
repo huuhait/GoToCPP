@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -193,4 +194,102 @@ func (p *Package) reportGenericCArgs(fset *token.FileSet, sums *genericSums) {
 	}
 	checkGenericCArgs(p.astFiles(), p.Info, sums, report)
 	checkGenericInstances(p.astFiles(), p.Info, sums, report)
+	checkDeducedMembers(p.astFiles(), p.Info, p.SourceText, report)
+}
+
+// checkDeducedMembers reports a member of the result of a generic call whose type arguments C++
+// deduces (slices.Insert(c, 1, cv), with c a []std.string) when the generic result type is a slice or
+// a map (S ~[]E, []E, map[K]V): go/types gives the call no type, the lowering gives it that gocpp
+// container type (lower/deducedres.go), which has no members, so r.size() is the build's error at the
+// same place with the same words. Also through a variable declared from the call (r := ..., var r = ...).
+func checkDeducedMembers(files []*ast.File, info *types.Info, text func(ast.Expr) string, report func(pos token.Pos, msg string)) {
+	kind := func(e ast.Expr) string {
+		call, ok := ast.Unparen(e).(*ast.CallExpr)
+		if !ok {
+			return ""
+		}
+		id := instanceIdent(call.Fun)
+		if id == nil {
+			return ""
+		}
+		fn, ok := info.Uses[id].(*types.Func)
+		if !ok || fn.Signature().TypeParams().Len() == 0 || fn.Signature().Results().Len() != 1 {
+			return ""
+		}
+		if tv, ok := info.Types[call]; ok && tv.Type != nil && !hasInvalid(tv.Type) {
+			return "" // typed by go/types
+		}
+		if len(typeArgExprs(ast.Unparen(call.Fun))) >= fn.Signature().TypeParams().Len() {
+			return "" // every type argument written: no type argument that C++ deduces
+		}
+		t := fn.Signature().Results().At(0).Type()
+		if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+			t = CoreType(tp.Constraint())
+		}
+		switch types.Unalias(t).(type) {
+		case *types.Slice:
+			return "slice"
+		case *types.Map:
+			return "map"
+		}
+		return ""
+	}
+	for _, f := range files {
+		vars := make(map[*types.Var]string)
+		note := func(lhs []ast.Expr, rhs []ast.Expr) {
+			if len(lhs) != len(rhs) {
+				return
+			}
+			for i, l := range lhs {
+				if id, ok := l.(*ast.Ident); ok {
+					if v, ok := info.Defs[id].(*types.Var); ok && hasInvalid(v.Type()) {
+						if k := kind(rhs[i]); k != "" {
+							vars[v] = k
+						}
+					}
+				}
+			}
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.AssignStmt:
+				if n.Tok == token.DEFINE {
+					note(n.Lhs, n.Rhs)
+				}
+			case *ast.ValueSpec:
+				if n.Type == nil {
+					lhs := make([]ast.Expr, len(n.Names))
+					for i, id := range n.Names {
+						lhs[i] = id
+					}
+					note(lhs, n.Values)
+				}
+			case *ast.SelectorExpr:
+				x := ast.Unparen(n.X)
+				k := kind(x)
+				if id, ok := x.(*ast.Ident); ok {
+					if v, ok := info.Uses[id].(*types.Var); ok && vars[v] != "" {
+						k = vars[v]
+					}
+				}
+				if k != "" {
+					report(n.Sel.Pos(), fmt.Sprintf("%s undefined (%s is a gocpp %s of C/C++ values, which has no field or method %s)",
+						text(n), text(n.X), k, n.Sel.Name))
+				}
+			}
+			return true
+		})
+	}
+}
+
+// reportForeignCxxGenerics adds the build's limit for generic functions of other packages that use
+// C/C++ names (genericcinst.go: checkForeignCxxGenerics), also in a package without C/C++ names of its
+// own.
+func (p *Package) reportForeignCxxGenerics(fset *token.FileSet, sums *genericSums) {
+	if p.Info == nil || p.Errors == nil || p.typeErrors {
+		return
+	}
+	checkForeignCxxGenerics(p.astFiles(), p.Types, p.Info, sums, func(pos token.Pos, msg string) {
+		p.Errors.Add(diag.Diagnostic{Pos: fset.Position(pos), Severity: diag.Error, Msg: msg})
+	})
 }

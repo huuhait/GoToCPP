@@ -1530,8 +1530,8 @@ name := rec.name[:]                     // a C array member, sliced: a []C.char 
   `unsafe.Pointer(p)` of such a pointer, `unsafe.Slice(p, n)` of it, a closure that captures it and
   a `defer` of a C function with it share its owner. A `cptr` costs 16 bytes, prints as an address,
   is a map key (`map[*lib.T]int`, `map[*lib.T]bool`: it compares and hashes by address), and
-  compares with `nil` and with other pointers. A struct with a `*lib.T` field cannot be a map key
-  (Phase 12: `==` on values with C parts).
+  compares with `nil` and with other pointers. A struct with a `*lib.T` field is a map key and
+  compares with `==` too ([maps with C/C++ keys and `==`](#maps-with-cc-keys-and--on-values-with-cc-parts)).
 
   **Stores into the members of a C struct, and reads back.** The members of a C struct
   (`lib.Node.next`, `lib.Holder.data`) are raw pointers, but a store into one keeps the object alive
@@ -2002,6 +2002,51 @@ also inside a gocpp value (a struct field, a slice element):
   arguments by value; print what it points to.
 
 Source: [Phase 04 §2.12](../../plans/2026-10-13-gocpp/phase-04-cpp-interop/README.md#212-runtime-helpers-added-in-this-phase).
+
+### Maps with C/C++ keys, and `==` on values with C/C++ parts
+
+<!-- illustration: a fragment, not a program -->
+```go
+type K struct {
+	name std.string
+	n    int
+}
+
+words := map[std.string]int{"b": 2, "a": 1}
+fmt.Println(words)                 // map[a:1 b:2]: sorted, as Go's fmt does
+byPair := map[[2]std.string]int{}  // an array of C++ values
+byK := map[K]int{{name: std.string("a"), n: 1}: 5}
+x, y := K{name: std.string("x")}, K{name: std.string("x")}
+fmt.Println(x == y, x != y)        // true false
+var i, j any = x, y
+fmt.Println(i == j)                // true: the same ==, through interfaces
+switch x {
+case y: // a case compares with the same ==
+}
+```
+
+- **A key with C/C++ parts**, a C/C++ type (`map[std.string]int`, `map[mk.Pt]int` for a C++ class with a
+  `std::hash` specialization), an array of such elements (`map[[2]std.string]int`, hashed element by element),
+  or a gocpp struct with such fields (`map[K]int`), is hashed with `std::hash` and compared with C++'s `==`
+  for its C/C++ parts, and with gocpp's own hash and `==` for the rest. A C/C++ type without them
+  (`std.vector[int]`) is an error at the map's line: `this C/C++ type can't be the key of a gocpp map: the map
+  hashes it with std::hash and compares it with ==, which it doesn't have`. Only the C++ compiler knows whether a C++
+  type has them, so this error is the build's (`gocpp check` does not report it).
+- **`==`, `!=` and `switch`** on a gocpp struct or array with C/C++ parts compare those parts with C++'s
+  `operator==`, as Go compares field by field (the blank fields are skipped). A C/C++ part without one is an error at
+  the comparison: `== compares the C/C++ parts of this value with C++'s ==, which a C/C++ type in it doesn't have`.
+- **In interfaces.** `any == any` and the keys of a `map[any]T` holding such values use the same `==` (and hash), as
+  in Go. A struct that Go could not compare apart from its C/C++ parts (a slice, map or func field, also inside a
+  nested struct or an array) has neither: `any == any` of it panics with `comparing uncomparable type`, and a
+  `map[any]T` key with `hash of unhashable type`, as in Go; so does a dynamic type whose C/C++ part has no `==`. fmt
+  prints such values as any other (`tests/interop/cxx_struct_uncomparable.gp`).
+- **fmt prints a map with C/C++ keys** with the keys in order, as Go's `fmt` sorts them: a C++ string by its
+  `compare`, a C++ class by its `operator<`, a struct or an array of them field by field. A C++ class key without
+  `operator<` is an error at the print: `fmt prints the keys of a map in order, and a C++ class key needs an operator<
+  for that`.
+
+Tests: `tests/interop/map_cxx_key.gp`, `map_cxx_key_class.gp`, `map_cxx_key_error.gp`, `map_cxx_key_print_error.gp`,
+`cxx_struct_eq.gp`, `cxx_struct_eq_error.gp`. The C++ mapping is in [cpp-mapping.md](cpp-mapping.md#maps-with-cc-keys-and--on-values-with-cc-parts).
 
 ## Building C and C++ sources
 
@@ -2865,7 +2910,6 @@ compiler decides. They fall in three groups.
 | `.` vs `::`, template vs index | decided by the kind probe; when it can't tell, gocpp falls back to `.` | write `(x).m` or `(v)[i]`: a parenthesized C++ value is always a value ([the probes](#the-two-compiler-probes)) |
 | a smart pointer before `.` | not dereferenced for you | write `(*sp).m` |
 | the element and index of a `range` over a C++ container, the results of C++ calls | C/C++ values, not Go ints and strings: gocpp can't type them | convert them: `int(i)`, `string(s)` |
-| `==` on gocpp structs with C/C++ fields, a struct with a `*lib.T` field as a map key | not supported (Go compares field by field) | compare the fields |
 | mistakes in C/C++ code | reported by the C++ compiler, at the `.gp` line (the line, not the column) | |
 
 ### Limits that stay: C and C++ lifetime rules

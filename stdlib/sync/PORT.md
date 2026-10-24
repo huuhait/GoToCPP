@@ -15,7 +15,14 @@ The design is ADR-040; the natives are `runtime/include/gocpp/sync.hpp` and `ato
   runtime/test/sync_test.cpp): a waiter "that waited an hour" is held after its wake-up while the test takes the mutex.
 - `Once`: `done` is a `uint32` read and written by natives; `doSlow` defers a closure, because a native is a
   C++ template and has no address to defer.
-- `OnceFunc`, `OnceValue`, `OnceValues`: unchanged (the generic two are instantiated by the caller, step 7.1).
+- `OnceFunc`: unchanged. `OnceValue`, `OnceValues` (instantiated by the caller, step 7.1): their state is local
+  variables that the closures capture, and the function that `once.Do` runs (`g`) is made once, outside the returned
+  closure (Go 1.22's form, with Go 1.25's `f = nil` in the deferred function), not Go 1.25's one unnamed struct, so that
+  a type argument may be a C/C++ type (`sync.OnceValue(func() std.string {...})`): gocpp has no unnamed struct type
+  with a C/C++ type argument of a generic function yet (dev.genericstd). The same behavior. Measured with `-release`
+  (`OnceValue` of a `func() int`, best of 5 runs of 2,000,000): a call takes 2.0 ns on g++ and clang++ (11.5 and 10.0 ns
+  with the struct, whose call made the closure for `Do` each time); making the function takes 106 ns on g++ and 88 ns
+  on clang++ (36 and 35 ns with the struct: five boxes instead of one, and `g`).
 - `Map`: a `map[any]any` under an `RWMutex` instead of `internal/sync.HashTrieMap`; `hashCheck` hashes the key
   first, so an unhashable key panics with Go's text before the lock. `Range` walks a list of the entries that the
   first `Range` after a change of the set of keys makes (under the write lock; a `Store` of a new key, a delete,

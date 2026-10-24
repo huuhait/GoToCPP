@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -41,6 +42,8 @@ type genericSums struct {
 	depth   int
 	cycle   bool
 	pending []*genericSum
+
+	cxxUse map[*types.Func]bool // usesCxx, by function
 }
 
 // A genericSum is the summary of one generic function or type (genericSums).
@@ -55,6 +58,7 @@ type genericSum struct {
 type funcSrc struct {
 	decl *ast.FuncDecl
 	info *types.Info
+	pkg  *Package
 }
 
 // A typeSrc is the declaration of a generic type, its methods and the Info of its package.
@@ -91,7 +95,7 @@ func (s *genericSums) add(p *Package) {
 					continue
 				}
 				if d.Type.TypeParams != nil {
-					s.funcs[fn] = funcSrc{decl: d, info: p.Info}
+					s.funcs[fn] = funcSrc{decl: d, info: p.Info, pkg: p}
 				}
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
@@ -624,4 +628,79 @@ func mentionsParam(t types.Type, tp *types.TypeParam, seen map[types.Type]bool) 
 		}
 	}
 	return false
+}
+
+// usesCxx reports whether the body of the generic function fn uses C/C++ names or values, as the
+// lowering decides it (lower/generics.go: genericFunc.usesCxx): a name of C (the loader rewrites the
+// header packages' names to C), or an opaque expression. Such a function is instantiated only by its
+// own package. False for a function whose declaration is not known (export data).
+func (s *genericSums) usesCxx(fn *types.Func) bool {
+	if s == nil {
+		return false
+	}
+	fn = fn.Origin()
+	if v, ok := s.cxxUse[fn]; ok {
+		return v
+	}
+	src, ok := s.funcs[fn]
+	found := false
+	if ok && src.pkg != nil {
+		ast.Inspect(src.decl, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.Ident:
+				if pn, ok := src.info.Uses[n].(*types.PkgName); ok && pn.Imported().Path() == "C" {
+					found = true
+				}
+			case ast.Expr:
+				if src.pkg.Opaque.IsOpaque(n) {
+					found = true
+				}
+			}
+			return !found
+		})
+	}
+	if s.cxxUse == nil {
+		s.cxxUse = make(map[*types.Func]bool)
+	}
+	s.cxxUse[fn] = found
+	return found
+}
+
+// checkForeignCxxGenerics reports each use (a call or a func value) outside generic declarations of a
+// generic function of another package whose body uses C/C++ names: the lowering instantiates a
+// generic function in the package that uses it, with that package's C/C++ state, so it refuses such
+// a one (lower/generics.go: instRef) at the same place, with the same words. (Inside a generic
+// declaration, the use is the build's, where the declaration is instantiated, as for genericSums.)
+func checkForeignCxxGenerics(files []*ast.File, pkg *types.Package, info *types.Info, sums *genericSums, report func(pos token.Pos, msg string)) {
+	if sums == nil || len(sums.funcs) == 0 {
+		return
+	}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			if genericDecl(n) {
+				return false
+			}
+			e, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			switch e.(type) {
+			case *ast.Ident, *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr:
+			default:
+				return true
+			}
+			id := instanceIdent(e)
+			if id == nil {
+				return true
+			}
+			fn, ok := info.Uses[id].(*types.Func)
+			if !ok || fn.Pkg() == nil || fn.Pkg() == pkg || fn.Signature().TypeParams().Len() == 0 || fn.Signature().Recv() != nil {
+				return true
+			}
+			if sums.usesCxx(fn) {
+				report(e.Pos(), fmt.Sprintf("%s.%s uses C/C++ names, so it can only be instantiated in its own package (Phase 12)", fn.Pkg().Name(), fn.Name()))
+			}
+			return false // (the name inside, F of F[A], is this use)
+		})
+	}
 }

@@ -818,7 +818,7 @@ int compare(const value& a, const value& b) {
             return c < 0 ? -1 : c > 0 ? 1 : 0;
         }
         default:
-            return 0;
+            return ops != nullptr && ops->gp_cmp != nullptr ? ops->gp_cmp(a.p, b.p) : 0;
         }
     }
     default:

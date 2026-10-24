@@ -250,6 +250,8 @@ func (g *gen) valueTypeExprSeen(e ast.Expr, seen map[*types.Var]bool) ast.Expr {
 		}
 	case *ast.CompositeLit:
 		te, _ = g.litTypeExpr(x)
+	case *ast.FuncLit:
+		te = x.Type // f := func(s std.string) int {...}
 	case *ast.CallExpr:
 		if r, ok := g.cRefOf(x.Fun); ok && r.kind == interop.Type {
 			te = x.Fun

@@ -1,7 +1,9 @@
 package lower
 
 import (
+	"go/token"
 	"go/types"
+	"path/filepath"
 	"slices"
 	"strconv"
 )
@@ -74,7 +76,7 @@ func (g *gen) localOrigin(t *types.Named, fn *types.Func, tparams *types.TypePar
 	o := types.NewNamed(tn, nil, nil)
 	// The tag names the declaration, not the order in which the lowering met it (the substitution
 	// walks maps): the function, the type and the place in the function.
-	li := &localInfo{origin: o, implicit: tparams.Len(), tag: "Lg" + funcTagName(fn) + "_" + t.Obj().Name() + "_" + strconv.Itoa(int(t.Obj().Pos()-fn.Pos()))}
+	li := &localInfo{origin: o, implicit: tparams.Len(), tag: "Lg" + funcTagName(fn) + "_" + t.Obj().Name() + "_" + g.placeInFunc(t.Obj().Pos(), fn.Pos())}
 	g.prog.localOrigins[t] = li
 	g.prog.localTagOf[tn] = li.tag
 	g.prog.localImplicit[tn] = li.implicit
@@ -114,6 +116,14 @@ func (g *gen) localOrigin(t *types.Named, fn *types.Func, tparams *types.TypePar
 	}
 	o.SetTypeParams(fresh)
 	o.SetUnderlying(s.typ(t.Underlying()))
+	// The fields of the origin are new variables: their type expressions are those of the declared
+	// type's fields (varOrigin), written with the function's type parameters and the type's own
+	// (localParams), which typedecl.go: instTypeExpr replaces by an instance's type arguments.
+	g.prog.noteVarOrigins(s)
+	if g.prog.localParams == nil {
+		g.prog.localParams = make(map[*types.TypeName][]*types.TypeParam)
+	}
+	g.prog.localParams[tn] = old
 	return li
 }
 
@@ -130,4 +140,22 @@ func funcTagName(fn *types.Func) string {
 		}
 	}
 	return fn.Name()
+}
+
+// placeInFunc returns the place pos of a declaration in the function that starts at fn, for a tag:
+// the offset from the function's start when both are in one file (as the token.Pos difference was),
+// else the file's name and the offset in it (a method that #Derive writes in another file than the
+// type: the token.Pos difference of two files changes with the size of every file between them).
+func (g *gen) placeInFunc(pos, fn token.Pos) string {
+	p, q := g.fset.Position(pos), g.fset.Position(fn)
+	if p.Filename == q.Filename {
+		return strconv.Itoa(p.Offset - q.Offset)
+	}
+	name := []byte(filepath.Base(p.Filename))
+	for i, c := range name {
+		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			name[i] = '_'
+		}
+	}
+	return string(name) + "_" + strconv.Itoa(p.Offset)
 }

@@ -976,10 +976,25 @@ struct field_info {
     bool gp_embedded;
 };
 
+template <typename T, typename... Seen>
+constexpr bool keys_ordered();
+template <typename F, typename... Seen>
+struct fields_ordered;
+template <typename... F, typename... Seen>
+struct fields_ordered<std::tuple<F...>, Seen...> {
+    static constexpr bool value = (detail::keys_ordered<typename F::gp_type, Seen...>() && ...);
+};
+
 template <typename... F, typename... Seen>
 struct fields_visit<std::tuple<F...>, Seen...> {
     static constexpr bool printable = (detail::printable<typename F::gp_type, Seen...>() && ...);
     static void register_all() { (detail::register_texts<typename F::gp_type, Seen...>(), ...); }
+};
+
+// key_ordered<K>: a C++ class key of a map that fmt prints has operator<, which orders the keys.
+template <typename K>
+concept key_ordered = requires(const K& a, const K& b) {
+    { a < b } -> std::convertible_to<bool>;
 };
 
 // printable<T>(): whether fmt can print a T, all the way down: every C/C++ type in it is a
@@ -1000,8 +1015,8 @@ constexpr bool printable() {
         return printable<typename array_of<T>::elem, Seen...>();
     } else if constexpr (map_of<T>::value) {
         using K = typename map_of<T>::key;
-        return printable<K, Seen...>() && printable<typename map_of<T>::mapped, Seen...>() &&
-               !cxx_string<K> && !cxx_text_type<K>;
+        // (A C++ class key also needs operator<, which orders it: keys_ordered.)
+        return printable<K, Seen...>() && printable<typename map_of<T>::mapped, Seen...>();
     } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
         return true; // unsafe.Pointer: an address
     } else if constexpr (ptr_of<T>::value) {
@@ -1017,6 +1032,33 @@ constexpr bool printable() {
     } else {
         return std::is_enum_v<T> || std::is_pointer_v<T> || cptr_of<T>::value ||
                std::is_null_pointer_v<T> || cxx_string<T> || cxx_text_type<T>;
+    }
+}
+
+// keys_ordered<T>(): whether every map in a T has keys that fmt can sort (fmtsort, fmt.cpp:
+// compare): Go types, C++ strings, and C++ classes with operator< (key_ordered). The walk of printable.
+template <typename T, typename... Seen>
+constexpr bool keys_ordered() {
+    if constexpr ((std::is_same_v<T, Seen> || ...)) {
+        return true;
+    } else if constexpr (slice_of<T>::value) {
+        return keys_ordered<typename slice_of<T>::elem, Seen...>();
+    } else if constexpr (array_of<T>::value) {
+        return keys_ordered<typename array_of<T>::elem, Seen...>();
+    } else if constexpr (map_of<T>::value) {
+        using K = typename map_of<T>::key;
+        return (!cxx_text_type<K> || cxx_string<K> || key_ordered<K>) && keys_ordered<K, Seen...>() &&
+               keys_ordered<typename map_of<T>::mapped, Seen...>();
+    } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
+        return true;
+    } else if constexpr (ptr_of<T>::value) {
+        return keys_ordered<typename ptr_of<T>::elem, Seen...>();
+    } else if constexpr (struct_type<T>) {
+        return fields_ordered<std::remove_cvref_t<decltype(T::gp_fields)>, T, Seen...>::value;
+    } else if constexpr (named_type<T>) {
+        return keys_ordered<underlying_t<T>, T, Seen...>();
+    } else {
+        return true;
     }
 }
 

@@ -177,6 +177,9 @@ type funcGen struct {
 	commaAsserts map[*ast.TypeAssertExpr]bool
 	// cTag: the switch being lowered has a C/C++ value as its tag (control.go: caseCond).
 	cTag bool
+	// partTag is set while the cases of a switch on a gocpp struct or array with C/C++ parts are
+	// lowered: each case is gp::cgo::value_eq(tag, v) (ops.go: binary).
+	partTag bool
 }
 
 // newFuncGen returns the funcGen of a function (fn and flow are nil in gp_var_init).

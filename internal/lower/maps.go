@@ -102,6 +102,9 @@ func (fg *funcGen) mapLit(e *ast.CompositeLit) cppir.Expr {
 	// its parts (map[string]C.int: clits.go).
 	fg.g.litPartType(e, t, nil)
 	key, elem := fg.g.litPartType(e, t, keyOf), fg.g.litPartType(e, t, elemOf)
+	if m, ok := under(t).(*types.Map); ok {
+		key = cMapKey(m.Key(), key)
+	}
 	var pairs []cppir.Expr
 	fg.g.noteMap(e.Lbrace, "literal gp::map_of") // why.go
 	for _, kv := range fg.mapEntries(e) {
@@ -216,6 +219,9 @@ func (fg *funcGen) emitMapLit(it *orderItem, e *ast.CompositeLit, pre *[]cppir.S
 	lt := fg.g.litType(e)
 	typ := fg.g.litPartType(e, lt, nil) // (first: its own checks, as in mapLit)
 	key, elem := fg.g.litPartType(e, lt, keyOf), fg.g.litPartType(e, lt, elemOf)
+	if m, ok := under(lt).(*types.Map); ok {
+		key = cMapKey(m.Key(), key)
+	}
 	statics, dynamics := fg.splitEntries(e)
 	var start cppir.Expr
 	if len(statics) == 0 {
@@ -449,7 +455,7 @@ func (fg *funcGen) mapBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 		var targs []cppir.Node
 		if at, ok := ast.Unparen(arg).(*ast.MapType); ok && !complete(mt) {
 			// map[string]C.int: the C/C++ parts from the type expression (ctypes.go).
-			targs = []cppir.Node{fg.g.typeExpr(at.Key), fg.g.typeExpr(at.Value)}
+			targs = []cppir.Node{cMapKey(mt.Key(), fg.g.typeExpr(at.Key)), fg.g.typeExpr(at.Value)}
 		} else {
 			targs = []cppir.Node{fg.g.cxxType(mt.Key(), arg.Pos()), fg.g.cxxType(mt.Elem(), arg.Pos())}
 		}
@@ -914,4 +920,15 @@ func rangeKey(start string, it cppir.Expr) cppir.Expr {
 		return &cppir.Call{Fun: &cppir.Member{X: it, Name: "gp_v"}} // the element: taken out of the iterator
 	}
 	return &cppir.Member{X: it, Name: "gp_i"}
+}
+
+// cMapKey returns the C++ key type of a gocpp map whose Go key type is t and C++ key type key:
+// gp::cgo::map_key<K> for a key with C/C++ parts (map[std.string]int, map[[2]std.string]int, a struct
+// with a std.string field), which is K and checks at the map's line that gp::map can hash and compare
+// it (interop.hpp: key_ok), else key.
+func cMapKey(t types.Type, key cppir.Type) cppir.Type {
+	if complete(t) && !cmpHasC(t) {
+		return key
+	}
+	return &cppir.TypeName{Name: "gp::cgo::map_key", Args: []cppir.Node{key}}
 }

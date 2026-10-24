@@ -75,10 +75,12 @@ func (g *gen) typeExpr(e ast.Expr) cppir.Type {
 			// A pointer to a C/C++ type is a key: gp::cptr compares and hashes by address.
 			return mapType(g.typeExpr(x.Key), g.typeExpr(x.Value))
 		}
-		if tv, ok := g.info.Types[x.Key]; !ok || !tv.IsType() || cmpHasC(tv.Type) {
-			break // a key with a C/C++ part: its hash and == are the C++ compiler's
+		if tv, ok := g.info.Types[x.Key]; !ok || !tv.IsType() {
+			break
 		}
-		return mapType(g.typeExpr(x.Key), g.typeExpr(x.Value))
+		// A C/C++ key, map[std.string]int: gp::map hashes it with std::hash and compares it with its ==
+		// (hash.hpp); gp::cgo::map_key checks that it has them, at the map's line (maps.go: cMapKey).
+		return mapType(cMapKey(g.info.Types[x.Key].Type, g.typeExpr(x.Key)), g.typeExpr(x.Value))
 	case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr:
 		if r, ok := g.cRefOf(x); ok {
 			return g.cType(r, e)

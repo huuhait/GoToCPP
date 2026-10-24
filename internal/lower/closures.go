@@ -487,11 +487,11 @@ func (fg *funcGen) callArgs(c *ast.CallExpr, sig *types.Signature) []cppir.Expr 
 	case c.Ellipsis.IsValid():
 		// f(s...): the slice itself; go/types leaves a nil s untyped.
 		if a := c.Args[n-1]; fg.g.info.Types[a].IsNil() {
-			return append(args, construct(fg.g.cxxType(last, a.Pos())))
+			return append(args, fg.nilVariadic(st, a.Pos()))
 		}
 		return append(args, fg.expr(c.Args[n-1]))
 	case len(c.Args) < n:
-		return append(args, construct(fg.g.cxxType(last, c.Pos()))) // no arguments: nil
+		return append(args, fg.nilVariadic(st, c.Pos())) // no arguments: nil
 	}
 	elem := fg.g.cxxType(st.Elem(), c.Pos())
 	vals := fg.exprs(c.Args[n-1:], false)
@@ -501,6 +501,17 @@ func (fg *funcGen) callArgs(c *ast.CallExpr, sig *types.Signature) []cppir.Expr 
 		elem = typeName("std::decay_t<decltype(" + cppir.ExprString(vals[0]) + ")>")
 	}
 	return append(args, templateCall("gp::slice_of", []cppir.Node{elem}, &cppir.InitList{Elems: vals}))
+}
+
+// nilVariadic returns the nil slice of the variadic parameter of type st that a call without its
+// arguments passes: gp::slice<T>(), or {} when the element is a type parameter that C++ deduces
+// (slices.Insert(e, 0) with e a []std.string): that parameter is not in scope at the call, and the
+// empty braces leave it to its default, the element of S (generics.go: openCores).
+func (fg *funcGen) nilVariadic(st *types.Slice, pos token.Pos) cppir.Expr {
+	if fg.g.hasOpenOutOfScope(st.Elem()) {
+		return &cppir.InitList{}
+	}
+	return construct(fg.g.cxxType(st, pos))
 }
 
 // viewArgs changes the arguments of the call c that go to the hidden string parameters of a macro (viewIndex) to

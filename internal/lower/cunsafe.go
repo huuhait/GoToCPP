@@ -50,7 +50,27 @@ func (g *gen) cPointerType(c *ast.CallExpr) ast.Expr {
 	if tv, ok := g.info.Types[c.Fun]; ok && tv.IsType() && complete(tv.Type) {
 		return nil
 	}
+	if g.isValueExpr(star.X) {
+		return nil // (*pf)(x): a call of the func that pf points to (pf *func(std.string) int)
+	}
 	return star
+}
+
+// isValueExpr reports whether e is a value, not a type: a variable, or an expression go/types typed
+// as a value (p.f of a struct).
+func (g *gen) isValueExpr(e ast.Expr) bool {
+	e = ast.Unparen(e)
+	if tv, ok := g.info.Types[e]; ok {
+		return tv.IsValue()
+	}
+	switch x := e.(type) {
+	case *ast.Ident:
+		_, isVar := g.info.Uses[x].(*types.Var)
+		return isVar
+	case *ast.SelectorExpr:
+		return g.info.Selections[x] != nil
+	}
+	return false
 }
 
 // cPointerConversion returns the C++ of the conversion c to a pointer type with a C/C++ part
@@ -122,7 +142,14 @@ func (g *gen) cSliceOK(x *ast.SliceExpr) bool {
 // gp::cgo::slice_of(a) is the slice of all of its elements, over the C++ memory (it owns nothing:
 // C++'s lifetime rules), and the bounds are gp::sub's, with Go's checks and panics.
 func (fg *funcGen) cSlice(x *ast.SliceExpr) cppir.Expr {
-	s := call("gp::cgo::slice_of", fg.expr(x.X))
+	var s cppir.Expr
+	if isSlice(fg.g.info.TypeOf(x.X)) {
+		// A gocpp slice of C/C++ values that check took for a C/C++ value: the result of a generic call
+		// whose type arguments C++ deduces, r[1:] of r := slices.Insert(c, 1, cv) (deducedres.go).
+		s = fg.expr(x.X)
+	} else {
+		s = call("gp::cgo::slice_of", fg.expr(x.X))
+	}
 	switch {
 	case x.Low == nil && x.High == nil && x.Max == nil:
 		return s
@@ -616,6 +643,13 @@ func (fg *funcGen) isGocppPointer(e ast.Expr) bool {
 func (fg *funcGen) boxedAutoType(v *types.Var, id *ast.Ident) cppir.Type {
 	if te := fg.g.valueTypeExpr(fg.g.initialValue(v)); te != nil {
 		return fg.g.typeExpr(te)
+	}
+	if o := fg.g.varOrigin(v); o != v {
+		// A local of an instance of a generic function (f := func(s std.string) T {...}): the
+		// declaration's initial value, whose parts have the instance's types now (apply).
+		if te := fg.g.valueTypeExpr(fg.g.initialValue(o)); te != nil {
+			return fg.g.typeExpr(te)
+		}
 	}
 	fg.g.unsupported(id.Pos(), "taking the address of "+v.Name()+", a variable of a C/C++ value without a declared type: declare it, var "+v.Name()+" T = ...")
 	return typeName("gp_unsupported")

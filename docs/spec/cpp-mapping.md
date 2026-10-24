@@ -809,6 +809,20 @@ or range that finds a write in progress dies with `fatal error: concurrent map w
 map read and map write`, `concurrent map iteration and map write`), which catches some races, not all.
 A reference taken with `gp::ref` is valid until the next store of a new key (the table can grow).
 
+### Maps with C/C++ keys, and `==` on values with C/C++ parts
+
+| gocpp | C++ | Notes |
+|---|---|---|
+| `map[std.string]int`, `map[[2]std.string]int`, `map[K]int` (K a struct with a C/C++ field) | `gp::map<gp::cgo::map_key<std::string>, int64_t>`, ... | `gp::cgo::map_key<K>` is `K`: it `static_assert`s at the map's line that `gp::cgo::key_ok<K>` holds (`std::hash` and `==` for a C/C++ type, element by element for a `gp::array`, the struct's own `gp_hash` and `==` for a struct), else `this C/C++ type can't be the key of a gocpp map` (`interop.hpp`). gp::map hashes such a key through `std::hash`, or its `gp_hash` |
+| `type K struct{ name std.string; n int }` | `template <typename gp_S = K> requires (std::same_as<gp_S, K> && std::equality_comparable<std::string>) bool operator==(const gp_S&) const`, and a `gp_hash()` template that requires `gp::cgo::key_ok` of the C/C++ fields | the members of a struct with C/C++ fields (`lower/typedecl.go: cKeyMembers`): templates whose bodies and constraints are only looked at where they are used, so a struct whose C/C++ field has no `==` or hash is still a struct. A struct that Go could not compare apart from its C/C++ parts (a slice, map or func field, also in a nested struct or an array) gets neither member (`comparableApartFromC`): in an interface it is uncomparable and unhashable, as in Go |
+| `x == y`, `x != y`, `switch x { case y: }` of such a struct or an array of C/C++ values | `gp::cgo::value_eq(x, y)`, `!gp::cgo::value_eq(x, y)` | the struct's `operator==` (or `gp::array`'s), field by field without the blank fields; a C/C++ part without `==` is an error at the line: `== compares the C/C++ parts of this value with C++'s ==, which a C/C++ type in it doesn't have` |
+| `any(x) == any(y)`, `map[any]T` keys | the descriptor's `==` and hash, which are the struct's | as in Go; without `==` for a C/C++ part, `comparing uncomparable type` at run time |
+| `fmt.Println(m)` of a map with C/C++ keys | fmtsort's `compare` | a C++ string by its `compare`, a C++ class by its `operator<` (`type_ops::gp_cmp`); a class key without `operator<` is an error at the print (`gp::cgo::fmt_arg`: `fmt prints the keys of a map in order, and a C++ class key needs an operator< for that`) |
+
+Tests: `tests/interop/map_cxx_key.gp`, `map_cxx_key_class.gp`, `map_cxx_key_error.gp`, `map_cxx_key_print_error.gp`,
+`cxx_struct_eq.gp`, `cxx_struct_eq_error.gp`; ADR-141 (round 3 and 4). The user's view is in
+[interop.md](interop.md#maps-with-cc-keys-and--on-values-with-cc-parts).
+
 ## Floating-point numbers and package math
 
 gocpp copies what gc does on amd64 (`GOAMD64=v1` or `v2`), bit for bit, on every platform
@@ -2925,7 +2939,10 @@ inline void gp_inst_e0e468d0_Stack::Push(gp::ptr<gp_inst_e0e468d0_Stack> s, int6
   C++ type, `[]std.vector[int]`), `E` is not deducible from the arguments, so the template gives it the
   default `typename gp::detail::slice_elem_of<S>::type`; `len`, `cap`, index, slice expressions, `range` and
   `append` on a value of `S` are the slice operations (`tests/interop/generics_cxx_slice_core.gp`).
-  `make(S, n)`, `copy` and conversions to `S` are not built for a deduced `S`. `E` may come before `S`
+  `make(S, n)` (also in `append(s, make(S, n)...)`), `copy`, the literal `S{...}` and the conversions `S(nil)`, `S(t)` and
+  `[]E(s)` are those of the slice `[]E`, which a deduced `S` is in C++; an empty variadic `...E` is `{}` (`tests/interop/generics_cxx_slice_make.gp`), so
+  `slices.Insert`, `Replace`, `Grow`, `Clone`, `Concat`, `Repeat` and the others run on a `[]std.string`
+  (`tests/interop/generics_cxx_stdlib.gp`). `E` may come before `S`
   (`func Wrap[T any, S ~[]T](xs S)`): the template parameters are written with each `E` after its `S`, so
   that the default can name it (`tests/interop/generics_cxx_range_func.gp`). A written `S` (`F[[]std.string]`) and a
   map `M ~map[K]V` with a C++ part, written or inferred (`Keys[map[int]std.string](m)`, `Keys(m)`), are made `[]T` and

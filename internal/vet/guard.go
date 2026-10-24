@@ -148,6 +148,17 @@ func touchesInvalid(info *types.Info, memo map[types.Type]bool, n ast.Node) bool
 			bad = true
 			return false
 		}
+		// A call that go/types recorded no type for (it records one for every call it checked,
+		// the empty tuple for a call without results): a call of a generic function whose type
+		// argument C++ deduces from a C/C++ value, Grow(words, std.string("x")), which go/types
+		// could not instantiate. refactor/satisfy (printf) panics on it: "no type for
+		// *ast.CallExpr".
+		if call, ok := e.(*ast.CallExpr); ok {
+			if _, has := info.Types[call]; !has {
+				bad = true
+				return false
+			}
+		}
 		// A selector that go/types could not resolve (C.f, std.string): it
 		// has no object, and the code that looks for one crashes.
 		if sel, ok := e.(*ast.SelectorExpr); ok && info.Selections[sel] == nil && info.Uses[sel.Sel] == nil {

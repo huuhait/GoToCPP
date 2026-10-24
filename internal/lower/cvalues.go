@@ -60,8 +60,15 @@ func (g *gen) varType(v *types.Var, pos token.Pos) cppir.Type {
 		g.notYet(pos, g.pkgCVarMessage(v))
 		return typeName("gp_unsupported")
 	}
-	if v.IsField() || v.Parent() == nil {
-		g.unsupported(pos, "package variables of C/C++ values without a type ("+v.Name()+"): write its type, var "+v.Name()+" T = ...")
+	// A variable of an instance of a generic function is a new one (subst.go), with no parent: its
+	// origin is the parameter, local or field of the declaration.
+	o := g.varOrigin(v)
+	if o.IsField() {
+		g.unsupported(pos, "a field of a C/C++ type that gocpp can't spell here ("+v.Name()+")")
+		return typeName("gp_unsupported")
+	}
+	if o.Parent() == nil {
+		g.unsupported(pos, "a variable of a C/C++ type that gocpp can't spell here ("+v.Name()+")")
 		return typeName("gp_unsupported")
 	}
 	return typeName("auto")
@@ -75,6 +82,16 @@ func (g *gen) declaredType(v *types.Var, pos token.Pos) cppir.Type {
 	}
 	if e := g.pkg.Opaque.TypeExpr(v); e != nil {
 		return g.typeExpr(e)
+	}
+	if o := g.varOrigin(v); o != v {
+		// A variable of an instance whose type mentions a type parameter (var cb func(std.string) T):
+		// the declaration's type expression, whose parts have the instance's types now (apply).
+		if e := g.pkg.Opaque.TypeExpr(o); e != nil {
+			return g.typeExpr(e)
+		}
+		if e := g.sigTypes()[o]; e != nil {
+			return g.typeExpr(e) // an unnamed result, func() func(std.string) T
+		}
 	}
 	if e := g.sigTypes()[v]; e != nil {
 		return g.typeExpr(e)
@@ -217,6 +234,11 @@ func (fg *funcGen) opaqueExpr(e ast.Expr) cppir.Expr {
 				// A field of a C/C++ type of a gocpp struct, or a method value or expression of a
 				// gocpp type with C/C++ parameters or results (structs.go, methods.go).
 				return fg.selector(y)
+			}
+			if obj := fg.g.qualifiedObj(y); obj != nil {
+				// A package variable or function of another package of the program with C/C++ parts
+				// (lib.Ws with var Ws []std.string): xpkg.go.
+				return fg.qualified(obj, y.Pos())
 			}
 			x := fg.expr(y.X)
 			if path := fg.g.pkg.PromotedPath(y); path != nil {
@@ -371,10 +393,16 @@ func (fg *funcGen) cUnary(e *ast.UnaryExpr) cppir.Expr {
 		if fg.escapedAddr(e) {
 			return fg.ownedLocalAddr(e) // &x stored in a package variable: the pointer owns x's box (cbox.go)
 		}
-		switch ast.Unparen(e.X).(type) {
+		switch x := ast.Unparen(e.X).(type) {
 		case *ast.SelectorExpr, *ast.IndexExpr:
 			if owned, _ := ownedPath(fg.g.info, e.X); owned {
 				return fg.cOwnedAddr(e) // &s.f, &xs[i] of a gocpp value: a gp::cptr (cunsafe.go)
+			}
+		case *ast.Ident:
+			if v, ok := fg.g.info.Uses[x].(*types.Var); ok && gocppHolder(v.Type()) && (isPkgVar(v) || fg.inBox(v) || fg.onStack(v)) {
+				// &f of a gocpp func, slice, map or channel of C/C++ values (f func(std.string) int): a
+				// gocpp pointer to the variable, as for any gocpp variable (addr.go), not a C++ address.
+				return fg.addr(e)
 			}
 		}
 		return &cppir.Unary{Op: "&", X: fg.expr(e.X)}
@@ -759,4 +787,14 @@ func (fg *funcGen) cCompareText(cmp ast.Expr, x cppir.Expr, toBool bool) cppir.E
 		return call("gp::cgo::to_bool", x)
 	}
 	return x
+}
+
+// gocppHolder reports whether t is a gocpp func, slice, map or channel type, also one of C/C++
+// values: its values are gocpp values whatever their parts are.
+func gocppHolder(t types.Type) bool {
+	switch t.Underlying().(type) {
+	case *types.Signature, *types.Slice, *types.Map, *types.Chan:
+		return true
+	}
+	return false
 }

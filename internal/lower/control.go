@@ -730,11 +730,11 @@ func withLead(pos cppir.Pos, lead []cppir.Stmt, s cppir.Stmt) cppir.Stmt {
 // initialization of a variable of another case.
 func (fg *funcGen) switchStmt(s *ast.SwitchStmt) {
 	if s.Tag != nil {
-		if t := fg.g.info.TypeOf(s.Tag); t != nil && complete(t) && cmpHasC(t) {
-			// A gocpp struct or array with a C/C++ part has no == in C++ (typedecl.go).
-			fg.g.unsupported(s.Tag.Pos(), "switch on values with C/C++ parts (Phase 12)")
-			return
-		}
+		// A gocpp struct or array with a C/C++ part: its == compares the C/C++ parts with C++'s ==
+		// (typedecl.go: cKeyMembers), each case is gp::cgo::value_eq(tag, v).
+		defer func(old bool) { fg.partTag = old }(fg.partTag)
+		t := fg.g.info.TypeOf(s.Tag)
+		fg.partTag = t != nil && complete(t) && cmpHasC(t)
 		// A C/C++ value: each case is gp::cgo::case_eq(tag, v), C++'s == for a number, an
 		// enum or a pointer (README §2.5), and a clear C++ error for anything else.
 		defer func(old bool) { fg.cTag = old }(fg.cTag)
@@ -938,6 +938,8 @@ func (fg *funcGen) caseCond(tag, boolTag cppir.Expr, list []ast.Expr) ([]*cppir.
 			pres[i] = fg.order(false, e)
 			if fg.cTag {
 				parts[i] = call("gp::cgo::case_eq", tag, fg.cValueOf(e)) // cvalues.go
+			} else if fg.partTag {
+				parts[i] = call("gp::cgo::value_eq", tag, fg.expr(e)) // (ops.go: binary)
 			} else {
 				parts[i] = &cppir.Binary{Op: "==", X: tag, Y: at(fg.expr(e), precShift)}
 			}

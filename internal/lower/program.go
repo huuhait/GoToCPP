@@ -54,12 +54,47 @@ type Program struct {
 	localOrigins  map[*types.Named]*localInfo // the types declared in generic functions (localtypes.go)
 	localTagOf    map[*types.TypeName]string  // their origins' tags
 	localImplicit map[*types.TypeName]int     // their origins' leading type parameters of the function
+	// localParams are, for each synthetic origin, the type parameters that its own stand for in the
+	// declaration: the function's, then the type's.
+	localParams   map[*types.TypeName][]*types.TypeParam
 	instTypeNames map[string]string
 
 	// The extern functions of the program (extern.go): their declarations by function, and the
 	// declarations seen so far by C++ name, to compare the later ones with.
 	externFuncs map[*types.Func]load.ExternDecl
 	externSeen  map[string][]externRecord
+
+	// varOrigins are the variables of the generic functions (parameters, locals, fields of unnamed
+	// struct types) by the variable that an instance has for each (subst.go: varFor).
+	varOrigins map[*types.Var]*types.Var
+}
+
+// noteVarOrigins records the variables that the substituter s made, with the variable each one
+// replaces (varOrigin).
+func (p *Program) noteVarOrigins(s *subster) {
+	if p == nil {
+		return
+	}
+	for o, n := range s.vars {
+		if n == o {
+			continue
+		}
+		if p.varOrigins == nil {
+			p.varOrigins = make(map[*types.Var]*types.Var)
+		}
+		p.varOrigins[n] = o
+	}
+}
+
+// varOrigin returns the variable of the generic declaration that the variable v of an instance
+// replaces, or v.
+func (g *gen) varOrigin(v *types.Var) *types.Var {
+	if g.prog != nil {
+		if o := g.prog.varOrigins[v]; o != nil {
+			return o
+		}
+	}
+	return v
 }
 
 // A PackageInput is a type-checked package for NewProgram, with what the C++ compiler's probes
@@ -143,6 +178,14 @@ func PkgDir(path string) string {
 // Lower lowers the packages and returns their files in the order of the packages of NewProgram.
 // It returns an *Error for a construct that it can't translate.
 func (p *Program) Lower() ([]*PackageFiles, error) {
+	// The types that the lowering gave to deduced generic results (deducedres.go) stay in the
+	// packages' maps until every package and every shared instance is written: an instance of a generic
+	// type of a package (its methods' bodies) is lowered after all packages (finishShared).
+	defer func() {
+		for _, g := range p.gens {
+			g.restoreTypes()
+		}
+	}()
 	for _, g := range p.gens {
 		if !g.lowerSplit() {
 			return nil, p.firstError()

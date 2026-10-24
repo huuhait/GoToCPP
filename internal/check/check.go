@@ -559,6 +559,7 @@ func Check(prog *load.Program, cfg Config) *Result {
 			checked[lp] = p.Types
 			failed[lp] = depsFailed || hasHardErrors(p.Errors)
 			sums.add(p) // its generic functions, for itself and its importers
+			p.reportForeignCxxGenerics(prog.Fset, sums)
 			if !p.typesClean {
 				// After the opaque pass: limits of the lowering, not errors that leave a type
 				// incomplete, so they do not turn the pass's sanity rule off, nor the checks of the

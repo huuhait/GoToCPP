@@ -41,32 +41,35 @@ func OnceFunc(f func()) func() {
 // returned by f. The returned function may be called concurrently.
 //
 // If f panics, the returned function will panic with the same value on every call.
+//
+// gocpp: the state is local variables that the closures capture, as in Go 1.22 (with Go 1.25's f = nil
+// in the deferred function), not Go 1.25's one struct, so that T may be a C/C++ type (std.string):
+// gocpp has no unnamed struct type with a C/C++ type argument yet (PORT.md). g is made once, so a
+// call makes no closure.
 func OnceValue[T any](f func() T) func() T {
-	d := struct {
-		f      func() T
+	var (
 		once   Once
 		valid  bool
 		p      any
 		result T
-	}{
-		f: f,
+	)
+	g := func() {
+		defer func() {
+			f = nil
+			p = recover()
+			if !valid {
+				panic(p)
+			}
+		}()
+		result = f()
+		valid = true
 	}
 	return func() T {
-		d.once.Do(func() {
-			defer func() {
-				d.f = nil
-				d.p = recover()
-				if !d.valid {
-					panic(d.p)
-				}
-			}()
-			d.result = d.f()
-			d.valid = true
-		})
-		if !d.valid {
-			panic(d.p)
+		once.Do(g)
+		if !valid {
+			panic(p)
 		}
-		return d.result
+		return result
 	}
 }
 
@@ -74,32 +77,32 @@ func OnceValue[T any](f func() T) func() T {
 // returned by f. The returned function may be called concurrently.
 //
 // If f panics, the returned function will panic with the same value on every call.
+//
+// gocpp: local variables and a g made once, as in OnceValue.
 func OnceValues[T1, T2 any](f func() (T1, T2)) func() (T1, T2) {
-	d := struct {
-		f     func() (T1, T2)
+	var (
 		once  Once
 		valid bool
 		p     any
 		r1    T1
 		r2    T2
-	}{
-		f: f,
+	)
+	g := func() {
+		defer func() {
+			f = nil
+			p = recover()
+			if !valid {
+				panic(p)
+			}
+		}()
+		r1, r2 = f()
+		valid = true
 	}
 	return func() (T1, T2) {
-		d.once.Do(func() {
-			defer func() {
-				d.f = nil
-				d.p = recover()
-				if !d.valid {
-					panic(d.p)
-				}
-			}()
-			d.r1, d.r2 = d.f()
-			d.valid = true
-		})
-		if !d.valid {
-			panic(d.p)
+		once.Do(g)
+		if !valid {
+			panic(p)
 		}
-		return d.r1, d.r2
+		return r1, r2
 	}
 }

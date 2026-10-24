@@ -250,3 +250,28 @@ func main() {
 	f("%d\n", rest...)
 	f("%d\n", "x", v.size()) // want `f format %d has arg "x" of wrong type string`
 }
+-- opaque_generic_call/main.gp --
+package main
+
+// A call of a generic function whose type argument C++ deduces from a C/C++ value has no type in
+// go/types (it could not instantiate Grow): printf (refactor/satisfy) crashed on it ("no type for
+// *ast.CallExpr"). Such a call is replaced by an unknown value, as a C/C++ argument is.
+import (
+	"fmt"
+	"slices"
+
+	"<string>"
+)
+
+func Count[S ~[]T, T any](xs S) int { return len(xs) }
+
+func Grow[T any, S ~[]T](xs S, x T) S { return append(xs[:len(xs):len(xs)], x) }
+
+func main() {
+	words := []std.string{"a", "bcd"}
+	fmt.Println(Count(Grow(words, std.string("x"))))
+	fmt.Printf("%d\n", Count(Grow(words, std.string("y"))), "extra") // want `fmt.Printf call needs 1 arg but has 2 args`
+	words = slices.Insert(words, 1, std.string("q"))
+	fmt.Println(len(slices.Insert(words, 0, std.string("r"))))
+	fmt.Printf("%d\n", "z") // want `Printf format %d has arg "z" of wrong type string`
+}

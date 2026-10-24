@@ -599,6 +599,93 @@ func (g *gen) byValue(t types.Type) []*structInfo {
 	return nil
 }
 
+// fieldType returns the C++ type of the field f of the struct si (varType). A field of an instance of
+// a generic struct type whose type has C/C++ parts and mentions a type parameter (f func(std.string) T
+// of H[int]) is a new field that go/types made with T replaced, and has no type expression of its
+// own: its C++ is the type expression of the generic declaration's field, lowered with the types of
+// its parts replaced by the type arguments, as the body of a generic function is for an instance.
+func (g *gen) fieldType(si *structInfo, f *types.Var) cppir.Type {
+	if n, ok := si.t.(*types.Named); ok && si.inst != nil && !complete(f.Type()) && f.Origin() != f {
+		// The declaration's type expression and its types are those of the package that declares the
+		// generic type (an importer writes the instance too: lib.H[int]).
+		o := g.other(n.Origin().Obj().Pkg())
+		if o == nil {
+			o = g
+		}
+		// A type declared in a generic function: its synthetic origin's field stands for the declared one.
+		if te := o.pkg.Opaque.TypeExpr(g.varOrigin(f.Origin())); te != nil {
+			if t := o.instTypeExpr(n, te); t != nil {
+				return t
+			}
+		}
+	}
+	return g.varType(f, f.Pos())
+}
+
+// instTypeExpr returns the C++ of the type expression te of the declaration of the generic type of
+// the instance n, with the types of its parts replaced by n's type arguments, or nil when n's type
+// arguments do not match its type parameters.
+func (g *gen) instTypeExpr(n *types.Named, te ast.Expr) cppir.Type {
+	tparams := n.Origin().TypeParams()
+	if tparams.Len() == 0 || tparams.Len() != n.TypeArgs().Len() {
+		return nil
+	}
+	targs := slices.Collect(n.TypeArgs().Types())
+	s := newSubster(tparams, targs, g.context())
+	if old := g.prog.localParams[n.Origin().Obj()]; old != nil {
+		// A type declared in a generic function (localtypes.go): the declaration is written with the
+		// function's type parameters and the type's own, which the origin's stand for.
+		if len(old) != len(targs) {
+			return nil
+		}
+		for i, p := range old {
+			s.env[p] = targs[i]
+		}
+	}
+	// The types go/types recorded for the declaration: an instance of the generic function that declares
+	// the type has replaced them in the package's maps (apply), its snapshot has them.
+	recorded := g.info.Types
+	if gf := g.enclosingGeneric(te); gf != nil {
+		recorded = gf.snapshot().types
+	}
+	saved := make(map[ast.Expr]types.TypeAndValue)
+	ast.Inspect(te, func(x ast.Node) bool {
+		if e, ok := x.(ast.Expr); ok {
+			if tv, ok := recorded[e]; ok {
+				saved[e] = g.info.Types[e]
+				tv.Type = s.typ(tv.Type)
+				g.info.Types[e] = tv
+			}
+		}
+		return true
+	})
+	defer func() {
+		for e, tv := range saved {
+			g.info.Types[e] = tv
+		}
+	}()
+	return g.typeExpr(te)
+}
+
+// enclosingGeneric returns the generic function or method of a generic type, of this package, whose
+// declaration holds the node n, or nil.
+func (g *gen) enclosingGeneric(n ast.Node) *genericFunc {
+	in := func(gf *genericFunc) bool { return gf.decl.Pos() <= n.Pos() && n.End() <= gf.decl.End() }
+	for _, gf := range g.generics {
+		if gf.decl != nil && in(gf) {
+			return gf
+		}
+	}
+	for _, gt := range g.genericTypes {
+		for _, gf := range gt.methods {
+			if gf.decl != nil && in(gf) {
+				return gf
+			}
+		}
+	}
+	return nil
+}
+
 // structDef returns the definition of the struct si and its static_assert.
 func (g *gen) structDef(si *structInfo) []cppir.Decl {
 	if si.under != nil {
@@ -623,13 +710,13 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 		if !complete(f.Type()) {
 			init = &cppir.InitList{} // a C/C++ type (ctypes.go): value-initialized, T f{};
 		}
-		d := varDecl(cppir.Pos{}, g.varType(f, f.Pos()), si.fields[i], init)
+		d := varDecl(cppir.Pos{}, g.fieldType(si, f), si.fields[i], init)
 		if !complete(f.Type()) && cObject(f.Type()) && g.maybeNoDefault(f) {
 			// Go's zero value of the struct needs one of the field: a C++ type with no default
 			// constructor is a clear error here (the default member initializer, T f{}, would be
 			// an error deep in the struct's own code).
 			s.Members = append(s.Members, &cppir.StaticAssert{Pos: g.pos(f.Pos()),
-				Cond: &cppir.Name{Name: "gp::cgo::field_zero", Args: []cppir.Node{g.varType(f, f.Pos())}}})
+				Cond: &cppir.Name{Name: "gp::cgo::field_zero", Args: []cppir.Node{g.fieldType(si, f)}}})
 		}
 		s.Members = append(s.Members, d)
 		if f.Name() != "_" {
@@ -669,6 +756,9 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 				Vars: []cppir.Declarator{{Name: "gp_hash_panics", Init: lit("true")}}})
 		}
 	}
+	if cpart && comparableApartFromC(si.st) {
+		s.Members = append(s.Members, g.cKeyMembers(si, compared)...)
+	}
 	// gp_fields lists every field, in order: gp::convert copies a struct field by field, and
 	// gp::cgo::fmt_arg walks the C++ types of a struct with a C/C++ field to register the text of
 	// its C++ classes.
@@ -694,6 +784,92 @@ func (g *gen) structDef(si *structInfo) []cppir.Decl {
 		return []cppir.Decl{s}
 	}
 	return []cppir.Decl{s, g.layoutAssert(si)} // named.go
+}
+
+// cKeyMembers returns the == and the gp_hash of a struct with C/C++ fields, which a gocpp map with
+// it as the key needs (map[K]int with type K struct{ name std.string; n int }): templates whose
+// constraints require == of the C/C++ fields, and gp::cgo::key_ok of them for gp_hash, so that neither
+// is an error where the struct is no key (gp::cgo::map_key says so where it is one). Go's == of two
+// such values is this operator== (ops.go: binary, gp::cgo::value_eq).
+func (g *gen) cKeyMembers(si *structInfo, compared []string) []cppir.Decl {
+	var keyReqs, eqReqs []string
+	for i := range si.st.NumFields() {
+		f := si.st.Field(i)
+		if f.Name() == "_" || complete(f.Type()) && !cmpHasC(f.Type()) {
+			continue
+		}
+		t := cppir.TypeString(g.fieldType(si, f))
+		keyReqs = append(keyReqs, "gp::cgo::key_ok<"+t+">::value")
+		eqReqs = append(eqReqs, "std::equality_comparable<"+t+">")
+	}
+	// Templates over gp_S, which is the struct itself: the bodies are dependent, so neither they nor
+	// the constraints are looked at before a use (a == of a C struct without one is no error at the
+	// struct, and a defaulted == that C++ deletes would be a clang warning).
+	tmpl := func(reqs []string) *cppir.Template {
+		t := &cppir.Template{Params: []cppir.Param{{Type: typeName("typename"), Name: "gp_S", Default: lit(si.name)}}}
+		// (gp_S is the struct: a comparison with another type is no match, not an error.)
+		reqs = append([]string{"std::same_as<gp_S, " + si.name + ">"}, reqs...)
+		t.Requires = lit("(" + strings.Join(reqs, " && ") + ")")
+		return t
+	}
+	// Go's == skips the blank fields.
+	var x cppir.Expr = lit("true")
+	for i, f := range compared {
+		c := &cppir.Binary{Op: "==", X: &cppir.Member{X: cxxName("gp_s"), Name: f}, Y: &cppir.Member{X: cxxName("gp_o"), Name: f}}
+		if i == 0 {
+			x = c
+		} else {
+			x = &cppir.Binary{Op: "&&", X: x, Y: c}
+		}
+	}
+	this := varDecl(cppir.Pos{}, &cppir.Ref{Elem: &cppir.Const{Elem: typeName("gp_S")}}, "gp_s", lit("*this"))
+	eq := &cppir.Func{Template: tmpl(eqReqs), Result: typeName("bool"), Name: "operator==",
+		Params: []cppir.Param{{Type: &cppir.Ref{Elem: &cppir.Const{Elem: typeName("gp_S")}}, Name: "gp_o"}},
+		Quals:  []string{"const"}, Body: &cppir.Block{Stmts: []cppir.Stmt{this, &cppir.Return{X: x}}}}
+	args := make([]cppir.Expr, len(compared))
+	for i, f := range compared {
+		args[i] = &cppir.Member{X: cxxName("gp_s"), Name: f}
+	}
+	hash := &cppir.Func{Template: tmpl(keyReqs), Result: typeName("std::size_t"), Name: "gp_hash", Quals: []string{"const"},
+		Body: &cppir.Block{Stmts: []cppir.Stmt{this, &cppir.Return{X: call("gp::hash_fields", args...)}}}}
+	return []cppir.Decl{eq, hash}
+}
+
+// comparableApartFromC reports whether the struct st is comparable in Go but for its C/C++ parts,
+// whose == is C++'s: no field (a blank one included) is, or holds by value, a slice, a map, a func or
+// another type that Go cannot compare. A struct that has one gets no == and no gp_hash
+// (cKeyMembers), so any == any and a map[any]T key of it panic as in Go.
+func comparableApartFromC(st *types.Struct) bool {
+	for i := range st.NumFields() {
+		if !comparableApartFromCType(st.Field(i).Type(), map[types.Type]bool{}) {
+			return false
+		}
+	}
+	return true
+}
+
+func comparableApartFromCType(t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	if complete(t) && !cmpHasC(t) {
+		return types.Comparable(t)
+	}
+	switch u := under(t).(type) {
+	case *types.Array:
+		return comparableApartFromCType(u.Elem(), seen)
+	case *types.Struct:
+		for i := range u.NumFields() {
+			if !comparableApartFromCType(u.Field(i).Type(), seen) {
+				return false
+			}
+		}
+		return true
+	case *types.Slice, *types.Map, *types.Signature:
+		return false // also of C/C++ elements: []C.int
+	}
+	return true // a C/C++ type: C++'s == decides (gp::cgo::value_eq, key_ok)
 }
 
 // hasCFields reports whether the struct st has a field of a C/C++ type by value (also in an array

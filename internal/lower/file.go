@@ -102,6 +102,15 @@ var errNoMain = errors.New("function main is undeclared in the main package")
 
 // A gen holds the state of one Package call.
 type gen struct {
+	// valueMode is a TypeAndValue of a plain value of the package (deducedres.go: setValueMode).
+	valueMode     types.TypeAndValue
+	valueModeDone bool
+	// deduced are the expressions that typeDeducedResults typed, and typesUndo what setTypeTemp
+	// replaced in the maps.
+	typesUndo  map[ast.Expr]typeUndo
+	opaqueUndo []opaqueUndo
+	deduced    map[ast.Expr]bool
+
 	fset *token.FileSet
 	pkg  *check.Package
 	info *tinfo
@@ -318,7 +327,8 @@ func (g *gen) lower() bool {
 	if g.err != nil {
 		return false
 	}
-	g.checkCUses() // cguard.go
+	g.typeDeducedResults() // deducedres.go
+	g.checkCUses()         // cguard.go
 	if g.err != nil {
 		return false
 	}
@@ -341,6 +351,7 @@ func (g *gen) lower() bool {
 
 // file returns the whole translation unit.
 func (g *gen) file() *cppir.File {
+	defer g.restoreTypes() // deducedres.go: after everything that reads the package's type maps
 	if g.pkg.Types.Name() != "main" {
 		g.unsupported(g.pkg.Load.Files[0].AST.Name.Pos(), "package "+g.pkg.Types.Name()+": only package main can be built until Phase 06")
 		return nil

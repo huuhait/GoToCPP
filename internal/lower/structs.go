@@ -67,6 +67,10 @@ func (fg *funcGen) compLit(e *ast.CompositeLit) cppir.Expr {
 // named slice, map or array type is the literal of its underlying type converted to it (step
 // 3.9): IDs(gp::slice_of<int64_t>({1, 2})).
 func (fg *funcGen) litValue(e *ast.CompositeLit, t types.Type) cppir.Expr {
+	if fg.g.cxxCore(t) != nil {
+		// S{...} of an S ~[]E that C++ deduces: the slice literal []E{...} (empty, not nil, as in Go).
+		return fg.compositeLit(e)
+	}
 	switch {
 	case isArray(t):
 		return fg.arrayLit(e) // arrays.go

@@ -418,9 +418,19 @@ func TestFindMessage(t *testing.T) {
 			t.Errorf("FindMessage(%q) = %v, want %s first", tc.in, ids, tc.id)
 		}
 	}
-	// The most specific pattern only: "%s (Phase 12)" is not shown next to "%s on values with C/C++ parts (Phase 12)".
-	if ms := FindMessage("== on values with C/C++ parts (Phase 12)"); len(ms) != 1 {
-		t.Errorf("== on values with C/C++ parts: %d entries, want the most specific one", len(ms))
+	// The most specific pattern only: "%s (Phase 12)" is not shown next to the entry of its own.
+	if ms := FindMessage("./main.gp:7:2: lib.Ret uses C/C++ names, so it can only be instantiated in its own package (Phase 12)"); len(ms) != 1 {
+		t.Errorf("lib.Ret uses C/C++ names: %d entries, want the most specific one", len(ms))
+	}
+	// The errors of gocpp/interop.hpp's static_asserts at a .gp line, as the build prints them.
+	for in, id := range map[string]string{
+		"./main.gp:20: C++: == compares the C/C++ parts of this value with C++'s ==, which a C/C++ type in it doesn't have (compare the other parts yourself, or declare an operator== for that type)":           "cxx/value-eq",
+		"./main.gp:10: C++: this C/C++ type can't be the key of a gocpp map: the map hashes it with std::hash and compares it with ==, which it doesn't have (use a Go key, or a C++ map such as std.map[K, V])": "cxx/map-key",
+		"./main.gp:15: C++: fmt prints the keys of a map in order, and a C++ class key needs an operator< for that (declare one, or print the entries yourself)":                                                 "cxx/fmt-key-order",
+	} {
+		if ms := FindMessage(in); len(ms) != 1 || ms[0].ID != id {
+			t.Errorf("FindMessage(%q) = %v, want %s", in, ms, id)
+		}
 	}
 	for _, in := range []string{"", "nothing to see here", "interfaces are fine"} {
 		if ms := FindMessage(in); len(ms) != 0 {
@@ -666,8 +676,8 @@ func TestFallbacks(t *testing.T) {
 		}
 	}
 	// An entry of its own comes before a catch-all that also matches.
-	if ms := FindMessage("== on values with C/C++ parts (Phase 12)"); len(ms) != 1 || ms[0].ID != "lower/cpp-eq-switch" {
-		t.Errorf("== on values with C/C++ parts: %v", ms)
+	if ms := FindMessage("channel types as C++ template arguments are not available yet (Phase 12)"); len(ms) != 1 || ms[0].ID == "lower/phase-12" {
+		t.Errorf("channel types as C++ template arguments: %v", ms)
 	}
 }
 

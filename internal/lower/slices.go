@@ -55,6 +55,9 @@ import (
 // more than the largest index.
 func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 	t := fg.g.litType(e) // []T of an elided &[]T{...} too
+	if core := fg.g.cxxCore(t); core != nil {
+		t = core // S{...} of an S ~[]E that C++ deduces (litValue)
+	}
 	if isMap(t) {
 		return fg.mapLit(e) // step 3.7, maps.go
 	}
@@ -95,8 +98,10 @@ func (fg *funcGen) compositeLit(e *ast.CompositeLit) cppir.Expr {
 func (fg *funcGen) sliceBuiltin(c *ast.CallExpr, name string) cppir.Expr {
 	arg := c.Args[0]
 	t := fg.g.info.TypeOf(arg)
-	if core := fg.g.cxxCore(t); core != nil && name != "make" {
-		t = core // S ~[]E that C++ deduces (generics.go)
+	if core := fg.g.cxxCore(t); core != nil {
+		// S ~[]E that C++ deduces (generics.go): make(S, n) is make([]E, n), as S is a gp::slice of
+		// E (gocpp has no named type over a slice of C/C++ values).
+		t = core
 	}
 	if !isSlice(t) {
 		what := map[string]string{"make": "make of ", "append": "append to ", "copy": "copy to ", "clear": "clear of "}[name]
@@ -169,7 +174,7 @@ func (fg *funcGen) appendOfMake(c *ast.CallExpr) *ast.CallExpr {
 		return nil
 	}
 	mk, ok := ast.Unparen(c.Args[1]).(*ast.CallExpr)
-	if !ok || len(mk.Args) != 2 || !fg.isBuiltin(mk, "make") || !isSlice(fg.g.info.TypeOf(mk)) {
+	if !ok || len(mk.Args) != 2 || !fg.isBuiltin(mk, "make") || !isSlice(fg.g.info.TypeOf(mk)) && fg.g.cxxCore(fg.g.info.TypeOf(mk)) == nil {
 		return nil
 	}
 	return mk

@@ -110,6 +110,106 @@ arguments of a call inside another instance use the same order.
   written and gives its parts to `T`, `K` and `V`, baked in as written type arguments are. The core type is one
   function for the lowering and check, `check.CoreType` (also through embedded interfaces).
 
+## The standard library, vet and func fields with C++ values (2026-10-23, job dev.genericstd)
+
+- **`make(S, n)` of a deduced `S ~[]E`** (`slices.Insert(c, 1, std.string("q"))`, whose `append(s[:i], make(S, n)...)`
+  was `internal error: not supported yet: make of slices.gp_cxx_N_S`): `make`, the `append` of a `make` and the
+  conversions `S(nil)`, `S(t)` and `[]E(s)` use the stand-in's core slice `[]E`, as `len`, `append` and `copy` did. A
+  deduced `S` is a `gp::slice` in C++: gocpp has no named type over a slice of C/C++ values. `slices.Insert`, `Replace`,
+  `Grow`, `Clone`, `Concat`, `Repeat`, `Compact`, `Delete`, `DeleteFunc`, `Reverse`, `Clip`, `Index`, `Equal` and
+  `SortFunc` run on a `[]std.string`, deduced and written (`slices.Insert[[]std.string]`). `slices.Collect`,
+  `Sorted`, `Values` and `maps.Collect`, `All` take or make an `iter.Seq[E]`, a generic type instance with a C++ type
+  argument, which check reports at the call (above).
+- **`maps.Clone` of a map with a C++ value** (`map[int]std.string`) panicked with `maps.Clone: the map type can't be
+  copied`: the map is a foreign value in the `any` that `maps.clone` gets, and the foreign descriptor had no
+  `gp_map_clone`. `foreign_ops_of` sets it for a `gp::map` as `ops_of` does (`typeops.hpp`).
+- **`sync.OnceValue` and `OnceValues`** with a C++ result: Go 1.25 keeps their state in one unnamed struct with a field
+  of type `T`, and gocpp has no unnamed struct type with a C/C++ type argument (a positioned limit inside
+  `oncefunc.gp`). The port keeps the state in local variables that the closures capture and makes the function that
+  `once.Do` runs once, Go 1.22's form with Go 1.25's `f = nil` in the deferred function (`stdlib/sync/PORT.md`): the
+  same behavior; with `-release` a call takes 2 ns instead of 10-12 ns (the struct form made `Do`'s closure on every
+  call), and making the function about 55-70 ns more (five boxes and `g` instead of one struct).
+- **The name of a generic function of another package is no source of invalid** in the conversion analysis
+  (`convanalysis.go`), as the name of one of the package is not: go/types gives `sync.OnceValue` the instance's
+  signature with the invalid `T`, and `int(v.size())` of `v := once()` was left for the build, which said `internal
+  error: ... passing C/C++ values to this function`. Its sources are the arguments of the call.
+- **vet**: go/types records no type for a call that it could not instantiate (`Grow(words, std.string("x"))`, whose
+  `T` C++ deduces): it records an invalid operand not at all, and a C/C++ value with the invalid type. The pruner of
+  printf and nilness (`internal/vet/guard.go: touchesInvalid`) counts such a call as touching a C/C++ value, so it is
+  replaced by an unknown value or its statement is left out; `refactor/satisfy` crashed on it (`no type for
+  *ast.CallExpr`).
+- **A field of func type with a C++ parameter.** A call of a func value in a field (`h.f(std.string("x"))`, `p.f(x)`)
+  has the field's signature for the argument checks (`cguard.go: calledSig`), as a call of a func variable has; the
+  build said `passing C/C++ values to this function`. In an instance of a generic type (`type H[T any] struct{ f
+  func(std.string) T }`, `H[int]`), go/types makes a new field with `T` replaced, which has no type expression: its C++
+  type is the generic declaration's type expression lowered with the types of its parts replaced by the type arguments
+  (`typedecl.go: fieldType`), as the body of a generic function is for an instance. A local, a parameter or a result of a
+  generic function whose written type has a C++ part and a type parameter (`var cb func(std.string) T`, `f
+  func(std.string) T`, `func Ret[T any](v T) func(std.string) T`) gets its declaration's type expression the same way (the lowering keeps the variable each instance variable replaces, `Program.varOrigins`). The build's
+  message for a field or an instance variable whose type it still cannot write no longer speaks of package variables.
+  A generic struct of another package (`lib.H[int]`) takes the type expression and its types from the declaring
+  package's lowering, and a type declared in a generic function (`type L struct{ f func(std.string) T }`) maps the
+  fields of its synthetic origin back to the declared ones and substitutes the function's type parameters, read from the
+  generic function's snapshot (an instance has replaced them in the package's maps).
+- **More of a deduced `S ~[]E`** (round 2): the empty variadic of a call (`slices.Insert(e, 0)`, `Replace(e, 0, 1)`, `f(nil...)`)
+  is `{}` where `E` is a template parameter out of scope at the call (it was `gp::slice<E>()`, a C++ error), so `E`
+  takes its default from `S`; `S{...}` is the slice literal `[]E{...}`, empty and not nil (`slices.Clone` of an empty
+  slice was nil).
+- **The result of a deduced generic call is a gocpp container** (`deducedres.go`): go/types types neither the call
+  (`slices.Insert(c, 1, cv)`) nor a variable declared from it, so `len(r)`, `r[1:]` and `append(r, x)` were refused as
+  operations on a C/C++ value (with the advice `r.size()`, a C++ error). Before the C/C++ checks, the lowering gives
+  the call, and the uses of a `:=` variable of it, the instance's result type with every type argument that C++ deduces
+  replaced by the invalid type (an `S` by the type of its argument): `[]invalid`, the type go/types gives a
+  `[]std.string`, or `map[int]invalid`, and a tuple (`v, ok = Get(m, k)`) whose Go parts are typed. A member of such a
+  value is a Go-style error (`r.size undefined (r is a gocpp slice of C/C++ values, ...)`); check does not know the
+  type, so that error is the build's.
+- **Cross-package C/C++ APIs**: a function of another package with C/C++ parameters (`lib.Len(std.string("x"))`), a
+  method of another package's type (`n.Call(cv)`) and a package variable with C/C++ parts (`lib.Ws`) are lowered as
+  the package's own are; a range over a variable of another package declared from an instance with written C++ type
+  arguments (`var Iter = Seq[std.string](words)`) gets the instance's signature, with the C/C++ types invalid.
+- **A pointer to a gocpp func, slice, map or channel of C/C++ values** (`pf := &f`, `f func(std.string) int`) is a
+  gocpp pointer to the boxed variable, not a raw C++ address, and `(*pf)(x)` is a call, not a conversion to a C
+  pointer type. The box of `f := func(...)` takes the func literal's type expression.
+- **A C/C++ map key** (`map[std.string]int`): `gp::map` hashes it with `std::hash` and compares it with `==`;
+  `gp::cgo::map_key<K>` (interop.hpp) checks that it has them, so `map[std.vector[int]]int` is an error at the map's
+  line (the build's; check does not know the C++ type). A struct key with a C/C++ field stays a limit (its `==`).
+- **Round 3.** The retyping keeps the package's type maps shared: `setTypeTemp` writes into them and `lower` puts
+  back what was there at its end (also the opaque marks it takes away, `check.Opaque.SetOpaque`), because a package
+  whose maps are its own has typed interop off (`typed.go: inShared0`), which changed the checks of all its C/C++
+  values (`return s.empty()` into a `bool` was refused). It covers `var r = ...` in functions and the bodies of generic
+  functions (calls that do not depend on their type parameters; the function's snapshot keeps the types for its
+  instances), and the Go values made of such results: `len(r)` and `cap(r)` are `int`, so is `len(r) + cap(r[:1])`, a
+  comparison is a `bool` (no longer C/C++ values: `typeDeducedOperands`). Calls whose C++ type arguments are all
+  written are not retyped (their C++ is exact). `len` of such a result that the lowering could not type no longer
+  advises `r.size()`. **check reports what the build does**: a member of such a result (`r.size undefined (r is a gocpp
+  slice of C/C++ values, ...)`, `checkDeducedMembers`), and a use of a generic function of another package whose body
+  uses C/C++ names (`lib.Ret uses C/C++ names, so it can only be instantiated in its own package (Phase 12)`,
+  `checkForeignCxxGenerics`; the editor, whose dependencies are export data without bodies, leaves this one to the
+  build). Whether a C/C++ key type has `std::hash` and `==` only the C++ compiler knows: that error stays the
+  build's (`gp::cgo::map_key`), outside typed mode.
+- **Keys with C/C++ parts** (round 3): an array of C/C++ values (`map[[2]std.string]int`) is hashed element by
+  element (`gp::array`'s `gp_hash`; `gp::cgo::key_ok` follows arrays), and a gocpp struct with a C/C++ field
+  (`type K struct{ name std.string; n int }`) gets a defaulted `==` (deleted when a field has none) and a `gp_hash`
+  template that requires `key_ok` of its C/C++ fields (`typedecl.go: cKeyMembers`), so neither is an error where the
+  struct is no key. fmt sorts the keys as Go's fmtsort: a C++
+  string by its compare, a C++ class by its `operator<` (`type_ops::gp_cmp`); a class key without one is an error at
+  the print (`gp::cgo::fmt_arg`: `fmt prints the keys of a map in order, and a C++ class key needs an operator<`).
+- **`==` of a struct or an array with C/C++ parts** (round 4, manager decision): the members above are also Go's `==`.
+  `x == y`, `x != y` and the cases of a switch on such a value are `gp::cgo::value_eq(x, y)` (interop.hpp), which
+  calls the struct's `operator==` (or `gp::array`'s) and, for a C/C++ field type without `==`, is an error at the
+  comparison's line instead of the build's former `internal error: not supported yet: == on values with C/C++ parts
+  (Phase 12)`. `any == any` and `map[any]T` keys of such values compare the same way, as in Go (dev panicked with
+  "comparing uncomparable type"). The members' constraints start with `std::same_as<gp_S, S>`, so a comparison
+  with another type is no match, not an error. A struct that Go could not compare apart from its C/C++ parts (a slice,
+  map or func field, also in a nested struct or an array of them) gets no `==` and no `gp_hash` (round 6:
+  `comparableApartFromC`; the members compared every field but constrained only the C/C++ ones, so such a struct in an
+  interface was a C++ error), and `any == any` and `map[any]T` keys of it panic as in Go. The types that the lowering gives deduced generic results are put back
+  at the end of `Program.Lower`, not of each package's `lower`: the instances of generic types (their methods'
+  bodies) are lowered after every package (`finishShared`).
+- **Local type tags** (`localtypes.go`): the place of a type declared in a generic function, in its tag, is the offset
+  from the function's start in one file, and the file's name with the offset across files (a `#Derive` method), so
+  the names of instances no longer change when an unrelated file grows.
+
 ## Consequences
 
 - One row of the feature matrix and one gate go; `tests/errors/generics_local_generic_type.gp` is replaced by
@@ -123,4 +223,14 @@ arguments of a call inside another instance use the same order.
   `tests/errors/generics_cxx_limits.gp` (check), and the unit tests `TestGenericCArgs`, `TestGenericInstancesWithCArgs`
   and `TestPkgCVars` of `internal/check`, and `TestDiagnosticsGenericCxxLimits` and
   `TestDiagnosticsGenericCxxStdIterators` (the editor). `generics_types_c_inferred.gp` and `generics_types_cxx_in_func.gp` now expect
-  their error at the use of the generic function.
+  their error at the use of the generic function. dev.genericstd:
+  `tests/interop/generics_cxx_stdlib.gp`, `generics_cxx_slice_make.gp` and `generics_cxx_func_field.gp` (run tests), the
+  printf case `opaque_generic_call` of `internal/vet/testdata/printf.txtar`, and `TestConversionQualifiedGeneric` of
+  `internal/check`. Round 2:
+  `tests/interop/generics_cxx_results.gp`, `generics_cxx_results_error.gp`, `cxx_xpkg_api/`, `cxx_func_pointer.gp`,
+  `map_cxx_key.gp`, `map_cxx_key_error.gp`, more cases in `generics_cxx_stdlib.gp` and `generics_cxx_func_field.gp`,
+  and `TestPlaceInFuncAcrossFiles` of `internal/lower`. Round 3: `tests/typed/generics_deduced_typed_checks.gp`,
+  `tests/interop/map_cxx_key_class.gp` (with `map_cxx_key_class.hpp`), `map_cxx_key_print_error.gp`,
+  `tests/errors/generics_cxx_deduced_member.gp`, `tests/pkgs/errors/generics_cxx_foreign/`, and more cases in
+  `generics_cxx_results.gp`. Round 4: `tests/interop/cxx_struct_eq.gp`,
+  `cxx_struct_eq_error.gp`, `generics_cxx_results_methods.gp`, `generics_cxx_results_xpkg/`. Round 6: `tests/interop/cxx_struct_uncomparable.gp`.

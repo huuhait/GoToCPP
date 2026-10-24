@@ -101,10 +101,9 @@ func (g *gen) cxxType(t types.Type, pos token.Pos) cppir.Type {
 	case *types.Array:
 		return arrayType(g.cxxType(t.Elem(), pos), t.Len())
 	case *types.Map:
-		if cmpHasC(t.Key()) {
-			break // its gp_hash and == are the C++ compiler's (typedecl.go)
-		}
-		return mapType(g.cxxType(t.Key(), pos), g.cxxType(t.Elem(), pos))
+		// A key with C/C++ parts (a struct with a std.string field): map_key checks that gp::map can hash
+		// and compare it (maps.go: cMapKey).
+		return mapType(cMapKey(t.Key(), g.cxxType(t.Key(), pos)), g.cxxType(t.Elem(), pos))
 	case *types.Chan:
 		return chanType(g.cxxType(t.Elem(), pos)) // chan T, <-chan T, chan<- T: one C++ type (chans.go)
 	case *types.Struct:
