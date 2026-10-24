@@ -23,7 +23,7 @@
 #   tests/pkgs/<name>/...      TestPkgs/name; examples/<name>/... TestExamples/name
 #   tests/typed/<name>.gp      cmd/gocpp TestTypedRun and TestTypedTwin (<cxx>/name)
 #   tests/pkgs/errors/<name>/  TestPkgErrors/name
-#   runtime/src, runtime/include  TestCXX/<cxx>/O0 (only the runtime/test/<stem>_test.cpp group when
+#   runtime/src, runtime/include  TestCXX/<cxx>/(O0|O2) (only the runtime/test/<stem>_test.cpp group when
 #                              one matches the file's name), plus the tests/run programs with the
 #                              stem in their name (defer.hpp -> defer_*)
 #   stdlib/<pkg>/...           the tests/run programs that import the package, and tools/stdgocount
@@ -165,9 +165,9 @@ while IFS= read -r f; do
 	runtime/src/*|runtime/include/*)
 		stem=$(basename "$f"); stem=${stem%%.*}
 		if [ -f "runtime/test/${stem}_test.cpp" ]; then
-			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$/^$stem\$' ./runtime"
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^(O0|O2)\$/^$stem\$' ./runtime"
 		else
-			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$' ./runtime"
+			emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^(O0|O2)\$' ./runtime"
 		fi
 		names=$(namedtests "$stem")
 		[ -n "$names" ] && emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestRun\$/^($names)\$' ./tests"
@@ -176,7 +176,7 @@ while IFS= read -r f; do
 		;;
 	runtime/test/*_test.cpp)
 		stem=$(basename "$f" _test.cpp)
-		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^O0\$/^$stem\$' ./runtime"
+		emit "GOCPP_TEST_PHASE=$phase GOCPP_CXX=$cxx go test -count=1 -run '^TestCXX\$/^$cxxre\$/^(O0|O2)\$/^$stem\$' ./runtime"
 		;;
 	stdlib/*)
 		pkg=$(dirname "${f#stdlib/}")
