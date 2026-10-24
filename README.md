@@ -1,5 +1,7 @@
 # gocpp
 
+![The Go gopher throwing the Rust crab and logo into a trash can labeled "trash language"](docs/images/head.png)
+
 **Write Go, get C++.** gocpp (Go++) is a language that looks and feels like Go. You write `.gp`
 files, and the `gocpp` tool translates them into readable C++20, then builds a native program with
 `clang++` or `g++`. Because the output is plain C++, a `.gp` file can import any C or C++ header and
