@@ -690,11 +690,16 @@ func runDumpStderr(ctx context.Context, cfg Config, mode []string, text string,
 	if err != nil {
 		return nil, fmt.Errorf("%s didn't start: %w", cfg.CXX.Name(), err)
 	}
+	stopWatch := build.WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 	exitErr := cmd.Wait()
+	pipeErr := stopWatch()
 	timedOut := rctx.Err() != nil
 	build.KillGroup(cmd)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), ctx.Err())
+	}
+	if pipeErr != nil {
+		return nil, fmt.Errorf("%s: %w", cfg.CXX.Name(), pipeErr)
 	}
 	out := &auxOut{exitErr: exitErr, timedOut: timedOut, srcPath: srcPath}
 	out.depData, _ = os.ReadFile(depPath)

@@ -559,12 +559,18 @@ func (b *Builder) execCommand(ctx context.Context, c CXX, what string, link bool
 		InGroup(cmd)
 		return cmd
 	})
+	var pipeErr error
 	if err == nil {
+		stop := WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 		err = cmd.Wait()
+		pipeErr = stop()
 		KillGroup(cmd) // whatever the compiler left running
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if pipeErr != nil {
+		return nil, &CompileError{What: what, Link: link, Command: show, Output: out.buf.Bytes(), Err: pipeErr}
 	}
 	if outputCut(cmd, err) {
 		return out.buf.Bytes(), errOutputOpen

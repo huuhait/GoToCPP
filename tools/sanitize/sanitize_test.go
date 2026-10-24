@@ -885,6 +885,25 @@ func TestNightlyFlags(t *testing.T) {
 	if want := `stages leaks,asan,deep-sanitize,deep-race, compilers g++, phase <= 99, shard "1/4"`; !strings.Contains(out.String(), want) {
 		t.Errorf("plan = %q", out.String())
 	}
+	// The default night has Go's tests of the standard packages (stdlib); the smoke test (-sample)
+	// leaves them out, unless -stages names them.
+	for _, c := range []struct {
+		args   []string
+		stages string
+	}{
+		{nil, "canary,leaks,asan,ubsan,tsan,stdlib,"},
+		{[]string{"-deep"}, "canary,leaks,asan,ubsan,tsan,stdlib,deep-sanitize,deep-race,"},
+		{[]string{"-sample"}, "canary,leaks,asan,ubsan,tsan,"},
+		{[]string{"-sample", "-stages", "canary,stdlib"}, "canary,stdlib,"},
+		{[]string{"-stages", "stdlib"}, "stdlib,"},
+	} {
+		var o, e bytes.Buffer
+		if code := run(append([]string{"nightly", "-n"}, c.args...), &o, &e); code != 0 {
+			t.Errorf("nightly -n %v: exit %d: %s", c.args, code, e.String())
+		} else if !strings.Contains(o.String(), "stages "+c.stages+" compilers") {
+			t.Errorf("nightly -n %v: plan %q, want the stages %s", c.args, o.String(), c.stages)
+		}
+	}
 	for _, bad := range [][]string{{"-stages", "msan"}, {"-j", "0"}, {"extra"}, {"-nosuchflag"}} {
 		var o, e bytes.Buffer
 		if code := run(append([]string{"nightly", "-n"}, bad...), &o, &e); code != 2 {
@@ -910,7 +929,7 @@ func TestJobFilesUseRealFlags(t *testing.T) {
 	}
 	makefile := read("Makefile")
 	workflow := read(".github/workflows/sanitizers-nightly.yml")
-	for _, target := range []string{"sanitize-nightly", "sanitize-smoke", "sanitize-leaks", "sanitize-selftest"} {
+	for _, target := range []string{"sanitize-nightly", "sanitize-smoke", "sanitize-leaks", "sanitize-selftest", "stdlib-nightly"} {
 		if !regexp.MustCompile(`(?m)^` + target + `:`).MatchString(makefile) {
 			t.Errorf("Makefile has no target %s", target)
 		}
@@ -936,6 +955,16 @@ func TestJobFilesUseRealFlags(t *testing.T) {
 		if code := run(args, &out, &errOut); code != 0 {
 			t.Errorf("the workflow's flags %q: exit %d: %s", m[1], code, errOut.String())
 		}
+	}
+	// The stdlib stage runs both of Go's test suites of the standard packages (step 9.10).
+	target := regexp.MustCompile(`(?ms)^stdlib-nightly:.*?\n\n`).FindString(makefile)
+	for _, want := range []string{"./tools/stdgocount -check -gocpp $(CURDIR)/bin/gocpp", "tools/portstd/gotests/rangegen_shards.py -gocpp $(CURDIR)/bin/gocpp"} {
+		if !strings.Contains(target, want) {
+			t.Errorf("make stdlib-nightly does not run %s:\n%s", want, target)
+		}
+	}
+	if !strings.Contains(workflow, `-stages stdlib`) {
+		t.Error("the workflow has no job for the stdlib stage")
 	}
 	script := read("tools/sanitize/nightly.sh")
 	if !strings.Contains(script, "go build -o \"$bin\" ./tools/sanitize") || !strings.Contains(script, "\"$bin\" nightly") || !strings.Contains(script, "-gocpp-cache") || strings.Contains(script, "go run") {

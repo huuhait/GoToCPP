@@ -178,21 +178,38 @@ ci-race:
 # and the leak audit of tools/sanitize/leaks.txt. Any report fails it. Hours of CPU time: it is not part
 # of ci, run it nightly (tools/sanitize/nightly.sh, .github/workflows/sanitizers-nightly.yml) and on a
 # shared machine through heavy.sh. It runs every phase of tests/run (not only CI_TEST_PHASE): programs
-# above -phase are counted in its output. SANITIZEFLAGS passes flags to the tool: "-shard 0/4", "-j 8",
+# above -phase are counted in its output. Its stdlib stage is make stdlib-nightly (Go's own tests of the
+# standard packages). SANITIZEFLAGS passes flags to the tool: "-shard 0/4", "-j 8",
 # "-deep" (adds make ci-sanitize and make ci-race), "-stages asan,leaks", "-cxx g++", "-phase 10".
 SANITIZEFLAGS ?=
 .PHONY: sanitize-nightly sanitize-smoke sanitize-leaks sanitize-selftest
 sanitize-nightly:
 	$(GO) run ./tools/sanitize nightly $(SANITIZEFLAGS)
 
-# The same job on the 14 programs of tools/sanitize/sample.txt: about two minutes. It proves that the
-# job works on this machine (canaries, leak audit, all three modes, both compilers).
+# The same job on the 14 programs of tools/sanitize/sample.txt, without the stdlib stage: about two
+# minutes. It proves that the job works on this machine (canaries, leak audit, all three modes, both
+# compilers).
 sanitize-smoke:
 	$(GO) run ./tools/sanitize nightly -sample $(SANITIZEFLAGS)
 
 # The leak audit alone: every "// lsan: cycle" program with LeakSanitizer ON, under its ceiling.
 sanitize-leaks:
 	$(GO) run ./tools/sanitize leaks -cxx g++,clang++ $(SANITIZEFLAGS)
+
+# Go's own tests of the standard packages (Phase 09 step 9.10, ADR-113, docs/guides/stdlib-tests.md):
+# stdgocount -check over every manifest (exit status 1 on an unexplained failure, a stale expectation or a
+# package under 90 %) and test/rangegen.go's 800 range-over-func units in shards of 25 (rangegen_shards.py,
+# which runs rangegen.go with the real go). Its time is not measured yet: the nightly job runs it as its stdlib stage
+# (sanitize nightly, tools/sanitize/nightly.sh, .github/workflows/sanitizers-nightly.yml), not make ci. The
+# pinned Go tree comes from tools/portstd's cache (-fetch fills it once; GOCPP_OFFLINE=1 never downloads).
+# Both checks run, also after one failed; the target fails when either did.
+.PHONY: stdlib-nightly
+stdlib-nightly: build
+	$(GO) run ./tools/portstd -check -fetch
+	@status=0; \
+	$(GO) run ./tools/stdgocount -check -gocpp $(CURDIR)/bin/gocpp || status=1; \
+	python3 tools/portstd/gotests/rangegen_shards.py -gocpp $(CURDIR)/bin/gocpp -n 25 || status=1; \
+	exit $$status
 
 # The tests of the job itself with the real sanitizers: injected UBSan, ASan, LeakSanitizer and TSan
 # errors must fail the job, the canaries must be reported, the leak audit must fail on a leak on top of a

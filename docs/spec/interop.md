@@ -270,7 +270,15 @@ Output:
   - `header "./x.h" can't be read: <the compiler's message>`: for example no read permission.
   - A local header that is not a file: a folder gives `cannot find header "./x.h"`, and a named
     pipe, a socket or a device gives `cannot check the header imports: kind probe: open ...: not a
-    regular file: it is a named pipe` (no compiler waits for it).
+    regular file: it is a named pipe` (no compiler waits for it). A named pipe that the compiler
+    reaches itself, through an `#include` in the header, in a package's `.c` or `.cpp` file, or in
+    a `-I` folder, is the same error with `(the compiler waited for a writer of it and was
+    stopped)`: on Linux, gocpp watches every run of the compiler (the builds and the probes), and
+    a process of it that waits in the open of a named pipe stops the run (SIGTERM, on which the
+    compiler removes its temporary files, then SIGKILL for what still runs) within about a second
+    (`/proc/<pid>/task/<tid>/wchan`; the pipe's name comes from the system call, which
+    `kernel.yama.ptrace_scope` 2 hides: then the message names no file). A program that `gocpp
+    run` or `gocpp test` runs is not watched.
   - `::std::filesystm is not a namespace of the imported headers`: a renamed namespace that the
     file's headers don't declare.
   - `cannot rename ::std::chrono: the file imports no header that could declare it`: a namespace

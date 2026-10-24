@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/interop"
@@ -34,7 +36,10 @@ func (p *compilerProbe) cxx(ctx context.Context) (build.CXX, error) {
 
 // FindHeader preprocesses "#include <name>" with -M, which lists the files
 // that were read: the first one that ends with /name is the header (the
-// compiler's own predefined header comes before it).
+// compiler's own predefined header comes before it). The compiler runs like
+// the other probes: in a process group of its own, within interop.ProbeLimit,
+// and stopped when it waits for a named pipe (build.WatchPipes: a header of
+// the include path that is one).
 func (p *compilerProbe) FindHeader(ctx context.Context, name string) (string, error) {
 	cxx, err := p.cxx(ctx)
 	if err != nil {
@@ -42,12 +47,33 @@ func (p *compilerProbe) FindHeader(ctx context.Context, name string) (string, er
 	}
 	// The header is the target's: the flags of the target and the Win32 defaults, as for the build.
 	args := append(build.ProbeTargetFlags(cxx), build.Win32DefaultsFor(p.goos, nil)...)
-	cmd := cxx.Command(ctx, append(args, "-E", "-M", "-x", "c++", "-")...)
-	cmd.Dir = p.dir
-	cmd.Stdin = strings.NewReader("#include <" + name + ">\n")
+	ctx, cancel := context.WithTimeout(ctx, interop.ProbeLimit())
+	defer cancel()
 	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
+	cmd, err := build.Start(ctx, func() *exec.Cmd {
+		out.Reset()
+		errb.Reset()
+		cmd := cxx.Command(ctx, append(args, "-E", "-M", "-x", "c++", "-")...)
+		cmd.Dir = p.dir
+		cmd.Stdin = strings.NewReader("#include <" + name + ">\n")
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		cmd.WaitDelay = 5 * time.Second // a process that it started and that keeps the output open
+		build.InGroup(cmd)
+		return cmd
+	})
+	if err != nil {
+		return "", fmt.Errorf("%s didn't start: %w", cxx.Name(), err)
+	}
+	stop := build.WatchPipes(cmd)
+	err = cmd.Wait()
+	pipeErr := stop()
+	build.KillGroup(cmd) // whatever it left running
+	switch {
+	case pipeErr != nil:
+		return "", fmt.Errorf("%s: %w", cxx.Name(), pipeErr)
+	case ctx.Err() != nil:
+		return "", fmt.Errorf("%s was stopped: %w", cxx.Name(), ctx.Err())
+	case err != nil:
 		return "", nil // not found: the header has no file
 	}
 	text := strings.ReplaceAll(out.String(), "\\\n", " ")

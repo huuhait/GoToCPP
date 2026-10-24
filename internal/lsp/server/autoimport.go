@@ -387,9 +387,11 @@ func (ix *importIndex) walk(ctx context.Context, mod *load.Module) []importable 
 }
 
 // readHeader reads the start of a file, which has its package clause
-// (unless a long comment comes first: then the whole file).
+// (unless a long comment comes first: then the whole file). A named pipe
+// or a device with the name of a source is an error, not a wait
+// (load.OpenRegular).
 func readHeader(name string) ([]byte, error) {
-	f, err := os.Open(name)
+	f, err := load.OpenRegular(name)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +401,7 @@ func readHeader(name string) ([]byte, error) {
 	if n < len(buf) || packageName(name, buf[:n]) != "" {
 		return buf[:n], nil
 	}
-	return os.ReadFile(name)
+	return load.ReadRegular(name)
 }
 
 // joinPath returns the import path of the folder rel (slash-separated) of

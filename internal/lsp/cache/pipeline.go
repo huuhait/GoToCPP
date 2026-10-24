@@ -95,7 +95,8 @@ type Config struct {
 	// so that the server publishes its diagnostics again. It must not block.
 	OnAdapt func(dir string)
 
-	// ReadFile, if not nil, reads the files of the disk (os.ReadFile otherwise; the tests use it to make a file busy).
+	// ReadFile, if not nil, reads the files of the disk (load.ReadRegular otherwise: a named pipe is an error, not a wait;
+	// the tests use it to make a file busy).
 	ReadFile func(path string) ([]byte, error)
 
 	// OnReadFailure, if not nil, is called when a file of the disk could not be read although the read was repeated
@@ -599,7 +600,7 @@ func (s *state) file(path string) (*fileHandle, error) {
 	} else {
 		read := s.p.cfg.ReadFile
 		if read == nil {
-			read = os.ReadFile
+			read = load.ReadRegular // a named pipe with the name of a source is an error, not a wait
 		}
 		f.src, f.err = retryRead(func() ([]byte, error) { return read(path) })
 		if f.err != nil && transientRead(f.err) != 0 && s.p.cfg.OnReadFailure != nil {

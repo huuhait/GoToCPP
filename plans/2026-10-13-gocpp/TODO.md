@@ -176,15 +176,11 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] gdb printers: `info locals` and raw gdb `print` still show raw closure structs on clang++ and `n = &6` for a g++ box; exotic Go types (a struct or interface with members, an array length that is a name) print as `func(...)`; a generic type argument that is a type parameter prints the parameter name inside a generic function.
 - [ ] 13.2 lows: the stop line, `frame`, `up` and `info locals` still print C++ names and temporaries; a boxed local is unwrapped by reading the `.gp` declaration line; `gp print` has no map indexing or calls; `$gp_blocked()` counts only channel waits; the lldb script got no robustness pass (was L240).
 - [ ] Test infrastructure duplication: the compiler-matrix test code exists in 18+ files (rg `GOCPP_REQUIRE_CXX`); two Wine layers and two ssh runners (internal/wine, internal/winssh, runtime/windows_test.go, runtime/winremote_test.go) are not unified (the wall-clock parts of this line were fixed by dev.walltests) (was L77, L187, L189, L190, L205, L219, L252).
-- [ ] A FIFO named like a source still blocks: a FIFO header `#include`d by a `.c`/`.h` file or reached through `-I` hangs the C/C++ compiler itself (only top-level `import "./x.h"` is checked), and the language server reads sources with `os.ReadFile` (internal/lsp/cache/pipeline.go:602, server/readfail.go:71, server/autoimport.go:392,402: hover and workspace/symbol freeze); `gocpp fmt` of a FIFO named on the command line blocks without a writer, like gofmt (was L250).
 - [ ] `clean-tmp` (scripts/clean-tmp): a mount that appears after its check and bind mounts are invisible to `rm --one-file-system`; the "not yours" guard has no test (needs a second user).
-- [ ] `TestCompDBDirectoryDefault` (internal/build/plan_test.go:108) fails on Windows on clean dev (`Directory:\a\b` vs `File:/a/b/x.c`); SA4009 at internal/load/embed.go:257.
-- [ ] `go run ./tools/stdgocount -check` and `rangegen_shards.py` are in no nightly (was L309).
 - [ ] 15.8 fuzz lows carried: 20-minute campaigns per target not run; `FuzzFormat` gofmt quirk on a comment before the package clause; FuzzGen samples 1 in 40 compiles; killed workers leak `/tmp/gocpp-fuzz-gen-*` (was L272).
 - [ ] 15.10 conformance: baseline 1941 of 2131 (91.1%, g++ default only: meets the 90% criterion numerically) needs clang++ and `-asan` campaigns and a re-baseline; `[bug]` clusters (multi-value call as arguments of `append`/`copy`/`delete`/`complex`, `[]MyByte` to string, `Sprintf(f())`), ~20 errorcheck wording differences (was L260).
 - [ ] 15.11 first full nightly never run (repo is on GitHub now, workflows exist); 15.12 workflows never run on GitHub (was L286, L41).
 - [ ] 14.7/14.8 Windows suites: full `make test-windows` never run; 14.2/14.4 lows need the Windows PC (was L283, L270, L300, L301).
-- [ ] 10.10/10.13 mutants carried (see AUDIT); `gocpp fmt` messages should say "can't be written on one line" / "move the comment out of the type" (was L78, L273, L296).
 
 ### Docs and tests
 

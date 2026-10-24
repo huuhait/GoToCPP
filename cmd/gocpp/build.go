@@ -608,6 +608,10 @@ type driver struct {
 	lastShown    []string
 	lastShownPkg string
 
+	// pipeShown holds the messages of compiles that stopped at a named pipe that were printed: the
+	// units of a package that all include the pipe (an -include flag) say it once.
+	pipeShown map[string]bool
+
 	logCount int // the logs of failed compiles written so far (compileFailed)
 	done     chan struct{}
 }
@@ -1393,6 +1397,29 @@ func (d *driver) reportFailure(set *buildSet, err error, env build.EnvFlags, wor
 		case ce.Link:
 			pkg = set.linkPackage()
 		}
+	}
+	// A compile that build.WatchPipes stopped at a named pipe: gocpp ended it, and the cause is
+	// known, so it is never "ended from outside".
+	if errors.As(err, &ce) && errors.As(ce.Err, new(*build.PipeError)) {
+		switch {
+		case ce.Lib != nil:
+			d.libFailed(pkg, ce)
+		case ce.Source != "":
+			d.sourceFailed(pkg, ce)
+		default:
+			// The generated C++ or the link reached a named pipe (a header of an -include flag, a
+			// file of the flags): an error of the build's files, not a bug of gocpp; once per
+			// message, though several units fail.
+			if msg := d.shortenDir(pkg, withPipeLine(ce, "")); !d.pipeShown[msg] {
+				if d.pipeShown == nil {
+					d.pipeShown = make(map[string]bool)
+				}
+				d.pipeShown[msg] = true
+				d.sourcesHeader(pkg)
+				fmt.Fprintf(d.stderr, "%s\n", msg)
+			}
+		}
+		return exitErrors, kept
 	}
 	if errors.As(err, &ce) {
 		if sig, ok := ce.EndedFromOutside(); ok {

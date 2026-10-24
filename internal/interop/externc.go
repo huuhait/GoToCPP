@@ -3,6 +3,7 @@ package interop
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,6 +158,11 @@ func (c *cache) checkCHeader(ctx context.Context, cc build.CXX, dir string, flag
 
 	c.cRuns.Add(1)
 	ok, deps, depsOK, missing, start, err := runCHeaderCheck(ctx, cc, dir, flags, include)
+	if errors.As(err, new(*build.PipeError)) {
+		// A header that it includes is a named pipe (build.WatchPipes stopped the compiler): as
+		// for the header itself above, the probes report it, at the import, once.
+		return CHeader{}, nil
+	}
 	if err != nil {
 		return CHeader{}, err
 	}

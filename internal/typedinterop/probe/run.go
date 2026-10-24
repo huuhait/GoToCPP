@@ -710,6 +710,7 @@ func runDumpOnce(ctx context.Context, cfg Config, text, filter string, fn func(R
 	}
 	// Whatever happens below, the process group dies with the run.
 	defer build.KillGroup(cmd)
+	stopWatch := build.WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 
 	d := &dump{srcPath: srcPath}
 	cr := &countReader{r: stdout, max: maxJSON, cancel: cancel}
@@ -728,8 +729,11 @@ func runDumpOnce(ctx context.Context, cfg Config, text, filter string, fn func(R
 	// run's timeout and the size limit bound the wait.
 	io.Copy(io.Discard, stdout)
 	waitErr := cmd.Wait()
+	pipeErr := stopWatch()
 	build.KillGroup(cmd)
 	switch {
+	case pipeErr != nil:
+		return nil, fmt.Errorf("%s: %w", cfg.CXX.Name(), pipeErr)
 	case cr.over:
 		return nil, fmt.Errorf("%w: the AST dump of the probes is larger than %d bytes: probing stopped", ErrDumpTooLarge, maxJSON)
 	case ctx.Err() != nil:

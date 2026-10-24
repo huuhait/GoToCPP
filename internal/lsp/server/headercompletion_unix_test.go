@@ -41,12 +41,10 @@ func TestHeaderIndexBlockedCompilerDoesNotBlockServer(t *testing.T) {
 	t.Setenv("GOCPP_NOPROBECACHE", "1")
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "started")
-	gate := filepath.Join(dir, "gate")
-	if err := syscall.Mkfifo(gate, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("INDEX_TEST_MARKER", marker)
-	t.Setenv("INDEX_TEST_GATE", gate)
+	// The fake compiler waits until it is killed (it sleeps; it ends with the test process too).
+	// Not on a named pipe: build.WatchPipes stops a compiler that waits to open one.
+	t.Setenv("INDEX_TEST_PID", strconv.Itoa(os.Getpid()))
 	compiler := filepath.Join(dir, "clang++")
 	script := `#!/bin/sh
 for arg do
@@ -56,7 +54,7 @@ for arg do
   fi
   if [ "$arg" = -MF ]; then
     printf '%s\n' "$$" > "$INDEX_TEST_MARKER"
-    read answer < "$INDEX_TEST_GATE"
+    while kill -0 "$INDEX_TEST_PID" 2>/dev/null; do sleep 0.05; done
     exit 1
   fi
 done

@@ -13,7 +13,12 @@ python3 tools/portstd/gotests/convert_std.py strings        # make tests/stdgo/s
 go run ./tools/stdgocount -detail strings bytes             # build the test binaries, run them, print the counts and every function that does not pass
 go run ./tools/stdgocount -check                            # every manifest; exit status 1 on an unexplained failure, a stale expectation or a package under 90 %
 GOCPP_TEST_STDLIB=$PWD/tests/stdgo gocpp test -v strings    # the same tests by hand, with the gocpp you have
+make stdlib-nightly                                         # stdgocount -check and rangegen_shards.py (time not measured yet)
 ```
+
+They are not part of `make ci`: the nightly job runs `make stdlib-nightly` as its `stdlib` stage
+([sanitizers.md](sanitizers.md#the-nightly-job): `tools/sanitize/nightly.sh` on this machine, the `stdlib` job of
+`.github/workflows/sanitizers-nightly.yml` on GitHub), so a change that breaks one of Go's tests shows up the next morning.
 
 `GOCPP_TEST_STDLIB` is a folder with one subfolder for each import path. The `_test.gp` files and the `testdata` folder in it join the files of the embedded
 package (a file of the folder shadows the embedded file of the same name), and the test binary runs in that subfolder, as `go test` runs in the package folder.

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/huuhait/gocpp/internal/fsretry"
+	"github.com/huuhait/gocpp/internal/load"
 )
 
 // The object cache (Phase 06 README §2.5, "Build graph and cache"): a content-addressed cache
@@ -663,7 +664,7 @@ func recordFile(p string, start time.Time, racyOK bool) (depRec, []byte, error) 
 	if !before.Mode().IsRegular() {
 		return depRec{}, nil, fmt.Errorf("%s is not a regular file", p)
 	}
-	content, err := os.ReadFile(p)
+	content, err := load.ReadRegular(p) // not a wait: a file swapped for a named pipe after the Stat
 	if err != nil {
 		return depRec{}, nil, err
 	}
@@ -909,7 +910,7 @@ func (d depRec) sameNow() bool {
 	if fi.ModTime().UnixNano() == d.Mod && sys.ino == d.Ino && sys.ctime == d.Chg {
 		return true
 	}
-	data, err := os.ReadFile(d.Path)
+	data, err := load.ReadRegular(d.Path) // a file swapped for a named pipe after the Stat is no wait
 	if err != nil {
 		return false
 	}

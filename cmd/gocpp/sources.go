@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -44,13 +45,44 @@ func (d *driver) findCC(cxx build.CXX) (build.CXX, error) {
 // cgo file, the compiler's whole output under the package's line, with
 // the package folder written as gocpp check writes it ("./a.c:3:5:
 // error: ...").
+//
+// A compile that build.WatchPipes stopped (a header that is a named pipe) ends with the line
+// "./a.c: open ./pipe.h: not a regular file: it is a named pipe ...", after what the compiler
+// printed before it opened the pipe (a warning): the output alone would not say why it failed.
 func (d *driver) sourceFailed(pkg *check.Package, e *build.CompileError) {
-	out := strings.TrimRight(string(e.Output), "\n")
+	out := withPipeLine(e, e.Source)
 	if out == "" {
 		out = fmt.Sprintf("%s: %v (the compiler printed nothing)", e.Command, e.Err)
 	}
 	d.sourcesHeader(pkg)
 	fmt.Fprintf(d.stderr, "%s\n", d.shortenDir(pkg, out))
+}
+
+// withPipeLine returns the output of the failed compile e without its last newlines, then its
+// pipeLine, if it has one.
+func withPipeLine(e *build.CompileError, what string) string {
+	out := strings.TrimRight(string(e.Output), "\n")
+	line := pipeLine(e, what)
+	switch {
+	case line == "":
+		return out
+	case out == "":
+		return line
+	}
+	return out + "\n" + line
+}
+
+// pipeLine returns "<what>: <the PipeError>" when build.WatchPipes stopped the compile e at a named
+// pipe (what is the file that was compiled, or e.What when it is ""), or "".
+func pipeLine(e *build.CompileError, what string) string {
+	var pe *build.PipeError
+	if !errors.As(e.Err, &pe) {
+		return ""
+	}
+	if what == "" {
+		what = e.What
+	}
+	return what + ": " + pe.Error()
 }
 
 // sourcesHeader prints the "# <package>" line above the output of the

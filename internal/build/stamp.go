@@ -887,7 +887,7 @@ func (s *Stamp) checkFile(p string, r *statRec, stat statFunc) bool {
 	if r.Hash == "" || modeBits(fi) != r.Mode {
 		return false
 	}
-	data, err := os.ReadFile(p)
+	data, err := load.ReadRegular(p) // a file swapped for a named pipe after the stat is no wait
 	if err != nil || hashHex(data) != r.Hash {
 		return false
 	}

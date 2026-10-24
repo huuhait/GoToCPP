@@ -99,6 +99,29 @@ jobs:
           name: sanitize-tsan-${{ matrix.shard }}
           path: sanitize-results/
 
+  # Go's own tests of the standard packages (make stdlib-nightly: stdgocount -check and rangegen_shards.py,
+  # its time is not measured yet); no sanitizer, but the same night and the same report.
+  stdlib:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/gocpp/portstd
+          key: gocpp-portstd-${{ hashFiles('tools/portstd/PINS') }}
+      - name: stdgocount -check and rangegen
+        env:
+          EXTRA: ${{ inputs.flags }}
+        run: make sanitize-nightly SANITIZEFLAGS="-stages stdlib -out sanitize-results $EXTRA"
+        shell: nix develop -c bash -eo pipefail {0}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sanitize-stdlib
+          path: sanitize-results/
+
   # The deep gates: interop, diff, zoo and example programs, the emitter's own tests (ci-sanitize), and
   # tests/race with both compilers, the concurrency programs with -race and the runtime's
   # ThreadSanitizer unit tests (ci-race), which the corpus runs above do not cover. Two jobs: one job

@@ -59,12 +59,19 @@ func (d *driver) libFailed(pkg *check.Package, e *build.CompileError) {
 	fmt.Fprintf(d.stderr, "the C or C++ library of module %s@%s did not build: %s did not compile (recipe %s:%d: %s)\n",
 		lib.Module, lib.Version, strings.TrimPrefix(e.Source, lib.Dir+"/"), diag.ShortFileName(d.check.dir, lib.File), e.LibLine, e.LibText)
 	out := strings.TrimRight(string(e.Output), "\n")
-	if out == "" {
+	pipe := pipeLine(e, strings.TrimPrefix(e.Source, lib.Dir+"/")) // a header that is a named pipe
+	if out == "" && pipe == "" {
 		out = fmt.Sprintf("%s: %v (the compiler printed nothing)", e.Command, e.Err)
 	}
-	lines := strings.Split(out, "\n")
+	var lines []string
+	if out != "" {
+		lines = strings.Split(out, "\n")
+	}
 	if !d.flags.cppErrors.full() && len(lines) > maxLibLines {
 		lines = append(lines[:maxLibLines:maxLibLines], fmt.Sprintf("(and %d more lines: -cpperrors=full shows them)", len(lines)-maxLibLines))
+	}
+	if pipe != "" {
+		lines = append(lines, pipe) // after the output: why the compile stopped
 	}
 	fmt.Fprintln(d.stderr, strings.Join(lines, "\n"))
 	for _, h := range shadowHints(lib.Public) {

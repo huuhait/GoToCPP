@@ -3,6 +3,7 @@
 package build
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,5 +81,32 @@ func TestFSRecorderRefusesAPipe(t *testing.T) {
 	guardedPipe(t, pipe, func() { _, err = rec.Open(pipe) })
 	if err == nil || !strings.Contains(err.Error(), "it is a named pipe") {
 		t.Errorf("Open(pipe) = %v, want an error about the named pipe", err)
+	}
+}
+
+// TestStampCheckFileSwappedForAPipe: a file that is swapped for a named pipe between the stat and
+// the read of the hash (here: a stat that still gives the file's information) is not the recorded
+// file, and the check does not wait for a writer of the pipe.
+func TestStampCheckFileSwappedForAPipe(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f.h")
+	writeAt(t, file, "one\n", time.Hour)
+	fi, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe := filepath.Join(dir, "pipe.h")
+	if err := syscall.Mkfifo(pipe, 0o644); err != nil {
+		t.Skip(err)
+	}
+	rec := recOf(fi, time.Now())
+	rec.Racy = true // decided by the hash: the file is read
+	rec.Hash = hashHex([]byte("one\n"))
+	stale := func(string) (fs.FileInfo, error) { return fi, nil } // the stat from before the swap
+	var s Stamp
+	var ok bool
+	guardedPipe(t, pipe, func() { ok = s.checkFile(pipe, &rec, stale) })
+	if ok {
+		t.Error("checkFile accepts a named pipe in the place of the recorded file")
 	}
 }

@@ -61,7 +61,7 @@ func headerNames(includes []string) (stems, files map[string]bool) {
 
 // includesAny reports whether the start of the source has an #include of one of the files.
 func includesAny(src string, files map[string]bool) bool {
-	f, err := os.Open(src)
+	f, err := load.OpenRegular(src) // a named pipe is no source, and must not make it wait
 	if err != nil {
 		return false
 	}

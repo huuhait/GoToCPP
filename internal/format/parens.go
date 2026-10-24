@@ -94,7 +94,7 @@ Headers:
 // or the reason why it can't be printed so.
 func oneLine(fset *token.FileSet, file *ast.File, x ast.Expr) (name, err string) {
 	if commentIn(file, x) {
-		return "", "its type has a comment in it"
+		return "", "its type has a comment in it; move the comment out of the type"
 	}
 	// An empty FileSet has no line information: the printer puts the type
 	// on one line where it can.
@@ -105,7 +105,7 @@ func oneLine(fset *token.FileSet, file *ast.File, x ast.Expr) (name, err string)
 		return "", err.Error()
 	}
 	if bytes.ContainsRune(b.Bytes(), '\n') {
-		return "", "its type doesn't fit on one line; give the type a name"
+		return "", "its type can't be written on one line; give the type a name"
 	}
 	return b.String(), ""
 }

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -155,5 +156,82 @@ func TestUsesPhase10Syntax(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "pkg", "p.gp"), []byte("package pkg\nfunc f!() int { return 1 }\n"), 0o644)
 	if !usesPhase10Syntax(&program{dir: dir, arg: "."}) {
 		t.Error("the syntax in a package of the module does not count")
+	}
+}
+
+// TestRejectedProblem: a program that Go rejects is a failure of TestRunVsGo, not a skip, when it uses the syntax of
+// Phase 10 and has no Go twin (nothing would be compared with real Go), or when it has a twin (the twin is plain Go);
+// another program that Go rejects (C/C++ interop, a gocpp extension) is skipped.
+func TestRejectedProblem(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("umacro_twinless.gp", "package main\nmacro M() {}\nfunc main() { #M() }\n")
+	write("interop.gp", "package main\nimport \"<cstdio>\"\nfunc main() { cstdio.puts(\"hi\") }\n")
+	write("umacro_twinned.gp", "package main\nmacro M() {}\nfunc main() { #M() }\n")
+	write("testdata/macro_twin/umacro_twinned.go", "package main\nfunc main() {}\n")
+	for _, tt := range []struct{ name, want string }{
+		{"umacro_twinless", "uses the syntax of Phase 10, Go rejects it, and it has no Go twin"},
+		{"interop", ""},
+		{"umacro_twinned", "the Go twin of tests/run/umacro_twinned.gp does not compile"},
+	} {
+		p := &program{name: tt.name, path: "tests/run/" + tt.name + ".gp", dir: dir, arg: tt.name + ".gp"}
+		got := rejectedProblem(p)
+		if tt.want == "" && got != "" || !strings.Contains(got, tt.want) {
+			t.Errorf("%s: rejectedProblem = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+// verdict records what goBuildFailed decided (verdictT).
+type verdict struct{ fatal, skip string }
+
+func (v *verdict) Fatalf(format string, args ...any) { v.fatal = fmt.Sprintf(format, args...) }
+func (v *verdict) Skipf(format string, args ...any)  { v.skip = fmt.Sprintf(format, args...) }
+
+// TestGoBuildFailed: what runVsGoTest does with a program whose Go build fails: a Phase 10 program without a twin that
+// Go rejects fails (nothing would be compared), a program that is not Go (interop) is skipped and counted, and a build
+// that fails for another reason (no error at a line of the program) fails.
+func TestGoBuildFailed(t *testing.T) {
+	dir := t.TempDir()
+	for name, src := range map[string]string{
+		"umacro_twinless.gp": "package main\nmacro M() {}\nfunc main() { #M() }\n",
+		"interop.gp":         "package main\nimport \"<cstdio>\"\nfunc main() { cstdio.puts(\"hi\") }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tt := range []struct {
+		name, out   string
+		fatal, skip string
+		rejected    bool
+	}{
+		{name: "umacro_twinless", out: "./umacro_twinless.go:2:1: syntax error: non-declaration statement outside function body\n",
+			fatal: "uses the syntax of Phase 10, Go rejects it, and it has no Go twin"},
+		{name: "interop", out: "./interop.go:2:8: invalid import path: \"<cstdio>\"\n",
+			skip: "go build rejects the code of tests/run/interop.gp, so it is not a Go program", rejected: true},
+		{name: "interop", out: "go: cannot find GOROOT directory\n", fatal: "and not because of an error in the program"},
+	} {
+		p := &program{name: tt.name, path: "tests/run/" + tt.name + ".gp", dir: dir, arg: tt.name + ".gp"}
+		var v verdict
+		var n vsGoCount
+		goBuildFailed(&v, p, result{cmd: "go build", exit: 1, status: "exit status 1", stdout: []byte(tt.out)}, &n)
+		if tt.fatal != "" && !strings.Contains(v.fatal, tt.fatal) || tt.fatal == "" && v.fatal != "" {
+			t.Errorf("%s, %q: Fatalf %q, want %q", tt.name, tt.out, v.fatal, tt.fatal)
+		}
+		if tt.skip != "" && !strings.Contains(v.skip, tt.skip) || tt.skip == "" && v.skip != "" {
+			t.Errorf("%s, %q: Skipf %q, want %q", tt.name, tt.out, v.skip, tt.skip)
+		}
+		if got := n.rejected.Load() == 1; got != tt.rejected {
+			t.Errorf("%s, %q: counted as rejected: %v, want %v", tt.name, tt.out, got, tt.rejected)
+		}
 	}
 }

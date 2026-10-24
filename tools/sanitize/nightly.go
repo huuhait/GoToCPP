@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,8 +13,9 @@ import (
 )
 
 // The nightly job (step 15.11): every sanitizer over the corpora with both compilers, the canaries
-// that prove the sanitizers still see an error, and the leak audit. It runs every stage, also
-// after one failed, and exits 1 when any failed, so that one night's report has everything.
+// that prove the sanitizers still see an error, the leak audit, and Go's own tests of the standard
+// packages. It runs every stage, also after one failed, and exits 1 when any failed, so that one
+// night's report has everything.
 // Stages:
 //
 //	canary  programs that are wrong on purpose (testdata/canary) must be reported, clean controls must be silent
@@ -21,11 +23,13 @@ import (
 //	asan    tests/run with -asan: AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer
 //	ubsan   tests/run with UBSan alone, any report ends the program
 //	tsan    the concurrency family of tests/run and the silent programs of tests/race with -race
+//	stdlib  make stdlib-nightly: go run ./tools/stdgocount -check and rangegen_shards.py (step 9.10,
+//	        ADR-113; no sanitizer; its time is not measured yet); -sample leaves it out unless -stages names it
 //	deep-sanitize  make ci-sanitize: the interop, diff, zoo and example programs and the emitter's own tests
 //	               with -asan (only with -deep or by name: it takes hours)
 //	deep-race      make ci-race: tests/race with both compilers, the concurrency programs with -race, the
 //	               runtime's ThreadSanitizer unit tests (the same)
-var nightlyStages = []string{"canary", "leaks", "asan", "ubsan", "tsan", "deep-sanitize", "deep-race"}
+var nightlyStages = []string{"canary", "leaks", "asan", "ubsan", "tsan", "stdlib", "deep-sanitize", "deep-race"}
 
 type stageResult struct {
 	Name   string
@@ -40,9 +44,9 @@ func cmdNightly(args []string, stdout, stderr io.Writer) error {
 	cf.register(fs)
 	cf.cxx = "g++,clang++"
 	fs.Lookup("cxx").DefValue = cf.cxx
-	stages := fs.String("stages", "canary,leaks,asan,ubsan,tsan", "the stages to run (\"deep\" is both deep stages), in this order: "+strings.Join(nightlyStages, ", "))
+	stages := fs.String("stages", "canary,leaks,asan,ubsan,tsan,stdlib", "the stages to run (\"deep\" is both deep stages), in this order: "+strings.Join(nightlyStages, ", "))
 	deep := fs.Bool("deep", false, "also run the deep stages (make ci-sanitize and make ci-race)")
-	sample := fs.Bool("sample", false, "run the sanitizer stages on the short sample corpus (tools/sanitize/sample.txt): a smoke test of the job")
+	sample := fs.Bool("sample", false, "run the sanitizer stages on the short sample corpus (tools/sanitize/sample.txt), without the stdlib stage unless -stages names it: a smoke test of the job")
 	phase := fs.Int("phase", 99, "the highest phase (// phase: NN) to run (default: all; the skipped programs are counted in the output)")
 	pending := fs.Bool("pending", false, "also run the programs that say // pending:")
 	shard := fs.String("shard", "", "i/n: only the programs of shard i of n in the asan, ubsan and tsan stages")
@@ -58,6 +62,12 @@ func cmdNightly(args []string, stdout, stderr io.Writer) error {
 		return usageError("-j %d: want 1 or more", cf.jobs)
 	}
 	want := strings.Split(*stages, ",")
+	named := false // -stages was given
+	fs.Visit(func(f *flag.Flag) { named = named || f.Name == "stages" })
+	if *sample && !named {
+		// The smoke test of the job takes minutes; Go's tests of the standard packages are not part of it.
+		want = slices.DeleteFunc(want, func(w string) bool { return w == "stdlib" })
+	}
 	for i, w := range want { // "deep" names both deep stages
 		if w == "deep" {
 			want = slices.Replace(want, i, i+1, "deep-sanitize", "deep-race")
@@ -129,6 +139,8 @@ func cmdNightly(args []string, stdout, stderr io.Writer) error {
 		case "tsan":
 			mode, _ := ModeByName("tsan")
 			err = runCorpus(s, mode, corpus("tsan", CorpusConcurrency), mw, stderr)
+		case "stdlib":
+			err = nightlyDeep(s, "stdlib-nightly", mw, stderr)
 		case "deep-sanitize":
 			err = nightlyDeep(s, "ci-sanitize", mw, stderr)
 		case "deep-race":
@@ -172,7 +184,7 @@ func nightlyLeaks(s *session, stdout, stderr io.Writer) error {
 	return auditLeaks(s, entries, markers, nil, false, false, stdout, stderr)
 }
 
-// nightlyDeep runs one of the make targets that are the deep sanitizer gates.
+// nightlyDeep runs the make target of a stage: the deep sanitizer gates, and stdlib-nightly.
 func nightlyDeep(s *session, target string, stdout, stderr io.Writer) error {
 	cmd := exec.Command("make", target)
 	cmd.Dir = s.root

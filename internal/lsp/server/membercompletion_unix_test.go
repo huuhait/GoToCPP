@@ -28,12 +28,10 @@ func TestMemberCompilerBlockedDoesNotBlockServer(t *testing.T) {
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "started")
-	gate := filepath.Join(dir, "gate")
-	if err := syscall.Mkfifo(gate, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("MEMBER_TEST_MARKER", marker)
-	t.Setenv("MEMBER_TEST_GATE", gate)
+	// The fake compiler waits until it is killed (it sleeps; it ends with the test process too).
+	// Not on a named pipe: build.WatchPipes stops a compiler that waits to open one.
+	t.Setenv("MEMBER_TEST_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("MEMBER_TEST_CLANG", clang.Path)
 	compiler := filepath.Join(dir, "clang++")
 	const script = `#!/bin/sh
@@ -44,7 +42,7 @@ if [ -f "$last" ]; then
     case "$line" in
       *"gocpp_member_query()"*)
         printf '%s\n' "$$" > "$MEMBER_TEST_MARKER"
-        read answer < "$MEMBER_TEST_GATE"
+        while kill -0 "$MEMBER_TEST_PID" 2>/dev/null; do sleep 0.05; done
         exit 1
         ;;
     esac

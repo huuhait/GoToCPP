@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -73,6 +74,33 @@ func TestExpansionsStaleKeepsLiveServers(t *testing.T) {
 		t.Errorf("the marker holds %q, want the process id", data)
 	}
 	x.close()
+}
+
+// TestExpansionsStaleAsksTheOwnerFirst: removeStale asks whether a folder is ours before it looks into it, so the
+// marker of another user's folder is never read (it could be a named pipe: a read would wait for a writer), even
+// when the marker is young or missing.
+func TestExpansionsStaleAsksTheOwnerFirst(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	for _, name := range []string{"young", "nomarker"} {
+		dir := filepath.Join(tmp, expandDirPrefix+name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if name == "young" {
+			if err := os.WriteFile(filepath.Join(dir, expandMarker), []byte("1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var asked []string
+	removeStale(func(fi os.FileInfo) bool { asked = append(asked, fi.Name()); return false })
+	slices.Sort(asked)
+	if want := []string{expandDirPrefix + "nomarker", expandDirPrefix + "young"}; !slices.Equal(asked, want) {
+		t.Errorf("removeStale asked about %q, want %q (every folder, before its marker)", asked, want)
+	}
 }
 
 // TestExpansionsTouchLoop: a server that lives on touches the marker by itself.

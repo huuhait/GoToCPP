@@ -101,11 +101,19 @@ func TestCompDBEmpty(t *testing.T) {
 	}
 }
 
+// TestCompDBDirectoryDefault: a command without a folder of its own gets the folder of its file.
+// The plan's paths are the host's (filepath.Join of absolute paths: C:\a\b\x.c on Windows), and
+// so is the folder.
 func TestCompDBDirectoryDefault(t *testing.T) {
+	file, err := filepath.Abs(filepath.FromSlash("/a/b/x.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSuffix(file, string(filepath.Separator)+"x.c") // /a/b, or C:\a\b
 	p := &Plan{}
-	p.add(Command{Kind: KindSource, Compiler: []string{"cc"}, Args: []string{"-c", "/a/b/x.c"}, File: "/a/b/x.c"})
-	if got := p.CompDB(); len(got) != 1 || got[0].Directory != "/a/b" {
-		t.Errorf("CompDB = %+v, want the folder of the file", got)
+	p.add(Command{Kind: KindSource, Compiler: []string{"cc"}, Args: []string{"-c", file}, File: file})
+	if got := p.CompDB(); len(got) != 1 || got[0].Directory != want || got[0].File != file {
+		t.Errorf("CompDB = %+v, want the folder %s of the file %s", got, want, file)
 	}
 }
 

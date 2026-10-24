@@ -999,11 +999,12 @@ func probeTemp() (string, error) {
 // runCompiler runs the compiler cxx with args in the folder dir, with the
 // temporary folder tmp, and waits for it and for its output. It runs in a
 // process group of its own, and whatever the compiler left running is
-// killed. The error is cmd.Wait's. When the compiler exited with a success
-// status, but its output was not complete in time (os/exec: ErrWaitDelay, a
-// loaded machine, or a process that kept the output open), the output is not
-// used: stdout and stderr are emptied and the compiler runs once more, with
-// a longer delay.
+// killed. The error is cmd.Wait's, or a *build.PipeError when the compiler
+// waited to open a named pipe and was stopped (build.WatchPipes). When the
+// compiler exited with a success status, but its output was not complete in
+// time (os/exec: ErrWaitDelay, a loaded machine, or a process that kept the
+// output open), the output is not used: stdout and stderr are emptied and the
+// compiler runs once more, with a longer delay.
 //
 // Known limit: os/exec returns ErrWaitDelay only for a command that otherwise
 // succeeded. A compiler that exits with an error status (the kind probe's
@@ -1030,7 +1031,11 @@ func runCompiler(ctx context.Context, cxx build.CXX, dir, tmp string, args []str
 			return cmd
 		})
 		if err == nil {
+			stop := build.WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 			err = cmd.Wait()
+			if perr := stop(); perr != nil {
+				err = perr
+			}
 			build.KillGroup(cmd) // whatever the compiler left running
 		}
 		if !errors.Is(err, exec.ErrWaitDelay) || cmd.ProcessState == nil || !cmd.ProcessState.Success() {
@@ -1049,6 +1054,8 @@ func runFailure(ctx context.Context, name string, cmd *exec.Cmd, err error, out 
 		return fmt.Errorf("%s was stopped: %w", name, ctx.Err())
 	case cmd.ProcessState == nil:
 		return fmt.Errorf("%s didn't start: %w", name, err)
+	case errors.As(err, new(*build.PipeError)):
+		return err // the compiler waited for a named pipe (build.WatchPipes)
 	case errors.Is(err, exec.ErrWaitDelay):
 		// Also after the second run (runCompiler), with the longer delay.
 		return fmt.Errorf("%s exited, but a process that it started kept its output open", name)

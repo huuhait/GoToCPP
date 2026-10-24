@@ -177,6 +177,7 @@ everything; the exit status is 1 when any stage failed:
 | `asan` | `tests/run` in the `asan` mode | |
 | `ubsan` | `tests/run` in the `ubsan` mode | |
 | `tsan` | the `concurrency` corpus in the `tsan` mode | |
+| `stdlib` | `make stdlib-nightly`: `go run ./tools/stdgocount -check` and `rangegen_shards.py` ([stdlib-tests.md](stdlib-tests.md)) | no sanitizer; its time is not measured yet; `-sample` leaves it out unless `-stages` names it |
 | `deep-sanitize` | `make ci-sanitize` | only with `-deep` or by name (`-stages deep` names both) |
 | `deep-race` | `make ci-race` | the same |
 
@@ -214,7 +215,7 @@ per night to `sanitize-results/history.txt`; a failed night prints where to look
 the repository installs a timer.
 
 **On GitHub** `.github/workflows/sanitizers-nightly.yml` does the same with `make sanitize-nightly`, in jobs:
-the canaries and the leak audit; `asan` and `ubsan` in four shards; `tsan` in two; `deep-sanitize` and `deep-race` (two jobs, because a GitHub-hosted job stops after 360 minutes). It is not active:
+the canaries and the leak audit; `asan` and `ubsan` in four shards; `tsan` in two; `stdlib`; `deep-sanitize` and `deep-race` (two jobs, because a GitHub-hosted job stops after 360 minutes). It is not active:
 decision Q9 keeps the repository off GitHub for now, so the file was only checked for YAML and for the make
 targets and flags it uses (`TestJobFilesUseRealFlags`), not run by GitHub.
 

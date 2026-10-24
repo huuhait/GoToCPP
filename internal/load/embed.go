@@ -120,7 +120,6 @@ func (b *builtinPass) goEmbed() {
 		spec *ast.ValueSpec
 		pats []embedPattern
 		pos  token.Pos
-		line *ast.Comment
 	}
 	var targets []*target
 	var others []token.Pos // where the other declarations start, and their end
@@ -169,11 +168,10 @@ func (b *builtinPass) goEmbed() {
 			continue
 		}
 		next.pats = append(next.pats, dir.patterns...)
-		next.line = dir.c
 	}
 	for _, t := range targets {
 		if len(t.pats) > 0 {
-			b.embedVar(t.spec, t.pats, t.line.Slash)
+			b.embedVar(t.spec, t.pats)
 		}
 	}
 }
@@ -251,10 +249,10 @@ func parseEmbedPatterns(text string, pos token.Pos) ([]embedPattern, string) {
 }
 
 // embedVar gives the variable of spec its value from the files of the
-// patterns, or reports why it can't.
-func (b *builtinPass) embedVar(spec *ast.ValueSpec, pats []embedPattern, at token.Pos) {
-	// Go reports these at the variable's name.
-	at = spec.Names[0].Pos()
+// patterns, or reports why it can't. Go reports these at the variable's
+// name, not at the directive.
+func (b *builtinPass) embedVar(spec *ast.ValueSpec, pats []embedPattern) {
+	at := spec.Names[0].Pos()
 	switch {
 	case len(spec.Names) > 1:
 		b.errorf(at, "go:embed cannot apply to multiple vars")

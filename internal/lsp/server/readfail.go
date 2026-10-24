@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"sync"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 )
@@ -68,7 +68,7 @@ func (s *Server) readAgain(path string) {
 	}()
 	read := s.readFile
 	if read == nil {
-		read = os.ReadFile
+		read = load.ReadRegular // a named pipe is an error, not a wait
 	}
 	for wait := r.base; ; wait = min(wait*2, r.max) {
 		select {

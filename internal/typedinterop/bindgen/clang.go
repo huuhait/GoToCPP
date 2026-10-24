@@ -83,11 +83,15 @@ func (t *tool) run(ctx context.Context, mode []string, src string, read func(io.
 		return nil, 0, fmt.Errorf("%s didn't start: %w", t.cxx.Name(), err)
 	}
 	defer build.KillGroup(cmd)
+	stopWatch := build.WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 	readErr := read(stdout)
 	io.Copy(io.Discard, stdout)
 	waitErr := cmd.Wait()
+	pipeErr := stopWatch()
 	build.KillGroup(cmd)
 	switch {
+	case pipeErr != nil:
+		return nil, 0, fmt.Errorf("%s: %w", t.cxx.Name(), pipeErr)
 	case ctx.Err() != nil:
 		return nil, 0, fmt.Errorf("%s was stopped: %w", t.cxx.Name(), ctx.Err())
 	case rctx.Err() != nil:

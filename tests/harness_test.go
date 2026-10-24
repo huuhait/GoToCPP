@@ -782,24 +782,8 @@ func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
 		t.Fatalf("%s: %s\n%s", build.cmd, build.problem, indent(string(build.stdout)))
 	}
 	if build.exit != 0 {
-		goFile := goFileName(p.arg)
-		if p.arg == "." {
-			goFile = "(the module)"
-		}
-		if goRejects(string(build.stdout), goFile) {
-			if mustTwin(p) != "" || pkgsTwin(p) != "" {
-				// The twin of a Phase 10 test is plain Go: if Go rejects it, the test would compare nothing.
-				t.Fatalf("the Go twin of %s does not compile:\n%s", p.path, indent(string(build.stdout)))
-			}
-			if usesPhase10Syntax(p) {
-				// A program with `!`, macros or #Derive that Go rejects needs a twin: without one nothing is compared.
-				t.Fatalf("%s uses the syntax of Phase 10, Go rejects it, and it has no Go twin (tests/run/README.md, tests/pkgs/README.md):\n%s",
-					p.path, indent(string(build.stdout)))
-			}
-			n.rejected.Add(1)
-			t.Skipf("go build rejects the code of %s, so it is not a Go program:\n%s", p.path, indent(string(build.stdout)))
-		}
-		t.Fatalf("%s: %s, and not because of an error in the program:\n%s", build.cmd, build.status, indent(string(build.stdout)))
+		goBuildFailed(t, p, build, n) // it ends the test
+		return
 	}
 	n.compared.Add(1)
 	r := c.run(t, job{dir: p.dir, name: prog, show: "the Go build of " + p.path + " (run in tests/run)"})
@@ -809,6 +793,45 @@ func (c *config) runVsGoTest(t *testing.T, p *program, n *vsGoCount) {
 		exitCode: p.header.exitCode,
 		stderr:   p.header.stderr,
 	})
+}
+
+// verdictT is the part of *testing.T that goBuildFailed uses (TestGoBuildFailed gives it a recorder).
+type verdictT interface {
+	Fatalf(format string, args ...any)
+	Skipf(format string, args ...any)
+}
+
+// goBuildFailed ends the test of the program p, whose Go build failed: a skip when Go rejects the code (a program that
+// is not Go: C/C++ interop, a gocpp extension), counted in n.rejected; a failure when Go rejects the code of a program
+// that must be compared with real Go (rejectedProblem), or when the build failed for another reason.
+func goBuildFailed(t verdictT, p *program, build result, n *vsGoCount) {
+	goFile := goFileName(p.arg)
+	if p.arg == "." {
+		goFile = "(the module)"
+	}
+	if !goRejects(string(build.stdout), goFile) {
+		t.Fatalf("%s: %s, and not because of an error in the program:\n%s", build.cmd, build.status, indent(string(build.stdout)))
+		return
+	}
+	if problem := rejectedProblem(p); problem != "" {
+		t.Fatalf("%s:\n%s", problem, indent(string(build.stdout)))
+		return
+	}
+	n.rejected.Add(1)
+	t.Skipf("go build rejects the code of %s, so it is not a Go program:\n%s", p.path, indent(string(build.stdout)))
+}
+
+// rejectedProblem returns why runVsGoTest fails a program that Go rejects instead of skipping it as "not a Go
+// program", or "": the program has a Go twin, which is plain Go, so a twin that Go rejects compares nothing; or it uses
+// the syntax of Phase 10 (`!`, macros, #Derive), which needs a twin, and has none (TestRejectedProblem).
+func rejectedProblem(p *program) string {
+	if mustTwin(p) != "" || pkgsTwin(p) != "" {
+		return fmt.Sprintf("the Go twin of %s does not compile", p.path)
+	}
+	if usesPhase10Syntax(p) {
+		return fmt.Sprintf("%s uses the syntax of Phase 10, Go rejects it, and it has no Go twin (tests/run/README.md, tests/pkgs/README.md)", p.path)
+	}
+	return ""
 }
 
 // exampleTest runs an example in its folder with each compiler, with the

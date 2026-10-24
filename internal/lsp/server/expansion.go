@@ -18,6 +18,7 @@ import (
 
 	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/expand"
+	"github.com/huuhait/gocpp/internal/load"
 	"github.com/huuhait/gocpp/internal/lsp/cache"
 	"github.com/huuhait/gocpp/internal/lsp/fspath"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
@@ -110,7 +111,8 @@ var touchEvery = time.Hour
 var ownerCheck = ownedByUs
 
 // removeStale removes the folders of servers that were killed: in the temporary folder, named like ours, with our
-// marker file in them, owned by us, and older than a day. Nothing else is touched.
+// marker file in them, owned by us, and older than a day. Nothing else is touched, and nothing of another user is read:
+// the owner is checked first, and the marker is read as a regular file (load.ReadRegular: a named pipe is no wait).
 func removeStale(owned func(os.FileInfo) bool) {
 	tmp := os.TempDir()
 	entries, err := os.ReadDir(tmp)
@@ -122,17 +124,19 @@ func removeStale(owned func(os.FileInfo) bool) {
 			continue
 		}
 		dir := filepath.Join(tmp, e.Name())
+		if fi, err := os.Stat(dir); err != nil || !owned(fi) {
+			continue
+		}
 		marker, err := os.Stat(filepath.Join(dir, expandMarker))
 		if err != nil || !marker.Mode().IsRegular() || time.Since(marker.ModTime()) < expandStaleAge {
 			continue
 		}
-		if data, err := os.ReadFile(filepath.Join(dir, expandMarker)); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 && pidAlive(pid) {
-				continue // the server that made it is running
-			}
+		data, err := load.ReadRegular(filepath.Join(dir, expandMarker))
+		if load.IsNotRegular(err) {
+			continue // swapped for something that is not a file since the Stat: left alone
 		}
-		if fi, err := os.Stat(dir); err != nil || !owned(fi) {
-			continue
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 && pidAlive(pid) {
+			continue // the server that made it is running
 		}
 		os.RemoveAll(dir)
 	}

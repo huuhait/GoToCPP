@@ -545,10 +545,15 @@ func buildPCH(ctx context.Context, cfg Config, base string) ([]string, error) {
 		return nil, fmt.Errorf("%s didn't start: %w", cfg.CXX.Name(), err)
 	}
 	defer build.KillGroup(cmd)
+	stopWatch := build.WatchPipes(cmd) // a header that is a named pipe would make it wait for ever
 	werr := cmd.Wait()
+	pipeErr := stopWatch()
 	build.KillGroup(cmd)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("%s was stopped: %w", cfg.CXX.Name(), ctx.Err())
+	}
+	if pipeErr != nil {
+		return nil, fmt.Errorf("%s: %w", cfg.CXX.Name(), pipeErr)
 	}
 	if werr != nil {
 		return nil, fmt.Errorf("%s could not precompile the library headers: %v%s",

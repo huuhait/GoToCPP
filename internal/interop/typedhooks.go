@@ -1,6 +1,10 @@
 package interop
 
-import "github.com/huuhait/gocpp/internal/build"
+import (
+	"time"
+
+	"github.com/huuhait/gocpp/internal/build"
+)
 
 // Hooks for the typed-interop probes of Phase 12 (internal/typedinterop/probe).
 //
@@ -24,6 +28,10 @@ func ProbeCompilerArgs(cxx build.CXX, mode []string, dir string, flags []string,
 // ProbeEnv returns the environment of a probe run that works in the
 // temporary folder tmp and the package folder dir (see probeEnv).
 func ProbeEnv(tmp, dir string) []string { return probeEnv(tmp, dir) }
+
+// ProbeLimit is the time limit of one run of a probe (probeLimit), for the probes of other packages
+// (gocpp doc's FindHeader).
+func ProbeLimit() time.Duration { return probeLimit() }
 
 // ParseDeps returns the headers that the compiler read, from its dependency
 // file data (make syntax, written with -MD -MT gp_probe), without the probe

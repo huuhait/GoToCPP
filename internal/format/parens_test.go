@@ -174,41 +174,41 @@ func TestKeepParensErrors(t *testing.T) {
 	for _, c := range []struct{ name, body, want string }{{
 		name: "a struct with two fields",
 		body: "\tfor range (T[struct {\n\t\ta int\n\t\tb int\n\t}]{}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type doesn't fit on one line; give the type a name\n",
+		want: "x.gp:4:13: " + msg + "its type can't be written on one line; give the type a name\n",
 	}, {
 		name: "an interface with two methods",
 		body: "\tif (T[interface {\n\t\tM()\n\t\tN()\n\t}]{} == x) {\n\t}\n",
-		want: "x.gp:4:6: " + msg + "its type doesn't fit on one line; give the type a name\n",
+		want: "x.gp:4:6: " + msg + "its type can't be written on one line; give the type a name\n",
 	}, {
 		name: "a // comment in the type",
 		body: "\tfor range (T[ // c\n\t\tint]{1}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:13: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		name: "a /* */ comment in the type",
 		body: "\tfor range (T[ /* c */ int]{}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:13: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		name: "a /* */ comment at the end of a line in the type",
 		body: "\tfor range (T[int, /* c */\n\t\tstring]{}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:13: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		name: "a /* */ comment on two lines in the type",
 		body: "\tfor range (T[ /* a\n\tb */ int]{}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:13: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		name: "a comment in a type argument of a qualified type",
 		body: "\tif (pkg.T[int /* c */]{} == x) {\n\t}\n",
-		want: "x.gp:4:6: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:6: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		// The error is at the first literal, with its reason.
 		name: "no literal of the header can have a type name",
 		body: "\tif (T[ /* c */ int]{} == U[struct {\n\t\ta int\n\t\tb int\n\t}]{}) {\n\t}\n",
-		want: "x.gp:4:6: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:6: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}, {
 		name: "two errors",
 		body: "\tfor range (T[ // c\n\t\tint]{1}) {\n\t}\n\tswitch (U[ // d\n\t\tint]{}) {\n\t}\n",
-		want: "x.gp:4:13: " + msg + "its type has a comment in it\n" +
-			"x.gp:7:10: " + msg + "its type has a comment in it\n",
+		want: "x.gp:4:13: " + msg + "its type has a comment in it; move the comment out of the type\n" +
+			"x.gp:7:10: " + msg + "its type has a comment in it; move the comment out of the type\n",
 	}} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := Source("x.gp", []byte(parensFile(c.body)))
