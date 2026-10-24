@@ -2,6 +2,11 @@
 
 ![The Go gopher throwing the Rust crab and logo into a trash can labeled "trash language"](docs/images/head.png)
 
+> I made this with Opus 5.5 and Sonnet 5.5 because I just can't enjoy Rust. Every time an AI
+> wrote Rust for me, I had no idea what I was looking at. What even is `unwrap`, `unwrap_or`, and
+> all that stuff? And rust-analyzer is the worst thing I've seen since I started learning to code.
+> I'd rather turn it off than rely on it. I like Go, so I wanted Go that turns into C++. Here it is.
+
 **Write Go, get C++.** gocpp (Go++) is a language that looks and feels like Go. You write `.gp`
 files, and the `gocpp` tool translates them into readable C++20, then builds a native program with
 `clang++` or `g++`. Because the output is plain C++, a `.gp` file can import any C or C++ header and
