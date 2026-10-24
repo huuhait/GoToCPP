@@ -1,21 +1,21 @@
 # Phase 16: Dual engine · STATE
 
-**Status:** `[ ]` planned in full (2026-10-21), reviewed and corrected (2026-10-22), not scheduled: the phase starts when you decide
+**Status:** `[~]` started 2026-10-24 (your decision): step 16.1's spike runs as jobs 16.1a (bdwgc), 16.1b (Go stdlib dry run) and 16.1c (GC-engine walking skeleton) in parallel worktrees under `~/worktrees/GoToCPP-Gopkg`
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-24
 
 ## Steps
 
 Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WINDOWS_SSH`).
 
 ### Part A: decide (4–6 weeks)
-- [ ] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
-  - [ ] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer
-  - [ ] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite`
+- [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
+  - [~] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer (job 16.1a)
+  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c starts the walking skeleton)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [ ] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds
   - [ ] Windows: the same measurements, plus thread starts and the scan of static roots in each collection
-  - [ ] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11)
+  - [~] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b)
 - [ ] 16.2 ADR: the design (1–2 weeks)
   - [ ] names; descriptors and the scheme for offsets, `typelinks` and unnamed types; the heap scan stages and the extra byte; misaligned access
   - [ ] import rules and `"go:..."` imports; the gp view, the allowlist of twins, the boundary table, the call-only list and its directive, `gc.New[T]`, `gc.File`, which channels cross
@@ -132,6 +132,17 @@ package.
 
 ## Decisions / notes
 
+- 2026-10-24 (your direction): **the phase starts now.** Phase 16 is built in its own clone
+  `/home/huuhait/GoToCPP-Gopkg` on branch `p16`, with one worktree per job under
+  `~/worktrees/GoToCPP-Gopkg/<job>` (branches `job/<job>`); merges go to `p16`, never to `dev`,
+  because another agent builds the old phases in `/home/huuhait/GoToCPP`. No file of an old
+  phase is touched. Every build, test and tool run is capped at **16 threads** (`-j16`,
+  `go test -parallel 16`, `scripts/gp-focused -cpus 16`). The spike of 16.1 is split into
+  independent jobs: 16.1a (vendor and build bdwgc 8.2.12), 16.1b (the dry run of Go's standard
+  library) and 16.1c (the GC-engine walking skeleton in the emitter, with the minimal `gp::gc`
+  values and a test heap). Further jobs (the bdwgc backend of `gp::gc`, Go-layout structs and
+  maps, the four spike packages, the five boundary shapes, the measurements, Windows) follow
+  when these are reviewed.
 - 2026-10-21: phase created from your idea ("a non-GC engine for gp and C/C++, another GC
   engine for Go; then we can import any Go package in the world"). The first draft recorded
   options B1–B4 and eight questions.
@@ -222,6 +233,8 @@ package.
 
 ## Log
 
+- 2026-10-24: the phase started (your decision). Jobs 16.1a, 16.1b and 16.1c assigned; the
+  workspace and the 16-thread cap are recorded in "Decisions / notes".
 - 2026-10-21: phase created (the idea, the options, eight questions).
 - 2026-10-21: the full plan written from your four answers, with a survey of 17 Go modules and a
   prior-art study.
