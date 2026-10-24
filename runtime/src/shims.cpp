@@ -2,15 +2,56 @@
 // Standard C++ only.
 #include <gocpp/rt.hpp>
 
+#include <atomic>
 #include <cstdlib>
 #include <mutex>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace gp::godebug {
+namespace {
+
+// The value of $GODEBUG as Go's runtime keeps it (godebugEnv): read from the environment at
+// program start, then the value that package syscall sets. Reading it never calls getenv, which
+// another thread's setenv could change under it (a data race in C).
+struct env_state {
+    std::mutex mu;
+    std::string value;
+    std::atomic<std::uint64_t> generation{0};
+};
+
+env_state& state() {
+    static env_state* const s = [] {
+        auto* e = new env_state; // never destroyed: a goroutine may read it while the process exits
+        const char* v = std::getenv("GODEBUG");
+        e->value = v == nullptr ? "" : v;
+        return e;
+    }();
+    return *s;
+}
+
+[[maybe_unused]] const bool read_at_start = (state(), true);
+
+} // namespace
 
 gp::string env() {
-    const char* v = std::getenv("GODEBUG");
-    return v == nullptr ? gp::string() : gp::string::gp_copy(v);
+    env_state& s = state();
+    std::lock_guard<std::mutex> lock(s.mu);
+    return gp::string::gp_copy(s.value);
+}
+
+std::uint64_t generation() noexcept {
+    return state().generation.load(std::memory_order_acquire);
+}
+
+void env_changed(std::string_view value) {
+    env_state& s = state();
+    {
+        std::lock_guard<std::mutex> lock(s.mu);
+        s.value.assign(value);
+    }
+    s.generation.fetch_add(1, std::memory_order_acq_rel);
 }
 
 } // namespace gp::godebug

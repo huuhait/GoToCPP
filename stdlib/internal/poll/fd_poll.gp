@@ -25,8 +25,9 @@ import (
 // The wake descriptor of a mode is made by its first wait that needs it; at most one goroutine
 // waits per mode at a time (readLock and writeLock serialize them). When the process has no
 // descriptor left for it (EMFILE), the wait is degraded, not failed: it waits without a wake
-// descriptor and looks at closing and the deadlines every degradedPoll, so Close and SetDeadline
-// still end it (a little later) and a Read or Write that has to wait behaves as in Go.
+// descriptor and looks at closing and the deadlines every 25 to 200 ms (degradedPoll), so Close
+// and SetDeadline still end it (a little later) and a Read or Write that has to wait behaves as in
+// Go.
 type pollDesc struct {
 	fd int
 	ok bool
@@ -44,8 +45,14 @@ type pollMode struct {
 	waiting  bool // a goroutine is in sysPollWait (so a signal has someone to wake)
 }
 
-// degradedPoll is how often (nanoseconds) a wait without a wake descriptor looks at its state.
-const degradedPoll = 25e6
+// A wait without a wake descriptor looks at its state after degradedPoll (nanoseconds), then
+// twice as long after each look that found nothing, up to degradedPollMax: a wait that lasts costs
+// about 5 wake-ups a second, and Close or a new deadline ends it within 200 ms. (Only a process
+// that has no descriptor left waits so.)
+const (
+	degradedPoll    = 25e6
+	degradedPollMax = 200e6
+)
 
 var errNoPoller = errors.New("not pollable")
 
@@ -143,6 +150,7 @@ func (pd *pollDesc) wait(mode int, isFile bool) error {
 		return errNoPoller
 	}
 	m := pd.mode(mode)
+	look := int64(degradedPoll)
 	for {
 		pd.mu.Lock()
 		if pd.closing {
@@ -170,8 +178,8 @@ func (pd *pollDesc) wait(mode int, isFile bool) error {
 		}
 		if m.haveWake {
 			wake = m.wake
-		} else if timeout < 0 || timeout > degradedPoll {
-			timeout = degradedPoll // no wake descriptor (EMFILE): look again soon
+		} else if timeout < 0 || timeout > look {
+			timeout = look // no wake descriptor (EMFILE): look again soon
 		}
 		m.waiting = true
 		pd.mu.Unlock()
@@ -192,7 +200,11 @@ func (pd *pollDesc) wait(mode int, isFile bool) error {
 			// Close that signals after this clear has set pd.closing first, so the loop sees it.
 			sysWakeClear(wake)
 		}
-		// state 2 (timeout): the loop finds the deadline passed, or looks again.
+		// state 2 (timeout): the loop finds the deadline passed, or looks again, later each time
+		// that nothing happened (degradedPollMax).
+		if wake < 0 && look < degradedPollMax {
+			look = min(2*look, degradedPollMax)
+		}
 	}
 }
 

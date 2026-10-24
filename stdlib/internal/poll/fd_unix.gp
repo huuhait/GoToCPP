@@ -57,6 +57,10 @@ type FD struct {
 
 	// Whether this is a file rather than a network socket.
 	isFile bool
+
+	// gocpp: the last Read had to wait and did not fill its buffer, so the next one waits before
+	// it reads (Read; under the read lock).
+	readWaits bool
 }
 
 // Init initializes the FD. The Sysfd field should already be set.
@@ -171,16 +175,31 @@ func (fd *FD) Read(p []byte) (int, error) {
 	if fd.IsStream && len(p) > maxRW {
 		p = p[:maxRW]
 	}
+	// gocpp: a read that has to wait costs read (EAGAIN), ppoll and read; after a Read that had to
+	// wait and got less than its buffer, the next one waits first (ppoll and read), and one that
+	// fills its buffer reads at once again (PORT.md has the measurements). Not in blocking mode
+	// (SetBlocking, File.Fd): there a Read blocks in read, which deadlines and Close do not end,
+	// as in Go.
+	waited := false
+	if fd.readWaits && fd.pd.pollable() && atomic.LoadUint32(&fd.isBlocking) == 0 {
+		if err := fd.pd.waitRead(fd.isFile); err != nil {
+			fd.readWaits = false
+			return 0, err
+		}
+		waited = true
+	}
 	for {
 		n, err := ignoringEINTRIO(syscall.Read, fd.Sysfd, p)
 		if err != nil {
 			n = 0
 			if err == syscall.EAGAIN && fd.pd.pollable() {
 				if err = fd.pd.waitRead(fd.isFile); err == nil {
+					waited = true
 					continue
 				}
 			}
 		}
+		fd.readWaits = waited && err == nil && n > 0 && n < len(p)
 		err = fd.eofError(n, err)
 		return n, err
 	}

@@ -101,14 +101,11 @@ Items inside a running job (see "Now") are not repeated here.
 ### Stdlib
 
 - [ ] Packages that are not available (`package ... is not available yet`): `os/exec`, `os/signal`, `os.StartProcess`, `net/*`, `crypto/*`, `text/template`, `html/template`, `encoding/csv`, `compress/*` (Phase 16 plans Go's own copies; `check` repro: import any of them) (was L303, L257, STATE Phase 14 14.3).
-- [ ] `reflect`: `Method(i).Type` is nil for every method (Go: `func(main.P) string`); `MapIter` snapshots keys; `Convert(nil)` raises TypeAssertionError; `DeepEqual(ValueOf(1), ValueOf(1))` is false (Go true); `Set` panic text for C.int vs int32 is `int32 not assignable to int32` (was L238, L258).
 - [ ] `reflect.ValueOf(std.string("x"))`, `reflect.TypeOf(r.N)` of a C value, `reflect.ValueOf([]std.string{...})`: `internal error: not supported yet: passing C/C++ values to this function`; a Foreign type's descriptor from a struct field and from `TypeOf` may not intern equal (was L233).
 - [ ] `testing`/`gocpp test`: `-race`, `-cover`, `-json`, `-fuzz`, `-shuffle` are refused (`... is not supported yet`); no vet before tests; no goroutine dump on a test timeout; `libLock/libNow/libSleep` natives and `util.gp` not yet replaced by `sync`/`time`/`flag`; `testing/iotest`, `testing/fstest`, `runtime.AddCleanup` missing; `gocpp test file.gp...` unsupported (was L251, L257).
 - [ ] 7.10 lows: `iter.Pull` is a thread hand-off (create+stop 15-19 us, 100,000 live Pulls 18-21 s); string-keyed generic ops 2.8-5.7x Go; `maps.Clone` of string/struct maps 2.3-7.5x slower; `testing.AllocsPerRun` returns 0 (was L265).
 - [ ] 9.4 lows: ported strconv/regexp/strings are slow at `-O0` (default); regexp 4-12x Go at -O2; `portstd -check` misses a stray hand-written `.gp` and `own` files; `tests/pkgs/regexp_internal` should be replaced by Go's originals run by `gocpp test`; `compress/bzip2` missing for TestRE2Exhaustive; testing-only `-test.*` flag divergences (was L248, L257, L276, L292).
-- [ ] 9.2 lows: godebug reads `$GODEBUG` on every call; testlog keeps its logger in a plain variable (was L246).
 - [ ] 9.11 lows: `io/fs.Glob` overflows a goroutine's 8 MiB stack at -O0 for ~6000 separators (main is fixed); `#Derive(JSON)` is an API shim with documented differences (ADR-102) (was L303).
-- [ ] 9.6 `internal/poll` test gaps: wake fd never used goes unnoticed (D02), degraded wait not capped with a far deadline (D08); degraded mode costs ~40 wake-ups/s per blocked waiter; blocking pipe `Read` is 3 syscalls (was L291).
 - [ ] 14.3 lows (Windows, need the PC): `Chdir` over 260 chars, `time.Local` is UTC, `Process.Release` during `Wait`, `os.Stdout.Close()` then `Println` returns nil, `RemoveAll` error texts, no registry/`NewCallback` (was L264).
 
 ### Compiler (check, lower, cppgen, generics, interop)
@@ -175,7 +172,6 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Tooling (debugger, vet, test runner, fuzz, tests infrastructure)
 
-- [ ] `internal/cppgen` `TestUnsupported/bytes-named-elem` and `runes-named-elem` fail on dev (`got <nil>, want an *Error`) since ffe1c8d5 (phase 9 step 9.11 tier-2 packages); found by the dev.debugtests review.
 - [ ] lldb shows a variable captured by reference as a C++ reference (the dev.debugtests reference printer is gdb only); a captured C enum or C pointer still prints as `&GREEN @0x...` under gdb.
 - [ ] gdb printers: `info locals` and raw gdb `print` still show raw closure structs on clang++ and `n = &6` for a g++ box; exotic Go types (a struct or interface with members, an array length that is a name) print as `func(...)`; a generic type argument that is a type parameter prints the parameter name inside a generic function.
 - [ ] 13.2 lows: the stop line, `frame`, `up` and `info locals` still print C++ names and temporaries; a boxed local is unwrapped by reading the `.gp` declaration line; `gp print` has no map indexing or calls; `$gp_blocked()` counts only channel waits; the lldb script got no robustness pass (was L240).
@@ -192,8 +188,7 @@ Items inside a running job (see "Now") are not repeated here.
 
 ### Docs and tests
 
-- [ ] Add run tests: 6.2 fixture with `a b.gp` and `a$b.gp`; tests D02 and D08 of the 9.6 degraded wait (see Stdlib); `tests/run/flag_closure_cycle.gp` with `// lsan: cycle` (was L74, L226, L227, L291, L292).
-- [ ] `docs/conformance/go-test.md` is stale (needs `gotest report -md` after a full run); 9.10 `stdlib-tests.md` numbers (was L292).
+- [ ] `docs/conformance/go-test.md` tables are stale: regenerate them in the user's broad run (`go run ./tools/gotest run -out results.json`, then `gotest report -md docs/conformance/go-test.md results.json` and `gotest gate -update -results results.json`); the dated note in it gives 2132 applicable, 1955 in passing.txt (at least 91.7 %).
 
 ### Needs your decision (user-gated)
 

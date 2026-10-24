@@ -2320,8 +2320,9 @@ v.Field(1).Set(reflect.Append(v.Field(1), reflect.ValueOf("a")))
   a field-less `Struct` for a class); `Type.String()` is the C++ type's name; a class that can't be default constructed
   or copy assigned panics `reflect: C++ type X is opaque (it can't be made or assigned)` where reflect would make or
   store one. reflect does not make `gp::cptr` values.
-- **Methods:** `NumMethod`, `Method(i)` (name, `PkgPath`, `Index`) and `MethodByName` list the exported methods; the
-  `Type` of a method is nil and methods can't be called (`Value.Call`, `Value.Method` are not in the subset).
+- **Methods:** `NumMethod`, `Method(i)` (name, `PkgPath`, `Type`, `Index`) and `MethodByName` list the exported
+  methods; the `Type` of a method is its func type (`gp::method::gp_ftype`, written for a program that uses
+  `reflect.Method`: ADR-035 item 11) and methods can't be called (`Value.Call`, `Value.Method` are not in the subset).
 - **Not in the subset:** `MakeFunc`, `Value.Call`, `Value.Method`, `StructOf`, `FuncOf`, `MapOf`, `ArrayOf`, `ChanOf`,
   `Select`, channel `Send`/`Recv`/`Close`, `Value.Seq`: a call is a compile error.
 ## Package `os` and the system calls (step 9.6)

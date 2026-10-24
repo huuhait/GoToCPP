@@ -19,7 +19,9 @@
 // Storage that these functions make (new_storage) is a block owned by a shared_ptr whose deleter
 // destroys the object by the type's lifetime operations (type_ops::gp_ctor, gp_dtor, gp_trivial).
 // Values that are not addressable are never written through: a Value that came out of an interface
-// shares the interface's box (boxes are immutable), one that came out of a map is a copy.
+// shares the interface's box (boxes are immutable), or the box that Go's conversion shares between
+// equal values (a small number, "", a nil slice, a zero-size value: v_unpack), one that came out of
+// a map is a copy.
 //
 // The panics that Go's reflect raises for a misuse of the API (wrong kind, unaddressable,
 // unexported) are raised by the .gp code, which knows the method's name; these functions panic only
@@ -90,6 +92,9 @@ std::int64_t t_nmethod(std::uint64_t t) noexcept;
 gp::string m_name(std::uint64_t t, std::int64_t i);
 gp::string m_pkgpath(std::uint64_t t, std::int64_t i);
 gp::string m_sig(std::uint64_t t, std::int64_t i); // the method's signature text, without receiver
+// m_type(t, i): Method(i).Type, the method's func type: with the receiver t first for a type that
+// isn't an interface, without a receiver for an interface; 0 when the emitter gave none.
+std::uint64_t m_type(std::uint64_t t, std::int64_t i);
 bool t_implements(std::uint64_t t, std::uint64_t u) noexcept;  // u is an interface type
 bool t_assignable(std::uint64_t t, std::uint64_t u) noexcept;  // a value of t is assignable to u
 bool t_convertible(std::uint64_t t, std::uint64_t u) noexcept; // ... convertible to u

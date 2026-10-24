@@ -1,6 +1,6 @@
 # Phase 09: Standard Library & `gocpp test` · STATE
 
-**Status:** `[~]` in progress (9.1-9.12 and 9.7a merged; audit 2026-10-22: what remains is exactly (1) 9.13 final acceptance, platform/archive validation and your explicit release approval, (2) your call that "tier 1 is complete" (the numeric part of that criterion is met: 98.2 % of selected, 90.8 % of all test functions), (3) packages that are not ported and that tier 1 does not need: `os/exec`, `os/signal`, `net/*`, `crypto/*`, `text/template`, `encoding/csv`, `compress/*` (TODO.md "Stdlib"))
+**Status:** `[~]` in progress (9.1-9.12 and 9.7a merged; audit 2026-10-22: what remains is exactly (1) 9.13 final acceptance, platform/archive validation and your explicit release approval, (2) your call that "tier 1 is complete" (the numeric part of that criterion is met: 98.3 % of selected, 90.8 % of all test functions), (3) packages that are not ported and that tier 1 does not need: `os/exec`, `os/signal`, `net/*`, `crypto/*`, `text/template`, `encoding/csv`, `compress/*` (TODO.md "Stdlib"))
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 **Last updated:** 2026-10-22
 
@@ -33,7 +33,7 @@
 
 ## Exit criteria
 
-- [~] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons): 25 packages 98.2 % of selected (1606/1635 after divergences), 90.8 % of all 1769; os is 91.1 % of selected but 58.6 % of all; fmt, sync, sync/atomic, testing are outside the count (covered elsewhere); "tier 1 complete" and the v0.1 call stay open
+- [~] Tier 1 complete; ≥ 90 % of test functions in the selected Go test files pass (counting rule, written reasons): 25 packages 98.3 % of selected (1607/1635 after divergences), 90.8 % of all 1769; os is 91.6 % of selected but 59.0 % of all; fmt, sync, sync/atomic, testing are outside the count (covered elsewhere); "tier 1 complete" and the v0.1 call stay open
 - [x] Deferred suites (from Phases 07 and 08) pass (slices/maps/cmp/iter 145 of 150 selected, 3 allocation divergences + 2 zero-size-slice bugs; rangegen 800/800 units; test/chan 18 of 19, select2 needs runtime.MemStats)
 - [x] `wc` + `grep-lite` match their Go versions (flag ported 2026-10-19: identical output on 14 and 12 argument vectors)
 - [x] `gocpp test` output format matches `go test`
@@ -65,7 +65,7 @@
   new Windows run or release tag; 9.13 and other Phase 09 exit criteria remain open.
 
 - 2026-10-20: 9.10 merged after two review rounds. Decisions: whole-file `skip_file` with a written
-  reason is acceptable under §2.8 when the headline also gives the all-functions number (os 58.6 %);
+  reason is acceptable under §2.8 when the headline also gives the all-functions number (os 59.0 %);
   fmt/sync/sync-atomic/testing get no Go-test specs (covered by fmt differential tests, 8.7, 9.9).
   Product fixes found by the tests: generic-instance boxed-variable analysis (slices.Collect, iter.Pull),
   `T.Setenv` through os, os `lstatat` stathook, time `sync.Once` flags. Open gaps (in the manifests):

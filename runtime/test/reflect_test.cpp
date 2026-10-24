@@ -280,12 +280,19 @@ void test_scalars() {
     gp::any y = rf::v_interface(t, p);
     CHECK(gp::unbox<int64_t>(y) == 99 && gp::unbox<int64_t>(x) == 99); // the Value shares the box
     // Sized integers wrap as Go's.
+    // (A one-byte value, and a small one, is in one of Go's shared boxes, which are never
+    // written: the writes go to storage of their own.)
     gp::any i8 = gp::to_iface<gp::any>(int8_t(1), &gp::td_int8);
-    auto [t8, p8] = rf::v_unpack(i8);
+    auto [t8, b8] = rf::v_unpack(i8);
+    gp::ptr<void> p8 = rf::v_new(t8);
+    rf::v_assign(t8, p8, b8);
+    CHECK(rf::v_int(t8, p8) == 1);
     rf::v_setint(t8, p8, 200);
     CHECK(rf::v_int(t8, p8) == -56);
     gp::any u16 = gp::to_iface<gp::any>(uint16_t(1), &gp::td_uint16);
-    auto [tu, pu] = rf::v_unpack(u16);
+    auto [tu, bu] = rf::v_unpack(u16);
+    gp::ptr<void> pu = rf::v_new(tu);
+    rf::v_assign(tu, pu, bu);
     rf::v_setuint(tu, pu, 70000);
     CHECK(rf::v_uint(tu, pu) == 70000 - 65536);
     gp::any f32 = gp::to_iface<gp::any>(1.5f, &gp::td_float32);
@@ -305,8 +312,10 @@ void test_scalars() {
     CHECK_STR(rf::v_string(ts, ps), "changed");
     CHECK(rf::v_len(ts, ps) == 7);
     gp::any bl = gp::to_iface<gp::any>(true, &gp::td_bool);
-    auto [tb, pb] = rf::v_unpack(bl);
-    CHECK(rf::v_bool(tb, pb));
+    auto [tb, bb] = rf::v_unpack(bl);
+    CHECK(rf::v_bool(tb, bb));
+    gp::ptr<void> pb = rf::v_new(tb);
+    rf::v_assign(tb, pb, bb);
     rf::v_setbool(tb, pb, false);
     CHECK(!rf::v_bool(tb, pb));
     // Celsius is a named float: read through its own descriptor.
@@ -316,6 +325,37 @@ void test_scalars() {
     // The nil interface
     auto [t0, p0] = rf::v_unpack(gp::any());
     CHECK(t0 == 0 && p0 == nullptr);
+}
+
+// Go's shared boxes (runtime.staticuint64s, zeroVal, zerobase): two interfaces of such a value give
+// the same storage, any other value its own box.
+void test_shared_boxes() {
+    auto same = [](const gp::any& a, const gp::any& b) {
+        return std::get<1>(rf::v_unpack(a)).gp_get() == std::get<1>(rf::v_unpack(b)).gp_get();
+    };
+    auto i = [](int64_t v) { return gp::to_iface<gp::any>(v, &gp::td_int); };
+    CHECK(same(i(1), i(1)) && same(i(0), i(0)) && same(i(255), i(255)));
+    CHECK(!same(i(256), i(256)) && !same(i(-1), i(-1)) && !same(i(1), i(2)));
+    CHECK(rf::v_int(T(&gp::td_int), std::get<1>(rf::v_unpack(i(7)))) == 7);
+    auto i8 = [](int8_t v) { return gp::to_iface<gp::any>(v, &gp::td_int8); };
+    CHECK(same(i8(-1), i8(-1)) &&
+          rf::v_int(T(&gp::td_int8), std::get<1>(rf::v_unpack(i8(-3)))) == -3);
+    auto u16 = [](uint16_t v) { return gp::to_iface<gp::any>(v, &gp::td_uint16); };
+    CHECK(same(u16(200), u16(200)) && !same(u16(300), u16(300)));
+    CHECK(rf::v_uint(T(&gp::td_uint16), std::get<1>(rf::v_unpack(u16(200)))) == 200);
+    auto f64 = [](double v) { return gp::to_iface<gp::any>(v, &gp::td_float64); };
+    CHECK(same(f64(0.0), f64(0.0)) && !same(f64(1.0), f64(1.0)) && !same(f64(-0.0), f64(-0.0)));
+    auto b = [](bool v) { return gp::to_iface<gp::any>(v, &gp::td_bool); };
+    CHECK(same(b(true), b(true)) && same(b(false), b(false)) && !same(b(true), b(false)));
+    auto c64 = [](float r) {
+        return gp::to_iface<gp::any>(gp::complex64(r, 0.f), &gp::td_complex64);
+    };
+    CHECK(!same(c64(0.f), c64(0.f))); // 4-aligned: Go's convTnoptr allocates
+    auto s = [](const char* v) {
+        return gp::to_iface<gp::any>(gp::string::gp_copy(v), &gp::td_string);
+    };
+    CHECK(same(s(""), s("")) && !same(s("a"), s("a")));
+    CHECK(rf::v_len(T(&gp::td_string), std::get<1>(rf::v_unpack(s("")))) == 0);
 }
 
 void test_struct_and_pointer() {
@@ -556,6 +596,7 @@ int main() {
     test_dynamic_types();
     test_rtype();
     test_scalars();
+    test_shared_boxes();
     test_struct_and_pointer();
     test_new_assign();
     test_slices();

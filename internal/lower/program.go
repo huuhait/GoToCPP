@@ -38,6 +38,10 @@ type Program struct {
 	thr   *threadInfo             // the whole-program thread facts (threads.go), computed on first use
 	cha   *chaIndex               // the methods of the named types (chapure.go), on first use
 
+	// methodTypes says whether the method tables carry the func types of the methods
+	// (typedesc.go: methodTypeFunc), on first use: 1 yes, 2 no.
+	methodTypes int8
+
 	// The unnamed struct and interface types, one C++ type each in the whole program (shared.go).
 	anonStructs map[string]*structInfo
 	anonIfaces  map[string]*ifaceInfo

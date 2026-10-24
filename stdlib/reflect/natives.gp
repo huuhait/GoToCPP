@@ -96,6 +96,9 @@ func mPkgPath(t uintptr, i int) string
 //gocpp:native gp::reflect::m_sig
 func mSig(t uintptr, i int) string
 
+//gocpp:native gp::reflect::m_type
+func mType(t uintptr, i int) uintptr
+
 //gocpp:native gp::reflect::t_implements
 func tImplements(t, u uintptr) bool
 

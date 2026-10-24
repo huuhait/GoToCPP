@@ -222,21 +222,30 @@ std::size_t offset_of(M C::* member) {
                                     reinterpret_cast<const char*>(&probe));
 }
 
+// desc_fn is a function that gives a descriptor, made when it is first asked for: the func type of
+// a method (imethod::gp_ftype, method::gp_ftype), which only reflect reads (Method(i).Type).
+using desc_fn = const type_desc* (*)();
+
 // imethod is a method of an interface type: gp_pkgname is the package's NAME (not its path)
 // for an unexported name, which an unnamed interface type's text shows ("interface { N();
-// pkn.m() }"); null: the last element of gp_pkg.
+// pkn.m() }"); null: the last element of gp_pkg. gp_ftype gives the method's func type (its
+// signature as a type: reflect's Method(i).Type); null where the emitter has none (a signature with
+// a C/C++ type).
 struct imethod {
     const char* gp_name;
     const char* gp_pkg;
     const char* gp_sig;
     const char* gp_pkgname;
+    desc_fn gp_ftype;
 
     constexpr imethod(const char* name, const char* pkg, const char* sig,
-                      const char* pkgname = nullptr) noexcept
-        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_pkgname(pkgname) {}
+                      const char* pkgname = nullptr, desc_fn ftype = nullptr) noexcept
+        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_pkgname(pkgname), gp_ftype(ftype) {}
 };
 
-// method is a method of a concrete type, with its thunk (gocpp/iface.hpp).
+// method is a method of a concrete type, with its thunk (gocpp/iface.hpp). gp_ftype gives the func
+// type of the method WITHOUT its receiver (reflect's Method(i).Type adds the receiver); null where
+// the emitter has none.
 struct method {
     const char* gp_name;
     const char* gp_pkg;
@@ -245,10 +254,11 @@ struct method {
     // The method's body contains recover() (an aware function, gocpp/aware.hpp): `defer i.M()`
     // gives it the ticket of the panic. Set by method_of_aware; gp::icall reads it from the itab.
     bool gp_aware;
+    desc_fn gp_ftype;
 
     constexpr method(const char* name, const char* pkg, const char* sig, fn_ptr fn,
-                     bool aware = false) noexcept
-        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_fn(fn), gp_aware(aware) {}
+                     bool aware = false, desc_fn ftype = nullptr) noexcept
+        : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_fn(fn), gp_aware(aware), gp_ftype(ftype) {}
 };
 
 // method_table is a table of methods, for named<T>, td_struct and td_ptr.
@@ -712,6 +722,17 @@ const type_desc* td_func(std::initializer_list<const type_desc*> params,
         shape_func(params.begin(), params.size(), results.begin(), results.size(), variadic)));
 }
 
+// td_sig(params, results, variadic) is the descriptor of a func type without the C++ type of its
+// values: the func type of a method, which reflect's Method(i).Type gives (method::gp_ftype) and no
+// value of the program has. Every gp::func<R(A...)> has the layout and the operations of
+// gp::func<void()>, which the descriptor takes; the interning gives the program's own descriptor
+// when it has one (runtime/src/type.cpp).
+const type_desc* td_sig(std::initializer_list<const type_desc*> params,
+                        std::initializer_list<const type_desc*> results, bool variadic = false);
+// sig_with_receiver(recv, f) is the func type f with the parameter recv put first (a method
+// expression's type: reflect's Method(i).Type of a concrete type).
+const type_desc* sig_with_receiver(const type_desc* recv, const type_desc* f);
+
 // td_struct<S>(fields, vm, pm) is the descriptor of an anonymous struct type: S is its C++
 // type (gp_anon_...), vm and pm the method sets of S and *S when it has embedded fields with
 // methods.
@@ -865,12 +886,14 @@ inline constexpr bool thunk_matches = std::is_same_v<std::remove_pointer_t<Fn>, 
 
 // method_of<Sig>(name, pkg, sig, thunk) is the table entry of a method of the C++ signature
 // Sig, which must be the type of its thunk. (Not constexpr: it stores the thunk as an fn_ptr.)
+// ftype gives the method's func type without the receiver (method::gp_ftype).
 template <typename Sig, typename Fn>
-method method_of(const char* name, const char* pkg, const char* sig, Fn* thunk) {
+method method_of(const char* name, const char* pkg, const char* sig, Fn* thunk,
+                 desc_fn ftype = nullptr) {
     static_assert(thunk_matches<Sig, Fn>,
                   "gp::method_of: the thunk's type is not R(const gp::iface&, A...) for the "
                   "method's signature R(A...) (a C/C++ type that Go can't tell apart?)");
-    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk));
+    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), false, ftype);
 }
 
 // method_of_aware<Sig>(...) is method_of for a method whose body contains recover()
@@ -880,11 +903,12 @@ method method_of(const char* name, const char* pkg, const char* sig, Fn* thunk) 
 // method (or a promoted method that reaches it, through a forwarding thunk) is: the table of T,
 // the table of *T, and the tables of the types that embed T.
 template <typename Sig, typename Fn>
-method method_of_aware(const char* name, const char* pkg, const char* sig, Fn* thunk) {
+method method_of_aware(const char* name, const char* pkg, const char* sig, Fn* thunk,
+                       desc_fn ftype = nullptr) {
     static_assert(thunk_matches<Sig, Fn>,
                   "gp::method_of_aware: the thunk's type is not R(const gp::iface&, A...) for the "
                   "method's signature R(A...)");
-    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), true);
+    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), true, ftype);
 }
 
 } // namespace gp

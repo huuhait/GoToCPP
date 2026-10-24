@@ -15,7 +15,7 @@ during a `Read` is safe, the last reference closes the descriptor), `Read`/`Prea
 - `fd_poll.gp`: `pollDesc` has no poller; a wait is `ppoll(2)` on the calling thread (a goroutine is a thread), on the descriptor and
   on a **wake descriptor**, an eventfd that the first wait of each direction makes (`gp::syscall::sys_wake_new`; a file that never
   waits never makes one, and when the process has no descriptor left (EMFILE) the wait goes on **without** it, with `ppoll`
-  limited to 25 ms and `closing` and the deadlines looked at again, as Go's wait does not fail for lack of descriptors; and a regular file is never pollable, so its reads stay the one system call they were). `evict` (called
+  limited to 25 ms, then up to 200 ms (below), and `closing` and the deadlines looked at again, as Go's wait does not fail for lack of descriptors; and a regular file is never pollable, so its reads stay the one system call they were). `evict` (called
   by `Close`) sets `closing` under the descriptor's mutex and signals the wake descriptor of each direction that has a waiter: the waiting `Read`/`Write` (and every
   later wait) fails with `ErrFileClosing`, which `os` shows as `file already closed`. `SetDeadline`, `SetReadDeadline` and
   `SetWriteDeadline` (`fd_deadline_unix.gp`) store a monotonic deadline per direction and signal the wake descriptor, so a wait in
@@ -27,7 +27,25 @@ during a `Read` is safe, the last reference closes the descriptor), `Read`/`Prea
   FIFO, a socket or a terminal/character device (not the memory devices `/dev/null`, `/dev/zero`, `/dev/urandom`, ...) opened with
   `Open`, and any descriptor that already was non-blocking; they are put in non-blocking mode (`Pipe` makes them so with
   `pipe2(O_NONBLOCK)`), and `File.Fd` puts them back in blocking mode as in Go, after which `Close` no longer wakes a blocked call
-  (also as in Go). Reads of a pipe that has no data cost `read` (EAGAIN), the wake `eventfd` (once) and `ppoll`.
+  (also as in Go). A read of a pipe that has no data costs `read` (EAGAIN), the wake `eventfd` (once) and `ppoll`, then the
+  `read` that gets the data: 3 system calls. gocpp's change to Go's `FD.Read` (`fd_unix.gp`, `readWaits`): after a `Read`
+  that had to wait and got less than its buffer, the next `Read` waits first, so a reader that keeps waiting costs `ppoll`
+  and `read`; a `Read` that fills its buffer turns it off, so a reader that finds data reads at once; a file in blocking mode
+  (`SetBlocking`, `File.Fd`) never waits first (its `Read` blocks in `read`, which deadlines and `Close` do not end, as in Go). Measured with `-release`,
+  g++, before and after (20,000 one-byte round trips over two pipes, a 1 GiB copy through a pipe
+  from a writer of 64 KiB chunks): ping-pong into a 4 KiB buffer 120,000 -> 80,000 `read` + `ppoll` calls (3.43-3.60 µs ->
+  3.11-3.63 µs a round trip: the thread switches dominate; Go 1.5-1.8 µs); ping-pong into a 1-byte buffer unchanged (the
+  buffer fills); the bulk copy with 4 KiB reads 262,152 -> 262,153 `read` calls and 7,940-8,363 -> 7,553-8,277 MB/s over 8
+  paired runs (mean 8,071 -> 8,019: within the noise), with 64 KiB reads 9,234-10,254 -> 9,734-13,615 MB/s.
+  A wait without a wake descriptor looks again after 25 ms, then after twice as long each time that nothing happened, up to
+  200 ms (`degradedPoll`, `degradedPollMax`), a far deadline included; each `Read` or `Write` starts at 25 ms again. 50 such
+  waiters for 3 s, then `Close` (strace -c): 5,783 `ppoll` and 5,782 failing `eventfd2` (38 a second for each waiter), Close
+  latency 11-13 ms mean, 17 ms max, before; 883 of each (5.5 a second), 171-175 ms mean, 180 ms max, after (the waiters all
+  started together, so they look at the same moments; any one is at most 200 ms late). Only a process with no descriptor
+  left waits so. Tests: `tests/run/os_poll_wake_latency.gp` (Close and a new deadline wake a wait at once: the median
+  of each is within 15 ms of the median of wakes by data, which a wait that never used its wake descriptor misses by some
+  45 ms, D02; `GOCPP_POLL_LATENCY=on` also checks 15 of 20 within 5 ms, for an idle machine), `os_poll_emfile.gp` (waits without a wake descriptor, step 4 with a deadline
+  an hour away, D08).
   Windows has no `pollDesc`: `fd_deadline.gp` (tag `windows`) keeps `ErrNoDeadline` there, and `Close` of a pipe cancels the I/O
   (below).
 - `copy_file_range_linux.gp`, `copy_file_range_unix.gp`: Go's `CopyFileRange` (for `os.File.ReadFrom`), with

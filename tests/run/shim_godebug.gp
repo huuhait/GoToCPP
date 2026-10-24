@@ -1,24 +1,26 @@
 // phase: 09
 // std-internal: tests internal/godebug, which only the standard library may import
 
-// internal/godebug reads $GODEBUG each time it is asked: the value of the last "name=value" for the
-// name, "" when there is none, and a change of the variable shows at the next call. The program
-// sets the variable through the C library.
+// internal/godebug gives the value of the last "name=value" of $GODEBUG for the name, "" when there
+// is none, and a change of the variable through os.Setenv or os.Unsetenv shows at the next call (the
+// value is kept until then). A change that the C library makes is not seen, as in Go, until the
+// program sets the variable again.
 package main
 
 import (
 	"fmt"
 	"internal/godebug"
+	"os"
 
 	"<stdlib.h>"
 )
 
 func set(v string) {
-	stdlib.setenv(C.cstr("GODEBUG"), C.cstr(v), 1)
+	os.Setenv("GODEBUG", v)
 }
 
 func main() {
-	stdlib.unsetenv(C.cstr("GODEBUG"))
+	os.Unsetenv("GODEBUG")
 	s := godebug.New("zzdebug")
 	fmt.Printf("unset: %q\n", s.Value())
 
@@ -48,8 +50,19 @@ func main() {
 	set("hidden=yes")
 	fmt.Println(hidden.Name(), hidden.Value(), hidden.Undocumented(), hidden.String())
 	s.IncNonDefault() // counts nothing here, and must not fail
-	stdlib.unsetenv(C.cstr("GODEBUG"))
+	os.Unsetenv("GODEBUG")
 	fmt.Printf("unset again: %q\n", s.Value())
+
+	set("zzdebug=go")
+	fmt.Println(s.Value())
+	stdlib.setenv(C.cstr("GODEBUG"), C.cstr("zzdebug=c"), 1)
+	fmt.Println(s.Value(), C.GoString(stdlib.getenv(C.cstr("GODEBUG"))))
+	os.Setenv("OTHER_VARIABLE", "1")
+	fmt.Println(s.Value())
+	set("zzdebug=go2")
+	fmt.Println(s.Value())
+	os.Clearenv()
+	fmt.Printf("cleared: %q\n", s.Value())
 }
 
 // Output:
@@ -70,3 +83,8 @@ func main() {
 // other off false other=off
 // hidden yes true hidden=yes
 // unset again: ""
+// go
+// go zzdebug=c
+// go
+// go2
+// cleared: ""

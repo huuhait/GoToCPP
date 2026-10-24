@@ -68,6 +68,10 @@ func (g *gen) files() *PackageFiles {
 	if g.err != nil {
 		return nil
 	}
+	g.prog.finishLate(g)
+	if g.err != nil {
+		return nil
+	}
 	g.pendingAsserts = g.constAsserts() // typedconsts.go: the first translation unit takes them
 	pf.Header = g.headerFile(parts, pf)
 	// The translation units, in the order of the files.
@@ -266,7 +270,6 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 			emitSt(it)
 		}
 	}
-	hasInst := slices.ContainsFunc(closure, func(it sharedItem) bool { return it.inst() != nil })
 	// The descriptors of the instances of generic types are defined (inline) in their impl blocks,
 	// and a shape names the descriptor of its element, which may come later: declared first.
 	for _, it := range closure {
@@ -275,8 +278,10 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 				Vars: []cppir.Declarator{{Name: "gp_td_" + it.name()}}})
 		}
 	}
-	if parts != nil && hasInst {
-		sec.add(false, parts.impl.ext...) // (the instances of generic types name the package's descriptors)
+	if parts != nil {
+		// (The instances of generic types and the method type functions of the shared interfaces
+		// name the package's descriptors.)
+		sec.add(false, parts.impl.ext...)
 	}
 	for _, it := range closure {
 		it.put(&sec, guarded(it, "_IMPL", it.def().impl)...)
@@ -286,9 +291,6 @@ func (g *gen) headerFile(parts *typeParts, pf *PackageFiles) *cppir.File {
 	sec.add(true, g.externDecls()...) // (global: the functions of //gocpp:extern, extern.go)
 	var tail []cppir.Decl
 	if parts != nil {
-		if !hasInst {
-			tail = append(tail, parts.impl.ext...)
-		}
 		tail = append(tail, parts.impl.inl...)
 	}
 	tail = append(tail, g.constDecls()...)

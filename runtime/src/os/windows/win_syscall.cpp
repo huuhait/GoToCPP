@@ -7,6 +7,7 @@
 #include <gocpp/main.hpp>
 #include <gocpp/os.hpp>
 #include <gocpp/print.hpp>
+#include <gocpp/shims.hpp>
 #include <gocpp/syscall.hpp>
 #include "windows.hpp"
 
@@ -14,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cwchar>
 #include <string>
 #include <thread>
 
@@ -123,6 +125,10 @@ void win_setenv(uintptr_t key, uintptr_t value) {
     // gets the value again. (C's getenv then answers NULL for it: no way to hold an empty value in
     // the C library's copy.)
     SetEnvironmentVariableW(k, v);
+    if (std::wcscmp(k, L"GODEBUG") == 0) {
+        // (as Go's runtime: syscall_runtimeSetenv)
+        gp::godebug::env_changed(gp::os::to_utf8(v, std::wcslen(v)));
+    }
 }
 
 void win_unsetenv(uintptr_t key) {
@@ -130,6 +136,9 @@ void win_unsetenv(uintptr_t key) {
     _wputenv_s(k, L"");
     // (The C library's call may leave the variable in the system's block, empty.)
     SetEnvironmentVariableW(k, nullptr);
+    if (std::wcscmp(k, L"GODEBUG") == 0) {
+        gp::godebug::env_changed("");
+    }
 }
 
 void runtime_setenv(const gp::string& key, const gp::string& value) {

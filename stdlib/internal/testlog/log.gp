@@ -5,10 +5,10 @@
 // Package testlog provides a back channel for os and other packages to
 // communicate with testing.
 //
-// Copied from go1.25.14's src/internal/testlog (see stdlib/internal/PORT.md). The logger is a plain variable here, not
-// an atomic.Pointer[Interface]: sync/atomic's generic types are not built yet (Phase 07 step 7.3). Go
-// installs the logger once, before the tests run, which is the only thing the variable relies on.
+// Copied from go1.25.14's src/internal/testlog (see stdlib/internal/PORT.md).
 package testlog
+
+import "sync/atomic"
 
 // Interface is the interface required of test loggers.
 // The method signatures are the same as the methods defined by *testing.M.
@@ -26,21 +26,25 @@ type Interface interface {
 	Chdir(dir string)
 }
 
-var logger Interface
+// logger is the logger used by the test.
+var logger atomic.Pointer[Interface]
 
 // SetLogger sets the test logger implementation for the current process.
 // It must be called only once, at process startup.
 func SetLogger(impl Interface) {
-	if logger != nil {
+	if !logger.CompareAndSwap(nil, &impl) {
 		panic("testlog: SetLogger must be called only once")
 	}
-	logger = impl
 }
 
 // Logger returns the current test logger implementation.
 // It returns nil if there is no logger.
 func Logger() Interface {
-	return logger
+	impl := logger.Load()
+	if impl == nil {
+		return nil
+	}
+	return *impl
 }
 
 // Getenv calls Logger().Getenv, if a logger has been set.

@@ -28,12 +28,12 @@ func main() {
 	big := make([]byte, 1<<20) // allocated before the descriptors run out (a sanitizer may need one)
 	buf := make([]byte, 1<<16)
 	// GCC's AddressSanitizer needs a pipe of its own when a goroutine runs with no descriptor left
-	// ("CHECK failed: sanitizer_posix_libcdep.cpp:305 pipe(fds)"), so under it steps 2 and 3 are
+	// ("CHECK failed: sanitizer_posix_libcdep.cpp:305 pipe(fds)"), so under it steps 2 to 4 are
 	// not run (the output is what they print). Every other build runs them.
 	maps, _ := os.ReadFile("/proc/self/maps")
 	gccAsan := strings.Contains(string(maps), "libasan")
 
-	// Goroutines for steps 2 and 3, started while there are descriptors (a thread of the sanitizer's
+	// Goroutines for steps 2 to 4, started while there are descriptors (a thread of the sanitizer's
 	// own may need one to start).
 	jobs := make(chan func())
 	for i := 0; i < 3; i++ {
@@ -51,7 +51,7 @@ func main() {
 
 	// 1. Many pipes with a blocked reader each, and room for only some wake descriptors.
 	const N = 60
-	const extra = 3 // pipes that nobody waits on in step 1
+	const extra = 4 // pipes that nobody waits on in step 1
 	lim := syscall.Rlimit{Cur: uint64(nfds() + 2*(N+extra) + 25), Max: old.Max}
 	if lim.Cur > old.Max {
 		panic("hard limit too low")
@@ -91,7 +91,7 @@ func main() {
 	fmt.Println("reads failed:", bad)
 
 	if gccAsan {
-		fmt.Println("close: <nil>\ntrue write |1: file already closed\nread |0: file already closed\nread |0: i/o timeout\nread |0: i/o timeout")
+		fmt.Println("close: <nil>\ntrue write |1: file already closed\nread |0: file already closed\nread |0: i/o timeout\nread |0: i/o timeout\nread |0: file already closed true")
 		close(jobs)
 		return
 	}
@@ -132,6 +132,42 @@ func main() {
 	r2.SetReadDeadline(time.Now().Add(-time.Second)) // a new deadline ends the wait
 	fmt.Println(<-done)
 
+	// 4. A far deadline does not make the wait without a wake descriptor sleep until it (test D08
+	// of the 9.6 degraded wait): Close ends the Read within the wait's look-again period. (The
+	// descriptors that steps 2 and 3 freed are taken first.)
+	var fill []*os.File
+	for {
+		f, err := os.Open("/dev/null")
+		if err != nil {
+			break
+		}
+		fill = append(fill, f)
+	}
+	r3 := rs[N+3]
+	r3.SetReadDeadline(time.Now().Add(time.Hour))
+	jobs <- func() {
+		_, err := r3.Read(buf)
+		done <- fmt.Sprint(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	start := time.Now()
+	closed := make(chan bool)
+	go func() { // (Close waits until the Read is over)
+		r3.Close()
+		closed <- true
+	}()
+	select {
+	case err := <-done:
+		<-closed
+		fmt.Println(err, time.Since(start) < 2*time.Second)
+	case <-time.After(5 * time.Second):
+		fmt.Println("Close did not end a Read with a far deadline")
+		return
+	}
+	for _, f := range fill {
+		f.Close()
+	}
+
 	close(jobs)
 	for i := range rs {
 		rs[i].Close()
@@ -146,3 +182,4 @@ func main() {
 // read |0: file already closed
 // read |0: i/o timeout
 // read |0: i/o timeout
+// read |0: file already closed true

@@ -120,16 +120,34 @@ static_assert(sizeof(Stringer) == sizeof(iface) && sizeof(State) == sizeof(iface
               "the fmt interfaces have no members of their own");
 
 namespace detail {
-inline constexpr imethod stringer_methods[] = {imethod("String", nullptr, "func() string")};
-inline constexpr imethod gostringer_methods[] = {imethod("GoString", nullptr, "func() string")};
+// The func types of the methods (imethod::gp_ftype; ft_string: gocpp/error.hpp).
+inline const type_desc* ft_int_bool() {
+    static const type_desc* const d = td_sig({&td_int}, {&td_bool});
+    return d;
+}
+inline const type_desc* ft_int_ok() {
+    static const type_desc* const d = td_sig({}, {&td_int, &td_bool});
+    return d;
+}
+inline const type_desc* ft_write() {
+    static const type_desc* const d =
+        td_sig({td_slice<std::uint8_t>(&td_uint8)}, {&td_int, &td_error});
+    return d;
+}
+inline const type_desc* ft_format(); // func(fmt.State, int32), after td_state
+
+inline constexpr imethod stringer_methods[] = {
+    imethod("String", nullptr, "func() string", nullptr, &gp::detail::ft_string)};
+inline constexpr imethod gostringer_methods[] = {
+    imethod("GoString", nullptr, "func() string", nullptr, &gp::detail::ft_string)};
 inline constexpr imethod state_methods[] = {
-    imethod("Flag", nullptr, "func(int) bool"),
-    imethod("Precision", nullptr, "func() (int, bool)"),
-    imethod("Width", nullptr, "func() (int, bool)"),
-    imethod("Write", nullptr, "func([]uint8) (int, error)"),
+    imethod("Flag", nullptr, "func(int) bool", nullptr, &ft_int_bool),
+    imethod("Precision", nullptr, "func() (int, bool)", nullptr, &ft_int_ok),
+    imethod("Width", nullptr, "func() (int, bool)", nullptr, &ft_int_ok),
+    imethod("Write", nullptr, "func([]uint8) (int, error)", nullptr, &ft_write),
 };
 inline constexpr imethod formatter_methods[] = {
-    imethod("Format", nullptr, "func(fmt.State, int32)")};
+    imethod("Format", nullptr, "func(fmt.State, int32)", nullptr, &ft_format)};
 } // namespace detail
 
 inline constexpr type_desc td_stringer =
@@ -149,6 +167,10 @@ inline const type_desc* GoStringer::gp_desc() noexcept {
 }
 inline const type_desc* State::gp_desc() noexcept {
     return &td_state;
+}
+inline const type_desc* detail::ft_format() {
+    static const type_desc* const d = td_sig({&td_state, &td_int32}, {});
+    return d;
 }
 inline const type_desc* Formatter::gp_desc() noexcept {
     return &td_formatter;

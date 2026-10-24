@@ -1,4 +1,4 @@
-// phase: 05
+// phase: 08
 
 // Unnamed interface types as a field, an element of a slice, a map and a channel, a pointer target,
 // a parameter and a result, a type argument, and in an assertion; two spellings are one type.

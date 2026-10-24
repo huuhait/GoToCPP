@@ -211,6 +211,10 @@ type gen struct {
 	// in which the package's types are fully qualified.
 	inTemplate int
 
+	// descInline counts the method type functions being written (typedesc.go: methodTypeFunc),
+	// whose descriptors are written out in place, not as objects of the package (comp).
+	descInline int
+
 	// generics are the generic functions of the package (generics.go), insts the instances that
 	// units asked for and instQueue those not lowered yet, ctxt the context that go/types
 	// instantiates types with, and unit the translation unit being lowered.

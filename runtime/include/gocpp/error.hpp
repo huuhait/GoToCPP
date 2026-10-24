@@ -21,7 +21,14 @@ struct error : iface {
 static_assert(sizeof(error) == sizeof(iface), "gp::error has no members of its own");
 
 namespace detail {
-inline constexpr imethod error_methods[] = {imethod("Error", nullptr, "func() string")};
+// The func types of the runtime interfaces' methods (imethod::gp_ftype: reflect's
+// Method(i).Type), made at the first call.
+inline const type_desc* ft_string() {
+    static const type_desc* const d = td_sig({}, {&td_string});
+    return d;
+}
+inline constexpr imethod error_methods[] = {
+    imethod("Error", nullptr, "func() string", nullptr, &ft_string)};
 } // namespace detail
 
 // td_error is the descriptor of `error`: a named interface type with no package.

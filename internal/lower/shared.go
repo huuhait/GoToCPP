@@ -124,6 +124,11 @@ func (g *gen) noteShared(x any) {
 // finishShared makes the definitions of the shared types, each by its owner, until nothing new
 // is found (the definition of one finds the types in its fields).
 func (p *Program) finishShared() {
+	p.makeShared()
+	p.placeInstanceBodies()
+}
+
+func (p *Program) makeShared() {
 	for i := 0; i < len(p.sharedOrder); i++ {
 		it := p.sharedOrder[i]
 		if d := it.def(); !d.made {
@@ -135,7 +140,21 @@ func (p *Program) finishShared() {
 			it.owner().makeShared(it)
 		}
 	}
-	p.placeInstanceBodies()
+}
+
+// finishLate makes the shared types that the package g found while its files were being written,
+// after finishShared: the descriptor of a part (a field's *Box[string], a method's parameter:
+// typedesc.go) can name an instance of a generic type that nothing else uses. Their out-of-line
+// method definitions go to g's files (the packages are written from the last to the first, so
+// the owner of such an instance, which g imports, is written after g; the packages before g in
+// the order may be written already).
+func (p *Program) finishLate(g *gen) {
+	p.makeShared()
+	for _, item := range g.sharedClosure() {
+		if it := item.inst(); it != nil && len(it.bodies) > 0 && it.bodyPackage == nil {
+			it.bodyPackage = g
+		}
+	}
 }
 
 // makeShared makes the definition of the shared type it, which this package owns.

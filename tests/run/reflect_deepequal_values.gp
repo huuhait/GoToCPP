@@ -4,9 +4,10 @@
 // field is the pointer itself for a pointer, a map, a channel and a func, so two Values of the same
 // one are deeply equal, and the Elem or the Field of the same object has the same storage; a number,
 // a string, a struct or a slice computed at run time is boxed anew by every ValueOf, so the
-// storage differs. Go shares the box of a constant (and of a number below 256), so there
-// DeepEqual(ValueOf(1), ValueOf(1)) is true, and gocpp says false: the rows of such constants are
-// not here (ADR-035, item 10).
+// storage differs. Go shares the box of a constant, so there DeepEqual(ValueOf(1000),
+// ValueOf(1000)) is true, and gocpp says false: the rows of such constants are not here (ADR-035,
+// item 10e); the boxes that Go shares at run time (a number below 256, "", a nil slice, a
+// zero-size value) are shared by gocpp too (reflect_deepequal_shared_boxes).
 package main
 
 import (

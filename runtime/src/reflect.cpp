@@ -2,6 +2,7 @@
 // C++ only.
 #include <gocpp/rt.hpp>
 
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -286,6 +287,172 @@ void assign(const type_desc* d, void* dst, const void* src) {
 
 // --- interface values ---
 
+// Go's shared boxes. Go's conversion to an interface does not allocate for some values: a bool or
+// a one-byte integer, and a value of 2, 4 or 8 bytes (aligned to its size, without pointers) below
+// 256, point into runtime.staticuint64s; "" and a slice with a nil array point to runtime.zeroVal;
+// a zero-size value to runtime.zerobase (cmd/compile/internal/walk/convert.go: dataWord;
+// runtime/iface.go: convT16, convT32, convT64, convTstring, convTslice). So two reflect.Values of
+// such values have the same pointer field, and DeepEqual(ValueOf(1), ValueOf(1)) is true: unpack
+// gives a Value of such a value the same storage (ADR-035 item 10e). These boxes are never written:
+// a Value that came out of an interface is not addressable.
+struct shared_boxes {
+    alignas(16) std::uint64_t small[256];
+    gp::string empty;
+    gp::slice<std::uint8_t> nil_slice; // (every gp::slice<E> has this layout: slice_of)
+    alignas(16) unsigned char zero[64];
+    std::shared_ptr<void> owner; // never freed (reachable from the static pointer: no leak report)
+};
+
+static_assert(std::endian::native == std::endian::little,
+              "a small box is read in its first bytes, as Go does on a little-endian machine");
+
+const shared_boxes& boxes() {
+    static const shared_boxes* const b = [] {
+        auto* s = new shared_boxes();
+        for (std::uint64_t i = 0; i < 256; i++) {
+            s->small[i] = i;
+        }
+        s->owner = std::shared_ptr<void>(static_cast<void*>(s), [](void*) {});
+        return s;
+    }();
+    return *b;
+}
+
+// go_zero_size: a struct or array type whose Go size is 0 (struct{}, [0]T, a struct of them; the
+// C++ object of struct{} has a size of 1).
+bool go_zero_size(const type_desc* d) {
+    const type_desc* f = full(d);
+    switch (d->gp_kind) {
+    case kind::Array:
+        return f->gp_len == 0 || (f->gp_elem != nullptr && go_zero_size(f->gp_elem));
+    case kind::Struct:
+        if (f->gp_fields == nullptr && f->gp_nfields != 0) {
+            return false;
+        }
+        for (std::size_t i = 0; i < f->gp_nfields; i++) {
+            if (!go_zero_size(f->gp_fields[i].gp_type)) {
+                return false;
+            }
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+// go_plain: a type whose values hold no pointer in Go (a bool, a number, an array or a struct of
+// them).
+bool go_plain(const type_desc* d) {
+    switch (d->gp_kind) {
+    case kind::Bool:
+    case kind::Int:
+    case kind::Int8:
+    case kind::Int16:
+    case kind::Int32:
+    case kind::Int64:
+    case kind::Uint:
+    case kind::Uint8:
+    case kind::Uint16:
+    case kind::Uint32:
+    case kind::Uint64:
+    case kind::Uintptr:
+    case kind::Float32:
+    case kind::Float64:
+    case kind::Complex64:
+    case kind::Complex128:
+        return true;
+    case kind::Array: {
+        const type_desc* f = full(d);
+        return f->gp_elem != nullptr && go_plain(f->gp_elem);
+    }
+    case kind::Struct: {
+        const type_desc* f = full(d);
+        if (f->gp_fields == nullptr && f->gp_nfields != 0) {
+            return false;
+        }
+        for (std::size_t i = 0; i < f->gp_nfields; i++) {
+            if (!go_plain(f->gp_fields[i].gp_type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return false; // (a pointer, a string, ...; a C/C++ type: Go has none)
+    }
+}
+
+// sole_part: the type of the one part of a struct of one field or an array of one element, after
+// all such levels (cmd/compile's Type.SoleComponent; d itself for any other type). Its value is at
+// offset 0.
+const type_desc* sole_part(const type_desc* d) {
+    for (;;) {
+        const type_desc* f = full(d);
+        if (d->gp_kind == kind::Struct && f->gp_nfields == 1 && f->gp_fields != nullptr) {
+            d = f->gp_fields[0].gp_type;
+        } else if (d->gp_kind == kind::Array && f->gp_len == 1 && f->gp_elem != nullptr) {
+            d = f->gp_elem;
+        } else {
+            return d;
+        }
+    }
+}
+
+// shared_box: Go's shared box for the value at p of type d, or null when Go allocates one.
+const void* shared_box(const type_desc* d, const void* p) {
+    const type_ops* o = ops_of_desc(d);
+    const shared_boxes& b = boxes();
+    if (d->gp_kind == kind::Struct || d->gp_kind == kind::Array) {
+        // A struct or an array whose one part is a string or a slice: Go's convTstring and
+        // convTslice ("" and a nil array share runtime.zeroVal), with the box of that part.
+        const type_desc* s = sole_part(d);
+        if (s != d && (s->gp_kind == kind::String || s->gp_kind == kind::Slice)) {
+            const void* box = shared_box(s, p);
+            return box != nullptr && d->gp_size == s->gp_size ? box : nullptr;
+        }
+    }
+    switch (d->gp_kind) {
+    case kind::String:
+        return gp::len(*static_cast<const gp::string*>(p)) == 0 ? &b.empty : nullptr;
+    case kind::Slice:
+        return o != nullptr && o->gp_nil != nullptr && o->gp_nil(p) ? &b.nil_slice : nullptr;
+    case kind::Bool:
+    case kind::Int8:
+    case kind::Uint8:
+        return &b.small[*static_cast<const std::uint8_t*>(p)];
+    case kind::Int16:
+    case kind::Uint16:
+    case kind::Int32:
+    case kind::Uint32:
+    case kind::Float32:
+    case kind::Int:
+    case kind::Int64:
+    case kind::Uint:
+    case kind::Uint64:
+    case kind::Uintptr:
+    case kind::Float64:
+        break;
+    case kind::Struct:
+    case kind::Array:
+        if (go_zero_size(d)) {
+            return d->gp_size <= sizeof(b.zero) ? b.zero : nullptr;
+        }
+        if (!go_plain(d)) {
+            return nullptr;
+        }
+        break;
+    default:
+        return nullptr; // (complex64 is 4-aligned: Go allocates; Foreign values are C++ objects)
+    }
+    std::size_t n = d->gp_size;
+    if ((n != 2 && n != 4 && n != 8) || d->gp_align != n) {
+        return nullptr;
+    }
+    std::uint64_t v = 0;
+    std::memcpy(&v, p, n);
+    return v < 256 ? &b.small[v] : nullptr;
+}
+
 // unpack: the dynamic type of x and the storage of its value.
 std::tuple<std::uint64_t, vptr> unpack(const gp::iface& x) {
     const type_desc* d = x.gp_type();
@@ -304,6 +471,9 @@ std::tuple<std::uint64_t, vptr> unpack(const gp::iface& x) {
         // (a value with no box: nothing in the runtime makes one, but be safe)
         vptr s = new_storage(d);
         return {U(d), s};
+    }
+    if (const void* box = shared_box(d, data.get())) {
+        return {U(d), vptr(boxes().owner, const_cast<void*>(box))};
     }
     return {U(d), vptr(data, data.get())};
 }
@@ -820,6 +990,16 @@ gp::string m_sig(std::uint64_t t, std::int64_t i) {
     const type_desc* d = D(t);
     return d->gp_kind == kind::Interface ? text(full(d)->gp_imethods[i].gp_sig)
                                          : text(d->gp_methods[i].gp_sig);
+}
+
+std::uint64_t m_type(std::uint64_t t, std::int64_t i) {
+    const type_desc* d = D(t);
+    if (d->gp_kind == kind::Interface) {
+        const imethod& m = full(d)->gp_imethods[i];
+        return m.gp_ftype != nullptr ? U(m.gp_ftype()) : 0;
+    }
+    const method& m = d->gp_methods[i];
+    return m.gp_ftype != nullptr ? U(sig_with_receiver(d, m.gp_ftype())) : 0;
 }
 
 bool t_implements(std::uint64_t t, std::uint64_t u) noexcept {

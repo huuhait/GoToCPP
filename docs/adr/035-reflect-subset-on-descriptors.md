@@ -77,8 +77,8 @@ value of any type, a copy, a new slice, map or pointer, an assignment.
    `tests/interop/reflect_cpp_values_set.gp` runs every writer over std::string, string_view,
    numbers, enums, classes, unions, bit-field structs, wide integers, pointers and arrays.
 9. **Not in the subset** (`.gp` doc comment of the package, `feature-matrix.md`): `MakeFunc`,
-   `Value.Call`, `Value.Method`/`MethodByName` (a method is listed with `NumMethod`, `Method(i).Name`
-   and `PkgPath`; `Method(i).Type` is nil), `StructOf`, `FuncOf`, `MapOf`, `ArrayOf`, `ChanOf`,
+   `Value.Call`, `Value.Method`/`MethodByName` (a method is listed with `NumMethod`, `Method(i).Name`,
+   `PkgPath` and `Type`, item 11; `Method(i).Func` is the zero Value), `StructOf`, `FuncOf`, `MapOf`, `ArrayOf`, `ChanOf`,
    `Select`, `Value.Send`/`Recv`/`Close`, `Value.Seq`. Each panics or is absent: a program that
    uses one is a compile error ("undefined: reflect.X"), never a silent difference.
    Also absent (compile error): `VisibleFields`, `SetIterKey`/`SetIterValue`, `SetPointer`,
@@ -92,23 +92,56 @@ value of any type, a copy, a new slice, map or pointer, an assignment.
     current value (the zero value of the element type when the key was deleted after `Next`), as Go
     and the language-level `range` do. (c) `Type.In`/`Out` out of range panic
     with a string, not a `runtime.Error`. (d) `Value.Pointer()` of an empty string is not 0.
-    (e) `DeepEqual(reflect.ValueOf(1), reflect.ValueOf(1))` is false; Go says true. Go compares the
-    `Value` struct (type, pointer, flags), and the rule behind its answers (checked with Go 1.25.7)
-    is the identity of the pointer field: for a pointer, a map, a channel and a func it is the
-    pointer itself, so two `Value`s of the same one are equal, and so are `ValueOf(&x).Elem()`
-    and its `.Field(i)` taken twice, a copy of a `Value`, and two zero `Value`s; for any other kind
-    it is the box that `ValueOf` made, which is a new allocation for a number, a string, a float, a
-    struct or a slice computed at run time (false), and the same read-only box for a constant
-    (`ValueOf(1)`, `"a"`, `1.5`, `true`, `P{1, 2}`, also `n := 1000` that the compiler folds) and
-    for a run-time integer below 256 (true). gocpp follows the rule for the pointer kinds (the
-    `Value`s compare the pointers they hold; test `reflect_deepequal_values`) and for the
-    storage of copies, `Elem` and `Field`, but not the sharing of constants and small numbers: every
-    `ValueOf` boxes anew, so the scalar rows of constants say false where Go says true (skipped on
-    purpose: it would need a table of shared boxes in `ValueOf`).
+    (e) `DeepEqual` of two `reflect.Value`s: Go compares the `Value` struct (type, pointer,
+    flags), and the rule behind its answers (checked with Go 1.25.7) is the identity of the
+    pointer field: for a pointer, a map, a channel and a func it is the pointer itself, so two
+    `Value`s of the same one are equal, and so are `ValueOf(&x).Elem()` and its `.Field(i)` taken
+    twice, a copy of a `Value`, and two zero `Value`s; for any other kind it is the box that the
+    conversion to an interface made, which is a new allocation for a number, a string, a float, a
+    struct or a slice computed at run time (false), except where Go's conversion shares one: a bool
+    and a one-byte integer, a value of 2, 4 or 8 bytes (aligned to its size, without pointers)
+    below 256 (`runtime.staticuint64s`), `""` and a slice with a nil array, also as the one field
+    of a struct or the one element of an array (`runtime.zeroVal`), a zero-size value
+    (`runtime.zerobase`); and a value that Go keeps in the interface word itself (a pointer, a
+    map, a channel, a func, or a struct or an array of one such part) is its own pointer field.
+    gocpp follows the rule for those pointer-shaped types (the `Value`s compare the pointers they
+    hold: `directPart`; test `reflect_deepequal_values`), for the storage of
+    copies, `Elem` and `Field`, and for the shared boxes (`ValueOf` of such a value gives storage
+    that is the same for equal values, never written: test `reflect_deepequal_shared_boxes`), so
+    `DeepEqual(ValueOf(1), ValueOf(1))` is true as in Go. Not followed: Go also shares the
+    read-only box of a constant (`ValueOf(1000)`, `"a"`, `1.5`, `P{1, 2}`, also `n := 1000` that
+    the compiler folds), where gocpp boxes anew, so those rows say false where Go says true (it
+    would need the emitter to give each constant converted to an interface a static box).
     (f) A C/C++ value in an
     interface (`any(C.int(1))`) has a descriptor of its own that is not the Go `int32` of a
     field `C.int` of a struct: `Set` between them panics, and the text names the C++ type
     (`int32 (C++ int)`) so that it does not read "int32 is not assignable to int32".
+11. **`Method(i).Type`** is the method's func type, as in Go: with the receiver first for a type
+    that is not an interface, without one for an interface. Each method table entry (`gp::method`,
+    `gp::imethod`) has `gp_ftype`, a function that gives the func type of the method without its
+    receiver (`gp::td_sig` of the parameters' and results' descriptors, written out in place, so it
+    names no object of the package and costs nothing at program start); reflect's `m_type` puts
+    the receiver first (`gp::sig_with_receiver`). The func types are descriptors without a C++ type
+    of their own: every `gp::func<R(A...)>` has the layout and the operations of
+    `gp::func<void()>`, and the interning gives the program's own descriptor when it has one. The
+    functions cost code (one for each signature of a package, and one for each method of an
+    instance of a generic type and of an unnamed interface) and keep the descriptors of all the
+    types in the signatures, with their methods, which the linker would otherwise drop: a program
+    with `encoding/json`, `regexp`, `time` and `bufio` grew by 4.2 % (5.30 to 5.52 MB stripped).
+    So the emitter writes them only for a program in which a package other than reflect can get
+    at a `reflect.Method` (`wantMethodTypes`, `usesReflectMethod`): it names the type, calls a
+    method `Method` or `MethodByName` of package reflect, has an expression whose type is or holds
+    `reflect.Method` (a generic `get[T interface{ Method(int) R }, R any]` called with a
+    `reflect.Type`: R is inferred, the program never names it), or a type argument that is or
+    holds it. In any other program `gp_ftype` is null, and the program has no `reflect.Method`
+    value to read it from (what is left: a `reflect.Method` reached through `any` alone, such as a
+    `reflect.Value` of the `Type` interface that calls `Method` through reflection, which the
+    subset cannot do: `Value.Method` and `Call` are not in it). The
+    standard packages' files then have two forms, and the object cache keeps both. The method
+    tables of the runtime's interfaces (`error`, the `fmt` ones) always have theirs. What every
+    program pays is the field (8 bytes a method table entry, and its store in the tables' dynamic
+    initialization): 0.6 % of the same program without `reflect.Method` (5.28 to 5.32 MB, with
+    item 10e's shared boxes).
 
 ## Alternatives
 

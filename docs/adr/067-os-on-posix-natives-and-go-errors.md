@@ -30,7 +30,7 @@ reads, the order of the checks in `RemoveAll`, `MkdirAll`, `CreateTemp`. All of 
    (`pollDesc.evict`) and `SetDeadline` signal. So `Close` wakes a `Read` or `Write` that waits with `ErrClosed`, and
    `SetDeadline`, `SetReadDeadline` and `SetWriteDeadline` work on those files (`ErrNoDeadline` for the others), as in Go.
    Regular files, directories and the memory devices stay in blocking mode, with the one system call per read or write
-   they had. A wait that cannot make its eventfd (EMFILE) goes on without it and looks at the file's state every 25 ms,
+   they had. A wait that cannot make its eventfd (EMFILE) goes on without it and looks at the file's state every 25 ms, then less often up to every 200 ms (2026-10-23),
    as Go's wait does not fail for lack of descriptors. A call that is blocked inside a kernel `read` (a file after
    `Fd()`, which returns blocking mode as in Go) is still not woken. Details: stdlib/internal/poll/PORT.md.
 4. **`io`, `io/fs`, `internal/filepathlite` are copies of Go's files** (marked in their `PORT.md`): step 9.4 replaces `io` and

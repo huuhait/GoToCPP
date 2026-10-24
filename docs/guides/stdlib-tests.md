@@ -66,7 +66,7 @@ and counts as a hang. The columns:
 
 ## Results
 
-(The table is the output of `go run ./tools/stdgocount`; gocpp at the commit of step 9.10, g++, Linux x86-64.)
+(The table is the output of `go run ./tools/stdgocount`: gocpp at the commit of step 9.10, g++, Linux x86-64, with the `os` row of the run of 2026-10-23, job dev.syscalldiffs. A new full count is `go run ./tools/stdgocount -check` over every manifest.)
 
 | package | functions | selected | passed | failed | skipped | dropped | divergences | not taken | pass % | overall % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

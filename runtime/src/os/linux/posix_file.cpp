@@ -5,6 +5,7 @@
 #include <gocpp/main.hpp>
 #include <gocpp/os.hpp>
 #include <gocpp/print.hpp>
+#include <gocpp/shims.hpp>
 #include <gocpp/syscall.hpp>
 #include "linux.hpp"
 
@@ -127,10 +128,16 @@ uint64_t runtime_rand() {
 
 void runtime_setenv(const gp::string& key, const gp::string& value) {
     ::setenv(c_path(key).c_str(), c_path(value).c_str(), 1);
+    if (key.gp_view() == "GODEBUG") {
+        gp::godebug::env_changed(value.gp_view()); // (as Go's runtime: syscall_runtimeSetenv)
+    }
 }
 
 void runtime_unsetenv(const gp::string& key) {
     ::unsetenv(c_path(key).c_str());
+    if (key.gp_view() == "GODEBUG") {
+        gp::godebug::env_changed("");
+    }
 }
 
 std::tuple<int64_t, int64_t> sys_open(const gp::string& path, int64_t flags, int64_t perm) {

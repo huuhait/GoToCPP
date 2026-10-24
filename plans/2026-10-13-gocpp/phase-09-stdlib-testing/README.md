@@ -277,8 +277,8 @@ files pass".
     with reasons, the counting rule; fix the gocpp bugs they find.
     *Built (ADR-113):* `GOCPP_TEST_STDLIB` adds Go's `_test.gp` files and `testdata` to the embedded package, so `gocpp test strings` runs Go's own tests in the package gocpp ships;
     `tools/portstd/gotests/convert_std.py` makes `tests/stdgo` (converted files, shims, test-only packages, one manifest each) from a specification with a reason for every patch, drop and expected failure;
-    `tools/stdgocount` computes the counts of §2.8. **25 packages, 1769 test functions in Go's files, 1661 in the selected files, 1606 pass: 98.2 % of the selected functions without the 26 divergences
-    (25 allocation counts, D24), and 90.8 % of all 1769.** Qualifier: **`os` is 58.6 % of all its functions (57.6 % before the review of this step); it reaches 91.1 % of its selected functions only because
+    `tools/stdgocount` computes the counts of §2.8. **25 packages, 1769 test functions in Go's files, 1661 in the selected files, 1607 pass: 98.3 % of the selected functions without the 26 divergences
+    (25 allocation counts, D24), and 90.8 % of all 1769.** Qualifier: **`os` is 59.0 % of all its functions (57.6 % before the review of this step); it reaches 91.6 % of its selected functions only because
     `os.Root`, deadlines, processes and fifo/zero-copy are not built (98 functions in files that need them are not taken).** Scope: **`fmt`, `sync`, `sync/atomic` and `testing` have no manifest and are outside this count**
     (the `fmt` differential tests, the sync tests of 8.7 and `gocpp test` of 9.9 cover them), so the exit criterion "all tier-1 packages at least 90 %" is evidenced by this count for the 25 listed packages only. Deferred suites:
     `slices`/`maps`/`cmp`/`iter` 145 of 150; `test/rangegen.go` **800 of 800 units** (`rangegen_shards.py`); `test/chan` 18 of 19 (`select2.go` reads `runtime.MemStats`). Found and fixed: boxed variables

@@ -7,11 +7,21 @@
 #include <gocpp/string.hpp>
 
 #include <cstdint>
+#include <string_view>
 
 namespace gp::godebug {
 
-// env(): the value of the GODEBUG environment variable now, "" when it is not set.
+// env(): the value of the GODEBUG environment variable, "" when it is not set: the one the program
+// started with, then the last one that package syscall set (env_changed). It never calls getenv.
 gp::string env();
+
+// generation(): a number that changes when the program sets or removes GODEBUG through package
+// syscall (os.Setenv, Unsetenv, Clearenv: env_changed, after the change), so that a Setting that
+// read env() at one generation can keep its value until the next (Go's runtime tells godebug about
+// a new $GODEBUG the same way: runtime/env_posix.go, godebugNotify). A change that C or C++ code
+// makes with setenv is not seen, as in Go.
+std::uint64_t generation() noexcept;
+void env_changed(std::string_view value); // "" for an unset variable
 
 } // namespace gp::godebug
 

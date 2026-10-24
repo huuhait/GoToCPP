@@ -181,13 +181,14 @@ func deepStep(v1, v2 Value, visited map[visit]bool) (frame deepFrame, result int
 var valueType = typeOf(Value{})
 
 // sameValue compares two Values (a struct that DeepEqual finds in an interface) as Go does, field
-// by field. Go's pointer field is the pointer itself for the kinds that are a pointer (Pointer,
-// Map, Chan, Func, UnsafePointer), so two Values of the same pointer are equal; here the field
-// is the address of a box that holds it, which is a new one for every ValueOf, so these kinds
-// compare the pointers they hold. For any other kind the storage is compared: it is the same for
-// a copy of a Value, and for the Elem or the Field of the same object, and a new box for every
-// ValueOf of a number, a string, a struct or a slice (Go shares the storage of a constant and of a
-// number below 256 between the boxes, which gocpp does not: ADR-035).
+// by field. Go's pointer field is the pointer itself for a type that Go keeps in the interface word
+// (directPart), so two Values of the same pointer are equal; here the field is the address of a
+// box that holds it, which is a new one for every ValueOf, so these types compare the pointers they
+// hold. For any other type the storage is compared: it is the same for a copy of a Value, and for
+// the Elem or the Field of the same object, and a new box for every ValueOf of a number, a string,
+// a struct or a slice, except for the values whose box Go shares (a number below 256, "", a nil
+// slice, a struct or an array of one such string or slice: vUnpack gives them shared storage
+// too); Go also shares the box of a constant, which gocpp does not (ADR-035 item 10e).
 func sameValue(v1, v2 Value) bool {
 	a := valueInterface(v1, false).(Value)
 	b := valueInterface(v2, false).(Value)
@@ -197,16 +198,42 @@ func sameValue(v1, v2 Value) bool {
 	if a.typ == 0 {
 		return true
 	}
-	switch a.kind() {
-	case Pointer, Map, Chan, Func, UnsafePointer:
-		p := a.unsafePointer()
-		q := b.unsafePointer()
+	if pa, ok := directPart(a); ok {
+		pb, _ := directPart(b)
+		p := pa.unsafePointer()
+		q := pb.unsafePointer()
 		if p != nil && q != nil {
 			return p == q
 		}
-		return vIsNil(a.typ, a.ptr) && vIsNil(b.typ, b.ptr)
+		return vIsNil(pa.typ, pa.ptr) && vIsNil(pb.typ, pb.ptr)
 	}
 	return a.ptr == b.ptr
+}
+
+// directPart reports whether Go keeps a value of v's type in the interface word itself (a
+// pointer, a map, a channel, a func, an unsafe.Pointer, a struct of one such field and an array of
+// one such element: cmd/compile's isdirectiface), and gives the Value of that pointer inside v.
+func directPart(v Value) (Value, bool) {
+	for {
+		switch v.kind() {
+		case Pointer, Map, Chan, Func, UnsafePointer:
+			return v, true
+		case Struct:
+			if tNumField(v.typ) != 1 {
+				return Value{}, false
+			}
+			ft := fType(v.typ, 0)
+			v = Value{ft, vOffset(v.ptr, fOffset(v.typ, 0)), flag(tKind(ft))}
+		case Array:
+			if tLen(v.typ) != 1 {
+				return Value{}, false
+			}
+			et := tElem(v.typ)
+			v = Value{et, vIndex(v.typ, v.ptr, 0), flag(tKind(et))}
+		default:
+			return Value{}, false
+		}
+	}
 }
 
 func deepResult(equal bool) int {

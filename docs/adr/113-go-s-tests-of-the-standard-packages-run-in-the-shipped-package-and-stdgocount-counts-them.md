@@ -35,6 +35,9 @@ program of `test/rangegen.go` and the rest of `test/chan` were still open.
    because `os.Root`, deadlines, processes and fifo/zero-copy are not built.** 108 functions are in files that are not taken (they need `net`, `os/exec`, `os.Root`,
    deadlines, `splice`, `Mmap`, `gob`, `time/tzdata`, a `linkname` to the legacy `time` hooks); 24 functions are cut out of selected files (processes, `gob`, `net/http`, `synctest`, `runtime.AddCleanup`); 4 fail and 1 skips
    without being a divergence (the bugs and gaps below). The allocation checks are not patched out: a test with one is a divergence as a whole.
+   (Superseded counts, 2026-10-23, job dev.syscalldiffs: `TestRemoveAllLongPath` passes, so **1607 pass: 98.3 % of the selected and
+   90.8 % of all**; `os` is 164 of 179 selected without its divergence, 91.6 %, and 59.0 % of all 278; 3 fail. The guide's table is the
+   current one.)
    **Scope:** `fmt`, `sync`, `sync/atomic` and `testing` have no manifest and are outside the count (no specification was added); they are covered by the `fmt` differential tests, the sync tests of step 8.7 and
    `gocpp test` with `tests/gotest` (step 9.9). The exit criterion "all tier-1 packages at least 90 %" is evidenced by this count for the 25 listed packages only.
 5. **The deferred suites.** `slices`, `maps`, `cmp` and `iter` run as above (145 of 150 pass; 3 allocation divergences, 2 bugs). `test/rangegen.go` writes a 242,000-line program of 800 units;

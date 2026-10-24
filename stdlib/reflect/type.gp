@@ -5,7 +5,7 @@
 // Package reflect implements run-time reflection: a SUBSET of Go's package, written over gocpp's type
 // descriptors (runtime/include/gocpp/type.hpp, ADR-035; divergence D6). Not included: MakeFunc,
 // Value.Call, calling methods by name, Method values, StructOf, FuncOf, MapOf, ArrayOf, ChanOf, Select,
-// and sending and receiving on channels. The type of a method (Type.Method(i).Type) is nil.
+// and sending and receiving on channels. A method's Func (Type.Method(i).Func) is the zero Value.
 package reflect
 
 import "unsafe"
@@ -148,7 +148,7 @@ type Type interface {
 	FieldAlign() int
 
 	// Method returns the i'th method in the type's method set. It panics if i is not in the range
-	// [0, NumMethod()). The Type and Func fields of the result are not set.
+	// [0, NumMethod()). The Func field of the result is not set.
 	Method(int) Method
 
 	// MethodByName returns the method with that name in the type's method set and a boolean indicating
@@ -294,7 +294,7 @@ type Method struct {
 	// for upper case (exported) method names.
 	PkgPath string
 
-	Type  Type  // method type: nil in gocpp
+	Type  Type  // method type (in a program that can get at a Method: ADR-035 item 11)
 	Func  Value // func with receiver as first argument: the zero Value in gocpp
 	Index int   // index for Type.Method
 }
@@ -527,6 +527,9 @@ func (t *rtype) Method(i int) (m Method) {
 	}
 	m.Name = mName(t.t, i)
 	m.PkgPath = mPkgPath(t.t, i)
+	if mt := mType(t.t, i); mt != 0 {
+		m.Type = toType(mt)
+	}
 	m.Index = i
 	return m
 }

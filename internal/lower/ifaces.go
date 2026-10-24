@@ -358,20 +358,43 @@ func (g *gen) ifaceImpl(info *ifaceInfo, p *implParts) {
 	inline := []string{"inline"}
 	descPtr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}
 	{
-		// The methods of the descriptor (and the name of an unnamed interface type).
+		// The methods of the descriptor (and the name of an unnamed interface type), and the
+		// functions that give their func types (methodTypeFunc), defined before them.
 		var ims []cppir.Expr
-		for _, m := range info.methods {
+		var ftypes []cppir.Decl
+		declared := make(map[string]bool)
+		for i, m := range info.methods {
 			args := []cppir.Expr{lit(cppir.CString(m.Name()))}
 			if exportedName(m.Name()) {
 				args = append(args, lit("nullptr"), lit(cppir.CString(g.canonText(m.Signature()))))
 			} else {
 				args = append(args, lit(cppir.CString(pkgPath(m))), lit(cppir.CString(g.canonText(m.Signature()))), lit(cppir.CString(m.Pkg().Name())))
 			}
+			ftype := ""
+			if g.wantMethodTypes() {
+				if info.named != nil && g.inShared == 0 {
+					// the package's function of the signature (pkgMethodType), declared before the array
+					ftype = g.pkgMethodType(m.Signature(), m.Pos(), declared, &ftypes)
+				} else if fn := g.methodTypeFunc("gp_imt_"+info.name+"_"+strconv.Itoa(i), m.Signature(), m.Pos()); fn != nil {
+					// with gp_desc, in the header or the shared text of an unnamed interface, or in
+					// the shared text of an instance
+					fn.Specs = inline
+					ftypes = append(ftypes, fn)
+					ftype = fn.Name
+				}
+			}
+			if ftype != "" {
+				if len(args) == 3 {
+					args = append(args, lit("nullptr"))
+				}
+				args = append(args, addrOf(ftype))
+			}
 			ims = append(ims, call("gp::imethod", args...))
 		}
 		if info.named != nil {
 			var shape cppir.Expr = call("gp::shape_interface", lit("nullptr"), lit("0"))
 			if len(ims) > 0 {
+				p.addDef(ftypes...)
 				p.addDef(&cppir.VarDecl{Specs: []string{"inline", "const"}, Type: typeName("gp::imethod"),
 					Vars: []cppir.Declarator{{Name: "gp_im_" + info.name + "[]", Init: &cppir.InitList{Elems: ims}}}})
 				shape = call("gp::shape_interface", cxxName("gp_im_"+info.name))
@@ -391,6 +414,7 @@ func (g *gen) ifaceImpl(info *ifaceInfo, p *implParts) {
 			// An unnamed type: interned from its methods, once.
 			td := varDecl(cppir.Pos{}, &cppir.Const{Elem: descPtr}, "gp_td", templateInterface(ims, info.goName))
 			td.Specs = []string{"static"}
+			p.addInl(ftypes...)
 			p.addInl(&cppir.Func{Specs: inline, Result: descPtr, Name: info.name + "::gp_desc",
 				Body: &cppir.Block{Stmts: []cppir.Stmt{td, &cppir.Return{X: cxxName("gp_td")}}}})
 		}

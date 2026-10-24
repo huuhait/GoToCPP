@@ -616,6 +616,28 @@ const type_desc* td_opaque(const char* spelling) {
     return detail::intern(d);
 }
 
+namespace {
+const type_desc* sig_desc(const type_desc* const* in, std::size_t nin, const type_desc* const* out,
+                          std::size_t nout, bool variadic) {
+    return detail::intern(
+        detail::with_cxx<gp::func<void()>>(shape_func(in, nin, out, nout, variadic)));
+}
+} // namespace
+
+const type_desc* td_sig(std::initializer_list<const type_desc*> params,
+                        std::initializer_list<const type_desc*> results, bool variadic) {
+    return sig_desc(params.begin(), params.size(), results.begin(), results.size(), variadic);
+}
+
+const type_desc* sig_with_receiver(const type_desc* recv, const type_desc* f) {
+    const type_desc* s = full(f);
+    std::vector<const type_desc*> in;
+    in.reserve(s->gp_nin + 1);
+    in.push_back(recv);
+    in.insert(in.end(), s->gp_in, s->gp_in + s->gp_nin);
+    return sig_desc(in.data(), in.size(), s->gp_out, s->gp_nout, s->gp_variadic);
+}
+
 // --- itabs ---
 
 namespace detail {

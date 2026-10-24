@@ -65,6 +65,12 @@ type descTable struct {
 	// The anonymous structs with promoted methods (embed.go).
 	anon  map[*structInfo]*namedDesc
 	anons []*namedDesc
+
+	// mtypes are the functions that give the func types of the methods' signatures, by the text
+	// of the signature (nil: a signature with a C/C++ type), mtList the functions in order
+	// (pkgMethodType).
+	mtypes map[string]*cppir.Func
+	mtList []*cppir.Func
 }
 
 // A namedDesc is the descriptor object of a named type that isn't an interface.
@@ -170,7 +176,7 @@ func (g *gen) desc(t types.Type, pos token.Pos) cppir.Expr {
 			dt.byNamed[u.Obj()] = nd
 			dt.named = append(dt.named, nd)
 		}
-		return addrOf(nd.name)
+		return addrOf(g.descName(g, nd.name))
 	case *types.Interface:
 		if isAnyType(u) {
 			return addrOf("gp::td_any")
@@ -262,9 +268,10 @@ func hasPromoted(st *types.Struct) bool {
 // comp registers the composite descriptor of t (once, by its identity text) and returns the
 // name of its pointer. name may be "" (gp_tdc_N).
 func (g *gen) comp(t types.Type, name string, init cppir.Expr) cppir.Expr {
-	if g.inShared > 0 {
+	if g.inShared > 0 || g.descInline > 0 {
 		// In the shared text of an instance of a generic type, which every package that uses it
-		// writes: no object of this package's, the descriptor is interned where it is used.
+		// writes: no object of this package's, the descriptor is interned where it is used. The
+		// same in a method's type function (methodTypeFunc).
 		return init
 	}
 	dt := g.dtable()
@@ -437,7 +444,9 @@ func (g *gen) descDecls(p *implParts) {
 	}
 	// A shape points at the descriptor of its element (type Items []Item; type A []B; type B []A),
 	// which may be defined after it: every object is declared first. (The split layout has the
-	// extern declarations in pkg.hpp already.)
+	// extern declarations in pkg.hpp already. The unit layout never has method type functions,
+	// which could name them from the interfaces before: a package lowered alone can't import
+	// reflect, so wantMethodTypes is false.)
 	if !g.split && len(dt.named) > 0 {
 		var fwd []cppir.Decl
 		for _, nd := range dt.named {
@@ -467,6 +476,12 @@ func (g *gen) descDecls(p *implParts) {
 	}
 	for _, f := range dt.fulls {
 		p.addDef(f, &cppir.Blank{})
+	}
+	for _, f := range dt.mtList {
+		p.addDef(f)
+	}
+	if len(dt.mtList) > 0 {
+		p.addDef(&cppir.Blank{})
 	}
 }
 
@@ -514,6 +529,36 @@ func (g *gen) namedDecls(nd *namedDesc, p *implParts) {
 // tables adds the thunks and the two method tables of nd (the method sets of T and *T, promoted
 // methods included) to decls, and returns the expressions of the tables (nil for an empty one).
 func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pmt cppir.Expr) {
+	// The functions that give the methods' func types (methodTypeFunc): the package's function of
+	// the signature, declared before the tables; in the shared text of an instance, one for each
+	// method of the two tables, defined before the tables (they name no object that is defined
+	// later).
+	ftypes := make(map[string]bool)
+	ftype := func(m methodEntry) cppir.Expr {
+		if !g.wantMethodTypes() {
+			return nil
+		}
+		if g.inShared == 0 {
+			if name := g.pkgMethodType(m.fn.Signature(), pos, ftypes, decls); name != "" {
+				return addrOf(name)
+			}
+			return nil
+		}
+		name := "gp_mt_" + nd.si.name + "_" + g.memberFor(nd.si, m.fn)
+		made, seen := ftypes[name]
+		if !seen {
+			fn := g.methodTypeFunc(name, m.fn.Signature(), pos)
+			made = fn != nil
+			ftypes[name] = made
+			if made {
+				*decls = append(*decls, fn)
+			}
+		}
+		if !made {
+			return nil
+		}
+		return addrOf(name)
+	}
 	table := func(prefix string, list []methodEntry, ptr bool) cppir.Expr {
 		if len(list) == 0 {
 			return nil
@@ -526,6 +571,9 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 			args := []cppir.Expr{lit(cppir.CString(m.fn.Name())), lit("nullptr"), lit(cppir.CString(g.canonText(sig))), addrOf(thunk)}
 			if !exportedName(m.fn.Name()) {
 				args[1] = lit(cppir.CString(pkgPath(m.fn)))
+			}
+			if ft := ftype(m); ft != nil {
+				args = append(args, ft)
 			}
 			maker := "gp::method_of"
 			if g.awareFunc(m.fn) || m.promoted && isIfaceMethod(m.fn) {
@@ -550,6 +598,191 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 	vmt = table("gp_vm_", g.methodSet(nd.ty, false, pos), false)
 	pmt = table("gp_pm_", g.methodSet(nd.ty, true, pos), true)
 	return vmt, pmt
+}
+
+// wantMethodTypes reports whether the method tables of the program carry the func types of the
+// methods (reflect's Method(i).Type: methodTypeFunc). They cost code and keep the descriptors of
+// every type in a method signature, with their methods, so they are written only for a program in
+// which a package other than reflect can get at a reflect.Method (usesReflectMethod); in the
+// others Method(i).Type would be nil, but no code of the program can hold a reflect.Method to see
+// it (ADR-035 item 11). A standard package's files then differ between the two kinds of program
+// (two objects in the object cache).
+func (g *gen) wantMethodTypes() bool {
+	p := g.prog
+	if p == nil {
+		return false
+	}
+	if p.methodTypes == 0 {
+		p.methodTypes = 2
+		gens := p.gens
+		if len(gens) == 0 && p.main != nil {
+			gens = []*gen{p.main} // (one package lowered alone: lower.Package)
+		}
+		for _, o := range gens {
+			if usesReflectMethod(o.pkg.Types, o.pkg.Info) {
+				p.methodTypes = 1
+				break
+			}
+		}
+	}
+	return p.methodTypes == 1
+}
+
+// usesReflectMethod reports whether the package pkg (with its type information info) can get at a
+// reflect.Method: it names the type, calls a method Method or MethodByName of package reflect, has
+// an expression whose type is or holds a reflect.Method (a call of a generic function whose
+// constraint has Method(int) R, with R = reflect.Method), or instantiates something with such a
+// type argument.
+func usesReflectMethod(pkg *types.Package, info *types.Info) bool {
+	if pkg == nil || info == nil || pkg.Path() == "reflect" {
+		return false
+	}
+	for _, obj := range info.Uses {
+		if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != "reflect" {
+			continue
+		}
+		switch obj := obj.(type) {
+		case *types.TypeName:
+			if obj.Name() == "Method" {
+				return true
+			}
+		case *types.Func:
+			if n := obj.Name(); n == "Method" || n == "MethodByName" {
+				return true
+			}
+		}
+	}
+	h := methodHolder{seen: make(map[types.Type]bool)}
+	for _, tv := range info.Types {
+		if tv.Type != nil && h.holds(tv.Type) {
+			return true
+		}
+	}
+	for _, inst := range info.Instances {
+		for t := range inst.TypeArgs.Types() {
+			if h.holds(t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// methodHolder finds reflect.Method in a type, through its composite parts and the type
+// arguments of instances (not into the fields of named types: their declarations are expressions
+// too). seen holds the types already looked at.
+type methodHolder struct{ seen map[types.Type]bool }
+
+func (h methodHolder) holds(t types.Type) bool {
+	t = types.Unalias(t)
+	if r, ok := h.seen[t]; ok {
+		return r
+	}
+	h.seen[t] = false // (a cycle through a type argument)
+	r := false
+	switch u := t.(type) {
+	case *types.Named:
+		if o := u.Obj(); o.Name() == "Method" && o.Pkg() != nil && o.Pkg().Path() == "reflect" {
+			r = true
+		} else {
+			for a := range u.TypeArgs().Types() {
+				if h.holds(a) {
+					r = true
+					break
+				}
+			}
+		}
+	case *types.Pointer:
+		r = h.holds(u.Elem())
+	case *types.Slice:
+		r = h.holds(u.Elem())
+	case *types.Array:
+		r = h.holds(u.Elem())
+	case *types.Chan:
+		r = h.holds(u.Elem())
+	case *types.Map:
+		r = h.holds(u.Key()) || h.holds(u.Elem())
+	case *types.Struct:
+		for i := range u.NumFields() {
+			if h.holds(u.Field(i).Type()) {
+				r = true
+				break
+			}
+		}
+	case *types.Tuple:
+		for i := range u.Len() {
+			if h.holds(u.At(i).Type()) {
+				r = true
+				break
+			}
+		}
+	case *types.Signature:
+		r = h.holds(u.Params()) || h.holds(u.Results())
+	}
+	h.seen[t] = r
+	return r
+}
+
+// methodTypeFunc returns the function name() that gives the descriptor of the func type of the
+// method signature sig without its receiver (gp::method::gp_ftype and gp::imethod::gp_ftype:
+// reflect's Method(i).Type), or nil when sig has a C/C++ type. The descriptor is interned when the
+// function is called, by gp::td_sig, from the descriptors of the parameters and the results
+// written out in place: no object of the package's (the function may be in the shared text of an
+// instance or of an unnamed interface, and comes before the composite descriptors), and nothing at
+// program start.
+func (g *gen) methodTypeFunc(name string, sig *types.Signature, pos token.Pos) *cppir.Func {
+	if hasC(sig) {
+		return nil
+	}
+	g.descInline++
+	defer func() { g.descInline-- }()
+	var in, out []cppir.Expr
+	for i := range sig.Params().Len() {
+		in = append(in, g.desc(sig.Params().At(i).Type(), pos))
+	}
+	for i := range sig.Results().Len() {
+		out = append(out, g.desc(sig.Results().At(i).Type(), pos))
+	}
+	descPtr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}
+	// (No static variable: reflect asks rarely, and the interning finds the descriptor again.)
+	return &cppir.Func{
+		Specs:  g.fullSpecs(),
+		Result: descPtr,
+		Name:   name,
+		Body: &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{
+			X: call("gp::td_sig", &cppir.InitList{Elems: in}, &cppir.InitList{Elems: out}, lit(strconv.FormatBool(sig.Variadic()))),
+		}}},
+	}
+}
+
+// pkgMethodType returns the name of the package's function that gives the func type of the method
+// signature sig (methodTypeFunc: one function for each signature text, defined after the
+// descriptors), or "" when there is none, and adds its declaration to decls once (declared says
+// which are there).
+func (g *gen) pkgMethodType(sig *types.Signature, pos token.Pos, declared map[string]bool, decls *[]cppir.Decl) string {
+	dt := g.dtable()
+	key := g.canonText(types.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic()))
+	fn, seen := dt.mtypes[key]
+	if !seen {
+		fn = g.methodTypeFunc("gp_mt_"+strconv.Itoa(len(dt.mtypes)), sig, pos)
+		if dt.mtypes == nil {
+			dt.mtypes = make(map[string]*cppir.Func)
+		}
+		dt.mtypes[key] = fn
+		if fn != nil {
+			dt.mtList = append(dt.mtList, fn)
+		}
+	}
+	if fn == nil {
+		return ""
+	}
+	if !declared[fn.Name] {
+		declared[fn.Name] = true
+		proto := *fn
+		proto.Body = nil
+		*decls = append(*decls, &proto)
+	}
+	return fn.Name
 }
 
 // thunk adds the thunk of the method m of the named type nd for the table of T (ptr false) or of
@@ -638,6 +871,9 @@ func (g *gen) thunkFunc(nd *namedDesc, m methodEntry, ptr bool) *cppir.Func {
 // descName returns the C++ name of the descriptor object name that the lowering o made, as the
 // package of g writes it: qualified for another package's.
 func (g *gen) descName(o *gen, name string) string {
+	if o == g && g.global > 0 {
+		return g.qual(name) // in a text of the global namespace (the shared unnamed interfaces)
+	}
 	if o == g || o == nil {
 		return name
 	}

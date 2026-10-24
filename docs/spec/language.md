@@ -207,7 +207,7 @@ func main() {
   Not in the subset: `reflect.MakeFunc`, `reflect.StructOf`, `reflect.FuncOf`, `reflect.MapOf`,
   `ArrayOf` and `ChanOf`, `Value.Call`, `Value.Method` and `MethodByName` on values (calling methods
   by name), channel `Send`/`Recv`, and anything else that needs new code at run time. The type of
-  a method (`Type.Method(i).Type`) is nil. There is no `plugin` package, and
+  a method (`Type.Method(i).Type`) is Go's; its `Func` is the zero Value. There is no `plugin` package, and
   user code can't use `//go:linkname`.
 - **Phase:** [05](../../plans/2026-10-13-gocpp/phase-05-interfaces-errors/README.md#22-type-descriptors-chosen-by-the-go-type)
   (type descriptors), [09](../../plans/2026-10-13-gocpp/phase-09-stdlib-testing/README.md#22-a-reflect-subset-on-top-of-type-descriptors)

@@ -54,16 +54,36 @@ static_assert(sizeof(ScanState) == sizeof(iface) && sizeof(Scanner) == sizeof(if
               "the fmt interfaces have no members of their own");
 
 namespace detail {
+// The func types of the methods (imethod::gp_ftype; ft_write and ft_int_ok: gocpp/fmt.hpp).
+inline const type_desc* ft_readrune() {
+    static const type_desc* const d = td_sig({}, {&td_int32, &td_int, &td_error});
+    return d;
+}
+inline const type_desc* ft_none() {
+    static const type_desc* const d = td_sig({}, {});
+    return d;
+}
+inline const type_desc* ft_token() {
+    static const type_desc* const d = td_sig({&td_bool, td_sig({&td_int32}, {&td_bool})},
+                                             {td_slice<std::uint8_t>(&td_uint8), &td_error});
+    return d;
+}
+inline const type_desc* ft_error() {
+    static const type_desc* const d = td_sig({}, {&td_error});
+    return d;
+}
+inline const type_desc* ft_scan(); // func(fmt.ScanState, int32) error, after td_scanstate
+
 inline constexpr imethod scanstate_methods[] = {
-    imethod("Read", nullptr, "func([]uint8) (int, error)"),
-    imethod("ReadRune", nullptr, "func() (int32, int, error)"),
-    imethod("SkipSpace", nullptr, "func()"),
-    imethod("Token", nullptr, "func(bool, func(int32) bool) ([]uint8, error)"),
-    imethod("UnreadRune", nullptr, "func() error"),
-    imethod("Width", nullptr, "func() (int, bool)"),
+    imethod("Read", nullptr, "func([]uint8) (int, error)", nullptr, &ft_write),
+    imethod("ReadRune", nullptr, "func() (int32, int, error)", nullptr, &ft_readrune),
+    imethod("SkipSpace", nullptr, "func()", nullptr, &ft_none),
+    imethod("Token", nullptr, "func(bool, func(int32) bool) ([]uint8, error)", nullptr, &ft_token),
+    imethod("UnreadRune", nullptr, "func() error", nullptr, &ft_error),
+    imethod("Width", nullptr, "func() (int, bool)", nullptr, &ft_int_ok),
 };
 inline constexpr imethod scanner_methods[] = {
-    imethod("Scan", nullptr, "func(fmt.ScanState, int32) error")};
+    imethod("Scan", nullptr, "func(fmt.ScanState, int32) error", nullptr, &ft_scan)};
 } // namespace detail
 
 inline constexpr type_desc td_scanstate =
@@ -73,6 +93,10 @@ inline constexpr type_desc td_scanner =
 
 inline const type_desc* ScanState::gp_desc() noexcept {
     return &td_scanstate;
+}
+inline const type_desc* detail::ft_scan() {
+    static const type_desc* const d = td_sig({&td_scanstate, &td_int32}, {&td_error});
+    return d;
 }
 inline const type_desc* Scanner::gp_desc() noexcept {
     return &td_scanner;

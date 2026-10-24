@@ -2,20 +2,41 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Copied from go1.25.14's src/internal/testlog/exit.go (see stdlib/internal/PORT.md), without the mutex (sync is not
-// built yet, Phase 08 step 8.7) and without the //go:linkname of the runtime's hook: the flag is set by
-// testing before the tests run and read by os.Exit, as in Go.
+// Copied from go1.25.14's src/internal/testlog/exit.go (see stdlib/internal/PORT.md), without the
+// //go:linkname of the runtime's hook: package os reads the flag before it exits (os.Exit), which is
+// what the runtime's hook is for in Go.
 
 package testlog
 
-var panicOnExit0 bool
+import "sync"
 
 // PanicOnExit0 reports whether to panic on a call to os.Exit(0).
+// This is in the testlog package because, like other definitions in
+// package testlog, it is a hook between the testing package and the
+// os package. This is used to ensure that an early call to os.Exit(0)
+// does not cause a test to pass.
 func PanicOnExit0() bool {
-	return panicOnExit0
+	panicOnExit0.mu.Lock()
+	defer panicOnExit0.mu.Unlock()
+	return panicOnExit0.val
 }
 
-// SetPanicOnExit0 sets panic on os.Exit(0).
+// panicOnExit0 is the flag used for PanicOnExit0. This uses a lock
+// because the value can be cleared via a timer call that may race
+// with calls to os.Exit
+var panicOnExit0 struct {
+	mu  sync.Mutex
+	val bool
+}
+
+// SetPanicOnExit0 sets panicOnExit0 to v.
+//
+// SetPanicOnExit0 should be an internal detail,
+// but alternate implementations of go test in other
+// build systems may need access to it.
+// Don't remove it! See #66441.
 func SetPanicOnExit0(v bool) {
-	panicOnExit0 = v
+	panicOnExit0.mu.Lock()
+	defer panicOnExit0.mu.Unlock()
+	panicOnExit0.val = v
 }

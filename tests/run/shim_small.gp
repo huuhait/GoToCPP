@@ -4,7 +4,7 @@
 // The small internal packages the ported standard library imports: itoa (integers to text without
 // strconv), oserror (the error values of os), goarch and goos (the target's constants), cpu (a stub
 // whose features are all false), abi (NoEscape and Escape return their argument), race (no-ops) and
-// testlog (the logger that os reports to).
+// testlog (the logger that os reports to, set once).
 package main
 
 import (
@@ -18,6 +18,8 @@ import (
 	"internal/oserror"
 	"internal/race"
 	"internal/testlog"
+	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -81,8 +83,32 @@ func main() {
 	testlog.SetPanicOnExit0(true)
 	fmt.Println(testlog.PanicOnExit0())
 	testlog.SetPanicOnExit0(false)
-	l := &logger{}
-	testlog.SetLogger(l)
+	// SetLogger from 8 goroutines at once: exactly one sets the logger, the others panic (Go's
+	// atomic.Pointer and CompareAndSwap)
+	ls := make([]*logger, 8)
+	var wg sync.WaitGroup
+	var panics atomic.Int32
+	for i := range ls {
+		ls[i] = &logger{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if recover() != nil {
+					panics.Add(1)
+				}
+			}()
+			testlog.SetLogger(ls[i])
+		}()
+	}
+	wg.Wait()
+	var l *logger
+	for _, c := range ls {
+		if testlog.Logger() == testlog.Interface(c) {
+			l = c
+		}
+	}
+	fmt.Println(panics.Load(), l != nil)
 	testlog.Getenv("HOME")
 	testlog.Open("/etc/passwd")
 	testlog.Stat("/tmp")
@@ -114,5 +140,6 @@ func main() {
 // false 0
 // true false
 // true
+// 7 true
 // [getenv HOME open /etc/passwd stat /tmp chdir /] true
 // testlog: SetLogger must be called only once

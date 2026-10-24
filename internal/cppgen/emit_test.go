@@ -397,8 +397,6 @@ func TestUnsupported(t *testing.T) {
 	tests := []struct {
 		name, src, want string
 	}{
-		{"bytes-named-elem", "type MyByte byte\nfunc main() {\n\t_ = []MyByte(\"ab\")\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from string to []MyByte"},
-		{"runes-named-elem", "type R rune\nfunc main() {\n\t_ = string([]R{'a'})\n}", "main.gp:5:6: cppgen: not supported yet: the conversion from []R to string"},
 		{"slice-tags", "func main() {\n\t_ = []struct{ Q int }([]struct {\n\t\tQ int `t:\"q\"`\n\t}{})\n}", `main.gp:4:6: cppgen: not supported yet: the conversion from []struct{Q int "t:\"q\""} to []struct{Q int}`},
 		{"struct-slice-tags", "type W struct{ S []struct{ Q int `t:\"q\"` } }\ntype V struct{ S []struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
 		{"struct-map-tags", "type W struct{ M map[int]struct{ Q int `t:\"q\"` } }\ntype V struct{ M map[int]struct{ Q int } }\nfunc main() {\n\t_ = V(W{})\n}", "main.gp:6:6: cppgen: not supported yet: the conversion from W to V, whose fields differ in struct tags inside a slice or a map"},
