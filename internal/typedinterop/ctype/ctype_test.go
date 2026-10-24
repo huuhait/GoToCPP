@@ -1,9 +1,12 @@
 package ctype
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/cputime"
 )
 
 // roundTrip lists texts that clang prints and that Parse and String give back
@@ -162,33 +165,43 @@ func TestStructure(t *testing.T) {
 }
 
 // A nested function type in a template argument is read in linear time (isGroup used to parse
-// the name twice at every level: 38 s for 24 levels).
+// the name twice at every level: 38 s for 24 levels). The time is the processor time of the
+// parse (cputime.Of), so a loaded machine does not stretch it; a parse that does not end in a
+// minute is an exponential one, and the test does not wait for it.
 func TestNestedFunctionTypesAreLinear(t *testing.T) {
+	type res struct {
+		ty  *Type
+		err error
+		d   time.Duration
+	}
+	done := make(chan res, 1)
+	parse := func(what, s string) res {
+		t.Helper()
+		go func() {
+			var r res
+			r.d, _ = cputime.Of(func() { r.ty, r.err = Parse(s) })
+			done <- r
+		}()
+		select {
+		case r := <-done:
+			if r.d > time.Second {
+				t.Errorf("%s took %v", what, r.d)
+			}
+			return r
+		case <-time.After(time.Minute): // a regression is exponential: do not wait for it
+			t.Fatalf("%s did not finish in a minute", what)
+		}
+		return res{}
+	}
 	s := "int"
 	for i := 0; i < 40; i++ {
 		s = "int (S<" + s + ">)"
 	}
-	start := time.Now()
-	type res struct {
-		ty  *Type
-		err error
+	r := parse("40 levels of nested function types", s)
+	if r.err != nil {
+		t.Fatal(r.err)
 	}
-	done := make(chan res, 1)
-	go func() { ty, err := Parse(s); done <- res{ty, err} }()
-	var r res
-	select {
-	case r = <-done:
-	case <-time.After(10 * time.Second): // a regression is exponential: do not wait for it
-		t.Fatal("40 levels of nested function types did not finish in 10 s")
-	}
-	ty, err := r.ty, r.err
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("40 levels took %v", d)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ty.String() != s {
+	if r.ty.String() != s {
 		t.Error("not the same text")
 	}
 	// Past the nesting limit the rejection is as fast: the failure is remembered too.
@@ -197,18 +210,8 @@ func TestNestedFunctionTypesAreLinear(t *testing.T) {
 		for i := 0; i < n; i++ {
 			s = "int (S<" + s + ">)"
 		}
-		start := time.Now()
-		go func() { ty, err := Parse(s); done <- res{ty, err} }()
-		select {
-		case r := <-done:
-			if r.err == nil {
-				t.Errorf("%d levels of nesting parse", n)
-			}
-		case <-time.After(10 * time.Second):
-			t.Fatalf("%d levels (past the limit) did not finish in 10 s", n)
-		}
-		if d := time.Since(start); d > time.Second {
-			t.Errorf("%d levels took %v", n, d)
+		if r := parse(fmt.Sprintf("%d levels (past the limit)", n), s); r.err == nil {
+			t.Errorf("%d levels of nesting parse", n)
 		}
 	}
 	// The same with member pointers and pointers to functions, which take the other branch.
@@ -219,16 +222,7 @@ func TestNestedFunctionTypesAreLinear(t *testing.T) {
 			break
 		}
 	}
-	start = time.Now()
-	go func() { ty, err := Parse(s); done <- res{ty, err} }()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("nested member pointers did not finish in 10 s")
-	}
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("member pointers took %v", d)
-	}
+	parse("nested member pointers", s)
 }
 
 // Types with no name print in a form that Parse reads (found by FuzzParse).

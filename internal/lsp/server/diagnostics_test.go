@@ -358,15 +358,29 @@ func TestDiagnosticsStale(t *testing.T) {
 	c.change("main.gp", 2, strings.Replace(src, "x1", "x2", 1))
 	wait(t, held)
 	c.change("main.gp", 3, strings.Replace(src, "x1", "x3", 1))
-	time.Sleep(50 * time.Millisecond) // the run of version 3 is due, and waits
+	c.call(GocppStats, "{}") // notification barrier: the server has version 3, the held run is stale
 	release <- struct{}{}
 	want(t, c.next("main.gp"), 3, "2:18-2:20 error: undefined: x3\n")
 	c.quiet("main.gp", 100*time.Millisecond)
 
 	// The other package is open, and its first run (no API known yet)
 	// has run main again.
+	mu.Lock()
+	before := len(calls)
+	mu.Unlock()
 	c.open("other/o.gp", files["other/o.gp"])
 	want(t, c.next("other/o.gp"), 1, "")
+	for deadline := time.Now().Add(hangLimit); ; time.Sleep(time.Millisecond) {
+		mu.Lock()
+		again := len(calls) > before
+		mu.Unlock()
+		if again {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("main was not checked again after the other package was opened")
+		}
+	}
 	time.Sleep(100 * time.Millisecond)
 	mu.Lock()
 	hold, calls = true, nil
@@ -412,7 +426,7 @@ func TestDiagnosticsProbeWindow(t *testing.T) {
 	})
 	c.open("main.gp", src)
 	for {
-		p := c.next("main.gp") // fails after a minute
+		p := c.next("main.gp") // fails after the hang limit
 		if got := format(p); got == "5:7-5:11 error: undefined: stdd\n" {
 			break
 		} else if got != "" {
@@ -463,7 +477,7 @@ func TestDiagnosticsDebounce(t *testing.T) {
 	// due waits until the server has made n timers, then lets d pass.
 	due := func(n int, d time.Duration) {
 		t.Helper()
-		deadline := time.Now().Add(time.Minute)
+		deadline := time.Now().Add(hangLimit)
 		for clock.Timers() < n {
 			if time.Now().After(deadline) {
 				t.Fatalf("%d timers, want %d", clock.Timers(), n)
@@ -518,7 +532,7 @@ func TestDiagnosticsQuickCheckRunsAtOnce(t *testing.T) {
 	c.call("initialize", initParams)
 	due := func(n int, d time.Duration) {
 		t.Helper()
-		deadline := time.Now().Add(time.Minute)
+		deadline := time.Now().Add(hangLimit)
 		for clock.Timers() < n {
 			if time.Now().After(deadline) {
 				t.Fatalf("%d timers, want %d", clock.Timers(), n)
@@ -702,7 +716,7 @@ func TestDiagnosticsSameAsCheck(t *testing.T) {
 
 		c.open(name, string(src))
 		m := protocol.NewMapper(string(src))
-		deadline := time.Now().Add(time.Minute)
+		deadline := time.Now().Add(hangLimit)
 		for {
 			p := c.next(name)
 			var got []string

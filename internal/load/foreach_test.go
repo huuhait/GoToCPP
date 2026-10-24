@@ -63,7 +63,7 @@ func TestForEachFileRunsTogether(t *testing.T) {
 	observed := make(chan bool, 1)
 	go func() {
 		defer close(release)
-		timer := time.NewTimer(5 * time.Second)
+		timer := time.NewTimer(time.Minute) // (only ends a hang)
 		defer timer.Stop()
 		for range 2 {
 			select {

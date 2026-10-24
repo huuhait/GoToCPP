@@ -33,8 +33,9 @@ import (
 // "late" the runs that make the names (the header index, "-ast-list", and the receiver members,
 // "-code-completion-at") run the real compiler to its end at once and hold its answer back (the
 // file "held" has the process and the kind of each) until the file "release" exists: a slow
-// compiler that has read the files long ago. The loops give up after a minute, so that a test
-// that fails leaves nothing behind.
+// compiler that has read the files long ago. The loops end when the test process is gone
+// (SLOWCLANG_TEST_PID), so that a test that was killed leaves nothing behind; they have no time
+// limit, which a loaded machine could reach while the test still runs.
 const slowClangScript = `#!/bin/sh
 case " $* " in
   *" --version "*|*" -dM -E -x c++ - "*)
@@ -47,10 +48,8 @@ case " $* " in
     ;;
 esac
 printf '%s\n' "$$" >> "$SLOWCLANG_DIR/runs"
-tries=0
 while [ ! -e "$SLOWCLANG_DIR/open" ]; do
-  tries=$((tries + 1))
-  if [ "$tries" -gt 6000 ]; then exit 3; fi
+  kill -0 "$SLOWCLANG_TEST_PID" 2>/dev/null || exit 3
   sleep 0.01
 done
 case "$(cat "$SLOWCLANG_DIR/mode" 2>/dev/null)" in
@@ -65,10 +64,8 @@ case "$(cat "$SLOWCLANG_DIR/mode" 2>/dev/null)" in
     "$SLOWCLANG_REAL" "$@" > "$out/stdout" 2> "$out/stderr"
     status=$?
     printf '%s %s\n' "$$" "$kind" >> "$SLOWCLANG_DIR/held"
-    tries=0
     while [ ! -e "$SLOWCLANG_DIR/release" ]; do
-      tries=$((tries + 1))
-      if [ "$tries" -gt 6000 ]; then exit 3; fi
+      kill -0 "$SLOWCLANG_TEST_PID" 2>/dev/null || exit 3
       sleep 0.01
     done
     cat "$out/stdout"
@@ -116,6 +113,7 @@ func newSlowClang(t *testing.T, needReal bool) *slowClang {
 	// Several runs wait at the gate at once (the index has four): they need places.
 	t.Setenv(probe.EnvJobs, "4")
 	t.Setenv("SLOWCLANG_DIR", g.dir)
+	t.Setenv("SLOWCLANG_TEST_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("SLOWCLANG_REAL", g.real)
 	t.Setenv("GOCPP_CLANG", g.compiler)
 	t.Setenv("GOCPP_INTEROP", "typed")
@@ -208,7 +206,7 @@ func (g *slowClang) release() {
 // reaches.
 func (g *slowClang) waitRuns(n int) []int {
 	g.t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for {
 		if pids := g.runs(); len(pids) >= n {
 			return pids
@@ -223,7 +221,7 @@ func (g *slowClang) waitRuns(n int) []int {
 // waitGone waits until the process is not running (a zombie counts as gone).
 func (g *slowClang) waitGone(pid int) {
 	g.t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for slices.Contains(g.processes(), pid) {
 		if time.Now().After(deadline) {
 			g.t.Fatalf("compiler process %d is still running", pid)
@@ -255,7 +253,7 @@ func (g *slowClang) waitAnyGone() int {
 // gap is bounded; it is the state, not its duration, that the tests rely on.
 func (g *slowClang) stillBlocked(what string) {
 	g.t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for {
 		if _, err := os.Stat(filepath.Join(g.dir, "open")); err == nil {
 			g.t.Fatalf("%s: the gate is open", what)
@@ -478,7 +476,7 @@ func TestSlowClangNoRequestWaitsAndAnswersAreThoseWithoutTypedData(t *testing.T)
 // reaches it, and what the test asserts is the state that it waited for, not how long it took.
 func slowWait(t *testing.T, what string, check func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(hangLimit)
 	for !check() {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s never happened", what)

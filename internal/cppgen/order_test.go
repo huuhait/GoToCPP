@@ -1,11 +1,14 @@
 package cppgen
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/cputime"
 )
 
 // orderPrelude is the start of each TestOrderPanics program: f and grow change the package
@@ -730,7 +733,9 @@ func TestOrderTemps(t *testing.T) {
 }
 
 // TestOrderLarge checks that ordering a long expression stays fast (plan is O(n^2) in the
-// items of a scope): 400 terms, with and without calls, in well under a second.
+// items of a scope): 400 terms, with and without calls, are emitted in well under a second of
+// processor time (cputime.Of: the time a loaded machine makes the test wait is not counted; the
+// load and the check of the package come before and are not measured).
 func TestOrderLarge(t *testing.T) {
 	const n = 400
 	var plain, calls []string
@@ -751,11 +756,14 @@ func TestOrderLarge(t *testing.T) {
 	if err := os.WriteFile(gp, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	if _, err := emitPatterns(t, Config{}, dir, gp); err != nil {
+	fset, pkg := checkPatterns(t, dir, gp)
+	var err error
+	d, precise := cputime.Of(func() { err = EmitPackage(io.Discard, fset, pkg, Config{}) })
+	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > time.Second {
-		t.Errorf("loading, checking and emitting took %v, want less than a second", d)
+	t.Logf("emitting took %v (processor time: %v)", d, precise)
+	if d > time.Second {
+		t.Errorf("emitting took %v, want less than a second", d)
 	}
 }

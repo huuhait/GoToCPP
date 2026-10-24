@@ -101,7 +101,7 @@ func TestCaseFoldOneDocument(t *testing.T) {
 // waitVersion waits until the open document uri has the version v.
 func (c *dclient) waitVersion(uri protocol.DocumentURI, v int32) {
 	c.t.Helper()
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(hangLimit); ; time.Sleep(time.Millisecond) {
 		if o := c.overlay(uri); o != nil && o.Version() == v {
 			return
 		}
@@ -114,7 +114,7 @@ func (c *dclient) waitVersion(uri protocol.DocumentURI, v int32) {
 // waitOpen waits until n documents are open: a notification is handled after the call that sent it returns.
 func (c *dclient) waitOpen(n int) {
 	c.t.Helper()
-	for deadline := time.Now().Add(time.Minute); len(c.overlays()) != n; time.Sleep(time.Millisecond) {
+	for deadline := time.Now().Add(hangLimit); len(c.overlays()) != n; time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
 			c.t.Fatalf("%d documents are open, want %d", len(c.overlays()), n)
 		}

@@ -405,6 +405,17 @@ func nsAnswer(k Kind) Kind {
 // The heaviest include sets take a few seconds.
 const probeTimeout = time.Minute
 
+// probeLimit is the time limit of one run of a probe: probeTimeout, or GOCPP_PROBE_TIMEOUT (a Go
+// duration, the variable that limits a run of the typed interop's probes) when that is longer.
+// The tests raise it: on a loaded machine a run can take minutes. A shorter one is for the typed
+// probes only (a test of a hanging compiler sets it and still has this probe waiting).
+func probeLimit() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("GOCPP_PROBE_TIMEOUT")); err == nil && d > probeTimeout {
+		return d
+	}
+	return probeTimeout
+}
+
 // maxProbeOutput limits what the kind probe reads from the compiler. A
 // probe with 200 bad paths prints about 0.5 MiB with g++ (each failed line
 // prints notes); the cascade of errors of C++ headers that end up inside
@@ -925,7 +936,7 @@ func runProbeOnce(ctx context.Context, cxx build.CXX, dir string, flags, include
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, probeLimit())
 	defer cancel()
 	out := &capBuffer{max: maxProbeOutput, stop: cancel}
 	start := time.Now()
@@ -999,7 +1010,7 @@ func probeTemp() (string, error) {
 // intended failing run, the parse-as-C check) gives the ExitError even when its
 // output was cut, so that case is not detected and not retried (the TODO has
 // the fix: own the pipe). The retry shares the caller's time limit
-// (probeTimeout): a first run that took most of it leaves the second the rest,
+// (probeLimit): a first run that took most of it leaves the second the rest,
 // and a probe that runs out of time is "was stopped" like any other.
 func runCompiler(ctx context.Context, cxx build.CXX, dir, tmp string, args []string, stdout, stderr *capBuffer) (*exec.Cmd, error) {
 	var cmd *exec.Cmd

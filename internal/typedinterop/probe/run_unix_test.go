@@ -101,9 +101,18 @@ func TestRunCrash(t *testing.T) {
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
+// gone waits until the process pid has ended (the minute only ends a wait for a process that was
+// not killed).
+func gone(pid int) bool {
+	for deadline := time.Now().Add(time.Minute); alive(pid) && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return !alive(pid)
+}
+
 func readPID(t *testing.T, file string) int {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		if b, err := os.ReadFile(file); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
@@ -116,27 +125,31 @@ func readPID(t *testing.T, file string) int {
 	return 0
 }
 
-// A compiler that hangs is killed at the timeout, with its children.
+// A compiler that hangs is killed at the timeout, with its children. A loaded machine can reach
+// the timeout before the compiler has started its child (no pid file then): the run is made again
+// with twice the time, until the child was there to be killed.
 func TestRunTimeoutKillsTheGroup(t *testing.T) {
 	pidfile := filepath.Join(t.TempDir(), "pid")
 	t.Setenv("FAKE_PIDFILE", pidfile)
 	cxx := fakeCXX(t, `sleep 300 &
 echo $! > "$FAKE_PIDFILE"
 sleep 300`)
-	start := time.Now()
-	_, err := new(Runner).Run(context.Background(), Config{CXX: cxx, Timeout: 300 * time.Millisecond}, simpleSource(t))
-	if err == nil || !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("error %v", err)
+	var pid int
+	for timeout := 300 * time.Millisecond; pid == 0; timeout *= 2 {
+		if timeout > time.Minute {
+			t.Fatal("the compiler never started its child")
+		}
+		_, err := new(Runner).Run(context.Background(), Config{CXX: cxx, Timeout: timeout}, simpleSource(t))
+		if err == nil || !strings.Contains(err.Error(), "timeout") {
+			t.Fatalf("error %v", err)
+		}
+		// (the run returned: it did not wait for the 300 s of the compiler)
+		if b, err := os.ReadFile(pidfile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
 	}
-	if time.Since(start) > 20*time.Second {
-		t.Errorf("took %v", time.Since(start))
-	}
-	pid := readPID(t, pidfile)
 	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
-	for i := 0; i < 200 && alive(pid); i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if alive(pid) {
+	if !gone(pid) {
 		t.Errorf("the child %d of the compiler is still running", pid)
 	}
 }
@@ -161,13 +174,10 @@ sleep 300`)
 		if err == nil || !strings.Contains(err.Error(), "stopped") {
 			t.Fatalf("error %v", err)
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("Run didn't return after the cancel")
 	}
-	for i := 0; i < 200 && alive(pid); i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if alive(pid) {
+	if !gone(pid) {
 		t.Errorf("the child %d of the compiler is still running", pid)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/huuhait/gocpp/internal/build"
 	"github.com/huuhait/gocpp/internal/load"
@@ -33,11 +32,10 @@ End of search list.
 }
 
 // TestIncludeDirsRetry: a compiler run that failed is kept for cxxRetry,
-// then the compiler is asked again.
+// then the compiler is asked again. cxxRetry passes by making the failure
+// old, not by waiting (a short cxxRetry and a sleep make the second call come
+// too late on a busy machine).
 func TestIncludeDirsRetry(t *testing.T) {
-	old := cxxRetry
-	cxxRetry = 50 * time.Millisecond
-	t.Cleanup(func() { cxxRetry = old })
 	var mu sync.Mutex
 	runs := 0
 	cfg := testConfig()
@@ -62,7 +60,11 @@ func TestIncludeDirsRetry(t *testing.T) {
 	if runs != 1 {
 		t.Errorf("%d runs before cxxRetry, want 1", runs)
 	}
-	time.Sleep(cxxRetry)
+	p.incMu.Lock()
+	for _, e := range p.incDirs {
+		e.failed = e.failed.Add(-cxxRetry)
+	}
+	p.incMu.Unlock()
 	dirs, err := p.includeDirs(ctx, cxx)
 	if err != nil || !slices.Equal(dirs, []string{"/usr/include"}) {
 		t.Errorf("after cxxRetry: %q, %v", dirs, err)

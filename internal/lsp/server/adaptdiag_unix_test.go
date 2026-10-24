@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ func TestAdaptCompilerBlockedDoesNotBlockDiagnostics(t *testing.T) {
 	gate := filepath.Join(dir, "gate")
 	t.Setenv("ADAPT_TEST_MARKER", marker)
 	t.Setenv("ADAPT_TEST_GATE", gate)
+	t.Setenv("ADAPT_TEST_PID", strconv.Itoa(os.Getpid())) // the gate's wait ends with the test
 	t.Setenv("ADAPT_TEST_CLANG", clang.Path)
 	compiler := filepath.Join(dir, "clang++")
 	const script = `#!/bin/sh
@@ -37,7 +39,10 @@ last=""
 for arg do last="$arg"; done
 if [ -f "$last" ] && grep -q "gp_probe_" "$last" 2>/dev/null; then
   echo started > "$ADAPT_TEST_MARKER"
-  while [ ! -f "$ADAPT_TEST_GATE" ]; do sleep 0.02; done
+  while [ ! -f "$ADAPT_TEST_GATE" ]; do
+    kill -0 "$ADAPT_TEST_PID" 2>/dev/null || exit 3
+    sleep 0.02
+  done
 fi
 exec "$ADAPT_TEST_CLANG" "$@"
 `
@@ -64,11 +69,10 @@ exec "$ADAPT_TEST_CLANG" "$@"
 		t.Fatalf("the refusal came before the compiler answered: %s", first.raw)
 	}
 	t.Logf("first publish after %v", time.Since(start))
-	for i := 0; i < 500; i++ {
+	for deadline := time.Now().Add(hangLimit); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(marker); err == nil {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("the analysis never reached the compiler; the log:\n%s", c.logs.String())
@@ -84,7 +88,7 @@ exec "$ADAPT_TEST_CLANG" "$@"
 	if err := os.WriteFile(gate, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if c.publishWith("p/main.gp", time.Minute, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) }) == nil {
+	if c.publishWith("p/main.gp", hangLimit, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) }) == nil {
 		t.Fatalf("no refusal after the compiler answered; the log:\n%s", c.logs.String())
 	}
 }

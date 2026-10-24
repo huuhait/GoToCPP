@@ -113,8 +113,8 @@ func noDiagnostics(t *testing.T, c *dclient, program string) {
 	}
 	select {
 	case <-analysed:
-	case <-time.After(time.Minute):
-		t.Fatalf("the background analysis did not end in a minute; the log:\n%s", c.logs.String())
+	case <-time.After(hangLimit):
+		t.Fatalf("the background analysis did not end before the hang limit; the log:\n%s", c.logs.String())
 	}
 	// The publish that the end of the analysis causes comes after it: one more moment, then the
 	// publishes seen so far are all of them.

@@ -55,7 +55,7 @@ func TestDiagnosticsAgreeWithBuild(t *testing.T) {
 	} {
 		c.open(tc.file, files[tc.file])
 		// The probe answers in the background: the first publish may come without it, and
-		// c.next fails the test when the right one does not come after a minute.
+		// c.next fails the test when the right one does not come after the hang limit.
 		for format(c.next(tc.file)) != tc.want {
 		}
 	}

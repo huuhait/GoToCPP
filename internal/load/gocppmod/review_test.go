@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/huuhait/gocpp/internal/cputime"
 )
 
 // Tests of the review of step 6.1: recipes with nested blocks, keywords in a
@@ -176,20 +178,23 @@ func TestFileSizeLimit(t *testing.T) {
 	}
 }
 
-// bestOf returns the shortest of three runs of f.
+// bestOf returns the least processor time of three runs of f (cputime.Of: the time a loaded
+// machine makes the thread wait is not in it; where the system has no such clock it is the wall
+// time).
 func bestOf(f func()) time.Duration {
 	best := time.Duration(1 << 62)
 	for range 3 {
-		start := time.Now()
-		f()
-		best = min(best, time.Since(start))
+		d, _ := cputime.Of(f)
+		best = min(best, d)
 	}
 	return best
 }
 
 // TestScales checks that nothing is quadratic in the size of the file, which
 // may be the file of a dependency: ten times the lines must not take 40
-// times as long (it takes about ten; a quadratic one takes 100).
+// times as long (it takes about ten; a quadratic one takes 100). The times are
+// the processor time of the test's thread, so a loaded machine does not
+// stretch one run more than the other.
 func TestScales(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
@@ -233,8 +238,9 @@ func TestScales(t *testing.T) {
 		"errors":      {small.errors, large.errors},
 		"lookups":     {small.find, large.find},
 	} {
-		// A stall of a loaded machine looks like a slow run: a real quadratic
-		// loop is slow every time.
+		// What is left of a loaded machine in the processor time (caches shared
+		// with other processes) looks like a slow run: a real quadratic loop is
+		// slow every time.
 		var a, b time.Duration
 		for attempt := 0; attempt < 5; attempt++ {
 			a, b = bestOf(pair[0]), bestOf(pair[1])

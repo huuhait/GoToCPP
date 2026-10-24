@@ -152,7 +152,7 @@ func TestHoverOpaqueDisk(t *testing.T) {
 		c.open("main.gp", opaqueFiles["main.gp"])
 		checkOpaque(t, c)
 		hits, _, _ = c.s.pipeline.DiskStats()
-		for deadline := time.Now().Add(time.Minute); waitWrite; time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(hangLimit); waitWrite; time.Sleep(time.Millisecond) {
 			if _, _, writes := c.s.pipeline.DiskStats(); writes > 0 {
 				break
 			}

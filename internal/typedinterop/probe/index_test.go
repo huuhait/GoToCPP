@@ -246,7 +246,7 @@ func TestHeaderIndexCanceledRunIsNotCached(t *testing.T) {
 	}
 	marker := filepath.Join(t.TempDir(), "started")
 	t.Setenv("FAKE_START", marker)
-	t.Setenv("FAKE_SLEEP", "60")
+	t.Setenv("FAKE_SLEEP", "180") // a cancel that does not stop the run waits three minutes
 	runner := new(Runner)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -257,7 +257,7 @@ func TestHeaderIndexCanceledRunIsNotCached(t *testing.T) {
 	}()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(time.Minute) // (only ends a hang)
 	defer deadline.Stop()
 started:
 	for {
@@ -277,8 +277,8 @@ started:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancellation = %v", err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("canceled clang did not stop")
+	case <-time.After(time.Minute):
+		t.Fatal("canceled clang did not stop in a minute")
 	}
 	t.Setenv("FAKE_SLEEP", "")
 	if _, err := runner.Index(context.Background(), fake.cfg(), []string{`"api.hpp"`}); err != nil {

@@ -104,7 +104,7 @@ func startFocusComp(t *testing.T, focus bool, phase int, files map[string]string
 	cfg.Phase = phase
 	s := newServer(nil, cfg, debounce.RealClock{})
 	c := &compClient{dclient: &dclient{client: startServer(t, s, func(s *Server) {
-		s.comp.index.wait = time.Minute
+		s.comp.index.wait = hangLimit
 		s.diags.noFocus = !focus
 		s.diags.settle = time.Hour // the base stays the text that was opened
 	}), root: root}, versions: make(map[string]int)}

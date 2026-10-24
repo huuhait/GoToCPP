@@ -694,6 +694,14 @@ func fakeCompiler(t *testing.T, family build.Family, body string) build.CXX {
 	return build.CXX{Path: path, Family: family, Version: "fake 1.0"}
 }
 
+// spin is a shell loop that keeps a fake compiler busy, the way a compiler that hangs is, until
+// it is killed or the test process has ended: a busy loop whose test was killed would
+// otherwise run for ever (its parent is gone, nothing kills its process group). kill is built
+// into the shell, so the loop starts no process.
+func spin() string {
+	return fmt.Sprintf("while kill -0 %d 2>/dev/null; do :; done", os.Getpid())
+}
+
 // writeScript writes the shell script src (which starts with #!/bin/sh) to
 // path, executable, and runs it once, so that a test can run it without
 // "text file busy". A test that forks a process (a compiler) while another
@@ -758,7 +766,7 @@ func TestProbeOutputLimitStops(t *testing.T) {
 	// yes(1) prints as fast as the pipe takes it, and the time limit is long, so
 	// that "stopped by the limit" is told by the error, not by the clock.
 	const long = `exec yes "$(printf '%1000s' x)"`
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cxx := fakeCompiler(t, build.GCC, long)
 	start := time.Now()
@@ -766,7 +774,9 @@ func TestProbeOutputLimitStops(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "printed more than 8 MiB") {
 		t.Errorf("probe = %v, want an output limit error", err)
 	}
-	if d := time.Since(start); d > time.Minute { // well before the 2 minutes of ctx
+	// (the error says that it was the limit; the bound is only far from the time of ctx: the whole
+	// test took up to 64 s with the machine ten times oversubscribed)
+	if d := time.Since(start); d > 5*time.Minute {
 		t.Errorf("the probe took %v", d)
 	}
 
@@ -785,7 +795,7 @@ echo "$f:1:10: fatal error: x.h: No such file or directory"
 func TestProbeTimeLimit(t *testing.T) {
 	// The compiler hangs, and so does a process that it started, with the
 	// output open: the probe stops both, and leaves no files behind.
-	cxx := fakeCompiler(t, build.GCC, "(while :; do :; done) &\nwhile :; do :; done")
+	cxx := fakeCompiler(t, build.GCC, "("+spin()+") &\n"+spin())
 	tmp := t.TempDir()
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", tmp)

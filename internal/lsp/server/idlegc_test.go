@@ -87,7 +87,7 @@ func TestIdleGCTimer(t *testing.T) {
 	g.end()
 	select {
 	case <-done:
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		t.Fatal("no collection after the end of the work")
 	}
 	if n.Load() != 1 {
@@ -119,7 +119,7 @@ func TestIdleGCRearm(t *testing.T) {
 		g.end()
 		select {
 		case <-done:
-		case <-time.After(time.Minute):
+		case <-time.After(hangLimit):
 			t.Fatalf("no collection for idle cycle %d", cycle)
 		}
 		if got := n.Load(); got != cycle {

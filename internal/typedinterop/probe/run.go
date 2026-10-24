@@ -315,6 +315,10 @@ func (rn *Runner) Run(ctx context.Context, cfg Config, src *Source) (*Table, err
 // hundred compilers run at once.
 const EnvTimeout = "GOCPP_PROBE_TIMEOUT"
 
+// RunTimeout returns the time limit of a compiler run whose Config has no Timeout: EnvTimeout
+// when it is set, else DefaultTimeout.
+func RunTimeout() time.Duration { return effTimeout(Config{}) }
+
 func effTimeout(cfg Config) time.Duration {
 	if cfg.Timeout > 0 {
 		return cfg.Timeout

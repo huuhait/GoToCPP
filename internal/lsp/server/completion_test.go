@@ -135,7 +135,7 @@ func startComp(t *testing.T, files map[string]string, init string) *compClient {
 	t.Helper()
 	root := writeTree(t, files)
 	s := newServer(nil, testConfig(), debounce.RealClock{})
-	c := &compClient{dclient: &dclient{client: startServer(t, s, func(s *Server) { s.comp.index.wait = time.Minute }), root: root},
+	c := &compClient{dclient: &dclient{client: startServer(t, s, func(s *Server) { s.comp.index.wait = hangLimit }), root: root},
 		versions: make(map[string]int)}
 	c.call("initialize", init)
 	c.notify("initialized", "{}")
@@ -744,7 +744,7 @@ func TestCompletionIndex(t *testing.T) {
 	c.notify("workspace/didChangeWatchedFiles", fmt.Sprintf(`{"changes":[{"uri":%q,"type":1}]}`, c.uri("newpkg/newpkg.gp")))
 	// The request after the change gets the old index at once, and starts
 	// a new one; wait for it.
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for {
 		items := c.complete("app/main.gp", inMain("\tnewpkg.|\n"))
 		if item(items, "Hello") != nil {

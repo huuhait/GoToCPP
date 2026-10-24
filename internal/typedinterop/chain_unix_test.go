@@ -23,7 +23,8 @@ import (
 // The declaration work that goes beside the probe run (startFuncDecls): the overload sets of the called
 // functions, then the types their signatures name. The tests use a compiler script around the real clang
 // that makes the order of the runs part of the test, so that no test reads a clock: a run waits for a file
-// that another run writes, and the wait ends the test (after a bound that only a failure reaches).
+// that another run writes, and the wait ends the test (after a bound that only a failure reaches: 1200
+// sleeps of 50 ms, a minute or more, the longer the more loaded the machine is).
 
 const gadgetHeader = `#pragma once
 struct Gadget { int id; double weight; };
@@ -90,7 +91,7 @@ case "$*" in
 	"$REAL" "$@"
 	rc=$?
 	i=0
-	while [ $i -lt 400 ] && ! grep -q gadget-start "$LOG" 2>/dev/null; do sleep 0.05; i=$((i+1)); done
+	while [ $i -lt 1200 ] && ! grep -q gadget-start "$LOG" 2>/dev/null; do sleep 0.05; i=$((i+1)); done
 	if grep -q gadget-start "$LOG" 2>/dev/null; then
 		echo probe-end-after-gadget-start >> "$LOG"
 	else
@@ -167,7 +168,7 @@ esac`)
 	}()
 	pidFile := filepath.Join(dir, "funcs.pid")
 	var pid int
-	for i := 0; i < 400 && pid == 0; i++ {
+	for deadline := time.Now().Add(time.Minute); pid == 0 && time.Now().Before(deadline); {
 		if b, err := os.ReadFile(pidFile); err == nil {
 			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 		}
@@ -187,11 +188,8 @@ esac`)
 	case <-time.After(60 * time.Second):
 		t.Fatal("Analyze did not return after the interrupt")
 	}
-	for i := 0; i < 200; i++ {
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
+	if processGone(pid) {
+		return
 	}
 	t.Errorf("the compiler of the functions' run (pid %d) is still running", pid)
 }
@@ -204,7 +202,7 @@ case "$*" in
 *ast-dump-filter=gp_f*) echo $$ > "$DIR/funcs.pid"; exec sleep 600 ;;
 *ast-dump-filter=gp_probe_*)
 	i=0
-	while [ $i -lt 400 ] && [ ! -s "$DIR/funcs.pid" ]; do sleep 0.05; i=$((i+1)); done
+	while [ $i -lt 1200 ] && [ ! -s "$DIR/funcs.pid" ]; do sleep 0.05; i=$((i+1)); done
 	exit 2 ;;
 esac`)
 	pkg := gadgetPackage(t)
@@ -223,11 +221,8 @@ esac`)
 	if pid == 0 {
 		t.Fatal("the run for the functions never started")
 	}
-	for i := 0; i < 200; i++ {
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
+	if processGone(pid) {
+		return
 	}
 	t.Errorf("the compiler of the functions' run (pid %d) is still running", pid)
 }
@@ -289,7 +284,7 @@ case "$*" in
 *ast-dump-filter=Gadget*) echo $$ > "$DIR/types.pid"; exec sleep 600 ;;
 *ast-dump-filter=gp_probe_*)
 	i=0
-	while [ $i -lt 400 ] && [ ! -s "$DIR/types.pid" ]; do sleep 0.05; i=$((i+1)); done
+	while [ $i -lt 1200 ] && [ ! -s "$DIR/types.pid" ]; do sleep 0.05; i=$((i+1)); done
 	exit 2 ;;
 esac`)
 	pkg := gadgetPackage(t)
@@ -307,11 +302,19 @@ esac`)
 	if pid == 0 {
 		t.Fatal("the run for the signature's type never started")
 	}
-	for i := 0; i < 200; i++ {
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
+	if processGone(pid) {
+		return
 	}
 	t.Errorf("the compiler of the signature type's run (pid %d) is still running", pid)
+}
+
+// processGone waits until the process pid has ended, and reports whether it did within a minute
+// (a bound that only a process that is not killed reaches).
+func processGone(pid int) bool {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+			return true
+		}
+	}
+	return false
 }

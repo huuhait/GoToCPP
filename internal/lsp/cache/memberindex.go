@@ -267,7 +267,7 @@ func (ix *memberIndexer) worker(ctx context.Context) {
 			entry.running = true
 			generation := entry.generation
 			pkg := entry.pkg
-			workCtx, cancel := context.WithTimeout(entry.ctx, 30*time.Second)
+			workCtx, cancel := context.WithTimeout(entry.ctx, runLimit(30*time.Second))
 			ix.mu.Unlock()
 
 			facts, err := ix.runWork(workCtx, pkg)
@@ -724,7 +724,7 @@ func startEarlyLocate(ctx context.Context, runner *probe.Runner, cfg probe.Confi
 	if len(request.Members) == 0 && len(request.Names) == 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, runLimit(30*time.Second))
 	early := &earlyLocate{request: request, cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(early.done)
@@ -868,7 +868,7 @@ func (ix *memberIndexer) locateStep(ctx context.Context, entry *memberEntry, fac
 	if ix.stepStart != nil {
 		ix.stepStart()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, runLimit(30*time.Second))
 	defer cancel()
 	decls, cost, err := pending(ctx)
 	if err != nil && ctx.Err() == nil {

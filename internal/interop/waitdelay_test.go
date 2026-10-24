@@ -27,7 +27,7 @@ func TestProbeOutputOpenRetries(t *testing.T) {
 	// The first run prints a part and leaves a process that holds the output; the second is
 	// complete.
 	c := fakeCompiler(t, build.GCC, `echo run >> "$0.log"
-if [ ! -e "$0.first" ]; then : > "$0.first"; sleep 20 & echo first; exit 0; fi
+if [ ! -e "$0.first" ]; then : > "$0.first"; sleep 120 & echo first; exit 0; fi
 echo second`)
 	var out, errOut capBuffer
 	out.max, errOut.max = 1<<10, 1<<10
@@ -43,7 +43,7 @@ echo second`)
 	if runs, _ := os.ReadFile(c.Path + ".log"); strings.Count(string(runs), "\n") != 2 {
 		t.Errorf("the compiler ran %q, want 2 runs", runs)
 	}
-	if d := time.Since(start); d > 10*time.Second {
+	if d := time.Since(start); d > time.Minute { // (a probe that waited for the holder takes 2 minutes)
 		t.Errorf("took %v", d)
 	}
 }
@@ -51,7 +51,7 @@ echo second`)
 // A process that holds the output on every run is an error after the second run, not a hang.
 func TestProbeOutputOpenGivesUp(t *testing.T) {
 	setWaitDelays(t, time.Millisecond, 20*time.Millisecond)
-	c := fakeCompiler(t, build.GCC, "echo run >> \"$0.log\"\nsleep 20 &\necho out")
+	c := fakeCompiler(t, build.GCC, "echo run >> \"$0.log\"\nsleep 120 &\necho out")
 	out := &capBuffer{max: 1 << 10, stop: func() {}}
 	start := time.Now()
 	cmd, err := runCompiler(context.Background(), c, "", t.TempDir(), nil, out, out)
@@ -64,7 +64,7 @@ func TestProbeOutputOpenGivesUp(t *testing.T) {
 	if runs, _ := os.ReadFile(c.Path + ".log"); strings.Count(string(runs), "\n") != 2 {
 		t.Errorf("the compiler ran %q, want 2 runs", runs)
 	}
-	if d := time.Since(start); d > 10*time.Second {
+	if d := time.Since(start); d > time.Minute { // (a probe that waited for the holder takes 2 minutes)
 		t.Errorf("took %v", d)
 	}
 }

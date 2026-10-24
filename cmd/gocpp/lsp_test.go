@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/huuhait/gocpp/internal/lsp/bench"
 	"github.com/huuhait/gocpp/internal/lsp/protocol"
 	"github.com/huuhait/gocpp/internal/version"
 )
@@ -86,7 +84,7 @@ func startLSPEnv(t *testing.T, env []string, args ...string) *lspProcess {
 	if err := p.cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	timer := time.AfterFunc(30*time.Second, func() { p.cmd.Process.Kill() })
+	timer := time.AfterFunc(time.Minute, func() { p.cmd.Process.Kill() }) // (only ends a hang)
 	t.Cleanup(func() {
 		timer.Stop()
 		p.cmd.Process.Kill()
@@ -143,32 +141,18 @@ var (
 	lspExit       = `{"jsonrpc":"2.0","method":"exit"}`
 )
 
-// lspInitMaxLoad is the 1-minute load average above which the initialize time is only logged:
-// on a loaded machine every figure is noise. GOCPP_LSP_MAXLOAD changes it (the same variable and
-// default as tools/lspbench/budget_test.go).
-func lspInitMaxLoad() float64 {
-	if s := os.Getenv("GOCPP_LSP_MAXLOAD"); s != "" {
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return f
-		}
-	}
-	return float64(min(max(runtime.NumCPU()/8, 4), 16))
-}
-
 // TestLSPProcess runs gocpp lsp over pipes, like an editor does: it must
 // answer initialize, keep stdout for LSP messages only, and exit with status 0
-// after shutdown and exit. It also holds the answer to the budget of phase 11
-// README §2.1 (under 100 ms from the start of the process, at the fastest of
-// five runs), but only while the machine is quiet: when the 1-minute load average
-// (before or after the runs) is over lspInitMaxLoad the time is logged and not
-// checked, because a loaded machine breaks any bound. GOCPP_LSP_BUDGETS=on forces
-// the check whatever the load (for quiet machines: under heavy load it fails). The
-// real measurement, with gopls for comparison, is `make lsp-budgets`
-// (internal/lsp/bench ScInit).
+// after shutdown and exit. The time to the answer to initialize (the budget of
+// phase 11 README §2.1: under 100 ms from the start of the process, at the
+// fastest of five runs) is logged; it is checked only on request,
+// GOCPP_LSP_BUDGETS=on, as the speed budgets of ADR-031 are: a loaded machine
+// breaks any bound, and the 1-minute load average lags behind a burst of load,
+// so it cannot tell when the figure is noise. The real measurement, with gopls
+// for comparison, is `make lsp-budgets` (internal/lsp/bench ScInit).
 func TestLSPProcess(t *testing.T) {
 	const runs = 5
 	var times []time.Duration
-	loadBefore := bench.LoadAvg()[0]
 	for i := range runs {
 		p := startLSP(t)
 		p.send(lspInitialize)
@@ -198,17 +182,12 @@ func TestLSPProcess(t *testing.T) {
 	slices.Sort(times)
 	t.Logf("process start → initialize answered, %d runs: min %v, median %v, max %v",
 		runs, times[0], times[runs/2], times[runs-1])
-	load := max(loadBefore, bench.LoadAvg()[0])
-	forced := os.Getenv("GOCPP_LSP_BUDGETS") == "on"
-	if load > lspInitMaxLoad() && !forced {
-		t.Logf("the load average is %.1f, over %.1f: the 100 ms budget is not checked "+
-			"(GOCPP_LSP_BUDGETS=on forces it)", load, lspInitMaxLoad())
+	if os.Getenv("GOCPP_LSP_BUDGETS") != "on" {
 		return
 	}
 	// The fastest run: a busy machine can slow some runs down, but not every one.
 	if times[0] >= 100*time.Millisecond {
-		t.Errorf("initialize was answered after %v at the fastest, want under 100 ms (load %.1f)",
-			times[0], load)
+		t.Errorf("initialize was answered after %v at the fastest, want under 100 ms", times[0])
 	}
 }
 

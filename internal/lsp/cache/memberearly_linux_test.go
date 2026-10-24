@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,8 +21,10 @@ import (
 // earlyScript runs the real compiler and records the runs that matter in $EARLY_DIR: a member
 // completion run leaves "completion.PID" and a member declaration lookup run (its source has the
 // classes derived from the receiver, gocpp_loc_class_N) leaves "locate.PID". With
-// EARLY_MODE=meet each of them waits until the other kind has started (a run that waited in vain,
-// 3 s, leaves "alone" and goes on); with EARLY_MODE=hold a lookup run waits for the file "open".
+// EARLY_MODE=meet each of them waits until the other kind has started; with EARLY_MODE=hold a
+// lookup run waits for the file "open". The waits have no time limit, which a loaded machine could
+// reach (a lookup that starts only after the member questions makes them wait for ever, and the
+// test fails at its hang limit); they end when the test process ($EARLY_TEST_PID) is gone.
 const earlyScript = `#!/bin/sh
 for last; do :; done
 kind=other
@@ -32,19 +35,16 @@ case "$kind" in
 esac
 other=locate
 if [ "$kind" = locate ]; then other=completion; fi
-tries=0
 case "$EARLY_MODE:$kind" in
   meet:completion|meet:locate)
     while ! ls "$EARLY_DIR" | grep -q "^$other\."; do
-      tries=$((tries + 1))
-      if [ "$tries" -gt 300 ]; then : > "$EARLY_DIR/alone"; break; fi
+      kill -0 "$EARLY_TEST_PID" 2>/dev/null || exit 3
       sleep 0.01
     done
     ;;
   hold:locate)
     while [ ! -e "$EARLY_DIR/open" ]; do
-      tries=$((tries + 1))
-      if [ "$tries" -gt 3000 ]; then exit 3; fi
+      kill -0 "$EARLY_TEST_PID" 2>/dev/null || exit 3
       sleep 0.01
     done
     ;;
@@ -87,6 +87,10 @@ func earlyWorld(t *testing.T, mode string) (*world, string) {
 	}
 	t.Setenv("EARLY_DIR", runs)
 	t.Setenv("EARLY_MODE", mode)
+	t.Setenv("EARLY_TEST_PID", strconv.Itoa(os.Getpid()))
+	// A run that waits must wait until the test's limit, not be stopped by the limit of a
+	// compiler run and asked again.
+	t.Setenv(probe.EnvTimeout, "10m")
 	t.Setenv("EARLY_REAL", clang.Path)
 	t.Setenv("GOCPP_CLANG", compiler)
 	t.Setenv(probe.EnvJobs, "4") // a member question and the lookup go together: two slots
@@ -138,11 +142,9 @@ func TestMemberAnalysisStartsTheDeclarationLookupWithTheMemberQuestions(t *testi
 	}
 	pkg, snap, release := earlyOpen(world)
 	defer release()
-	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), time.Minute)
+	// (a lookup that starts only after the member questions: they wait for it, no facts)
+	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), hangLimit)
 	waitMemberDecls(t, snap, pkg, firstBinding(facts), "size")
-	if _, err := os.Stat(filepath.Join(runs, "alone")); err == nil {
-		t.Fatal("a run waited alone: the lookup started only after the member questions")
-	}
 	if atEnd.Load() == 0 {
 		t.Fatal("no lookup run had started when the analysis ended")
 	}
@@ -229,7 +231,7 @@ func TestMemberAnalysisDropsFactsOfAHeaderChangedAfterTheEarlyLookup(t *testing.
 		if outcome.err == nil || outcome.facts != nil {
 			t.Fatalf("facts of the old header: %v, error %v", outcome.facts, outcome.err)
 		}
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		t.Fatal("the analysis did not end")
 	}
 }
@@ -244,10 +246,10 @@ func TestMemberStepDropsEarlyAnswersOfAHeaderChangedLater(t *testing.T) {
 	world.p.members.stepDone = func() { close(stepped) }
 	pkg, snap, release := earlyOpen(world)
 	defer release()
-	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), time.Minute)
+	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), hangLimit)
 	select {
 	case <-stepped:
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		t.Fatal("the declaration step did not end")
 	}
 	if found, ready := snap.ForeignMemberDeclarations(pkg, firstBinding(facts), "size"); ready {
@@ -282,6 +284,6 @@ func TestMemberStepAsksForAMemberBeyondTheCapOfTheEarlyLookup(t *testing.T) {
 	t.Cleanup(world.p.Close)
 	pkg, snap, release := earlyOpen(world)
 	defer release()
-	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), time.Minute)
+	facts := waitMemberEntryWithin(t, world.p.members, memberEntryKey(snap, pkg), hangLimit)
 	waitMemberDecls(t, snap, pkg, firstBinding(facts), "size")
 }

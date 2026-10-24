@@ -111,13 +111,13 @@ func TestCHeaderOffHotPath(t *testing.T) {
 
 	// The first check does not wait for the C header check: that check is held by ch until
 	// the test lets it go below. It runs in a goroutine, so a check that waited for the held
-	// one fails with a message after a minute (a hang guard, not a speed bound).
+	// one fails with a message after the hang limit (a hang guard, not a speed bound).
 	checked := make(chan *Package, 1)
 	go func() { checked <- w.pkg(".") }()
 	var pkg *Package
 	select {
 	case pkg = <-checked:
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		t.Fatal("the first check waited for the held C header check")
 	}
 	if !pkg.Provisional() || w.errs(pkg) != "" || pkg.Check.ExternC[`"./c.h"`] {

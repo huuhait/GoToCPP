@@ -162,12 +162,12 @@ func TestStats(t *testing.T) {
 	}
 	// The span of a run of diagnostics ends after its publish: the count
 	// of the run that the next() above waited for is there a moment later.
-	for range 400 {
+	// (hangLimit only ends a wait for a count that never comes: the check below then fails)
+	for deadline := time.Now().Add(hangLimit); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		var st Stats
 		if resp := c.call(GocppStats, ""); resp.Error == nil && json.Unmarshal(resp.Result, &st) == nil && st.Requests["diagnostics"].Count >= 1 {
 			break
 		}
-		time.Sleep(5 * time.Millisecond)
 	}
 	for _, call := range []func() *protocol.Response{
 		func() *protocol.Response { return c.call(GocppStats, "") },

@@ -88,12 +88,12 @@ func TestAdaptRefusalReachesTheEditor(t *testing.T) {
 	if hasMessage(first, adaptOverflowMsg) {
 		t.Log("the first publish already has the refusal (a warm machine)")
 	}
-	p := c.publishWith("p/main.gp", time.Minute, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) })
+	p := c.publishWith("p/main.gp", hangLimit, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) })
 	if p == nil && hasMessage(first, adaptOverflowMsg) {
 		p = first
 	}
 	if p == nil {
-		t.Fatalf("no publish with the refusal in a minute; the log:\n%s", c.logs.String())
+		t.Fatalf("no publish with the refusal before the hang limit; the log:\n%s", c.logs.String())
 	}
 	t.Logf("the refusal arrived %v after the document was opened", time.Since(begin))
 	d := p.Diagnostics[0]
@@ -110,11 +110,11 @@ func TestAdaptRefusalReachesTheEditor(t *testing.T) {
 func TestAdaptRefusalIsClearedByTheFix(t *testing.T) {
 	c := adaptClient(t, "200")
 	c.open("p/main.gp", adaptProgram("200"))
-	if c.publishWith("p/main.gp", time.Minute, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) }) == nil {
-		t.Fatalf("no refusal in a minute; the log:\n%s", c.logs.String())
+	if c.publishWith("p/main.gp", hangLimit, func(p *publish) bool { return hasMessage(p, adaptOverflowMsg) }) == nil {
+		t.Fatalf("no refusal before the hang limit; the log:\n%s", c.logs.String())
 	}
 	c.change("p/main.gp", 2, adaptProgram("100"))
-	fixed := c.publishWith("p/main.gp", time.Minute, func(p *publish) bool {
+	fixed := c.publishWith("p/main.gp", hangLimit, func(p *publish) bool {
 		return p.Version == 2 && len(p.Diagnostics) == 0
 	})
 	if fixed == nil {
@@ -125,7 +125,7 @@ func TestAdaptRefusalIsClearedByTheFix(t *testing.T) {
 		t.Errorf("a diagnostic is published for the fixed program")
 	}
 	c.change("p/main.gp", 3, adaptProgram("300"))
-	if c.publishWith("p/main.gp", time.Minute, func(p *publish) bool {
+	if c.publishWith("p/main.gp", hangLimit, func(p *publish) bool {
 		return p.Version == 3 && hasMessage(p, "cannot use 300 (untyped int constant) as C.char value in argument to")
 	}) == nil {
 		t.Fatalf("the refusal does not come back; the log:\n%s", c.logs.String())

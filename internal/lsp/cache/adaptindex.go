@@ -47,6 +47,16 @@ const maxAdaptBytes = 32 << 20
 // ImGui) are the cold cost.
 const adaptTimeout = 60 * time.Second
 
+// runLimit is a time limit d of the server's compiler work (set for a quiet machine), raised like
+// the limit of one probe run: d times probe.RunTimeout() / probe.DefaultTimeout when that is more
+// than d. It is d unless GOCPP_PROBE_TIMEOUT (probe.EnvTimeout) is set above its default; the
+// tests set it high, because on a loaded machine a compiler run takes many times as long. A lower
+// GOCPP_PROBE_TIMEOUT shortens the probe runs only (a test of a hanging compiler then still has
+// the longer member and adaptation work waiting).
+func runLimit(d time.Duration) time.Duration {
+	return max(d, time.Duration(float64(d)*float64(probe.RunTimeout())/float64(probe.DefaultTimeout)))
+}
+
 type adaptEntry struct {
 	key    string
 	pkg    *Package
@@ -88,7 +98,7 @@ func newAdaptIndexer(cfg Config) *adaptIndexer {
 	ctx, stop := context.WithCancel(context.Background())
 	ix := &adaptIndexer{
 		entries: make(map[string]*adaptEntry), sem: make(chan struct{}, maxProbes),
-		ctx: ctx, stop: stop, cfg: cfg, timeout: adaptTimeout,
+		ctx: ctx, stop: stop, cfg: cfg, timeout: runLimit(adaptTimeout),
 	}
 	ix.run = func(ctx context.Context, pkg *Package) ([]diag.Diagnostic, bool, error) {
 		return analyzeAdaptations(ctx, cfg, pkg)

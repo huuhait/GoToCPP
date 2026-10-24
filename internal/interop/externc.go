@@ -78,7 +78,7 @@ var cplusplusRx = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])__cplusplus(?:[^A-Za-z0
 // tell whether a flag is safe to run, which is the caller's job.
 //
 // The error is for a check that can't be done: bad arguments, a compiler
-// that doesn't run, or a time limit (ctx, and at most probeTimeout). A
+// that doesn't run, or a time limit (ctx, and at most probeLimit). A
 // header that doesn't parse as C is no error: CHeader.C is false.
 //
 // The results are cached in memory, per compiler, folder, flags and
@@ -223,7 +223,7 @@ func runCHeaderCheck(ctx context.Context, cc build.CXX, dir string, flags []stri
 	args = append(args, flags...)
 	run := func(mode []string, depFile string) (bool, []string, bool, []byte, error) {
 		args := slices.Concat(args, mode, []string{"-w", "-fdiagnostics-color=never", "-MF", depFile, "-MT", "gp_probe", "-x", "c", src})
-		ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+		ctx, cancel := context.WithTimeout(ctx, probeLimit())
 		defer cancel()
 		out := &capBuffer{max: 1 << 16, stop: func() {}}
 		cmd, err := runCompiler(ctx, cc, dir, tmp, args, out, out)
@@ -397,7 +397,7 @@ func compilesC(ctx context.Context, c build.CXX) error {
 	if err := os.WriteFile(src, []byte("struct gp_s { int x; };\nint gp_c = _Generic(1, int: 1, default: 0);\nstruct gp_s gp_v;\n"), 0o644); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, probeLimit())
 	defer cancel()
 	out := &capBuffer{max: 1 << 16, stop: cancel}
 	cmd, err := runCompiler(ctx, c, "", tmp, []string{"-std=gnu17", "-fsyntax-only", "-w", "-x", "c", src}, out, out)

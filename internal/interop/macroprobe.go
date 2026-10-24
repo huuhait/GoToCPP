@@ -181,7 +181,7 @@ func runMacroProbe(ctx context.Context, cxx build.CXX, dir string, flags, includ
 		return Macros{}, nil, start, fmt.Errorf("macro probe: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, probeLimit())
 	defer cancel()
 	stdout := &capBuffer{max: maxMacroOutput, stop: cancel}
 	stderr := &capBuffer{max: maxProbeOutput, stop: cancel}

@@ -90,11 +90,12 @@ func fakeCompiler(args []string) int {
 		if di {
 			os.WriteFile(barrier, nil, 0o644)
 		} else if mode == "run" {
-			for i := 0; ; i++ {
+			// (a minute: a bound that only a question that never comes reaches)
+			for deadline := time.Now().Add(time.Minute); ; {
 				if _, err := os.Stat(barrier); err == nil {
 					break
 				}
-				if i > 400 {
+				if time.Now().After(deadline) {
 					fmt.Fprintln(os.Stderr, "clang: error: the includes question did not come while the compile ran")
 					return 2
 				}
@@ -315,7 +316,7 @@ func fakeRendezvous(args []string, src string) int {
 		return 0
 	}
 	os.WriteFile(filepath.Join(dir, strconv.Itoa(os.Getpid())), nil, 0o644)
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(time.Minute) // (a bound that only runs that never meet reach)
 	for time.Now().Before(deadline) {
 		if entries, _ := os.ReadDir(dir); len(entries) >= want {
 			return 0
@@ -898,14 +899,17 @@ func TestCacheStaleLock(t *testing.T) {
 	if _, err := os.Stat(path); err == nil {
 		t.Error("the lock is still there")
 	}
-	// A live lock is waited for, up to the limit, and the context stops the wait.
+	// A live lock is waited for, up to the limit, and the context stops the wait: without it the
+	// wait would last an hour (lockWaitCap is lifted), so the minute only tells the two apart.
 	rel, _ := acquireLock(context.Background(), dir, "k", time.Second)
 	defer rel()
+	defer func(c time.Duration) { lockWaitCap = c }(lockWaitCap)
+	lockWaitCap = 0
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	t0 := time.Now()
 	r2, waited := acquireLock(ctx, dir, "k", time.Hour)
-	if r2 != nil || !waited || time.Since(t0) > 5*time.Second {
+	if r2 != nil || !waited || time.Since(t0) > time.Minute {
 		t.Errorf("held lock: release %v waited %v after %v", r2 != nil, waited, time.Since(t0))
 	}
 }
@@ -1301,7 +1305,7 @@ func TestParallelBatchesAreDeterministic(t *testing.T) {
 func TestEachBatchHasItsTimeout(t *testing.T) {
 	f := newFake(t)
 	f.header(t, "a.hpp", "//\n")
-	t.Setenv("FAKE_SLEEP", "30")
+	t.Setenv("FAKE_SLEEP", "180") // a run that is not stopped at its timeout takes three minutes
 	t.Setenv("GOCPP_PROBE_BATCH", "2")
 	cfg := f.cfg()
 	cfg.Timeout = 200 * time.Millisecond
@@ -1311,7 +1315,7 @@ func TestEachBatchHasItsTimeout(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("error %v", err)
 	}
-	if time.Since(t0) > 20*time.Second {
+	if time.Since(t0) > time.Minute {
 		t.Errorf("took %v", time.Since(t0))
 	}
 }
@@ -1590,7 +1594,7 @@ func TestCacheLooksAgainBeforeRunning(t *testing.T) {
 func TestCacheFailureStopsTheOtherBatches(t *testing.T) {
 	f := newFake(t)
 	f.header(t, "a.hpp", "//\n")
-	t.Setenv("FAKE_SLEEP", "120")
+	t.Setenv("FAKE_SLEEP", "180") // a batch that is not stopped takes three minutes
 	t.Setenv("GOCPP_PROBE_BATCH", "2")
 	t.Setenv(EnvJobs, "4")
 	names := []string{"f0", "f1", "f2", "f3", "fFAILNOW", "f5", "f6", "f7"}
@@ -1599,7 +1603,7 @@ func TestCacheFailureStopsTheOtherBatches(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "fell over") {
 		t.Fatalf("error %v", err)
 	}
-	if time.Since(t0) > 90*time.Second {
+	if time.Since(t0) > time.Minute {
 		t.Errorf("took %v: the other batches ran to the end", time.Since(t0))
 	}
 	if now, _ := gate.running(); now != 0 {

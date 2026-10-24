@@ -56,7 +56,7 @@ func TestWarmImporters(t *testing.T) {
 		c.next("a/a.gp")
 		// a and all seven importers b, c, d, e, f, g, mixed. The mixed
 		// importer has qualified and dot imports in separate files.
-		deadline := time.After(time.Minute)
+		deadline := time.After(hangLimit)
 		for {
 			_, _, n := srv.pipeline.Stats()
 			if on && n >= 8 {
@@ -71,7 +71,7 @@ func TestWarmImporters(t *testing.T) {
 			}
 			select {
 			case <-deadline:
-				t.Fatalf("warming on: %d checks after a minute, want at least 8", n)
+				t.Fatalf("warming on: %d checks after the hang limit, want at least 8", n)
 			case <-time.After(5 * time.Millisecond):
 			}
 		}

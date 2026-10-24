@@ -366,7 +366,7 @@ func TestForeignDeclarationRetryDoesNotHoldAProbeSlot(t *testing.T) {
 			if seen != 1 {
 				t.Fatalf("an index started only after the retry of another slot (locates = %d)", seen)
 			}
-		case <-time.After(time.Minute):
+		case <-time.After(hangLimit):
 			t.Fatal("an index run is blocked by the declaration retry of another")
 		}
 	}

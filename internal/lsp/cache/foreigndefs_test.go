@@ -494,7 +494,7 @@ func TestForeignDefinitionsInAFileTheSourceIncludes(t *testing.T) {
 // waitExternC waits for the background check of the C compiler to find the header a C header.
 func waitExternC(t *testing.T, w *world) {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(hangLimit); time.Now().Before(deadline); {
 		pkg := w.pkg(".")
 		w.p.prober.wait()
 		if len(pkg.Check.ExternC) > 0 {

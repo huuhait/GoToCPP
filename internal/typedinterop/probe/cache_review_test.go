@@ -665,14 +665,19 @@ func TestCacheDeadLockHolder(t *testing.T) {
 	path := lockFile(dir, "k")
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte(hostName()+" "+strconv.Itoa(dead)+"\n"), 0o600)
+	// Without lockWaitCap a lock that is not taken over is waited for an hour (the limit below), so
+	// the minute tells a take-over from a wait however loaded the machine is; the context ends a
+	// wait that went on.
+	defer func(c time.Duration) { lockWaitCap = c }(lockWaitCap)
+	lockWaitCap = 0
 	t0 := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	removals := 0 // (the taker removes the dead one's file and, at the release, its own: both through removeLock)
 	defer func(f func(string) error) { removeFile = f }(removeFile)
 	removeFile = func(p string) error { removals++; return os.Remove(p) }
 	release, _ := acquireLock(ctx, dir, "k", time.Hour)
-	if release == nil || time.Since(t0) > 15*time.Second {
+	if release == nil || time.Since(t0) > time.Minute {
 		t.Fatalf("the lock of a dead process was not taken over (%v)", time.Since(t0))
 	}
 	release()

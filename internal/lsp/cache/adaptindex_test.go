@@ -57,7 +57,7 @@ func (w *adaptWorld) waitReady() {
 	w.t.Helper()
 	select {
 	case <-w.ready:
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		w.t.Fatal("OnAdapt was not called")
 	}
 }
@@ -93,13 +93,20 @@ func TestAdaptDiagnosticsAreReadyWhenTheAnalysisEnds(t *testing.T) {
 }
 
 // The timeout bounds the run, not the answer: diagnostics that an analysis gave in time are still
-// read after the time is over.
+// read after the time is over. The time of the run is over once its context is done (the indexer
+// ends it when the answer is in), so no clock is needed: a short timeout would only make a loaded
+// machine miss it.
 func TestAdaptDiagnosticsOutliveTheTimeoutOfTheirAnalysis(t *testing.T) {
 	w := newAdaptWorld(t, adaptSource, nil)
-	w.p.adapt.timeout = 300 * time.Millisecond
 	pkg := w.pkg(".")
 	w.waitReady()
-	time.Sleep(600 * time.Millisecond)
+	w.p.adapt.mu.Lock()
+	for _, entry := range w.p.adapt.entries {
+		if entry.ctx.Err() == nil {
+			t.Errorf("the run of %s still has its time after its answer", entry.key)
+		}
+	}
+	w.p.adapt.mu.Unlock()
 	got, ok := w.diags(pkg)
 	if !ok || len(got) != 1 {
 		t.Fatalf("diagnostics after the timeout = %v, ready %v", got, ok)
@@ -113,7 +120,7 @@ func TestAdaptDiagnosticsOfAnUndecidedAnalysisAreNeverReady(t *testing.T) {
 		return nil, false, nil
 	})
 	pkg := w.pkg(".")
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for w.runs.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
@@ -249,7 +256,7 @@ func TestAdaptCloseStopsARunningAnalysis(t *testing.T) {
 	go func() { w.p.Close(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(time.Minute):
+	case <-time.After(hangLimit):
 		t.Fatal("Close waits for the analysis")
 	}
 }

@@ -470,7 +470,7 @@ func TestOrganizeImportsProvisional(t *testing.T) {
 	// The package is checked again in the background (the diagnostics
 	// stay the same, so nothing is published).
 	clean := strings.Replace(sorted, "\t\"os\"\n", "", 1)
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for {
 		got := organized(t, c.codeActions("main.gp", only), uri, 1, text)
 		if got == clean {

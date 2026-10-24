@@ -96,7 +96,7 @@ func main() {
 		return list.Items
 	}
 	// Wait for data, not an elapsed-time assertion: requests themselves never wait for clang.
-	deadline := time.NewTimer(time.Minute)
+	deadline := time.NewTimer(hangLimit)
 	defer deadline.Stop()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()

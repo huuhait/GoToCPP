@@ -404,7 +404,7 @@ complete: it fails when the Go code names a `GOCPP_` variable that `gocpp env` d
 | `GOCPP_GATE_PHASE`, `GOCPP_CPUPROFILE` | development |
 | `GOCPP_COLOR`, `GOCPP_EXCERPT` | `always` or `never`: the diagnostics' color and source excerpt (the `-color` and `-excerpt` flags win) |
 | `GOCPP_TOOLCHAIN`, `GOCPP_TOOLCHAIN_URL`, `GOCPP_NO_MANIFEST` | the Windows compiler's source (below), and the application manifest of a Windows program (below) |
-| `GOCPP_CLANG`, `GOCPP_PROBE_TIMEOUT`, `GOCPP_PROBE_JOBS`, `GOCPP_PROBE_BATCH`, `GOCPP_PROBE_PCH` | the clang++, the time limit of a run, the number of runs at the same time, the size of a batch and the precompiled header of the library headers of the typed interop probes (ADR-088, ADR-117) |
+| `GOCPP_CLANG`, `GOCPP_PROBE_TIMEOUT`, `GOCPP_PROBE_JOBS`, `GOCPP_PROBE_BATCH`, `GOCPP_PROBE_PCH` | the clang++, the time limit of a run, the number of runs at the same time, the size of a batch and the precompiled header of the library headers of the typed interop probes (ADR-088, ADR-117); a time limit longer than the default also raises the limit of a run of the kind, macro and C probes (1 minute) and the language server's limits of compiler work |
 | `GOOS`, `GOARCH`, `PKG_CONFIG`, `XDG_CACHE_HOME` | the target, pkg-config, the cache folder |
 
 ## Package summaries and the API hash

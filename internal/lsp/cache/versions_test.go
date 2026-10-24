@@ -227,7 +227,7 @@ func TestVariantEvictionKeepsActiveUser(t *testing.T) {
 	first := checkedVariant(t, w, snap, variantSource(100))
 	id := pkgID{dir: filepath.Join(w.root, "a")}
 	firstKey := w.p.variantVersions.keys[id][0]
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), hangLimit)
 	defer cancel()
 	read := make(chan struct{})
 	results := make(chan error)
@@ -391,7 +391,7 @@ func TestVariantConcurrentSnapshotsKeepTheirAPI(t *testing.T) {
 	w.edit("dep/provider.gp", "package dep\nvar Provider = \"one\"\n")
 	changed, freeChanged := w.s.Snapshot()
 	defer freeChanged()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), hangLimit)
 	defer cancel()
 	type result struct {
 		pkg  *Package
@@ -480,7 +480,7 @@ func TestVariantConcurrentCheckAndCancellation(t *testing.T) {
 		}
 	}
 	defer release()
-	ctx, cancelAll := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancelAll := context.WithTimeout(context.Background(), hangLimit)
 	defer cancelAll()
 	canceled, cancelOne := context.WithCancel(ctx)
 	cancelOne()
@@ -506,7 +506,7 @@ func TestVariantConcurrentCheckAndCancellation(t *testing.T) {
 	}
 	ready.Wait()
 	// Wait only for store lookups, not for type-check scheduling: the shared promise is held at the semaphore.
-	deadline := time.Now().Add(time.Minute) // (only ends a hang)
+	deadline := time.Now().Add(hangLimit) // (only ends a hang)
 	for {
 		hits, misses := w.p.checks.Counters()
 		if hits >= beforeHits+callers-1 && misses >= beforeMisses+1 {
@@ -557,7 +557,7 @@ func (c *variantWaitContext) Done() <-chan struct{} {
 func TestVariantKeeperPreservesInflightPromise(t *testing.T) {
 	p := NewPipeline(testConfig())
 	defer p.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), hangLimit)
 	defer cancel()
 	id := pkgID{dir: "/variant-inflight"}
 	key := hashOf([]byte("pending variant"))

@@ -230,7 +230,7 @@ func TestMemberQueryCancelsAndJoinsCompiler(t *testing.T) {
 	}()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(time.Minute) // (only ends a hang)
 	defer deadline.Stop()
 	pid := 0
 	for pid == 0 {

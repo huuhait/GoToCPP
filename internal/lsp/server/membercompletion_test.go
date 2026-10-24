@@ -40,7 +40,7 @@ func waitMemberCompletions(t *testing.T, c *compClient, file, source, marker str
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(time.Minute)
+	deadline := time.NewTimer(hangLimit)
 	defer deadline.Stop()
 	for {
 		result := memberCompletions(t, c, file, source, marker)

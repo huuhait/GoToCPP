@@ -38,7 +38,7 @@ func TestDeclsFakeCompilers(t *testing.T) {
 	cfg := Config{CXX: fakeCXX(t, `sleep 300`), Dir: t.TempDir(), Timeout: 200 * time.Millisecond}
 	start := time.Now()
 	tab, err := new(Runner).Decls(context.Background(), cfg, dc, []DeclQuery{{DeclType, "Foo"}})
-	if err != nil || !strings.Contains(tab.Errors["type Foo"], "timeout") || time.Since(start) > 30*time.Second {
+	if err != nil || !strings.Contains(tab.Errors["type Foo"], "timeout") || time.Since(start) > time.Minute { // (the compiler sleeps 300 s)
 		t.Errorf("hang: %v %v after %v", err, tab.Errors, time.Since(start))
 	}
 }

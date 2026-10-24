@@ -71,7 +71,7 @@ sleep 300`)
 		done <- err
 	}()
 	var pids []int
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute) // (only ends a hang)
 	for time.Now().Before(deadline) && len(pids) < 3 {
 		b, _ := os.ReadFile(pidfile)
 		pids = nil
@@ -96,14 +96,11 @@ sleep 300`)
 		if err == nil || !strings.Contains(err.Error(), "stopped") {
 			t.Fatalf("error %v", err)
 		}
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("Probe didn't return after the cancel")
 	}
 	for _, p := range pids {
-		for i := 0; i < 300 && alive(p); i++ {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if alive(p) {
+		if !gone(p) {
 			t.Errorf("the child %d of a batch's compiler is still running", p)
 		}
 	}
@@ -133,10 +130,7 @@ printf '%s\n' '`+goodDecl+`'`)
 		}
 		p, _ := strconv.Atoi(fields[len(fields)-1])
 		t.Cleanup(func() { syscall.Kill(p, syscall.SIGKILL) })
-		for i := 0; i < 300 && alive(p); i++ {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if alive(p) {
+		if !gone(p) {
 			t.Errorf("%s: the child %d of the compiler is still running", what, p)
 		}
 	}

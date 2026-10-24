@@ -65,9 +65,9 @@ func noErrorsOf(p *publish) bool {
 
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); !ok(); time.Sleep(2 * time.Millisecond) {
+	for deadline := time.Now().Add(hangLimit); !ok(); time.Sleep(2 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("after a minute: %s", what)
+			t.Fatalf("after the hang limit: %s", what)
 		}
 	}
 }

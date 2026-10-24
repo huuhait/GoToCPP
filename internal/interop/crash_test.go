@@ -16,5 +16,10 @@ import (
 func TestMain(m *testing.M) {
 	crashIfAsked()
 	racetest.ExitChildrenQuickly() // the processes of TestDiskCacheProcesses re-run this binary
+	// A probe run takes a second on a quiet machine and minutes on a full one: the limit of
+	// one run (probeLimit) must not fail a test. The tests of a time limit set their own.
+	if os.Getenv("GOCPP_PROBE_TIMEOUT") == "" {
+		os.Setenv("GOCPP_PROBE_TIMEOUT", "5m")
+	}
 	os.Exit(m.Run())
 }

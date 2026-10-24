@@ -123,7 +123,7 @@ func (p *Pipeline) includeDirs(ctx context.Context, cxx build.CXX) ([]string, er
 // #include <...>: with -v, both g++ and clang++ print it on stderr between
 // "#include <...> search starts here:" and "End of search list.".
 func systemIncludeDirs(ctx context.Context, cxx build.CXX) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, includeDirsTimeout)
+	ctx, cancel := context.WithTimeout(ctx, runLimit(includeDirsTimeout))
 	defer cancel()
 	cmd := cxx.Command(ctx, "-x", "c++", "-E", "-v", "-o", os.DevNull, "-")
 	var stderr bytes.Buffer

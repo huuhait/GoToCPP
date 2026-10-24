@@ -95,7 +95,7 @@ func TestMemberFactsSurviveAFailingDeclarationStep(t *testing.T) {
 	}
 	_, pkg, snap, win, done := memberWorldWithStep(t, nil, step)
 	defer done()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(hangLimit)
 	for calls.Load() < 2 { // the step and its one retry
 		if time.Now().After(deadline) {
 			t.Fatalf("the step was run %d times", calls.Load())
