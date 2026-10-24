@@ -33,3 +33,6 @@ Rules that keep it fast and honest:
   line your script writes last. Never `until ! pgrep -f '<text>'`: pgrep -f matches the waiter's
   own command line (it never ends) and other jobs' processes. Never wait for a low load average
   either: with five jobs the load stays at 20-35; pin and interleave instead.
+- Deleting: only inside your own worktree's `.scratch/`, only with a literal path that starts with
+  that `.scratch/` folder (`rm -rf "$W/.scratch/x"`). Never `rm -rf .`, `*`, an unchecked `$VAR`,
+  `~`, or `/` paths; never `git clean` / `reset --hard`. An agent once wiped the user's home folder.

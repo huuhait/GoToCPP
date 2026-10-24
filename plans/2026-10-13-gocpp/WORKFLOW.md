@@ -131,6 +131,11 @@ A step is done only when **all** of these hold:
 
 ## 6. Rules for the loop
 
+- **Deleting (user, 2026-10-22: an agent once wiped the home folder):** a worker deletes only inside
+  its own worktree's `.scratch/`, and only with a literal path that starts with that `.scratch/`
+  folder: `rm -rf "$W/.scratch/devsrc2"`, never `rm -rf .`, `rm -rf *`, `rm -rf "$VAR"` with an
+  unchecked variable, `rm -rf ~...` or `/...` outside the worktree. Never `git clean`, `git reset
+  --hard`, `git checkout -- .`. When in doubt, don't delete: leave it and say so in the report.
 - **Every finding gets an answer** in the next round: fixed (how) or disagree (why). No answer
   means not fixed.
 - **The reviewer re-reviews the whole change** every round, not only the fixes, because a fix can
