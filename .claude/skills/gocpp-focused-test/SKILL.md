@@ -14,7 +14,7 @@ scripts/gp-focused -x -mem 8G -timeout 10m tests/diff/foo.gp   # chosen files on
 
 What it maps (see the script header for all rules): a changed Go package -> vet + its tests (heavy
 `cmd/gocpp`, `tests`, `runtime`: only the Test functions of changed `_test.go` files);
-`tests/<kind>/<name>.gp` -> that one subtest; `runtime/src|include/X` -> `TestCXX/<cxx>/O0/X` and
+`tests/<kind>/<name>.gp` -> that one subtest; `runtime/src|include/X` -> `TestCXX/<cxx>/(O0|O2)/X` and
 `tests/run/*X*`; `stdlib/<pkg>` -> the run tests importing it + `tools/stdgocount`;
 `internal/lower|cppgen` -> also `TestGolden`.
 
@@ -29,3 +29,7 @@ Rules that keep it fast and honest:
   `XDG_CACHE_HOME` for isolation, also set `CCACHE_DIR=$HOME/.cache/ccache`.
 - `TestCXX` builds all ~35 runtime test programs even for one subtest; ccache makes the second run
   fast.
+- Waiting for your own background run: wait on ITS pid (`wait $pid`, `kill -0 $pid`) or on a marker
+  line your script writes last. Never `until ! pgrep -f '<text>'`: pgrep -f matches the waiter's
+  own command line (it never ends) and other jobs' processes. Never wait for a low load average
+  either: with five jobs the load stays at 20-35; pin and interleave instead.
