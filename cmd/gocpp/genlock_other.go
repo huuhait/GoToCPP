@@ -13,3 +13,7 @@ func tryLockFile(name string) (*genLock, bool, error) {
 }
 
 func (l *genLock) unlock() {}
+
+// lockHolder returns "": this system has no way to read the holder of the lock (Windows locks the
+// bytes of the file, so another process can't read it).
+func lockHolder(name string) string { return "" }

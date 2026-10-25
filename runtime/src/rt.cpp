@@ -337,7 +337,36 @@ void throw_runtime(rt_error kind, gp::string text, panic_identity id) {
     throw panic_error{std::move(value), std::move(text), false, id};
 }
 
+void rt_text::gp_add(std::string_view s) noexcept {
+    std::size_t k = std::min(s.size(), sizeof gp_buf - gp_n);
+    std::memcpy(gp_buf + gp_n, s.data(), k);
+    gp_n += k;
+}
+
+void rt_text::gp_add_int(int64_t v) noexcept {
+    char b[24];
+    auto r = std::to_chars(b, b + sizeof b, v);
+    gp_add(std::string_view(b, static_cast<std::size_t>(r.ptr - b)));
+}
+
+void rt_text::gp_add_uint(uint64_t v) noexcept {
+    char b[24];
+    auto r = std::to_chars(b, b + sizeof b, v);
+    gp_add(std::string_view(b, static_cast<std::size_t>(r.ptr - b)));
+}
+
+__attribute__((noinline)) void throw_rt_text(rt_error kind, const rt_text& t, panic_identity id) {
+    throw panic_error{runtime_copy_t{}, kind, t.gp_buf, t.gp_n, id};
+}
+
 } // namespace detail
+
+panic_error::panic_error(detail::runtime_copy_t, detail::rt_error kind, const char* p,
+                         std::size_t n, panic_identity id) noexcept
+    : gp_text(gp::string::gp_copy(std::string_view(p, n))),
+      gp_value(detail::runtime_error_value(kind, gp_text)), gp_id(id) {
+    gp_record();
+}
 
 __attribute__((noinline)) void panic(const gp::string& v) {
     // Go's convTstring: the empty string is runtime.zeroVal, any other one a new allocation.
@@ -433,18 +462,19 @@ void clear_signal() noexcept {
 void panic_index(int64_t x, bool is_signed, int64_t len) {
     // Go's boundsError: "index out of range [%x] with length %y", or only "[%x]" for a
     // negative signed index.
-    std::string text = "runtime error: index out of range [";
+    detail::rt_text text;
+    text.gp_add("runtime error: index out of range [");
     if (is_signed) {
-        detail::print_int(text, x);
+        text.gp_add_int(x);
     } else {
-        detail::print_uint(text, static_cast<uint64_t>(x));
+        text.gp_add_uint(static_cast<uint64_t>(x));
     }
-    text += ']';
+    text.gp_add(']');
     if (!is_signed || x >= 0) {
-        text += " with length ";
-        detail::print_int(text, len);
+        text.gp_add(" with length ");
+        text.gp_add_int(len);
     }
-    detail::throw_runtime(detail::rt_error::bounds, gp::string::gp_copy(text));
+    detail::throw_rt_text(detail::rt_error::bounds, text);
 }
 
 namespace detail {
@@ -499,7 +529,10 @@ void panic_report(std::string& out, const panic_error* const* chain, std::size_t
         }
         if (k + 1 < n && same(*chain[k], *chain[k + 1])) {
             out += " [recovered, repanicked]";
-        } else if (chain[k]->gp_recovered) {
+        } else if (chain[k]->gp_recovered && k + 1 < n) {
+            // (Not the last one, which is the panic that ends the program. It can be marked
+            // recovered only when C++ code kept its exception and threw it again after a recover:
+            // a new panic, which nothing recovered.)
             out += " [recovered]";
         }
     }

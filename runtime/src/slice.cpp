@@ -39,10 +39,6 @@ constexpr const char* bounds_neg_fmts[] = {
     "cannot convert slice with length %y to array or pointer to array with length %x",
 };
 
-[[noreturn]] void panic_text(const std::string& text) {
-    detail::throw_runtime(detail::rt_error::bounds, gp::string::gp_copy(text));
-}
-
 // Go's malloc size classes (internal/runtime/gc/sizeclasses.go, Go 1.25), without class 0.
 constexpr uint16_t size_classes[] = {
     8,     16,    24,    32,    48,    64,    80,    96,    112,   128,   144,   160,
@@ -120,24 +116,25 @@ uint64_t nextslicecap(uint64_t new_len, uint64_t old_cap) {
 void panic_bounds(bounds code, int64_t x, bool is_signed, int64_t y) {
     auto i = static_cast<std::size_t>(code);
     const char* fmt = is_signed && x < 0 ? bounds_neg_fmts[i] : bounds_fmts[i];
-    std::string text = "runtime error: ";
+    detail::rt_text text;
+    text.gp_add("runtime error: ");
     for (const char* p = fmt; *p != '\0'; p++) {
         if (*p != '%') {
-            text += *p;
+            text.gp_add(*p);
             continue;
         }
         p++;
         if (*p == 'x') {
             if (is_signed) {
-                detail::print_int(text, x);
+                text.gp_add_int(x);
             } else {
-                detail::print_uint(text, static_cast<uint64_t>(x));
+                text.gp_add_uint(static_cast<uint64_t>(x));
             }
         } else {
-            detail::print_int(text, y);
+            text.gp_add_int(y);
         }
     }
-    panic_text(text);
+    detail::throw_rt_text(detail::rt_error::bounds, text);
 }
 
 namespace detail {

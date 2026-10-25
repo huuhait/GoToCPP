@@ -363,24 +363,71 @@ func (e *wineEnv) runVia(t *testing.T, timeout time.Duration, viaFiles bool, exe
 	if e.remote != nil {
 		return e.remote.run(t, timeout, exe, append([]string{"GOCPP_RT_TEST=env-ok"}, env...), args, viaFiles)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
-	defer cancel()
-	cmd := e.command(ctx, append([]string{exe}, args...)...)
-	cmd.Env = append(cmd.Env, "GOCPP_RT_TEST=env-ok")
-	cmd.Env = append(cmd.Env, env...)
-	cmd.Dir = filepath.Dir(exe)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	code := 0
-	var ee *exec.ExitError
-	switch {
-	case errors.As(err, &ee):
-		code = ee.ExitCode()
-	case err != nil:
-		t.Fatalf("wine %s %q: %v\nstdout:\n%s\nstderr:\n%s", exe, args, err, out.Bytes(), errb.Bytes())
+	// Wine's own client sometimes fails while a process ends ("wine client error:c544: sendmsg:
+	// Socket operation on non-socket" on stderr, and the client may die of a signal after the
+	// program printed everything): a race of the Wine client and server at exit, not the program's
+	// behavior. The noise lines are not the program's output, and a run that Wine's client killed
+	// with a signal (not our timeout) is made once more; the retry is logged.
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(t.Context(), timeout)
+		cmd := e.command(ctx, append([]string{exe}, args...)...)
+		cmd.Env = append(cmd.Env, "GOCPP_RT_TEST=env-ok")
+		cmd.Env = append(cmd.Env, env...)
+		cmd.Dir = filepath.Dir(exe)
+		var out, errb bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		err := cmd.Run()
+		timedOut := ctx.Err() != nil
+		cancel()
+		code := 0
+		var ee *exec.ExitError
+		switch {
+		case errors.As(err, &ee):
+			code = ee.ExitCode()
+		case err != nil:
+			t.Fatalf("wine %s %q: %v\nstdout:\n%s\nstderr:\n%s", exe, args, err, out.Bytes(), errb.Bytes())
+		}
+		stdout, stderr := dropWineNoise(out.Bytes()), dropWineNoise(errb.Bytes())
+		if wineRetry(code, timedOut, attempt, out.Bytes(), errb.Bytes()) {
+			t.Logf("wine %s %q: killed by a signal (exit %d) after %q with Wine's client error: run again",
+				filepath.Base(exe), args, code, tail(stdout, 60))
+			continue
+		}
+		return winRun{stdout, stderr, code}
 	}
-	return winRun{out.Bytes(), errb.Bytes(), code}
+}
+
+// wineRetry says whether a run is made once more: only a signal death that is not our timeout, on the
+// first attempt, AND with Wine's own client error in the raw output. A signal death without that
+// signature is the program's (a genuine crash) and fails on the first run.
+func wineRetry(code int, timedOut bool, attempt int, stdout, stderr []byte) bool {
+	if code >= 0 || timedOut || attempt != 1 {
+		return false
+	}
+	return hasWineNoise(stdout) || hasWineNoise(stderr)
+}
+
+// wineNoise are the lines that Wine's own client writes to the program's output when it fails
+// at the end of a process.
+var wineNoise = regexp.MustCompile(`(?m)^wine client error:[^\n]*\n?`)
+
+// hasWineNoise says whether b has a line that starts with Wine's client error (the one rule of
+// dropWineNoise and wineRetry: the text in the middle of a line, or without its colon, is the
+// program's own output).
+func hasWineNoise(b []byte) bool { return wineNoise.Match(b) }
+
+func dropWineNoise(b []byte) []byte {
+	// (The last line may have no newline of its own: "a\nwine client error:1: x".)
+	return wineNoise.ReplaceAll(b, nil)
+}
+
+// tail returns the last n bytes of b, for a log line.
+func tail(b []byte, n int) string {
+	b = bytes.TrimSpace(b)
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }
 
 // winPrograms are the test programs of runtime/test/ that TestWindowsRuntime runs; the unit ones print "ok:
@@ -415,10 +462,16 @@ var winUnitPrograms = []prog{
 }
 
 // winRunUnit runs a unit program like runUnit: the arguments "arg1" and "arg two", the marker
-// variable; it must print "ok: N checks" and nothing on stderr.
+// variable; it must print "ok: N checks" and nothing on stderr. Under Wine (no GOCPP_WINDOWS_SSH,
+// as for the tests of tests/) it also sets GOCPP_TEST_WINE=1: a check of a system's text of an
+// error then takes Wine's words (test/testing_natives_test.cpp, sys_text).
 func winRunUnit(t *testing.T, e *wineEnv, bin string) {
 	t.Helper()
-	r := e.runLong(t, bin, nil, "arg1", "arg two")
+	var env []string
+	if e.remote == nil {
+		env = []string{"GOCPP_TEST_WINE=1"}
+	}
+	r := e.runLong(t, bin, env, "arg1", "arg two")
 	if r.code != 0 || len(r.stderr) != 0 || !bytes.HasPrefix(r.stdout, []byte("ok: ")) {
 		t.Fatalf("%s: exit code %d\nstdout:\n%s\nstderr:\n%s", filepath.Base(bin), r.code, r.stdout, r.stderr)
 	}

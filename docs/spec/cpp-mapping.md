@@ -1422,8 +1422,14 @@ int64_t load(int64_t n) {
   function with defers on the stack, or with AddressSanitizer (which moves locals to a fake
   stack), the whole stack is recorded at the throw, as before. (On Windows x86-64 the walk is a
   loop of `RtlVirtualUnwind` over the unwind tables of the PE file, `src/os/windows/trace.cpp`; it
-  also reaches stacks of more than 300 frames, which `RtlCaptureStackBackTrace` in chunks did not.) The trace of an unrecovered panic is the same either way (the frames of
-  the panic point, then the callers). A deferred call that
+  also reaches stacks of more than 300 frames, which `RtlCaptureStackBackTrace` in chunks did
+  not.) (On x86-64 Linux, in an optimized build, `-release` or `-O2`, without a sanitizer, the
+  walks step over the frames with rules that they find once per return address in the same
+  unwind tables and keep for the program's own code, a lookup and two loads a frame, and give the
+  unwinder's frames; a frame they can't step over, a signal frame, a frame without unwind tables
+  or a CFA expression, makes them ask the unwinder: `src/os/linux/trace.cpp`,
+  `runtime/test/stackwalk_test.cpp`.) The trace of an unrecovered panic is the same either way
+  (the frames of the panic point, then the callers). A deferred call that
   panics doesn't stop the others: its panic replaces the running one, and the running one goes
   into its chain. An unrecovered panic prints the whole chain, the first panic first, as Go
   does (`panic: first` then `\tpanic: second`), and the signal line of a nil dereference once,

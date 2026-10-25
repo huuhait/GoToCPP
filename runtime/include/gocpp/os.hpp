@@ -15,6 +15,26 @@
 #include <typeinfo>
 #include <vector>
 
+// GOCPP_FAST_WALK is 1 when the walks of a panic's stack (stack_until, stack_above, stack) step
+// over the frames with rules kept per return address (the fast walk of src/os/linux/trace.cpp)
+// instead of asking the unwinder for each frame: x86-64 Linux, in optimized builds (-release,
+// -O2) without a sanitizer. Other builds walk with the unwinder.
+#if defined(__linux__) && defined(__x86_64__) && defined(__OPTIMIZE__) &&                          \
+    !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__) && !defined(GOCPP_RACE_MODE)
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) ||                         \
+    __has_feature(memory_sanitizer)
+#define GOCPP_FAST_WALK 0
+#else
+#define GOCPP_FAST_WALK 1
+#endif
+#else
+#define GOCPP_FAST_WALK 1
+#endif
+#else
+#define GOCPP_FAST_WALK 0
+#endif
+
 namespace gp::detail {
 struct exe_image; // gocpp/trace.hpp
 } // namespace gp::detail
@@ -121,6 +141,20 @@ int stack_until(uintptr_t* pcs, int max, const void* bound, bool* found) noexcep
 // return address first, at most max of them. It returns -1 when that frame is not on the calling
 // thread's stack (and on a system whose stack_until never finds it).
 int stack_above(uintptr_t* pcs, int max, const void* bound) noexcept;
+
+#ifdef GOCPP_RUNTIME_TEST
+// A test seam of the runtime's own test build (GOCPP_RUNTIME_TEST, defined by runtime/cxx_test.go;
+// the library that programs link does not have it), for runtime/test/stackwalk_test.cpp:
+// walk_check walks the calling thread's stack as stack_until(bound) and as stack_above(bound) do,
+// and with the unwinder's own walk, and compares the frames (return addresses and CFAs). 1: they
+// are the same; 0: the walk of this build is the unwinder's (no fast walk, or it gave up on a
+// frame); -1: they differ.
+int walk_check(const void* bound) noexcept;
+
+// fast_walk_built says whether this build has the fast walk (GOCPP_FAST_WALK): what walk_check
+// says for a walk that the fast walk can do.
+inline constexpr bool fast_walk_built = GOCPP_FAST_WALK != 0;
+#endif
 
 // read_exe reads the running program's file into img, and reports whether it could. It reads
 // the file at once (a few hundred KB for a small program), so it is for the end of a program

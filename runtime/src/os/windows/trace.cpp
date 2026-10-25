@@ -140,6 +140,12 @@ int stack_above(uintptr_t*, int, const void*) noexcept {
 
 #endif
 
+#ifdef GOCPP_RUNTIME_TEST
+int walk_check(const void*) noexcept {
+    return 0; // (the walks are the system's: there is no fast walk to check)
+}
+#endif
+
 namespace {
 
 // A file handle that closes itself.

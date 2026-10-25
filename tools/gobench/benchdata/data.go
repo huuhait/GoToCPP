@@ -11,9 +11,18 @@ import (
 	"strings"
 )
 
-// SchemaVersion is the version of the JSON files. It changes when a field
-// changes its meaning; readers reject a newer one.
-const SchemaVersion = 1
+// The versions of the JSON files. A writer uses the lowest version that holds what it writes, so a
+// report that needs nothing new stays readable by every build of this tool:
+//
+//	1  the first layout;
+//	2  results may have an "origin" (merge stamps the results it copies in, see Result.Origin).
+//
+// The readers are strict (unknown fields are errors, to catch a typo), so a build from before version
+// 2 fails on a version 2 file with `unknown field "origin"`; a build that knows version 2 reads 1 and 2,
+// and says "schema version N is newer than this tool reads (up to 2)" for a later one, whatever fields
+// it has. The baseline lives in the repository next to the tool that gates against it, so a checkout
+// reads its own file; only a baseline.json taken from a newer checkout meets an older tool.
+const SchemaVersion = 2
 
 // The implementations of a benchmark. "gocpp-g++:O2" and "gocpp-clang++:O2"
 // are the same .gp program built by gocpp with that C++ compiler and that
@@ -148,6 +157,7 @@ type Result struct {
 	Impl     string  `json:"impl"`
 	Status   string  `json:"status"`
 	Note     string  `json:"note,omitempty"`
+	Origin   string  `json:"origin,omitempty"` // set by merge: where and when a result that is not from the report's own run was measured (Report.Provenance); empty for the report's own run. Schema version 2 (a strict reader of version 1 rejects the field).
 	Output   string  `json:"output,omitempty"` // the first 16 hex digits of the SHA-256 of stdout
 	BinSize  int64   `json:"bin_size,omitempty"`
 	Stripped int64   `json:"bin_stripped,omitempty"`
@@ -231,6 +241,12 @@ func (r *Report) Sort() {
 // MergeResults puts the results of the programs of add into r: every result of
 // r for a program that add has is dropped, then add's results are appended.
 func MergeResults(r, add *Report) {
+	origin := add.Provenance()
+	for i := range add.Results {
+		if add.Results[i].Origin == "" {
+			add.Results[i].Origin = origin
+		}
+	}
 	progs := map[string]bool{}
 	for _, x := range add.Results {
 		progs[x.Program] = true
@@ -243,6 +259,20 @@ func MergeResults(r, add *Report) {
 	}
 	r.Results = append(out, add.Results...)
 	r.Sort()
+}
+
+// Provenance describes the run of the report in one line (commit, date, load, pinning, repetitions),
+// for the results that merge copies into another report.
+func (r *Report) Provenance() string {
+	pin := r.Machine.Pinned
+	if pin == "" {
+		pin = "not pinned"
+	} else {
+		pin = "pinned to cpus " + pin
+	}
+	return fmt.Sprintf("commit %s, %s, load %.1f/%.1f/%.1f before and %.1f/%.1f/%.1f after, %s, %d reps",
+		r.Commit, r.Date, r.Machine.LoadBefore[0], r.Machine.LoadBefore[1], r.Machine.LoadBefore[2],
+		r.Machine.LoadAfter[0], r.Machine.LoadAfter[1], r.Machine.LoadAfter[2], pin, r.Reps)
 }
 
 // Find returns the result of program with impl, or nil.
@@ -271,7 +301,13 @@ func (r *Report) Programs() []string {
 // Marshal returns the indented JSON of the report, results sorted.
 func (r *Report) Marshal() ([]byte, error) {
 	r.Sort()
-	r.Schema = SchemaVersion
+	r.Schema = 1
+	for _, x := range r.Results {
+		if x.Origin != "" {
+			r.Schema = 2
+			break
+		}
+	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", " ")
@@ -281,16 +317,26 @@ func (r *Report) Marshal() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Unmarshal parses a report and rejects an unknown schema version.
+// Unmarshal parses a report and rejects a schema version it does not know (checked before the
+// fields, so a newer file says so instead of naming its first new field).
 func Unmarshal(data []byte) (*Report, error) {
+	var head struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return nil, err
+	}
+	if head.Schema < 1 || head.Schema > SchemaVersion {
+		if head.Schema > SchemaVersion {
+			return nil, fmt.Errorf("schema version %d is newer than this tool reads (up to %d): build gocpp's tools/gobench from the checkout that wrote it", head.Schema, SchemaVersion)
+		}
+		return nil, fmt.Errorf("schema version %d, this tool reads 1 to %d", head.Schema, SchemaVersion)
+	}
 	var r Report
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&r); err != nil {
 		return nil, err
-	}
-	if r.Schema != SchemaVersion {
-		return nil, fmt.Errorf("schema version %d, this tool reads %d", r.Schema, SchemaVersion)
 	}
 	return &r, nil
 }

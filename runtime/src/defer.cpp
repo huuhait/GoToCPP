@@ -12,6 +12,7 @@
 #include <atomic>
 #include <mutex>
 #include <new>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -28,7 +29,40 @@ struct finally {
 template <typename F>
 finally(F) -> finally<F>;
 
+// throw_moved throws a panic made from p, which is left empty, and throw_copied a copy of p that
+// takes p's token: from functions that have nothing to clean up, so the unwinder doesn't stop in
+// them (a rethrow of the exception that a handler caught, std::rethrow_exception, would have the
+// exception_ptr to release in the caller).
+[[noreturn]] __attribute__((noinline)) void throw_moved(panic_error& p) {
+    throw std::move(p);
+}
+
+[[noreturn]] __attribute__((noinline)) void throw_copied(panic_error& p) {
+    throw panic_error{p, detail::take_token_t{}};
+}
+
+// The panic that runtime.Goexit aborted on this goroutine (a copy, with its chain), or null. Go
+// keeps such a panic in the goroutine's list of panics (g._panic, an aborted one): a panic that
+// a deferred call starts later, while Goexit runs, links to it, and the report prints it before
+// the new one (printpanics leaves Goexit's own entry out). It goes when the goroutine ends
+// (drop_aborted_panic), or into the chain of the next panic (gp_take).
+constinit thread_local panic_error* aborted = nullptr;
+
 } // namespace
+
+void detail::drop_aborted_panic() noexcept {
+    delete aborted;
+    aborted = nullptr;
+}
+
+// (A copy of a panic only copies references: its value, its text and its chain are shared.)
+static_assert(std::is_nothrow_copy_constructible_v<panic_error>);
+
+panic_error::panic_error(panic_error& p, detail::take_token_t) noexcept
+    : panic_error(static_cast<const panic_error&>(p)) {
+    gp_token.gp_on = p.gp_token.gp_on;
+    p.gp_token.gp_on = false;
+}
 
 const detail::run_mark* detail::run_marks() noexcept {
     return detail::top_run;
@@ -223,9 +257,20 @@ __attribute__((noinline)) void defer_frame::gp_panic(std::unique_ptr<panic_error
 }
 
 void defer_frame::gp_take(panic_error& p) {
-    // A panic in a deferred call (or the body's): the running one goes into its chain.
+    // A panic that recover() stopped before and that is thrown again: C++ code kept its exception
+    // (std::current_exception, a std::promise) and threw it later (std::rethrow_exception). Go
+    // has nothing like it; it is a new panic in flight: it goes on, recover() stops it again and
+    // returns its value, and a report doesn't call it recovered. (A panic that a deferred call of
+    // this frame recovers is forgotten at once, gp_run's gp_clear: it never comes back here.)
+    p.gp_recovered = false;
+    // A panic in a deferred call (or the body's): the running one goes into its chain. With none
+    // running here, a panic that runtime.Goexit aborted on this goroutine does (Goexit runs: this
+    // panic was started by a deferred call that Goexit runs).
     if (gp_pending_panic != nullptr && gp_pending_panic != &p) {
         detail::panic_chain(p, *gp_pending_panic);
+    } else if (gp_pending_panic == nullptr && aborted != nullptr && aborted != &p) {
+        detail::panic_chain(p, *aborted);
+        detail::drop_aborted_panic();
     }
     gp_clear();
     gp_pending = std::current_exception(); // p, which is being handled
@@ -241,7 +286,18 @@ void defer_frame::gp_adopt() {
         gp_take(p);
     } catch (goexit_signal&) {
         // Goexit: the deferred calls run, and nothing stops it. One in a deferred call replaces
-        // the panic that was running (Go's Goexit takes over from it).
+        // the panic that was running (Go's Goexit takes over from it): that panic is aborted, not
+        // recovered, and is kept for the report of a panic that a later deferred call starts
+        // (aborted, above). An aborted panic kept already came from a function that this one
+        // called, while this one's ran: it is the newer one, and this one goes into its chain.
+        if (gp_pending_panic != nullptr) {
+            gp_pending_panic->gp_complete(); // (this frame is still on the stack)
+            if (aborted == nullptr) {
+                aborted = new panic_error(static_cast<const panic_error&>(*gp_pending_panic));
+            } else if (aborted != gp_pending_panic) {
+                detail::panic_chain(*aborted, *gp_pending_panic);
+            }
+        }
         gp_goexit = true;
         gp_clear();
     } catch (const std::bad_alloc&) {
@@ -278,59 +334,63 @@ void defer_frame::gp_on_exception() {
 __attribute__((noinline)) void defer_frame::gp_run() {
     // The mark for a fatal error's trace (fatal_trace): which panic runs the deferred calls, and
     // where this gp_run's caller is in the stack. A store and a load of a thread-local each.
-    detail::run_mark mark{
-        nullptr,
-        reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0))),
-        detail::top_run};
-    detail::top_run = &mark;
-    finally unmark{[&mark] { detail::top_run = mark.gp_next; }};
-    // The holds (gp_hold) are set aside as they come off the stack and released after the last
-    // call, however early or late they were registered.
-    gp_node* held = nullptr;
-    finally unhold{[this, &held] {
-        while (held != nullptr) {
-            gp_node* h = held;
-            held = h->gp_next;
-            gp_release(h);
-        }
-    }};
-    while (gp_top != nullptr) {
-        gp_node* n = gp_top;
-        gp_top = n->gp_next;
-        if (n->gp_op == &gp_hold_op) {
-            n->gp_next = held;
-            held = n;
-            continue;
-        }
-        mark.gp_panic = gp_pending_panic;
-        // The node goes when its call ends, also when an exception that is not kept (a forced
-        // unwind) leaves gp_run.
-        finally release{[this, n] { gp_release(n); }};
-        try {
-            n->gp_op(n, gp_call);
-        } catch (panic_error& p) {
-            gp_take(p);
-        } catch (...) {
-            // A deferred call panicked (or ended the goroutine, or threw a C++ exception): its
-            // panic goes on, with the running one before it in its chain, and the other
-            // deferred calls still run (Go).
-            gp_adopt();
-        }
-        if (gp_pending_panic != nullptr && gp_pending_panic->gp_recovered &&
-            mark.gp_panic == gp_pending_panic) {
-            // The call recovered the panic that it ran for: it is over. The other calls run as
-            // for a normal return, and the function returns normally.
-            gp_clear();
-            // Go's recovery clears the goroutine's signal (g.sig) when no panic is left, also
-            // none that an outer frame is running deferred calls for: a later, ordinary panic
-            // prints no signal line (panic.hpp). A panic that the recovering call started again
-            // before this point has printed it.
-            bool others = false;
-            for (const detail::run_mark* m = mark.gp_next; m != nullptr; m = m->gp_next) {
-                others = others || m->gp_panic != nullptr;
+    // (In a block: the mark and the holds are gone before a panic goes on to the callers, so the
+    // unwinder has nothing to clean up in this frame, which would cost it a second walk.)
+    {
+        detail::run_mark mark{
+            nullptr,
+            reinterpret_cast<uintptr_t>(__builtin_extract_return_addr(__builtin_return_address(0))),
+            detail::top_run};
+        detail::top_run = &mark;
+        finally unmark{[&mark] { detail::top_run = mark.gp_next; }};
+        // The holds (gp_hold) are set aside as they come off the stack and released after the last
+        // call, however early or late they were registered.
+        gp_node* held = nullptr;
+        finally unhold{[this, &held] {
+            while (held != nullptr) {
+                gp_node* h = held;
+                held = h->gp_next;
+                gp_release(h);
             }
-            if (!others) {
-                detail::clear_signal();
+        }};
+        while (gp_top != nullptr) {
+            gp_node* n = gp_top;
+            gp_top = n->gp_next;
+            if (n->gp_op == &gp_hold_op) {
+                n->gp_next = held;
+                held = n;
+                continue;
+            }
+            mark.gp_panic = gp_pending_panic;
+            // The node goes when its call ends, also when an exception that is not kept (a forced
+            // unwind) leaves gp_run.
+            finally release{[this, n] { gp_release(n); }};
+            try {
+                n->gp_op(n, gp_call);
+            } catch (panic_error& p) {
+                gp_take(p);
+            } catch (...) {
+                // A deferred call panicked (or ended the goroutine, or threw a C++ exception): its
+                // panic goes on, with the running one before it in its chain, and the other
+                // deferred calls still run (Go).
+                gp_adopt();
+            }
+            if (gp_pending_panic != nullptr && gp_pending_panic->gp_recovered &&
+                mark.gp_panic == gp_pending_panic) {
+                // The call recovered the panic that it ran for: it is over. The other calls run as
+                // for a normal return, and the function returns normally.
+                gp_clear();
+                // Go's recovery clears the goroutine's signal (g.sig) when no panic is left, also
+                // none that an outer frame is running deferred calls for: a later, ordinary panic
+                // prints no signal line (panic.hpp). A panic that the recovering call started again
+                // before this point has printed it.
+                bool others = false;
+                for (const detail::run_mark* m = mark.gp_next; m != nullptr; m = m->gp_next) {
+                    others = others || m->gp_panic != nullptr;
+                }
+                if (!others) {
+                    detail::clear_signal();
+                }
             }
         }
     }
@@ -338,18 +398,18 @@ __attribute__((noinline)) void defer_frame::gp_run() {
         // The panic goes on to the callers: this function's frame is about to go, so the rest of
         // the panic's stack (the frames outside it) is recorded now, while it is on the stack.
         gp_pending_panic->gp_complete();
+        // It is thrown as a new exception, and the token goes with it (the count of panics that
+        // are being handled doesn't change). Its own panic (gp_panic, gp_local), which nothing
+        // else has, is moved into it, and what is left is deleted with the frame (gp_discard).
+        // The exception that a handler caught may be shared by other std::exception_ptrs, which
+        // C++ code keeps (std::current_exception, a std::promise): it is copied and stays as it
+        // is, and gp_pending releases it with the frame.
+        panic_error* p = gp_pending_panic;
         if (gp_local) {
-            // Its own panic (gp_panic): thrown now. (The token moves with it: the count of panics
-            // that are being handled doesn't change.)
-            std::unique_ptr<panic_error> own(gp_pending_panic);
-            gp_local = false;
-            gp_pending_panic = nullptr;
-            throw std::move(*own);
+            throw_moved(*p);
         }
-        std::exception_ptr e = std::move(gp_pending);
-        gp_pending = nullptr;
         gp_pending_panic = nullptr;
-        std::rethrow_exception(std::move(e));
+        throw_copied(*p);
     }
     if (gp_goexit) {
         throw goexit_signal{};

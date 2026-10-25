@@ -105,6 +105,10 @@ namespace detail {
 // panicking, settle_panics).
 void panic_count_add(int delta) noexcept;
 
+// drop_aborted_panic forgets the panic that runtime.Goexit aborted on this goroutine, if any
+// (src/defer.cpp): its goroutine has ended (src/goroutine.cpp).
+void drop_aborted_panic() noexcept;
+
 // panic_token is a panic_error's place in that count: defer_frame::gp_take turns it on when a
 // deferred-call frame takes the panic, and it turns itself off when the panic object dies, however
 // that happens: recovered, swallowed by a catch of C++ code (fmt prints %!v(PANIC=...)), or the end
@@ -144,6 +148,8 @@ struct basic_t {};
 struct iface_t {};
 struct string_t {};
 struct runtime_t {};
+struct runtime_copy_t {};
+struct take_token_t {};
 enum class rt_error : uint8_t;
 
 // stack_t is the last argument of those constructors: whether the panic records its stack
@@ -163,7 +169,8 @@ struct panic_error {
     // runtime.plainError (detail::runtime_error_value), and `recover()` returns it. It records
     // the stack (the return addresses) where it is made, for the trace of an unrecovered panic:
     // the C++ unwinding removes the frames before run_main sees the panic. A walk of the unwind
-    // tables costs about 50 ns a frame and 100 ns to start, so only the part that the unwinding
+    // tables costs about 50 ns a frame and 100 ns to start (an optimized x86-64 Linux build keeps
+    // what it finds per return address: os/linux/trace.cpp), so only the part that the unwinding
     // is about to remove is walked: the frames up to the innermost function that has a deferred
     // call (a defer_frame, which catches the panic: gocpp/defer.hpp). The rest of the stack is
     // still there when that function's gp_run knows that the panic is not recovered, and is
@@ -188,6 +195,14 @@ struct panic_error {
                 detail::stack_t how = detail::stack_t::record) noexcept;
     panic_error(detail::runtime_t, detail::rt_error kind, const char* lit, std::size_t n,
                 panic_identity id, detail::stack_t how = detail::stack_t::record) noexcept;
+    // A runtime error whose text (n bytes at p, not in static storage) is copied here.
+    panic_error(detail::runtime_copy_t, detail::rt_error kind, const char* p, std::size_t n,
+                panic_identity id) noexcept;
+
+    // A copy of p that takes p's place in the count of the panics that are being handled (its
+    // token): defer_frame::gp_run throws it to let a panic that a handler caught go on, since other
+    // std::exception_ptrs (of C++ code) may share the caught exception, which must keep its value.
+    panic_error(panic_error& p, detail::take_token_t) noexcept;
 
     // The panic value as Go prints it after "panic: ": a string as it is, a number or a bool
     // in the format of the builtin print, a runtime error as "runtime error: ...". Empty when
@@ -570,6 +585,23 @@ gp::any runtime_error_value(const gp::string& text);
 
 // throw_runtime throws the panic of a runtime error with this kind, full text and identity.
 [[noreturn]] void throw_runtime(rt_error kind, gp::string text, panic_identity id = {});
+
+// rt_text is the text of a runtime error being made (an index or a slice bound out of range),
+// in a buffer with no destructor: the function that throws the panic then has nothing to clean
+// up, which would cost the unwinder a cleanup and a second walk (_Unwind_Resume). A text longer
+// than the buffer is cut (the longest one, of two numbers, has 120 bytes).
+struct rt_text {
+    char gp_buf[200];
+    std::size_t gp_n = 0;
+    void gp_add(std::string_view s) noexcept;
+    void gp_add(char c) noexcept { gp_add(std::string_view(&c, 1)); }
+    void gp_add_int(int64_t v) noexcept;
+    void gp_add_uint(uint64_t v) noexcept;
+};
+static_assert(std::is_trivially_destructible_v<rt_text>);
+
+// throw_rt_text throws the panic of a runtime error with the text t.
+[[noreturn]] void throw_rt_text(rt_error kind, const rt_text& t, panic_identity id = {});
 
 // type_assertion_error(text) is the value of a failed type assertion: a *runtime.TypeAssertionError
 // whose Error() is text ("interface conversion: interface {} is string, not int").

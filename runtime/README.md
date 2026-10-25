@@ -110,6 +110,9 @@ What they do, in short:
   ([ADR-085](../docs/adr/085-panic-stacks-up-to-the-handler-and-no-throw-for-a-local-panic.md)).
   With no such function on the stack, the whole stack is recorded when the panic is made (`gp::os::stack`, glibc's
   `backtrace()`: 1–5 µs on a stack of up to about 25 frames, about 5 µs at its cap of 100).
+  In an optimized x86-64 Linux build without a sanitizer these walks (and `gp::os::stack`) step over
+  the frames with rules found once per return address in the same unwind tables (the fast walk of
+  `src/os/linux/trace.cpp`): the unwinder's frames, for a lookup and two loads a frame.
   When the 100 fill up, a second walk
   records the whole stack (`gp_all`), so that the trace can show Go 1.25's inner 50, `...N
   frames elided...` and outer 50; its cost grows with the depth, and only deep stacks pay it.
@@ -395,6 +398,11 @@ same change in the script**.
     that free their own source, qualified calls, `gp::array` keys (`[3]float64` with NaN and
     `-0`, `[0]int`, `[2]string`, nested), and a stress test of a million inserts, lookups and
     deletes (100,000 with ASan; `GOCPP_MAP_BENCH=1` prints the times to stderr, by hand only).
+  - `stackwalk_test.cpp` checks that the walks of a panic's stack (`stack_until`, `stack_above`) give
+    the unwinder's frames and CFAs: in an optimized x86-64 Linux build they step over the frames with
+    rules kept per return address (the fast walk of `src/os/linux/trace.cpp`); frames of every size,
+    `alloca` frames (the CFA in rbp), qsort's frames in libc, a thread, a deep recursion, a walk again
+    with the kept rules.
   - `trace_test.cpp` checks the stack trace: the Go names of the mangled names of every shape
     of gocpp's code (functions, methods, templates, lambdas of g++ and clang++, nested ones,
     `init` functions, escaped names and import paths) and the frames left out (the runtime,

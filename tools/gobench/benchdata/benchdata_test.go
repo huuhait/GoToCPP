@@ -2,6 +2,8 @@ package benchdata
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -246,8 +248,14 @@ func TestReportSchema(t *testing.T) {
 			t.Errorf("the JSON has no %s", key)
 		}
 	}
-	if _, err := Unmarshal([]byte(`{"schema": 99, "results": []}`)); err == nil {
-		t.Error("an unknown schema version must be an error")
+	if _, err := Unmarshal([]byte(`{"schema": 99, "results": []}`)); err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Errorf("a newer schema version must be an error that says so: %v", err)
+	}
+	if _, err := Unmarshal([]byte(`{"schema": 99, "from_the_future": 1}`)); err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Errorf("a newer file with new fields must say newer, not name its field: %v", err)
+	}
+	if _, err := Unmarshal([]byte(`{"schema": 0}`)); err == nil {
+		t.Error("schema 0 must be an error")
 	}
 	if _, err := Unmarshal([]byte(`{"schema": 1, "bogus": 1}`)); err == nil {
 		t.Error("an unknown field must be an error")
@@ -346,5 +354,83 @@ func TestMergeResults(t *testing.T) {
 	}
 	if len(base.Results) != 8 {
 		t.Errorf("%d results, want 8", len(base.Results))
+	}
+}
+
+// oldResult and oldReport are the layout of version 1 (before Result.Origin) with the strict decoding
+// that the readers of that time had (Unmarshal: DisallowUnknownFields, then the version check).
+type oldResult struct {
+	Program  string  `json:"program"`
+	Category string  `json:"category"`
+	Impl     string  `json:"impl"`
+	Status   string  `json:"status"`
+	Note     string  `json:"note,omitempty"`
+	Output   string  `json:"output,omitempty"`
+	BinSize  int64   `json:"bin_size,omitempty"`
+	Stripped int64   `json:"bin_stripped,omitempty"`
+	BuildMS  int64   `json:"build_ms,omitempty"`
+	Wall     []int64 `json:"wall_ns,omitempty"`
+	CPU      []int64 `json:"cpu_ns,omitempty"`
+	RSS      []int64 `json:"rss_kb,omitempty"`
+}
+
+func oldRead(data []byte) error {
+	var r struct {
+		Schema  int         `json:"schema"`
+		Commit  string      `json:"commit"`
+		Dirty   bool        `json:"dirty"`
+		Date    string      `json:"date"`
+		Size    string      `json:"size"`
+		Reps    int         `json:"reps"`
+		Warmup  int         `json:"warmup"`
+		Machine Machine     `json:"machine"`
+		Results []oldResult `json:"results"`
+		Compile []Compile   `json:"compile"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&r); err != nil {
+		return err
+	}
+	if r.Schema != 1 {
+		return fmt.Errorf("schema version %d, this tool reads 1", r.Schema)
+	}
+	return nil
+}
+
+// TestOriginSchema: a report without origins is still version 1 and a strict reader of version 1
+// reads it; one with origins is version 2, which that reader rejects (named in SchemaVersion's
+// comment and in docs/benchmarks/README.md), and this reader reads both.
+func TestOriginSchema(t *testing.T) {
+	plain := report(1, 1)
+	data, err := plain.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Schema != 1 || !bytes.Contains(data, []byte(`"schema": 1`)) {
+		t.Errorf("a report without origins has schema %d", plain.Schema)
+	}
+	if err := oldRead(data); err != nil {
+		t.Errorf("the version 1 reader fails on a version 1 file: %v", err)
+	}
+	stamped := report(1, 1)
+	stamped.Results[0].Origin = "commit x, load 60"
+	data2, err := stamped.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped.Schema != 2 {
+		t.Errorf("a report with an origin has schema %d, want 2", stamped.Schema)
+	}
+	if err := oldRead(data2); err == nil || !strings.Contains(err.Error(), "origin") {
+		t.Errorf("the version 1 reader on a version 2 file: %v, want the unknown field origin", err)
+	}
+	for name, d := range map[string][]byte{"1": data, "2": data2} {
+		back, err := Unmarshal(d)
+		if err != nil {
+			t.Errorf("this reader on version %s: %v", name, err)
+		} else if name == "2" && back.Results[0].Origin != "commit x, load 60" {
+			t.Errorf("origin lost: %q", back.Results[0].Origin)
+		}
 	}
 }

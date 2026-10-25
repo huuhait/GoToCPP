@@ -57,6 +57,17 @@ gp::string gs(std::string_view s) {
     return gp::string::gp_copy(s);
 }
 
+#ifdef _WIN32
+// sys_text is the system's text of an error, as Go's errors have it: FormatMessage's on a real
+// Windows PC (pc), Wine's own words for the same error under Wine (wine). The harness says which:
+// runtime/windows_test.go sets GOCPP_TEST_WINE=1 when it runs the program under Wine (no
+// GOCPP_WINDOWS_SSH), as the tests of tests/ tell Wine from a real PC.
+std::string sys_text(const char* pc, const char* wine) {
+    const char* w = std::getenv("GOCPP_TEST_WINE");
+    return w != nullptr && std::string_view(w) == "1" ? wine : pc;
+}
+#endif
+
 std::string str(const gp::string& s) {
     return std::string(s.gp_view());
 }
@@ -232,7 +243,9 @@ void test_temp_dirs() {
 #ifdef _WIN32
     // The system's own text, as Go's errors have it (not the C library's).
     // (exactly: the text of FormatMessage has a CR LF at its end, which is cut)
-    CHECK_STR(again, "mkdir " + sub + ": Cannot create a file when that file already exists.");
+    CHECK_STR(again, "mkdir " + sub + ": " +
+                         sys_text("Cannot create a file when that file already exists.",
+                                  "File already exists."));
 #endif
     std::string deep = d2 + "/no/such/parent";
     CHECK(!str(T::make_dir(gs(deep))).empty());
@@ -472,11 +485,13 @@ void test_files() {
 #endif
 #ifdef _WIN32
     CHECK_STR(str(rerr2),
-              "open " + uni + "/missing.txt: The system cannot find the file specified.");
+              "open " + uni + "/missing.txt: " +
+                  sys_text("The system cannot find the file specified.", "File not found."));
     // A folder is not a file: Go says "read X: Incorrect function." on Windows.
     auto [dnone, derr] = T::read_file(gs(uni + "/subfolder"));
     CHECK(str(dnone).empty());
-    CHECK_STR(str(derr), "read " + uni + "/subfolder: Incorrect function.");
+    CHECK_STR(str(derr), "read " + uni +
+                             "/subfolder: " + sys_text("Incorrect function.", "Invalid function."));
 #endif
 
     // read_files: the files, not the folders, sorted; a folder that is not there is empty.
@@ -504,7 +519,8 @@ void test_files() {
     std::string bad = str(T::chdir(gs(base + "/no-such")));
     CHECK(bad.rfind("chdir ", 0) == 0);
 #ifdef _WIN32
-    CHECK_STR(bad, "chdir " + base + "/no-such: The system cannot find the file specified.");
+    CHECK_STR(bad, "chdir " + base + "/no-such: " +
+                       sys_text("The system cannot find the file specified.", "File not found."));
 #endif
     auto [wd3, werr3] = T::getwd();
     CHECK(fs::equivalent(to_path(str(wd3)), to_path(str(wd0)), ec));

@@ -1107,6 +1107,16 @@ func TestMergeCommand(t *testing.T) {
 	if len(got.Results) != 12 || got.Find("a", benchdata.ImplGo).Wall[0] != 7 || got.Find("b", benchdata.ImplGo).Wall[0] == 7 {
 		t.Errorf("merged report: %d results, a=%v b=%v", len(got.Results), got.Find("a", benchdata.ImplGo).Wall, got.Find("b", benchdata.ImplGo).Wall)
 	}
+	if o := got.Find("a", benchdata.ImplGo).Origin; !strings.Contains(o, "commit c") || !strings.Contains(o, "8 reps") {
+		t.Errorf("a merged result has the origin %q, want the add report's commit and reps", o)
+	}
+	if o := got.Find("b", benchdata.ImplGo).Origin; o != "" {
+		t.Errorf("a result that was not merged has the origin %q", o)
+	}
+	raw, _ := os.ReadFile(bn)
+	if !strings.Contains(string(raw), `"origin"`) || !strings.Contains(string(raw), `"schema": 2`) {
+		t.Errorf("the merged report has no origin field or is not schema 2")
+	}
 	add.Size = "smoke"
 	if err := benchdata.WriteReport(an, add); err != nil {
 		t.Fatal(err)

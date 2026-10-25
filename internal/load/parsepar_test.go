@@ -17,6 +17,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/huuhait/gocpp/internal/diag"
 	"github.com/huuhait/gocpp/internal/syntax/parser"
 )
 
@@ -461,5 +462,83 @@ func TestParseFilesParallel(t *testing.T) {
 				t.Error("errors")
 			}
 		}
+	}
+}
+
+// forEachFileFixture makes n files that are big enough for the parallel path.
+func forEachFileFixture(n int) []*File {
+	files := make([]*File, n)
+	for i := range files {
+		files[i] = &File{Path: fmt.Sprintf("/x/f%d.gp", i), AST: &ast.File{FileStart: 1, FileEnd: 1 + 2<<10}}
+	}
+	return files
+}
+
+// withDeadline runs f and fails the test when it has not returned after d: a lost Done of the
+// workers' WaitGroup is a failure, not a hang of the whole test run.
+func withDeadline(t *testing.T, d time.Duration, what string, f func()) (recovered any) {
+	t.Helper()
+	done := make(chan any, 1)
+	go func() {
+		defer func() { done <- recover() }()
+		f()
+	}()
+	select {
+	case recovered = <-done:
+		return recovered
+	case <-time.After(d):
+		buf := make([]byte, 1<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		t.Fatalf("%s did not return in %v:\n%s", what, d, buf)
+	}
+	return nil
+}
+
+// TestForEachFileWithNeverHangs runs the parallel path many times with fn that works, panics and
+// ends its goroutine (runtime.Goexit), on several numbers of workers: it must always return (a
+// worker that is gone without its deferred Done would leave Wait parked for good), run fn for every
+// file when nothing goes wrong, and rethrow a panic of fn, or report a Goexit, on the caller.
+func TestForEachFileWithNeverHangs(t *testing.T) {
+	iterations := 3000
+	if testing.Short() {
+		iterations = 300
+	}
+	for _, workers := range []int{2, 3, 8, 64} {
+		t.Run(fmt.Sprint("workers=", workers), func(t *testing.T) {
+			for it := 0; it < iterations; it++ {
+				files := forEachFileFixture(2 + it%16)
+				var calls atomic.Int32
+				var errs diag.List
+				kind := it % 3
+				victim := it % len(files)
+				got := withDeadline(t, time.Minute, "forEachFileWith", func() {
+					forEachFileWith(files, &errs, workers, 1, func(i int, f *File, _ *diag.List) {
+						calls.Add(1)
+						if i == victim {
+							switch kind {
+							case 1:
+								panic("boom")
+							case 2:
+								runtime.Goexit()
+							}
+						}
+					})
+				})
+				switch kind {
+				case 0:
+					if got != nil || int(calls.Load()) != len(files) {
+						t.Fatalf("iteration %d: recovered %v, %d calls for %d files", it, got, calls.Load(), len(files))
+					}
+				case 1:
+					if got != "boom" {
+						t.Fatalf("iteration %d: recovered %v, want the panic of fn", it, got)
+					}
+				case 2:
+					if s, ok := got.(string); !ok || !strings.Contains(s, "runtime.Goexit") {
+						t.Fatalf("iteration %d: recovered %v, want the report of the Goexit", it, got)
+					}
+				}
+			}
+		})
 	}
 }

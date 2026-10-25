@@ -553,3 +553,71 @@ func TestStdPackageObjectsAreShared(t *testing.T) {
 		}
 	})
 }
+
+// TestLockGenSaysWhoHoldsTheLock: a build that waits for the lock of its program longer than
+// genWaitNotice says so on stderr and names the holder (the pid in the lock file on Unix), so a
+// stuck holder is found without a debugger; it goes on when the holder releases.
+func TestLockGenSaysWhoHoldsTheLock(t *testing.T) {
+	old := genWaitNotice
+	genWaitNotice = 30 * time.Millisecond
+	t.Cleanup(func() { genWaitNotice = old })
+	cache := t.TempDir()
+	gen := filepath.Join(cache, "gen", "abc")
+	work := filepath.Join(cache, "work")
+	d1 := &driver{ctx: context.Background()}
+	dir1, rel1 := d1.lockGen(gen, work)
+	if dir1 != gen {
+		t.Fatalf("first lockGen = %q, want %q", dir1, gen)
+	}
+	if runtime.GOOS != "windows" {
+		// the pid is written in one piece of a fixed width (a waiter never reads it empty)
+		if data, err := os.ReadFile(gen + ".lock"); err != nil || len(data) != 11 || strings.TrimSpace(string(data)) != fmt.Sprint(os.Getpid()) {
+			t.Errorf("the lock file holds %q (%v), want the pid in 11 bytes", data, err)
+		}
+	}
+	var buf syncBuffer
+	d2 := &driver{ctx: context.Background(), name: "build", stderr: &buf}
+	done := make(chan string)
+	go func() {
+		dir, rel := d2.lockGen(gen, work)
+		rel(true)
+		done <- dir
+	}()
+	deadline := time.Now().Add(20 * time.Second)
+	for !strings.Contains(buf.String(), "waiting for") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	msg := buf.String()
+	if !strings.Contains(msg, "gocpp build: waiting for ") || !strings.Contains(msg, gen+".lock") || !strings.Contains(msg, "SIGQUIT") {
+		t.Fatalf("no notice after the wait; stderr = %q", msg)
+	}
+	if runtime.GOOS != "windows" && !strings.Contains(msg, fmt.Sprintf("pid %d ", os.Getpid())) {
+		t.Errorf("the notice does not name the holder (pid %d): %q", os.Getpid(), msg)
+	}
+	rel1(true)
+	select {
+	case dir := <-done:
+		if dir != gen {
+			t.Errorf("the waiting build got %q, want %q", dir, gen)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the waiting build did not take the lock after the holder released it")
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}

@@ -276,6 +276,7 @@ void run_goroutine(worker* w, goroutine* g) {
         // runtime.Goexit: the deferred calls have run (every frame threw it again), and the
         // goroutine ends quietly.
     }
+    detail::drop_aborted_panic(); // (the thread runs other goroutines next)
     // Any other exception goes on: nothing catches it, so the C++ library calls std::terminate
     // on the stack of the throw (run_main's handler, panic.hpp, prints Go's report).
     g->body.reset(); // the closure's values go before the goroutine stops counting

@@ -135,6 +135,7 @@ func forEachFileWith(
 
 	lists := make([]diag.List, len(files))
 	panics := make([]any, len(files))
+	finished := make([]bool, len(files))
 	jobs := make(chan int, len(files))
 	for i := range files {
 		jobs <- i
@@ -149,14 +150,20 @@ func forEachFileWith(
 				func() {
 					defer func() { panics[i] = recover() }()
 					fn(i, files[i], &lists[i])
+					finished[i] = true
 				}()
 			}
 		}()
 	}
 	wg.Wait()
-	for _, value := range panics {
+	for i, value := range panics {
 		if value != nil {
 			panic(value)
+		}
+		if !finished[i] {
+			// fn ended its goroutine (runtime.Goexit): recover() saw nothing, and the file was
+			// not checked. That is no result to go on with.
+			panic("load: a file's check ended its goroutine (runtime.Goexit): " + files[i].Path)
 		}
 	}
 	for i := range lists {

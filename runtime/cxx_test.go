@@ -21,7 +21,7 @@ import (
 )
 
 // The C++ tests of the runtime: test/unit.cpp, test/slice_test.cpp, test/array_test.cpp,
-// test/map_test.cpp, test/map_swiss_test.cpp, test/map_portable_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/defer_test.cpp, test/func_test.cpp,
+// test/map_test.cpp, test/map_swiss_test.cpp, test/map_portable_test.cpp, test/fmt_test.cpp, test/trace_test.cpp, test/stackwalk_test.cpp, test/defer_test.cpp, test/func_test.cpp,
 // test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp, test/select_test.cpp, test/sync_test.cpp, test/deadlock_test.cpp, test/time_test.cpp, test/lib_test.cpp, test/syscall_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp, test/concepts_test.cpp,
 // test/type_test.cpp, test/iface_test.cpp, test/bytealg_test.cpp and test/reflect_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
@@ -322,6 +322,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/concepts_test.cpp", weight: 4},
 						{src: "test/lazy_test.cpp", weight: 3},
 						{src: "test/trace_test.cpp", weight: 3},
+						{src: "test/stackwalk_test.cpp", weight: 2},
 						// -Wno-psabi: g++ notes that passing a parameter with 64-byte alignment
 						// changed its ABI in GCC 4.6, for the test's alignas(64) argument (the
 						// generated code has the flag too: build.GeneratedFlags).
@@ -385,6 +386,12 @@ func TestCXX(t *testing.T) {
 					t.Run("trace", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/trace_test.cpp"))
+					})
+					t.Run("stackwalk", func(t *testing.T) {
+						t.Parallel()
+						bin := bins.bin(t, "test/stackwalk_test.cpp")
+						buildWalkLibraries(t, c, filepath.Dir(bin))
+						runUnit(t, bin)
 					})
 					t.Run("defer", func(t *testing.T) {
 						t.Parallel()
@@ -1014,9 +1021,37 @@ func TestSymbols(t *testing.T) {
 	}
 }
 
-// TestSelftestSeamsAreTestOnly: sys_selftest_retry and sys_selftest_poll_eintr are test seams of
-// runtime/test/syscall_test.cpp. The runtime's own test build defines GOCPP_RUNTIME_TEST and has
-// them; the library that programs link (no such macro) does not export them.
+// buildWalkLibraries builds the two shared libraries that test/stackwalk_test.cpp opens, in dir
+// (where the program runs): lib_call(fn, arg) calls fn(arg), with unwind tables
+// (libgp_walk_cb.so) and without (libgp_walk_nofde.so: no FDE for lib_call).
+func buildWalkLibraries(t *testing.T, c cxx, dir string) {
+	t.Helper()
+	src := filepath.Join(dir, "gp_walk_lib.cpp")
+	code := "extern \"C\" void lib_call(void (*fn)(void*), void* arg) {\n" +
+		"    volatile int x = 1;\n    fn(arg);\n    x = x + 1;\n}\n"
+	if err := os.WriteFile(src, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct {
+		name  string
+		flags []string
+	}{
+		{"libgp_walk_cb.so", nil},
+		{"libgp_walk_nofde.so", []string{"-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-exceptions"}},
+	} {
+		args := c.flags(slices.Concat([]string{"-O2", "-shared", "-fPIC"}, l.flags))
+		args = append(args, src, "-o", filepath.Join(dir, l.name))
+		if err := c.compileCmd(prioRT, dir, nil, args); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestSelftestSeamsAreTestOnly: sys_selftest_retry and sys_selftest_poll_eintr (posix_file.cpp) are
+// test seams of runtime/test/syscall_test.cpp, and walk_check (trace.cpp) is one of
+// runtime/test/stackwalk_test.cpp. The runtime's own test build defines GOCPP_RUNTIME_TEST and has
+// them; the library that programs link (no such macro) does not export them, at -O0 or at -O2 (the
+// fast walk that walk_check compares is in optimized builds).
 func TestSelftestSeamsAreTestOnly(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the seams are in the Linux OS layer")
@@ -1028,7 +1063,13 @@ func TestSelftestSeamsAreTestOnly(t *testing.T) {
 		t.Skipf("no nm: %v", err)
 	}
 	rt := extractRuntime(t)
-	src := filepath.Join(rt, "src", "os", "linux", "posix_file.cpp")
+	seams := []struct {
+		file, test string
+		names      []string
+	}{
+		{"posix_file.cpp", "syscall_test.cpp", []string{"sys_selftest_retry", "sys_selftest_poll_eintr"}},
+		{"trace.cpp", "stackwalk_test.cpp", []string{"walk_check"}},
+	}
 	for _, c := range ccs {
 		t.Run(c.name, func(t *testing.T) {
 			if c.missing != "" {
@@ -1036,12 +1077,13 @@ func TestSelftestSeamsAreTestOnly(t *testing.T) {
 			}
 			t.Parallel()
 			dir := t.TempDir()
-			defined := func(withSeams bool) string {
-				flags := c.flags([]string{"-O0"})
+			defined := func(file, opt string, withSeams bool) string {
+				flags := c.flags([]string{opt})
 				if !withSeams {
 					flags = slices.DeleteFunc(flags, func(f string) bool { return f == "-DGOCPP_RUNTIME_TEST=1" })
 				}
-				obj := filepath.Join(dir, fmt.Sprint("posix_file_", withSeams, ".o"))
+				src := filepath.Join(rt, "src", "os", "linux", file)
+				obj := filepath.Join(dir, fmt.Sprint(strings.TrimSuffix(file, ".cpp"), opt, "_", withSeams, ".o"))
 				args := append(flags, "-I", filepath.Join(rt, "include"), "-c", src, "-o", obj)
 				if err := c.compileCmd(prioRT, dir, nil, args); err != nil {
 					t.Fatal(err)
@@ -1052,13 +1094,17 @@ func TestSelftestSeamsAreTestOnly(t *testing.T) {
 				}
 				return string(out)
 			}
-			withSeams, withoutSeams := defined(true), defined(false)
-			for _, name := range []string{"sys_selftest_retry", "sys_selftest_poll_eintr"} {
-				if !strings.Contains(withSeams, name) {
-					t.Errorf("the test build of posix_file.cpp does not define %s (syscall_test.cpp needs it)", name)
-				}
-				if strings.Contains(withoutSeams, name) {
-					t.Errorf("the production build of posix_file.cpp defines the test seam %s", name)
+			for _, s := range seams {
+				for _, opt := range []string{"-O0", "-O2"} {
+					withSeams, withoutSeams := defined(s.file, opt, true), defined(s.file, opt, false)
+					for _, name := range s.names {
+						if !strings.Contains(withSeams, name) {
+							t.Errorf("the test build of %s (%s) does not define %s (%s needs it)", s.file, opt, name, s.test)
+						}
+						if strings.Contains(withoutSeams, name) {
+							t.Errorf("the production build of %s (%s) defines the test seam %s", s.file, opt, name)
+						}
+					}
 				}
 			}
 		})

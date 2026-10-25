@@ -1832,6 +1832,16 @@ h := std.function[func(C.int) C.int](triple) // std::function<int(int)>
   and so do the deferred calls of the gocpp functions on the way. Only a C **function pointer** (a
   trampoline) is the barrier. A C++ file compiled with `-fno-exceptions` that calls a gocpp function
   pointer meets the barrier too, and ends the program the same way.
+- **C++ code that keeps a Go panic.** A Go panic is a C++ exception (`gp::panic_error`), so C++ code
+  can keep it with `std::current_exception()` (or a `std::promise`) while it goes on, and throw it
+  again later with `std::rethrow_exception`. A function with defers lets the panic go on as a copy,
+  so the exception that the C++ code kept still has its value after the deferred calls ran
+  (`tests/interop/panic_shared_exception_ptr`). A panic that was kept, stopped by `recover()` and
+  thrown again is a new panic in flight: it goes on through the functions with defers, whether or
+  not they call `recover()`, `recover()` returns its value and stops it again, and the report of one
+  that nothing recovers prints no `[recovered]`; Go has no equivalent, this is the closest sound
+  meaning (`tests/interop/panic_kept_recovered_again`, `panic_kept_uncaught`,
+  `panic_kept_goroutine`, `panic_kept_plain_defer`).
 - **Threads.** A callback may run on any thread, also one that C created (a pthread of the library):
   the thread gets a goroutine record the first time it needs one, so panics, defers and the goroutine
   number in the trace work there, and a panic on it ends the program like any goroutine's. The

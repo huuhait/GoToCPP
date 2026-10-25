@@ -27,6 +27,11 @@ var (
 
 	privateGens atomic.Int64
 
+	// genWaitNotice is how long a build waits for the lock of its program before it says so on
+	// stderr (and again after each further period). A build that waits has no other sign of life; a
+	// holder that never ends (a stuck compile) is then named. The tests make it short.
+	genWaitNotice = 30 * time.Second
+
 	// lockFile takes the lock; the tests replace it with a system that has none.
 	lockFile = tryLockFile
 )
@@ -51,6 +56,7 @@ func (d *driver) lockGen(gen, work string) (dir string, release func(ok bool)) {
 		return private()
 	}
 	waited := false
+	started, noticed := time.Now(), time.Now()
 	for {
 		l, busy, err := lockFile(gen + ".lock")
 		switch {
@@ -64,6 +70,15 @@ func (d *driver) lockGen(gen, work string) (dir string, release func(ok bool)) {
 			if testHookGenWait != nil {
 				testHookGenWait()
 			}
+		}
+		if time.Since(noticed) >= genWaitNotice && d.stderr != nil {
+			noticed = time.Now()
+			holder := "another gocpp build"
+			if pid := lockHolder(gen + ".lock"); pid != "" {
+				holder = "pid " + pid
+			}
+			fmt.Fprintf(d.stderr, "gocpp %s: waiting for %s to finish building this program (%s, %s so far); SIGQUIT dumps this process's goroutines\n",
+				d.name, holder, gen+".lock", time.Since(started).Round(time.Second))
 		}
 		select {
 		case <-d.ctx.Done():

@@ -29,7 +29,7 @@ what it is:
 | cpu | binarytrees, collatz, crc32, fannkuch, fasta, fib, fnv, knucleotide, mandelbrot, math_funcs, matmul, nbody, nqueens, quicksort, revcomp, sha256, sieve, spectralnorm |
 | data | map_int, map_string, slice_append, slice_copy, list_alloc, tree_alloc, struct_copy, string_concat, byte_process, strconv_roundtrip, unicode_classify, strings_ops\*, bytes_buffer\*, slices_sort\* |
 | dispatch | iface_call, type_switch, embedding, closures, defer_loop, method_value |
-| runtime | goroutine_spawn, chan_pingpong_buf, chan_pingpong_unbuf, select_loop, alloc_churn, fmt_sprintf, fmt_println, panic_recover, mutex_counter, waitgroup_fanout, time_now, reflect_fields |
+| runtime | goroutine_spawn, chan_pingpong_buf, chan_pingpong_unbuf, select_loop, alloc_churn, fmt_sprintf, fmt_println, panic_recover, panic_callee, panic_through, panic_runtime_error, panic_repanic, panic_deep, mutex_counter, waitgroup_fanout, time_now, reflect_fields |
 | generics | generic_sum_instances, generic_minmax, generic_map_filter, generic_stack\* |
 
 \* does not build yet, see below.
@@ -151,7 +151,18 @@ restricts the summary, `-last N` the rows.
 
 ## What the first run found (2026-10-19, noisy)
 
-The first complete run (docs/benchmarks/runtime.md; `bench/baseline.json` is the same run, `commit` is the dev commit it was
+[runtime.md](runtime.md) now has the run of 2026-10-24 (commit b28d6225 of job perf.panic, 64 programs with the five thrown-panic programs, 5 runs, pinned to 4 cpus; noisy: load 28 before and 77 after, other jobs started during it); this section describes the first one.
+
+Which file holds which run: `bench/baseline.json` is the first complete run (2026-10-19, commit 3daa0e53) for every program except
+the six `runtime/panic_*` programs (`panic_recover` and the five thrown-panic programs), whose rows were measured again
+on the tree of job perf.panic (commit 77de88e7, 2026-10-25, 7 runs, pinned to cpus 184-187, load about 60 before and
+after because other jobs were running; each of those rows carries an `origin` line with this). The top-level `commit` and
+`date` of the file are those of the first run. `docs/benchmarks/runtime.md` is a different run (2026-10-24, commit b28d6225, 5
+runs, load 28 to 77), so its panic numbers differ from the baseline's. A gate (`make bench-check`) against rows measured at load
+60 is noisy: a regression of those six programs below the noise of that run is not found, and a pass on them proves little.
+Measure them again on a quiet machine and merge (`gobench merge`) when one is free. The first run:
+
+The first complete run (2026-10-19, the runtime.md of that time; `commit` is the dev commit it was
 made on top of, `dirty` says the step's own files were not committed yet) was made on the shared development machine (AMD
 Threadripper PRO 9995WX, 192 logical cores, shared with about ten other agents, the project capped at 150 cores) at a 1-minute
 load average of 67 to 240 (`uptime` at the start: 78; the limit for a quiet machine is 24), 5 runs per implementation,
@@ -192,7 +203,7 @@ the generated C++, and from the independent review of this step):
 
 | Gap | Where it comes from | Planned step |
 |---|---|---|
-| **vs Go**: `panic_recover` 38 times slower (2.3 microseconds per panic and recover against 0.06; `release` 25) | a `panic` is a C++ `throw`. In the review's profile, 56 % of the time is `_Unwind_RaiseException` (phases 1 and 2, `uw_frame_state_for`, `execute_cfa_program`), 26 % is `panic_error`'s constructor, which captures a backtrace on every panic (`panic_error::panic_error` -> `gp::os::stack` -> `backtrace(3)` -> `_Unwind_Backtrace`), and 20 % is the `__cxa_rethrow` in `defer_frame::gp_adopt` (a second unwind) | capture the stack lazily (only when the panic reaches the top and is printed), avoid the rethrow in the defer frame |
+| **vs Go**: `panic_recover` 38 times slower in this run (2.3 microseconds per panic and recover against 0.06; `release` 25). Measured again on the tree of perf.panic round 5 (commit 77de88e7, `go run ./tools/gobench run -match '^runtime/panic_' -flavors default,O2,release -reps 7 -pin 184,185,186,187`; load 63 before and 60 after, other jobs, so noisy; -release, g++ / clang++): `panic_recover` is at Go's speed, 1.05 / 1.06 times (its panics are panic statements in the function that recovers them, which no longer throw: ADR-085). A panic that is thrown is still far from it: `panic_callee` 9.7 / 10.9 times, `panic_through` 21 / 26, `panic_runtime_error` 7.3 / 7.0, `panic_repanic` 23 / 25, `panic_deep` 9.1 / 9.2 (an earlier, quieter run at load 19 to 26: 8.2 / 9.2, 18 / 21, 7.6 / 6.5, 20 / 20, 4.2 / 8.7; before the fast walk and the throws without cleanups of job perf.panic: 11 / 14, 21 / 28, 7.8 / 15, 35 / 39, 6.5 / 13) | a `panic` is a C++ `throw`. In the review's profile of this run, 56 % of the time is `_Unwind_RaiseException` (phases 1 and 2, `uw_frame_state_for`, `execute_cfa_program`), 26 % is `panic_error`'s constructor, which captured a backtrace on every panic, and 20 % was a `__cxa_rethrow` in `defer_frame::gp_adopt` (a second unwind). Since then: no throw for a panic statement in a function with defers (ADR-085); the walks of a panic's stack step over the frames with rules kept per return address (the fast walk, optimized x86-64 Linux builds); a runtime error and `gp_run` throw with nothing to clean up on the way (each cleanup cost a second walk, `_Unwind_Resume`): the numbers before and after in the first column. What is left is about 80 % `_Unwind_RaiseException` itself, its two phases | a single-phase unwinder, or panics without C++ exceptions (job perf.unwind) |
 | **vs Go**: `embedding` 22 times, `defer_loop` 8, `type_switch` 6.7, `iface_call` 5.8, `closures` 3.6, `method_value` 2.9, `bytes_buffer` 14 (`release` 9), `reflect_fields` 8 | call overhead, not allocation. Methods with a pointer receiver are emitted as `static void T::m(gp::ptr<T> b)`: the pointer is taken **by value**, so every call copies a `shared_ptr` (and for an embedded receiver builds a `gp::field_ptr`, the aliasing constructor, first); a `shared_ptr` copy and release costs 4.2 ns on one thread and 14.6 ns once any thread exists, because libstdc++ then switches to atomic operations (it checks `__libc_single_threaded`; the Go runtime has no such cost, and Go inlines the method). The samples agree: `embedding` is `mid::add`, the generated thunks (`gp_thunk_ptop_get`, `gp_thunk_pbase_add`, ...) and the loop; `iface_call` is `icall` plus the thunk (`gp_thunk_psquare_area`) and is the worst gap against the C++ twin as well (6.9 times: the twin's virtual call is a plain indirect call); `defer_loop` is `defer_frame::gp_run` and `gp_release`. `bytes.Buffer` pays the same per call plus `b->buf = gp::sub(b->buf, 0, l+n)` on every byte it writes (a slice header built and assigned with its reference-count traffic; samples: `tryGrowByReslice` and the `gp::slice` helpers) | `const gp::ptr<T>&` or `this` receivers and escape analysis (15.2, 15.3), devirtualization (15.6) |
 | **vs Go**: `goroutine_spawn` 2.7, `mutex_counter` 2.7, `select_loop` 2.7, `chan_pingpong_buf` 2.6, `waitgroup_fanout` 2.2, `chan_pingpong_unbuf` 2.1 | goroutines are OS threads (ADR-026): 90 % of the samples of `goroutine_spawn` are `futex` waits in `pthread_cond_wait`, every hand-off is a kernel wake-up. The C++ twin of `chan_pingpong_unbuf` (two threads, one binary semaphore each, a futex pair) is 2.8 times faster than gocpp's channel, so part of the cost is the runtime's channel on top of the thread switch. Programs with fewer, longer-lived threads (`mutex_counter`) still lose 2.7 times, to the cost of the lock path | by design the scheduler stays OS threads, but the gap against the goal is real: channel and mutex fast paths (spinning before sleeping), see Phase 15 |
 | **vs Go**: `strconv_roundtrip` 2.2, `unicode_classify` 2.1, `strings_ops` 1.9, `time_now` 1.9 (the ported packages) | the same by-value pointer and slice-header traffic per call | the optimizations of 15.2 to 15.4; the ports themselves stay as they are |
@@ -238,7 +249,7 @@ These are findings only: nothing was optimized in step 15.1.
 | `bench/programs/` | the `.gp` programs (also valid `.go`) |
 | `bench/cpp/` | the C++ twins |
 | `bench/shim/` | the per-implementation size/`sqrt` shims |
-| `bench/baseline.json` | the baseline of the gate (schema: `tools/gobench/benchdata/data.go`) |
+| `bench/baseline.json` | the baseline of the gate (schema: `tools/gobench/benchdata/data.go`). `schema` is 1, or 2 when a result has `origin`: the line that `gobench merge` stamps on the results it copies in (commit, date, load, pinning, runs of the merged report). A tool built before version 2 rejects a version 2 file (strict reading: `unknown field "origin"`); a tool that knows version 2 reads both, and says "newer" for a later one |
 | `bench/history/` | one `.jsonl` per machine |
 | `bench/results/` | the runs (gitignored) |
 | `tools/gobench/` | the runner; `benchdata/` has the result types, statistics and the gate decision, with no I/O |

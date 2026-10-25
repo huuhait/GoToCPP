@@ -36,3 +36,7 @@ func (l *genLock) unlock() {
 	filelock.Unlock(l.f)
 	l.f.Close()
 }
+
+// lockHolder returns "": this system has no way to read the holder of the lock (Windows locks the
+// bytes of the file, so another process can't read it).
+func lockHolder(name string) string { return "" }
