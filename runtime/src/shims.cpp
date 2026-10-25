@@ -3,7 +3,7 @@
 #include <gocpp/rt.hpp>
 
 #include <atomic>
-#include <cstdlib>
+#include <cstddef>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -12,26 +12,56 @@
 namespace gp::godebug {
 namespace {
 
-// The value of $GODEBUG as Go's runtime keeps it (godebugEnv): read from the environment at
-// program start, then the value that package syscall sets. Reading it never calls getenv, which
-// another thread's setenv could change under it (a data race in C).
+// The value of $GODEBUG as Go's runtime keeps it (godebugEnv): the one in the environment the
+// program started with, then the value that package syscall sets. Reading it never calls getenv,
+// which another thread's setenv could change under it (a data race in C).
 struct env_state {
     std::mutex mu;
     std::string value;
     std::atomic<std::uint64_t> generation{0};
 };
 
+// at_start is GODEBUG in gp::envs(), the environment that run_main (or a library's first entry,
+// load_process_info) copied before any Go code ran, "" when it is not there: the first entry
+// with the name, as Go's gogetenv (runtime/env_posix.go), the name without case on Windows.
+std::string at_start() {
+    constexpr std::string_view key = "GODEBUG";
+    for (const gp::string& kv : gp::envs()) {
+        std::string_view s = kv.gp_view();
+        if (s.size() <= key.size() || s[key.size()] != '=') {
+            continue;
+        }
+        bool same = true;
+        for (std::size_t i = 0; i < key.size(); i++) {
+            char c = s[i];
+#ifdef _WIN32
+            if (c >= 'a' && c <= 'z') {
+                c = static_cast<char>(c - 'a' + 'A');
+            }
+#endif
+            if (c != key[i]) {
+                same = false;
+                break;
+            }
+        }
+        if (same) {
+            return std::string(s.substr(key.size() + 1));
+        }
+    }
+    return "";
+}
+
+// state is made on the first use (a function-local static: no initializer at program start, which
+// a library member must not have, internal/build TestRuntimeObjectsHaveNoStaticInit), from the
+// start-up environment, so the first use may come at any time and from any thread.
 env_state& state() {
     static env_state* const s = [] {
         auto* e = new env_state; // never destroyed: a goroutine may read it while the process exits
-        const char* v = std::getenv("GODEBUG");
-        e->value = v == nullptr ? "" : v;
+        e->value = at_start();
         return e;
     }();
     return *s;
 }
-
-[[maybe_unused]] const bool read_at_start = (state(), true);
 
 } // namespace
 

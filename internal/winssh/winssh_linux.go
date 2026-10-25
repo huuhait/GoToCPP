@@ -293,7 +293,10 @@ type Result struct {
 // Run uploads exe and runs it with the arguments and the extra environment (NAME=value), for at most
 // timeout. With viaFiles the streams go through files (for output of a megabyte or more); the
 // arguments may then hold neither a space nor a quote. An error is a failure of the connection or a
-// character that cmd.exe would read, not the program's exit.
+// character that cmd.exe would read, not the program's exit. A process that the program leaves running
+// is not reported here: the machine's OpenSSH server ends the session's whole process tree when the
+// command ends (checked on Windows 11: a child started with start /b, with or without the session's
+// output, was gone when ssh returned), so it can neither hold the output open nor be seen.
 func (r *Remote) Run(ctx context.Context, timeout time.Duration, exe string, env, args []string, viaFiles bool) (Result, error) {
 	name, err := r.upload(exe)
 	if err != nil {

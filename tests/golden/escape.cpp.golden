@@ -40,7 +40,8 @@ static_assert(sizeof(Rect) == 16 && alignof(Rect) == 8);
 
 extern const gp::type_desc gp_td_Shape;
 extern const gp::type_desc gp_td_Rect;
-extern const gp::type_desc* const gp_tdp_Rect;
+extern const gp::type_desc* gp_tdp_Rect_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Rect_make();
 inline const gp::type_desc* Shape::gp_desc() {
     return &gp_td_Shape;
 }
@@ -55,7 +56,8 @@ int64_t elements(const gp::slice<Shape>& shapes);
 int64_t closures();
 void main();
 
-extern gp::ptr<Counter> keep;
+extern gp::keep<gp::ptr<Counter>> gp_keep_keep;
+inline constexpr gp::ptr<Counter>& keep = gp_keep_keep.gp_v;
 
 } // namespace gpkg_main
 
@@ -128,7 +130,7 @@ int64_t closures() {
 }
 
 void main() {
-    { auto gp_t0 = stack(); auto gp_t1 = heap(); auto gp_t2 = gpkg_main::elements(gp::slice_of<Shape>({gp::to_iface<Shape>(gp::new_<Rect>(Rect{2, 3}), gp_tdp_Rect)})); auto gp_t3 = closures(); gp::fmt::Println(gp_t0, gp_t1->n, gp_t2, gp_t3); }
+    { auto gp_t0 = stack(); auto gp_t1 = heap(); auto gp_t2 = gpkg_main::elements(gp::slice_of<Shape>({gp::to_iface<Shape>(gp::new_<Rect>(Rect{2, 3}), gp::desc_get<&gp_tdp_Rect_p, &gp_tdp_Rect_make>())})); auto gp_t3 = closures(); gp::fmt::Println(gp_t0, gp_t1->n, gp_t2, gp_t3); }
 }
 
 } // namespace gpkg_main
@@ -144,11 +146,14 @@ const gp::type_desc gp_td_Shape = gp::named<Shape>("main.Shape", "main", gp::sha
 inline int64_t gp_thunk_pRect_Area(const gp::iface& gp_self) {
     return Rect::Area(gp::unbox_borrow<Rect>(gp_self));
 }
-inline const gp::method gp_pm_Rect[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_pRect_Area)};
+inline const gp::method gp_pm_Rect[]{gp::method_of<int64_t(), &gp_thunk_pRect_Area>("Area", nullptr, "func() int")};
 static const gp::type_desc* gp_full_Rect();
 const gp::type_desc gp_td_Rect = gp::named<Rect>("main.Rect", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Rect), {}, gp::methods_of(gp_pm_Rect));
 
-const gp::type_desc* const gp_tdp_Rect = gp::td_ptr<Rect>(&gp_td_Rect);
+constinit const gp::type_desc* gp_tdp_Rect_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Rect_make() {
+    return gp::desc_publish(&gp_tdp_Rect_p, gp::td_ptr<Rect>(&gp_td_Rect));
+}
 
 static const gp::type_desc* gp_full_Rect() {
     static const gp::field_desc gp_f[]{gp::field_desc("w", "main", &gp::td_int, nullptr, false, gp::offset_of(&Rect::w)), gp::field_desc("h", "main", &gp::td_int, nullptr, false, gp::offset_of(&Rect::h))};
@@ -165,7 +170,7 @@ static const gp::type_desc* gp_full_Rect() {
 namespace gpkg_main {
 
 #line 25 "$ROOT/tests/golden/escape.gp"
-constinit gp::ptr<Counter> keep{};
+constinit gp::keep<gp::ptr<Counter>> gp_keep_keep{};
 
 } // namespace gpkg_main
 

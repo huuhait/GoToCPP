@@ -629,6 +629,16 @@ std::int64_t open_handles() noexcept {
     return n;
 }
 
+void slot_handles(const wait_slot* s, std::uintptr_t out[2]) noexcept {
+    out[0] = reinterpret_cast<std::uintptr_t>(s->timer);
+    out[1] = reinterpret_cast<std::uintptr_t>(s->wake);
+}
+
+bool handle_open(std::uintptr_t h) noexcept {
+    DWORD flags = 0;
+    return h != 0 && GetHandleInformation(reinterpret_cast<HANDLE>(h), &flags) != 0;
+}
+
 } // namespace testing
 
 } // namespace gp::os

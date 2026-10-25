@@ -249,7 +249,6 @@ The clangd tests (`clangd_test.go`) need clangd 21 (the dev shell has it; its cl
 | `GOCPP_WINDOWS_LIBS` | none | with `GOCPP_TEST_TARGET=windows`: a folder with `include/` and `lib/` of sqlite3, zlib, SDL2 and raylib built for MinGW-w64 (`tools/winlibs.sh DIR`); `TestWindowsPrograms/lib*` skip without it |
 | `GOCPP_WINDOWS_SSH` | none | `user@host`: the Windows tests (`GOCPP_TEST_TARGET=windows`) run their programs on that real Windows PC over ssh instead of under Wine (key authentication; `internal/winssh`; the variable is the only place that names the machine; never commit it) |
 | `GOCPP_WINE_JOBS` | `4` | the programs that run under Wine at once (Wine's server is one process) |
-| `GOCPP_REQUIRE_WINE_OVERFLOW` | none | `1`: `TestWindowsPrograms/overflow` fails instead of skipping when this machine's Wine ends a stack overflow with exit code 1 and no message |
 | `GOCPP_TEST_DOWNLOAD` | none | `1`: `TestWindowsNativeDownload` downloads the pinned llvm-mingw (190 MB) on the real PC (`GOCPP_WINDOWS_SSH`), builds with it and removes it |
 | `GOCPP_REQUIRE_WINE` | none | `1`: a missing `wine` or MinGW-w64 compiler fails the Windows tests instead of skipping them |
 
@@ -324,7 +323,11 @@ the PC or here); all need `GOCPP_WINDOWS_SSH`; `TestWindowsSuite{Env,Selection,.
   `// ExitCode:` and `// Stderr:` expectations as `TestRun`. `GOCPP_TEST_WINDOWS=all` runs every run test
   except those that `//go:build` leaves out for Windows and those of `windows_skip.txt` (`name: reason`),
   and the log says how many were skipped for each reason. Windows reports a fault as
-  `[signal 0xc0000005 ...]`; the harness maps it to Go's SIGSEGV line before it compares.
+  `[signal 0xc0000005 ...]`; the harness maps it to Go's SIGSEGV line before it compares. A test whose output
+  differs under Wine only because of Wine (its `FormatMessage` texts, no `=C:` drive variables in its
+  environment) has its Wine stdout in `run/testdata/wine/<name>.txt`, what the same program built by real Go
+  (`GOOS=windows go build`) prints under Wine; the `// Output:` block stays the real PC's, which
+  `GOCPP_WINDOWS_SSH` runs against.
 - `TestWindowsPrograms` runs the programs of `testdata/windows`: what the run tests cannot say (arguments,
   environment, an exit code, UTF-8 output, a stack overflow, big output, a C `exit`).
 - The tests of package os (step 14.3): `windows_sample.txt` holds 43 `os_*` run tests whose Linux expectation holds on

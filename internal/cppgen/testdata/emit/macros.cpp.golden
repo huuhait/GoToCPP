@@ -9,8 +9,10 @@ int64_t INT64_C_(int64_t x);
 void main();
 
 #line 8 "$DIR/macros.gp"
-constinit gp::string EOF_{gp::static_bytes, "end of file", 11};
+constinit gp::keep<gp::string> gp_keep_EOF_{{gp::static_bytes, "end of file", 11}};
 
+inline constexpr gp::string& EOF_ = gp_keep_EOF_.gp_v;
+#line 10 "$DIR/macros.gp"
 int64_t errno_() {
     return 22;
 }

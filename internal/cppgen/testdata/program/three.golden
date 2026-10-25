@@ -138,13 +138,13 @@ const gp::type_desc gp_td_Shape = gp::named<Shape>("base.Shape", "example.com/th
 inline int64_t gp_thunk_Rect_Area(const gp::iface& gp_self) {
     return gp::unbox<Rect>(gp_self).Area();
 }
-inline const gp::method gp_vm_Rect[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_Rect_Area)};
+inline const gp::method gp_vm_Rect[]{gp::method_of<int64_t(), &gp_thunk_Rect_Area>("Area", nullptr, "func() int")};
 inline int64_t gp_thunk_pRect_Area(const gp::iface& gp_self) {
     gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method base.Rect.Area called using nil *Rect pointer");
     return gp_p->Area();
 }
-inline const gp::method gp_pm_Rect[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_pRect_Area)};
+inline const gp::method gp_pm_Rect[]{gp::method_of<int64_t(), &gp_thunk_pRect_Area>("Area", nullptr, "func() int")};
 static const gp::type_desc* gp_full_Rect();
 const gp::type_desc gp_td_Rect = gp::named<Rect>("base.Rect", "example.com/three/base", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Rect), gp::methods_of(gp_vm_Rect), gp::methods_of(gp_pm_Rect));
 
@@ -206,7 +206,8 @@ struct Sq {
 static_assert(sizeof(Sq) == 8 && alignof(Sq) == 8);
 
 extern const gp::type_desc gp_td_Sq;
-extern const gp::type_desc* const gp_tdp_Sq;
+extern const gp::type_desc* gp_tdp_Sq_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Sq_make();
 int64_t Sum(const gp::slice<::gpkg_example_dcom__three__base::Shape>& ss);
 
 extern int64_t Total;
@@ -258,11 +259,14 @@ namespace gpkg_example_dcom__three__mid {
 inline int64_t gp_thunk_pSq_Area(const gp::iface& gp_self) {
     return Sq::Area(gp::unbox_borrow<Sq>(gp_self));
 }
-inline const gp::method gp_pm_Sq[]{gp::method_of<int64_t()>("Area", nullptr, "func() int", &gp_thunk_pSq_Area)};
+inline const gp::method gp_pm_Sq[]{gp::method_of<int64_t(), &gp_thunk_pSq_Area>("Area", nullptr, "func() int")};
 static const gp::type_desc* gp_full_Sq();
 const gp::type_desc gp_td_Sq = gp::named<Sq>("mid.Sq", "example.com/three/mid", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Sq), {}, gp::methods_of(gp_pm_Sq));
 
-const gp::type_desc* const gp_tdp_Sq = gp::td_ptr<Sq>(&gp_td_Sq);
+constinit const gp::type_desc* gp_tdp_Sq_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Sq_make() {
+    return gp::desc_publish(&gp_tdp_Sq_p, gp::td_ptr<Sq>(&gp_td_Sq));
+}
 
 static const gp::type_desc* gp_full_Sq() {
     static const gp::field_desc gp_f[]{gp::field_desc("S", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Sq::S))};
@@ -284,7 +288,7 @@ constinit int64_t Total{};
 #line 10 "$GEN/gpkg/example.com/three/mid/pkg_init.cpp"
 void gp_var_init() {
 #line 24 "$DIR/mid/mid.gp"
-    Total = gpkg_example_dcom__three__mid::Sum(gp::slice_of<::gpkg_example_dcom__three__base::Shape>({gp::to_iface<::gpkg_example_dcom__three__base::Shape>(::gpkg_example_dcom__three__base::Rect{2, 3}, &::gpkg_example_dcom__three__base::gp_td_Rect), gp::to_iface<::gpkg_example_dcom__three__base::Shape>(gp::new_<Sq>(Sq{4}), gp_tdp_Sq)})) + 3;
+    Total = gpkg_example_dcom__three__mid::Sum(gp::slice_of<::gpkg_example_dcom__three__base::Shape>({gp::to_iface<::gpkg_example_dcom__three__base::Shape>(::gpkg_example_dcom__three__base::Rect{2, 3}, &::gpkg_example_dcom__three__base::gp_td_Rect), gp::to_iface<::gpkg_example_dcom__three__base::Shape>(gp::new_<Sq>(Sq{4}), gp::desc_get<&gp_tdp_Sq_p, &gp_tdp_Sq_make>())})) + 3;
 #line 14 "$GEN/gpkg/example.com/three/mid/pkg_init.cpp"
 }
 
@@ -314,7 +318,8 @@ static_assert(sizeof(gp_anon_acde3221f996bc5c) == 16 && alignof(gp_anon_acde3221
 
 #endif
 namespace gpkg_main {
-extern const gp::type_desc* const gp_tdc_0;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
 void main();
 
 } // namespace gpkg_main
@@ -330,7 +335,7 @@ void main() {
     ::gpkg_example_dcom__three__mid::Box b{::gpkg_example_dcom__three__base::Rect{3, 4}, "box"_gs};
     { auto gp_t0 = b.Label(); auto gp_t1 = b.Rect.Area(); auto gp_t2 = ::gpkg_example_dcom__three__base::Next(); auto gp_t3 = ::gpkg_example_dcom__three__base::Next(); gp::fmt::Println(gp_t0, gp_t1, ::gpkg_example_dcom__three__mid::Total, gp_t2, gp_t3); }
     gp_anon_acde3221f996bc5c p = ::gpkg_example_dcom__three__base::Pair();
-    { auto gp_t4 = ::gpkg_example_dcom__three__base::Describe(gp::to_iface<::gpkg_example_dcom__three__base::Shape>(::gpkg_example_dcom__three__base::Rect{1, 1}, &::gpkg_example_dcom__three__base::gp_td_Rect)); gp::fmt::Println(p.A + p.B, gp_t4, ::gpkg_example_dcom__three__base::Describe(gp::to_iface<::gpkg_example_dcom__three__base::Shape>(gp::new_<::gpkg_example_dcom__three__mid::Sq>(::gpkg_example_dcom__three__mid::Sq{2}), gp_tdc_0))); }
+    { auto gp_t4 = ::gpkg_example_dcom__three__base::Describe(gp::to_iface<::gpkg_example_dcom__three__base::Shape>(::gpkg_example_dcom__three__base::Rect{1, 1}, &::gpkg_example_dcom__three__base::gp_td_Rect)); gp::fmt::Println(p.A + p.B, gp_t4, ::gpkg_example_dcom__three__base::Describe(gp::to_iface<::gpkg_example_dcom__three__base::Shape>(gp::new_<::gpkg_example_dcom__three__mid::Sq>(::gpkg_example_dcom__three__mid::Sq{2}), gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>()))); }
 }
 
 #line 15 "$GEN/gpkg/example.com/three/main.gp.cpp"
@@ -342,7 +347,10 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_ptr<::gpkg_example_dcom__three__mid::Sq>(&::gpkg_example_dcom__three__mid::gp_td_Sq);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_ptr<::gpkg_example_dcom__three__mid::Sq>(&::gpkg_example_dcom__three__mid::gp_td_Sq));
+}
 
 } // namespace gpkg_main
 

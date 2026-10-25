@@ -14,16 +14,16 @@ import (
 //
 //	Go                              C++
 //	var s Shape = Rect{2, 3}        Shape s = gp::to_iface<Shape>(Rect{2, 3}, &gp_td_Rect);
-//	var s Shape = &Circle{1}        gp::to_iface<Shape>(gp::new_<Circle>(...), gp_tdp_Circle)
+//	var s Shape = &Circle{1}        gp::to_iface<Shape>(gp::new_<Circle>(...), gp::desc_get<&gp_tdp_Circle_p, &gp_tdp_Circle_make>())
 //	var a any = 1, any(1.5)         gp::to_iface<gp::any>(int64_t(1), &gp::td_int), (1.5, &gp::td_float64)
-//	var e error = &MyErr{}          gp::to_iface<gp::error>(..., gp_tdp_MyErr)
+//	var e error = &MyErr{}          gp::to_iface<gp::error>(..., gp::desc_get<&gp_tdp_MyErr_p, &gp_tdp_MyErr_make>())
 //	var s Shape = nil, return nil   Shape()  (nil of an interface type: the nullptr constructor is explicit)
 //	var r Reader = rw, any(s)       gp::iface_cast<Reader>(rw), gp::iface_cast<gp::any>(s)
 //	x == nil                        x == nullptr
 //	s.Area()                        s.Area()  (the wrapper of the interface struct; no copy of the
 //	                                interface is held: a thunk reads the box once, at its entry)
 //	x.(Rect)                        gp::assert_type<Rect>(x, &gp_td_Rect)  (a const Rect&)
-//	x.(*Circle)                     gp::assert_type<gp::ptr<Circle>>(x, gp_tdp_Circle)
+//	x.(*Circle)                     gp::assert_type<gp::ptr<Circle>>(x, gp::desc_get<&gp_tdp_Circle_p, &gp_tdp_Circle_make>())
 //	v, ok := x.(T)                  auto gp_t0 = gp::assert_type2<T>(x, desc); T v = std::get<0>(gp_t0); ...
 //	x.(Shape), v, ok := x.(Shape)   gp::assert_iface<Shape>(x), gp::assert_iface2<Shape>(x)
 //

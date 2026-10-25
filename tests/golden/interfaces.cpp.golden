@@ -40,7 +40,8 @@ static_assert(sizeof(Rect) == 16 && alignof(Rect) == 8);
 extern const gp::type_desc gp_td_Shape;
 extern const gp::type_desc gp_td_Namer;
 extern const gp::type_desc gp_td_Rect;
-extern const gp::type_desc* const gp_tdp_Rect;
+extern const gp::type_desc* gp_tdp_Rect_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Rect_make();
 inline const gp::type_desc* Shape::gp_desc() {
     return &gp_td_Shape;
 }
@@ -102,7 +103,7 @@ gp::string describe(const gp::any& x) {
             return "nil"_gs;
         } else if (gp::type_is(gp_x0, &gp::td_int) || gp::type_is(gp_x0, &gp::td_int64)) {
             return "int"_gs;
-        } else if (gp::type_is(gp_x0, gp_tdp_Rect)) {
+        } else if (gp::type_is(gp_x0, gp::desc_get<&gp_tdp_Rect_p, &gp_tdp_Rect_make>())) {
 #line 29 "$ROOT/tests/golden/interfaces.gp"
             gp::ptr<Rect> v = gp::unbox<gp::ptr<Rect>>(gp_x0);
             return v->Name();
@@ -115,7 +116,7 @@ gp::string describe(const gp::any& x) {
 }
 
 void main() {
-    Namer n = gp::to_iface<Namer>(gp::new_<Rect>(Rect{2.0, 3.0}), gp_tdp_Rect);
+    Namer n = gp::to_iface<Namer>(gp::new_<Rect>(Rect{2.0, 3.0}), gp::desc_get<&gp_tdp_Rect_p, &gp_tdp_Rect_make>());
     Shape s = gp::iface_cast<Shape>(n);
     gp::any a = gp::to_iface<gp::any>(int64_t(1), &gp::td_int);
     auto gp_t0 = gp::assert_type2<Rect>(s, &gp_td_Rect);
@@ -145,7 +146,7 @@ inline double gp_thunk_Rect_Area(const gp::iface& gp_self) {
 inline gp::string gp_thunk_Rect_Name(const gp::iface& gp_self) {
     return gp::unbox<Rect>(gp_self).Name();
 }
-inline const gp::method gp_vm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area), gp::method_of<gp::string()>("Name", nullptr, "func() string", &gp_thunk_Rect_Name)};
+inline const gp::method gp_vm_Rect[]{gp::method_of<double(), &gp_thunk_Rect_Area>("Area", nullptr, "func() float64"), gp::method_of<gp::string(), &gp_thunk_Rect_Name>("Name", nullptr, "func() string")};
 inline double gp_thunk_pRect_Area(const gp::iface& gp_self) {
     gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method main.Rect.Area called using nil *Rect pointer");
@@ -159,11 +160,14 @@ inline gp::string gp_thunk_pRect_Name(const gp::iface& gp_self) {
 inline void gp_thunk_pRect_Scale(const gp::iface& gp_self, double gp_a0) {
     Rect::Scale(gp::unbox_borrow<Rect>(gp_self), static_cast<double&&>(gp_a0));
 }
-inline const gp::method gp_pm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pRect_Area), gp::method_of<gp::string()>("Name", nullptr, "func() string", &gp_thunk_pRect_Name), gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &gp_thunk_pRect_Scale)};
+inline const gp::method gp_pm_Rect[]{gp::method_of<double(), &gp_thunk_pRect_Area>("Area", nullptr, "func() float64"), gp::method_of<gp::string(), &gp_thunk_pRect_Name>("Name", nullptr, "func() string"), gp::method_of<void(double), &gp_thunk_pRect_Scale>("Scale", nullptr, "func(float64)")};
 static const gp::type_desc* gp_full_Rect();
 const gp::type_desc gp_td_Rect = gp::named<Rect>("main.Rect", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Rect), gp::methods_of(gp_vm_Rect), gp::methods_of(gp_pm_Rect));
 
-const gp::type_desc* const gp_tdp_Rect = gp::td_ptr<Rect>(&gp_td_Rect);
+constinit const gp::type_desc* gp_tdp_Rect_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Rect_make() {
+    return gp::desc_publish(&gp_tdp_Rect_p, gp::td_ptr<Rect>(&gp_td_Rect));
+}
 
 static const gp::type_desc* gp_full_Rect() {
     static const gp::field_desc gp_f[]{gp::field_desc("W", nullptr, &gp::td_float64, nullptr, false, gp::offset_of(&Rect::W)), gp::field_desc("H", nullptr, &gp::td_float64, nullptr, false, gp::offset_of(&Rect::H))};

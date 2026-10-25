@@ -3,10 +3,13 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -64,6 +67,54 @@ func isStopping() bool {
 // command too, for any process that the command left running.
 func killGroup(pgid int) error {
 	return syscall.Kill(-pgid, syscall.SIGKILL)
+}
+
+// groupLeft returns the processes (command lines) of the process group pgid that still run, other
+// than those whose program is one of helpers (a lower-case file name, as a Wine process shows its
+// Windows path: explorer.exe). A process that is ending may be listed for a moment, so it looks for up
+// to a second for the group to be empty, and does not count a zombie (a child that has exited and
+// whose parent has not reaped it: nothing runs). A process that setsid()s out of the group, as the
+// Wine helpers do, is not in it and is invisible here by design: this is for the processes that a
+// program starts and leaves behind in its own group.
+func groupLeft(pgid int, helpers map[string]bool) []string {
+	var left []string
+	for range 20 {
+		left = left[:0]
+		entries, err := os.ReadDir("/proc")
+		if err != nil {
+			return nil
+		}
+		for _, e := range entries {
+			pid, err := strconv.Atoi(e.Name())
+			if err != nil {
+				continue
+			}
+			stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+			if err != nil {
+				continue
+			}
+			// pid (comm) state ppid pgrp ...: comm may hold spaces and parentheses.
+			rest := stat[bytes.LastIndexByte(stat, ')')+1:]
+			f := strings.Fields(string(rest))
+			if len(f) < 3 || f[0] == "Z" || f[2] != strconv.Itoa(pgid) {
+				continue
+			}
+			cmdline, _ := os.ReadFile("/proc/" + e.Name() + "/cmdline")
+			args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+			prog := strings.ToLower(args[0])
+			if i := strings.LastIndexAny(prog, `/\`); i >= 0 {
+				prog = prog[i+1:]
+			}
+			if !helpers[prog] {
+				left = append(left, strconv.Itoa(pid)+" "+strings.Join(args, " "))
+			}
+		}
+		if len(left) == 0 {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return left
 }
 
 // stopRunning stops the process groups of the commands that run now: with

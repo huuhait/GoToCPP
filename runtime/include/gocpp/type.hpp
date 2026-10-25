@@ -26,14 +26,10 @@
 //             "main.Shape", "main", gp::shape_interface(gp_im_Shape));
 //
 //     (A descriptor whose parts are constants is constant-initialized: no guard, no code before
-//     main. The method arrays are not: gp::method_of stores a thunk with reinterpret_cast,
-//     which a constant expression can't have, so each array is a dynamically initialized
-//     inline variable, with a guard. The descriptors hold only the arrays' ADDRESSES, so
-//     &gp_td_Rect can be used anywhere, also in another descriptor's initializer; but code
-//     that runs during static initialization and reads a method table or an itab must come
-//     after the array's definition in the same header, as for any inline variable. For generic
-//     types (Phase 07: variable templates, whose initialization is unordered) keep the arrays
-//     out of static initializers: build them in a function-local static.)
+//     main. So are the method arrays: gp::method_of<Sig, &thunk> stores the thunk as a pointer
+//     to a function that gives it (fn_getter), which a constant expression can hold. Everything
+//     of a named type is ready before any dynamic initialization, so a host's C constructor can
+//     call an exported function of a library whose initializers have not run yet.)
 //   - Composite types ([]int, [3]string, map[string]int, *main.Rect, chan<- int, func(int)
 //     string, struct{ X int }, interface{ M() }) get descriptors built from the descriptors of
 //     their parts and INTERNED: gp::td_slice<E>(elem), gp::td_array<E, N>(elem),
@@ -174,6 +170,12 @@ struct type_desc;
 // gp::icall).
 using fn_ptr = void (*)();
 
+// fn_getter gives a thunk as an fn_ptr: a method table holds one per method (method::gp_fn), a
+// function that does the reinterpret_cast, which a constant expression can't have, so that the
+// table is constant-initialized (no code before main: it is ready when a host's C constructor
+// calls an exported function of a library, before the library's dynamic initialization).
+using fn_getter = fn_ptr (*)() noexcept;
+
 // equal_fn and hash_fn are the hooks of a comparable type: they take the addresses of the
 // values, which are objects of the C++ type of the descriptor.
 using equal_fn = bool (*)(const void*, const void*);
@@ -250,13 +252,14 @@ struct method {
     const char* gp_name;
     const char* gp_pkg;
     const char* gp_sig;
-    fn_ptr gp_fn;
+    // gp_fn() is the thunk (null: a method without one); method_of makes it.
+    fn_getter gp_fn;
     // The method's body contains recover() (an aware function, gocpp/aware.hpp): `defer i.M()`
     // gives it the ticket of the panic. Set by method_of_aware; gp::icall reads it from the itab.
     bool gp_aware;
     desc_fn gp_ftype;
 
-    constexpr method(const char* name, const char* pkg, const char* sig, fn_ptr fn,
+    constexpr method(const char* name, const char* pkg, const char* sig, fn_getter fn,
                      bool aware = false, desc_fn ftype = nullptr) noexcept
         : gp_name(name), gp_pkg(pkg), gp_sig(sig), gp_fn(fn), gp_aware(aware), gp_ftype(ftype) {}
 };
@@ -856,6 +859,63 @@ const type_desc* foreign_td() {
     return detail::foreign_td_of<detail::foreign_norm_t<std::remove_reference_t<T>>>();
 }
 
+// desc_get<&slot, &make>() and desc_publish are the emitter's composite descriptors (internal/lower
+// descDecls, gp_tdc_N_p and gp_tdc_N_make): the pointer in slot (constant-initialized to null),
+// else make(), which interns the descriptor and stores it with desc_publish. Two threads that make
+// it at once get the same pointer (the interning), so the store needs no lock.
+//
+// Its result never changes (the same pointer, from the first call on), which the compilers are told
+// when they optimize: desc_get is then a const function, which they hoist out of a loop and merge
+// within a function, as they did with the namespace-scope const pointer that the descriptors were
+// before (a load in an inline body could not be hoisted, being atomic). Without optimization it is
+// an acquire load and a test, always inlined (the default build: one load more than a plain
+// pointer). (noexcept: a descriptor that can't be made is out of memory, which is fatal,
+// gp::detail::out_of_memory.)
+namespace detail {
+// (The call is made in a function that takes the maker as an argument: written as Make(), g++
+// gives the call the line of the template argument in the generated code, and gdb found a
+// breakpoint location of that line in each descriptor's desc_load.)
+inline const type_desc* desc_make(const type_desc* (*make)()) noexcept {
+    return make();
+}
+template <const type_desc** Slot, const type_desc* (*Make)()>
+[[gnu::always_inline]] inline const type_desc* desc_load() noexcept {
+    if (const type_desc* d = __atomic_load_n(Slot, __ATOMIC_ACQUIRE)) [[likely]] {
+        return d;
+    }
+    return desc_make(Make);
+}
+} // namespace detail
+
+// [[gnu::const]] (not pure: pure loses 4-13% in conversion loops) is a promise that holds only
+// because of these invariants of every Make:
+//   1. Make is idempotent: it interns the descriptor, so every call (and every thread) gets the
+//      same pointer and the same object;
+//   2. from the first call on, desc_get<Slot, Make>() returns that one pointer, for the whole run
+//      (the slot is only ever stored once with it, never reset, never another value);
+//   3. threads that race the first use each run Make and store the same pointer (desc_publish),
+//      so whichever store lands last changes nothing, and a hoisted or merged call that saw the
+//      value of the other thread's store is the same pointer as its own.
+// The descriptor is never freed. A Make that returns a different pointer on a later call, or that
+// is not idempotent, breaks the const promise (tests/run/desc_first_use_race.gp races the first
+// use of every kind of composite descriptor under -race and -asan).
+#ifdef __OPTIMIZE__
+template <const type_desc** Slot, const type_desc* (*Make)()>
+[[gnu::const, gnu::noinline]] const type_desc* desc_get() noexcept {
+    return detail::desc_load<Slot, Make>();
+}
+#else
+template <const type_desc** Slot, const type_desc* (*Make)()>
+[[gnu::always_inline]] inline const type_desc* desc_get() noexcept {
+    return detail::desc_load<Slot, Make>();
+}
+#endif
+
+inline const type_desc* desc_publish(const type_desc** slot, const type_desc* d) noexcept {
+    __atomic_store_n(slot, d, __ATOMIC_RELEASE);
+    return d;
+}
+
 // methods_sorted(table) and imethods_sorted(methods, n): the table is in the order above
 // (the emitter writes them so; a type's itab is not built from an unsorted table).
 bool methods_sorted(const method* methods, std::size_t n) noexcept;
@@ -884,31 +944,40 @@ using thunk_t = typename detail::thunk_of<Sig>::type;
 template <typename Sig, typename Fn>
 inline constexpr bool thunk_matches = std::is_same_v<std::remove_pointer_t<Fn>, thunk_t<Sig>>;
 
-// method_of<Sig>(name, pkg, sig, thunk) is the table entry of a method of the C++ signature
-// Sig, which must be the type of its thunk. (Not constexpr: it stores the thunk as an fn_ptr.)
-// ftype gives the method's func type without the receiver (method::gp_ftype).
-template <typename Sig, typename Fn>
-method method_of(const char* name, const char* pkg, const char* sig, Fn* thunk,
-                 desc_fn ftype = nullptr) {
-    static_assert(thunk_matches<Sig, Fn>,
+namespace detail {
+// erase_thunk<F>() is the thunk F as an fn_ptr (method::gp_fn).
+template <auto F>
+fn_ptr erase_thunk() noexcept {
+    return reinterpret_cast<fn_ptr>(F);
+}
+} // namespace detail
+
+// method_of<Sig, &thunk>(name, pkg, sig) is the table entry of a method of the C++ signature
+// Sig, which must be the type of its thunk. It is a constant expression: a table of them is
+// constant-initialized. ftype gives the method's func type without the receiver
+// (method::gp_ftype).
+template <typename Sig, auto Thunk>
+constexpr method method_of(const char* name, const char* pkg, const char* sig,
+                           desc_fn ftype = nullptr) noexcept {
+    static_assert(thunk_matches<Sig, decltype(Thunk)>,
                   "gp::method_of: the thunk's type is not R(const gp::iface&, A...) for the "
                   "method's signature R(A...) (a C/C++ type that Go can't tell apart?)");
-    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), false, ftype);
+    return method(name, pkg, sig, &detail::erase_thunk<Thunk>, false, ftype);
 }
 
-// method_of_aware<Sig>(...) is method_of for a method whose body contains recover()
+// method_of_aware<Sig, &thunk>(...) is method_of for a method whose body contains recover()
 // (gocpp/aware.hpp): the entry carries the aware flag, which getitab copies to the itab, so that
 // `defer i.M()` gives M the ticket of the panic that runs the deferred call (gp::icall clears the
 // ticket for a method without the flag). The emitter must use it in EVERY table in which the
 // method (or a promoted method that reaches it, through a forwarding thunk) is: the table of T,
 // the table of *T, and the tables of the types that embed T.
-template <typename Sig, typename Fn>
-method method_of_aware(const char* name, const char* pkg, const char* sig, Fn* thunk,
-                       desc_fn ftype = nullptr) {
-    static_assert(thunk_matches<Sig, Fn>,
+template <typename Sig, auto Thunk>
+constexpr method method_of_aware(const char* name, const char* pkg, const char* sig,
+                                 desc_fn ftype = nullptr) noexcept {
+    static_assert(thunk_matches<Sig, decltype(Thunk)>,
                   "gp::method_of_aware: the thunk's type is not R(const gp::iface&, A...) for the "
                   "method's signature R(A...)");
-    return method(name, pkg, sig, reinterpret_cast<fn_ptr>(thunk), true, ftype);
+    return method(name, pkg, sig, &detail::erase_thunk<Thunk>, true, ftype);
 }
 
 } // namespace gp

@@ -13,7 +13,8 @@ struct Builder {
 };
 static_assert(sizeof(Builder) == 40 && alignof(Builder) == 8);
 
-extern const gp::type_desc* const gp_tdc_0;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
 void main();
 
 } // namespace gpkg_main
@@ -39,7 +40,7 @@ void main() {
     *gp::unsafe_cast<int64_t>(gp::unsafe_add(p, 0)) = 8;
     gp::slice<int32_t> nums = gp::slice_of<int32_t>({1, 2, 3});
     gp::slice<int32_t> tail = gp::unsafe_slice(gp::ptr<int32_t>(nums.gp_owner(), &nums[1]), 2);
-    gp::fmt::Println((*x), gp::unsafe_addr(p) != 0, gp::fmt::as(gp_tdc_0, tail), *gp::unsafe_string_data("abc"_gs));
+    gp::fmt::Println((*x), gp::unsafe_addr(p) != 0, gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), tail), *gp::unsafe_string_data("abc"_gs));
 #line 34 "$ROOT/tests/golden/interop_unsafe.gp"
     gp::cptr<char> cp{};
     int n = 3;
@@ -77,7 +78,10 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_slice<int32_t>(&gp::td_int32);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<int32_t>(&gp::td_int32));
+}
 
 } // namespace gpkg_main
 

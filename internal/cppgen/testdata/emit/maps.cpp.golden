@@ -12,10 +12,14 @@ void fill(const gp::map<gp::string, int64_t>& m, int64_t n);
 void main();
 
 #line 16 "$DIR/maps.gp"
-constinit gp::map<gp::string, int64_t> gnil{};
-constinit gp::map<gp::string, int64_t> gm{};
-constinit gp::map<int64_t, int64_t> gcount{};
+constinit gp::keep<gp::map<gp::string, int64_t>> gp_keep_gnil{};
+constinit gp::keep<gp::map<gp::string, int64_t>> gp_keep_gm{};
+constinit gp::keep<gp::map<int64_t, int64_t>> gp_keep_gcount{};
 
+inline constexpr gp::map<gp::string, int64_t>& gnil = gp_keep_gnil.gp_v;
+inline constexpr gp::map<gp::string, int64_t>& gm = gp_keep_gm.gp_v;
+inline constexpr gp::map<int64_t, int64_t>& gcount = gp_keep_gcount.gp_v;
+#line 20 "$DIR/maps.gp"
 void sortStrs(const gp::slice<gp::string>& s) {
     for (int64_t i = 1; i < gp::len(s); i++) {
         for (int64_t j = i;; j--) {

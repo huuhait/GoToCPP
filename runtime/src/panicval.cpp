@@ -57,8 +57,8 @@ void thunk_runtime_error(const iface&) {}
 template <typename T>
 const type_desc* td_text_error(const char* name, kind k) {
     static const method methods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_error_text<T>),
-        method_of<void()>("RuntimeError", nullptr, "func()", &thunk_runtime_error),
+        method_of<gp::string(), &thunk_error_text<T>>("Error", nullptr, "func() string"),
+        method_of<void(), &thunk_runtime_error>("RuntimeError", nullptr, "func()"),
     };
     static const type_desc td = named<T>(
         name, "runtime", k == kind::String ? shape_basic(kind::String) : shape_struct(nullptr, 0),
@@ -79,9 +79,9 @@ const type_desc* td_plain_error() {
 // *runtime.TypeAssertionError.
 const type_desc* td_type_assertion_error() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string",
-                                &thunk_error_text_ptr<type_assertion_error_t>),
-        method_of<void()>("RuntimeError", nullptr, "func()", &thunk_runtime_error),
+        method_of<gp::string(), &thunk_error_text_ptr<type_assertion_error_t>>("Error", nullptr,
+                                                                               "func() string"),
+        method_of<void(), &thunk_runtime_error>("RuntimeError", nullptr, "func()"),
     };
     static const type_desc td =
         named<type_assertion_error_t>("runtime.TypeAssertionError", "runtime",
@@ -93,8 +93,8 @@ const type_desc* td_type_assertion_error() {
 // *runtime.PanicNilError.
 const type_desc* td_panic_nil_error() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_panic_nil_error),
-        method_of<void()>("RuntimeError", nullptr, "func()", &thunk_runtime_error),
+        method_of<gp::string(), &thunk_panic_nil_error>("Error", nullptr, "func() string"),
+        method_of<void(), &thunk_runtime_error>("RuntimeError", nullptr, "func()"),
     };
     static const type_desc td = named<panic_nil_error_t>(
         "runtime.PanicNilError", "runtime", shape_struct(nullptr, 0), {}, methods_of(pmethods));
@@ -109,7 +109,7 @@ gp::string thunk_cpp_error(const iface& self) {
 }
 const type_desc* td_cpp_exception() {
     static const method methods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_cpp_error),
+        method_of<gp::string(), &thunk_cpp_error>("Error", nullptr, "func() string"),
     };
     static const type_desc td = named<CppException>("runtime.CppException", "runtime",
                                                     shape_struct(nullptr, 0), methods_of(methods));
@@ -185,7 +185,7 @@ bool string_method(const gp::iface& v, const char* name, gp::string& out) {
         const method& m = t->gp_methods[i];
         if (m.gp_pkg == nullptr && std::strcmp(m.gp_name, name) == 0 &&
             std::strcmp(m.gp_sig, "func() string") == 0) {
-            out = reinterpret_cast<thunk_t<gp::string()>*>(m.gp_fn)(v);
+            out = reinterpret_cast<thunk_t<gp::string()>*>(m.gp_fn())(v);
             return true;
         }
     }

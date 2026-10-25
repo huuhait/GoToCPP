@@ -59,16 +59,16 @@ constinit int64_t a{};
 constinit int64_t b{};
 constinit int64_t c{};
 #line 10 "$DIR/pkgvars.gp"
-constinit gp::string d{};
+constinit gp::keep<gp::string> gp_keep_d{};
 #line 14 "$DIR/pkgvars.gp"
 constinit int64_t n = 42;
 constinit int64_t big = INT64_C(4611686018427387904);
-constinit gp::string s{gp::static_bytes, "str", 3};
-constinit gp::string empty{gp::static_bytes, "", 0};
+constinit gp::keep<gp::string> gp_keep_s{{gp::static_bytes, "str", 3}};
+constinit gp::keep<gp::string> gp_keep_empty{{gp::static_bytes, "", 0}};
 constinit double f = 0.5;
 constinit bool t = true;
 constinit int64_t zero{};
-constinit gp::string zeroS{};
+constinit gp::keep<gp::string> gp_keep_zeroS{};
 constinit int64_t counter = 0;
 constinit int64_t initCount{};
 #line 47 "$DIR/pkgvars.gp"
@@ -78,15 +78,25 @@ constinit point onlyY{.y = 2};
 constinit gp::array<point, 3> pts = gp::array_keyed<point, 3>({{1, point{.x = 4}}});
 constinit grid cells = grid(gp::array<gp::array<int8_t, 2>, 2>{gp::array<int8_t, 2>{1, 2}, gp::array<int8_t, 2>{3, 4}});
 #line 56 "$DIR/pkgvars.gp"
-constinit named nm{};
-constinit gp::slice<int64_t> list{};
-constinit gp::map<gp::string, int64_t> table{};
-constinit gp::ptr<point> pp{};
+constinit gp::keep<named> gp_keep_nm{};
+constinit gp::keep<gp::slice<int64_t>> gp_keep_list{};
+constinit gp::keep<gp::map<gp::string, int64_t>> gp_keep_table{};
+constinit gp::keep<gp::ptr<point>> gp_keep_pp{};
 constinit point scaled{};
-constinit gp::func<int64_t()> ref{};
-constinit bigBlock huge{};
+constinit gp::keep<gp::func<int64_t()>> gp_keep_ref{};
+constinit gp::keep<bigBlock> gp_keep_huge{};
 constinit gp::array<int64_t, 32768> hugeA{};
 
+inline constexpr gp::string& d = gp_keep_d.gp_v;
+inline constexpr gp::string& s = gp_keep_s.gp_v;
+inline constexpr gp::string& empty = gp_keep_empty.gp_v;
+inline constexpr gp::string& zeroS = gp_keep_zeroS.gp_v;
+inline constexpr named& nm = gp_keep_nm.gp_v;
+inline constexpr gp::slice<int64_t>& list = gp_keep_list.gp_v;
+inline constexpr gp::map<gp::string, int64_t>& table = gp_keep_table.gp_v;
+inline constexpr gp::ptr<point>& pp = gp_keep_pp.gp_v;
+inline constexpr gp::func<int64_t()>& ref = gp_keep_ref.gp_v;
+inline constexpr bigBlock& huge = gp_keep_huge.gp_v;
 #line 66 "$DIR/pkgvars.gp"
 point scale(int64_t f) {
     return point{unit.x * f, unit.y * f, unit.ok};

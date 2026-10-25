@@ -139,13 +139,13 @@ const gp::type_desc td_rec =
     gp::named<Rec>("main.Rec", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &full_rec));
 
 const gp::method name_methods[] = {
-    gp::method_of<gp::string()>("String", nullptr, "func() string", &thunk_name_string)};
+    gp::method_of<gp::string(), &thunk_name_string>("String", nullptr, "func() string")};
 const gp::type_desc td_name = gp::named<Name>(
     "main.Name", "main", gp::shape_basic(gp::kind::String), gp::methods_of(name_methods));
 
 const gp::method err_pmethods[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_err_error),
-    gp::method_of<gp::error()>("Unwrap", nullptr, "func() error", &thunk_err_unwrap),
+    gp::method_of<gp::string(), &thunk_err_error>("Error", nullptr, "func() string"),
+    gp::method_of<gp::error(), &thunk_err_unwrap>("Unwrap", nullptr, "func() error"),
 };
 const gp::type_desc td_err = gp::named<Err>("main.Err", "main", gp::shape_struct(nullptr, 0), {},
                                             gp::methods_of(err_pmethods));
@@ -154,17 +154,17 @@ const gp::type_desc* td_ptr_err() {
     return p;
 }
 
-const gp::method fm_methods[] = {gp::method_of<void(fmt::State, int32_t)>(
-    "Format", nullptr, "func(fmt.State, int32)", &thunk_fm_format)};
+const gp::method fm_methods[] = {gp::method_of<void(fmt::State, int32_t), &thunk_fm_format>(
+    "Format", nullptr, "func(fmt.State, int32)")};
 const gp::type_desc td_fm =
     gp::named<Fm>("main.Fm", "main", gp::shape_struct(nullptr, 0), gp::methods_of(fm_methods));
 
 const gp::method boom_methods[] = {
-    gp::method_of<gp::string()>("String", nullptr, "func() string", &thunk_boom_string)};
+    gp::method_of<gp::string(), &thunk_boom_string>("String", nullptr, "func() string")};
 const gp::type_desc td_boom = gp::named<Boom>("main.Boom", "main", gp::shape_struct(nullptr, 0),
                                               gp::methods_of(boom_methods));
 const gp::method boom_pmethods[] = {
-    gp::method_of<gp::string()>("String", nullptr, "func() string", &thunk_boom_ptr_string)};
+    gp::method_of<gp::string(), &thunk_boom_ptr_string>("String", nullptr, "func() string")};
 const gp::type_desc td_boom_p = gp::named<Boom>("main.BoomP", "main", gp::shape_struct(nullptr, 0),
                                                 {}, gp::methods_of(boom_pmethods));
 const gp::type_desc* td_ptr_boom() {
@@ -173,7 +173,7 @@ const gp::type_desc* td_ptr_boom() {
 }
 
 const gp::method mut_methods[] = {
-    gp::method_of<gp::string()>("String", nullptr, "func() string", &thunk_mut_string)};
+    gp::method_of<gp::string(), &thunk_mut_string>("String", nullptr, "func() string")};
 const gp::type_desc td_mut =
     gp::named<Mut>("main.Mut", "main", gp::shape_struct(nullptr, 0), gp::methods_of(mut_methods));
 
@@ -350,7 +350,7 @@ void test_errorf() {
     }
     CHECK(unwrap != nullptr && std::string(unwrap->gp_sig) == "func() error");
     if (unwrap != nullptr) {
-        gp::error inner = reinterpret_cast<gp::thunk_t<gp::error()>*>(unwrap->gp_fn)(w);
+        gp::error inner = reinterpret_cast<gp::thunk_t<gp::error()>*>(unwrap->gp_fn())(w);
         CHECK(inner == ie);
     }
     gp::error two = fmt::Errorf("%w and %w"_gs, ie, ie);

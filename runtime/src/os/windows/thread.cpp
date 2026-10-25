@@ -49,9 +49,48 @@ const tls_indexes& tls() noexcept {
 // for its buffer, and the format code and Wine's handling more: 64 KiB.
 constexpr ULONG stack_guarantee = 64 * 1024;
 
+// Wine (its ntdll has wine_get_version) commits the whole stack of a thread and keeps one guard
+// page at its end, and on a CPU with a large XSAVE area (AVX-512) the exception frame of an
+// overflow does not fit in what is left below it: Wine ends the thread with "stack overflow"
+// before any handler runs (ADR-053). A guard page of the runtime's own, wine_margin above the end
+// of the stack, makes the overflow come while there is room: Wine raises STATUS_STACK_OVERFLOW
+// there, as Windows does at its guard page, and on_exception reports it. (The stack is wine_margin
+// shorter than it is; Windows itself is left as it is.)
+constexpr ULONG_PTR wine_margin = 2 * stack_guarantee;
+
+bool on_wine() noexcept {
+    static const bool wine = [] {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+    }();
+    return wine;
+}
+
+void wine_guard() noexcept {
+    ULONG_PTR lo = 0, hi = 0;
+    GetCurrentThreadStackLimits(&lo, &hi);
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    ULONG_PTR page = si.dwPageSize;
+    ULONG_PTR at = (lo + wine_margin + page - 1) / page * page;
+    if (lo == 0 || at + 4 * page >= hi) {
+        return; // a stack too small for the margin: Wine's own guard
+    }
+    MEMORY_BASIC_INFORMATION m;
+    if (VirtualQuery(reinterpret_cast<void*>(at), &m, sizeof m) == 0 || m.State != MEM_COMMIT ||
+        (m.Protect & PAGE_GUARD) != 0) {
+        return; // (Wine commits the stack: this one does not)
+    }
+    DWORD old = 0;
+    VirtualProtect(reinterpret_cast<void*>(at), page, PAGE_READWRITE | PAGE_GUARD, &old);
+}
+
 void ensure_guarantee() noexcept {
     ULONG size = stack_guarantee;
     SetThreadStackGuarantee(&size);
+    if (on_wine()) {
+        wine_guard();
+    }
 }
 
 // The smallest stack of a thread of thread_start: the guarantee must fit with room for the

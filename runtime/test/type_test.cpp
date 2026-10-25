@@ -481,11 +481,14 @@ void test_interning() {
 // The descriptors of named types, with their method tables.
 void test_named() {
     using namespace gp;
-    static const method vm[] = {
-        method_of<double()>("Area", nullptr, "func() float64", &thunk_area)};
-    static const method pm[] = {
-        method_of<double()>("Area", nullptr, "func() float64", &thunk_area),
-        method_of<void(double)>("Scale", nullptr, "func(float64)", &thunk_scale)};
+    // constinit: a method table is constant-initialized (method_of is a constant expression), so
+    // nothing of it is made at program start (a host's C constructor may call into a library
+    // before its static initialization).
+    static constinit const method vm[] = {
+        method_of<double(), &thunk_area>("Area", nullptr, "func() float64")};
+    static constinit const method pm[] = {
+        method_of<double(), &thunk_area>("Area", nullptr, "func() float64"),
+        method_of<void(double), &thunk_scale>("Scale", nullptr, "func(float64)")};
     static const field_desc fields[] = {field_desc("W", nullptr, &td_float64),
                                         field_desc("H", nullptr, &td_float64)};
     static const type_desc td_Rect =
@@ -509,8 +512,8 @@ void test_named() {
     CHECK(td_ptr<int64_t>(&td_int)->gp_nmethods == 0);
     CHECK(methods_sorted(pm, 2));
     // The thunks are stored as they are.
-    CHECK(pm[0].gp_fn == reinterpret_cast<gp::fn_ptr>(&thunk_area));
-    CHECK(pm[1].gp_fn == reinterpret_cast<gp::fn_ptr>(&thunk_scale));
+    CHECK(pm[0].gp_fn() == reinterpret_cast<gp::fn_ptr>(&thunk_area));
+    CHECK(pm[1].gp_fn() == reinterpret_cast<gp::fn_ptr>(&thunk_scale));
     CHECK(std::string(pm[1].gp_sig) == "func(float64)");
     // == and hash from the C++ type.
     CHECK(td_equal(&td_Rect, Rect{1, 2}, Rect{1, 2}) &&

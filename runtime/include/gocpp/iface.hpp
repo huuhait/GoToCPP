@@ -63,7 +63,7 @@
 // and the method table entries, in their sorted order:
 //
 //     inline const gp::method gp_vm_Rect[] = {
-//         gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area), };
+//         gp::method_of<double(), &gp_thunk_Rect_Area>("Area", nullptr, "func() float64"), };
 //
 // A static conversion (a value of the concrete type T assigned to an interface I, which Go
 // checks at compile time) is gp::to_iface<I>(value, descriptor): it boxes the value and finds

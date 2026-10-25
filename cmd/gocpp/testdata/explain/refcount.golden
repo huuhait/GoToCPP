@@ -73,7 +73,8 @@ The C++ that gocpp emit -annotate writes for it:
     static_assert(sizeof(point) == 16 && alignof(point) == 8);
 
     extern const gp::type_desc gp_td_point;
-    extern const gp::type_desc* const gp_tdc_0;
+    extern const gp::type_desc* gp_tdc_0_p;
+    [[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
     void main();
 
     } // namespace gpkg_main
@@ -119,7 +120,7 @@ The C++ that gocpp emit -annotate writes for it:
     //     non-pointer type with an Error method is, see the allocation note)
     // gp[checks] col 14: *p: dereferences a gp::ptr, which checks for nil and panics like Go (gocpp
     //     build -nochecks removes it)
-        gp::fmt::Println(gp::fmt::as(&gp_td_point, *p), gp::fmt::as(gp_tdc_0, xs));
+        gp::fmt::Println(gp::fmt::as(&gp_td_point, *p), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), xs));
 
     // ---- ./refcount.gp:14: }
     }
@@ -134,7 +135,10 @@ The C++ that gocpp emit -annotate writes for it:
     static const gp::type_desc* gp_full_point();
     const gp::type_desc gp_td_point = gp::named<point>("main.point", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_point));
 
-    const gp::type_desc* const gp_tdc_0 = gp::td_slice<int64_t>(&gp::td_int);
+    constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+    [[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+        return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<int64_t>(&gp::td_int));
+    }
 
     static const gp::type_desc* gp_full_point() {
         static const gp::field_desc gp_f[]{gp::field_desc("x", "main", &gp::td_int, nullptr, false, gp::offset_of(&point::x)), gp::field_desc("y", "main", &gp::td_int, nullptr, false, gp::offset_of(&point::y))};

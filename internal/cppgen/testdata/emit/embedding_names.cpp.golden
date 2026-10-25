@@ -78,8 +78,14 @@ inline const gp::type_desc gp_td_Item = gp::named<Item>("main.Item", "main", gp:
 inline const gp::type_desc* gp_full_Pair();
 inline const gp::type_desc gp_td_Pair = gp::named<Pair>("main.Pair", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Pair));
 
-static const gp::type_desc* const gp_tdc_0 = gp::td_slice<gpkg_main::Pair>(&gp_td_Pair);
-static const gp::type_desc* const gp_tdc_1 = gp::td_array<gpkg_main::Item, 2>(&gp_td_Item);
+static constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<gpkg_main::Pair>(&gp_td_Pair));
+}
+static constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_array<gpkg_main::Item, 2>(&gp_td_Item));
+}
 
 inline const gp::type_desc* gp_full_Item() {
     static const gp::field_desc gp_f[]{gp::field_desc("id", "main", &gp::td_int, nullptr, false, gp::offset_of(&Item::id))};
@@ -131,7 +137,7 @@ gpkg_main::Item Outer::Total() const {
 
 void main() {
     Outer o{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<gpkg_main::Pair>(gpkg_main::Pair{1, 2})};
-    { auto gp_t0 = o.Base.Item(); auto gp_t1 = o.Base.Pair(); auto gp_t2 = Base::Take(gp::borrow(&o.Base), gpkg_main::Item{1}, gp::lend(o.Mine2)); auto gp_t3 = o.Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp_tdc_0, gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp_tdc_1, o.Arr), o.M == nullptr, o.F == nullptr); }
+    { auto gp_t0 = o.Base.Item(); auto gp_t1 = o.Base.Pair(); auto gp_t2 = Base::Take(gp::borrow(&o.Base), gpkg_main::Item{1}, gp::lend(o.Mine2)); auto gp_t3 = o.Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gp_t1), gp_t2, gp::fmt::as(&gp_td_Item, gp_t3), gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), o.Arr), o.M == nullptr, o.F == nullptr); }
 }
 
 } // namespace gpkg_main

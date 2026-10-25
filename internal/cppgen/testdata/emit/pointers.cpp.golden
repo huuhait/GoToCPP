@@ -13,10 +13,14 @@ int64_t bump(gp::bptr<int64_t> p);
 
 #line 11 "$DIR/pointers.gp"
 constinit int64_t g = 3;
-constinit gp::ptr<int64_t> gptr{};
-constinit gp::ptr<int64_t> gnew{};
-constinit gp::ptr<int64_t> gaddr{};
+constinit gp::keep<gp::ptr<int64_t>> gp_keep_gptr{};
+constinit gp::keep<gp::ptr<int64_t>> gp_keep_gnew{};
+constinit gp::keep<gp::ptr<int64_t>> gp_keep_gaddr{};
 
+inline constexpr gp::ptr<int64_t>& gptr = gp_keep_gptr.gp_v;
+inline constexpr gp::ptr<int64_t>& gnew = gp_keep_gnew.gp_v;
+inline constexpr gp::ptr<int64_t>& gaddr = gp_keep_gaddr.gp_v;
+#line 16 "$DIR/pointers.gp"
 void inc(gp::bptr<int64_t> p) {
     (*p)++;
 }

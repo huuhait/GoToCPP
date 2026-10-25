@@ -1,10 +1,12 @@
 // phase: 09
 // std-internal: tests internal/godebug, which only the standard library may import
 
+//go:build !windows
+
 // internal/godebug gives the value of the last "name=value" of $GODEBUG for the name, "" when there
 // is none, and a change of the variable through os.Setenv or os.Unsetenv shows at the next call (the
 // value is kept until then). A change that the C library makes is not seen, as in Go, until the
-// program sets the variable again.
+// program sets the variable again. (Windows: shim_win_godebug, with the C library's _putenv_s.)
 package main
 
 import (

@@ -1532,8 +1532,8 @@ return fmt.Errorf("read %s: %w", name, err)
 ```
 ```cpp
 gp::fmt::Println(n, s, ok);                                   // C++ says the Go type: no descriptor
-gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp_tdc_0, xs), gp::fmt::as(&gp::td_int64, big), err);
-gp::fmt::Printf("%5d|%-6.2f|%v\n"_gs, n, f, gp::fmt::as(gp_tdc_1, m));
+gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), xs), gp::fmt::as(&gp::td_int64, big), err);
+gp::fmt::Printf("%5d|%-6.2f|%v\n"_gs, n, f, gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), m));
 gp::fmt::Fprintln(gp::fmt::stderr_, "failed:"_gs, err);
 return gp::fmt::Errorf("read %s: %w"_gs, name, err);
 ```
@@ -1682,10 +1682,12 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   ```
 
   ```cpp
-  constinit int64_t total{};
-  constinit gp::slice<int64_t> values{};
+  constinit int64_t total{};                     // a number: a plain constinit object
+  extern gp::keep<gp::slice<int64_t>> gp_keep_values;       // pkg.hpp: storage that is never destroyed
+  inline constexpr gp::slice<int64_t>& values = gp_keep_values.gp_v; // the variable's name: an address constant
+  constinit gp::keep<gp::slice<int64_t>> gp_keep_values{};  // pkg_init.cpp
   constinit point origin{1, 2};                  // a literal of constants: at compile time
-  constinit gp::array<int64_t, 2097152> cells{};
+  constinit gp::array<int64_t, 2097152> cells{};  // an array of numbers is plain too
 
   void gp_init_1() { gp::println(total); }
 
@@ -1707,6 +1709,18 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   initialized. This is the order of `load.Program.Packages`; the emitter writes `gp_init_all()` in
   `pkg_init.cpp` of the main package, with a call of `gp_var_init()` and `gp_init_funcs()` of each
   package that has any (each declared in its `pkg.hpp`).
+- A package variable whose type owns something (a string, slice, map, pointer, interface, channel or
+  func, or a struct or array of them) is the member `gp_v` of `gp::keep<T>` storage (`gocpp/lazy.hpp`),
+  which is never destroyed, as Go destroys no package variable: a union with an empty destructor (a
+  host's `exit()` would otherwise destroy a library's variables under its running goroutines). In
+  `pkg.hpp` the storage is `extern gp::keep<T> gp_keep_x;` and the variable's name is
+  `inline constexpr T& x = gp_keep_x.gp_v;`, an address constant (not a reference variable in memory:
+  alias analysis would see an escaped object), defined in `pkg_init.cpp` as `constinit gp::keep<T>
+  gp_keep_x{...}`; every use is a use of the object
+  ([ADR-093](../adr/093-package-variables-of-c-classes-are-lazy-storage.md), addendum 2). A variable of
+  a trivially destructible type (numbers, complex numbers and bools, and arrays and structs of them)
+  is a plain `constinit T x{...};` with `extern T x;` in `pkg.hpp`. An exported constant of a named type
+  is kept the same way (`inline constexpr const T& x`).
 - Package variables are declared `constinit`, so C++ runs no dynamic initializers of its own,
   and no static initializer can read a variable of another C++ file before `gp_var_init()` has
   run (C++'s "static initialization order fiasco" can't happen). A variable with a constant
@@ -1729,6 +1743,12 @@ Here package `main` imports `b` and `c`, and `b` imports `z`. Go 1.25 runs the i
   name, a constant reference), `static const gp::lazy_boot gp_boot_x{gp_lazy_x};` and, first in
   `gp_var_init()`, `gp_lazy_x.gp_ensure();`. The object is built (`T{}`) by whichever comes first, so a
   library's early `gp_var_init()` is not wiped by the dynamic initializer, and never destroyed.
+  The same storage is used for a variable of an owning type (a string, slice, map, pointer, interface,
+  channel or func, or a struct or array of them) with more than 65536 such objects, for example `var
+  big [1 << 21]string`: clang++ ends a constant evaluation after 1 M steps ("variable does not have a
+  constant initializer"), so the variable cannot be `constinit` there (`maxConstinitLeaves`, `leafObjects`
+  in `internal/lower`); a small array (`[1 << 12]Rec`) stays `gp::keep` and `constinit`. Its `gp_boot_x`
+  dynamic initializer builds the zero value only when `gp_var_init` has not, as for a class.
 - `gp::run_main(argc, argv, init, main)` stores the arguments (for `os.Args`), runs the init
   function, runs `main`, and exits with code 0. An unrecovered panic prints `panic: <message>`,
   `goroutine 1 [running]:` and a stack trace, and exits with code 2, as in Go (see
@@ -1969,10 +1989,10 @@ inline void gp_thunk_pRect_Scale(const gp::iface& self, double k) {
 
 // the method tables, sorted (exported names by name, then unexported ones by name and package)
 inline const gp::method gp_vm_Rect[] = {   // the method set of Rect: the value methods
-    gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area)};
+    gp::method_of<double(), &gp_thunk_Rect_Area>("Area", nullptr, "func() float64")};
 inline const gp::method gp_pm_Rect[] = {   // the method set of *Rect: all of them
-    gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pRect_Area),
-    gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &gp_thunk_pRect_Scale)};
+    gp::method_of<double(), &gp_thunk_pRect_Area>("Area", nullptr, "func() float64"),
+    gp::method_of<void(double), &gp_thunk_pRect_Scale>("Scale", nullptr, "func(float64)")};
 inline const gp::imethod gp_im_Shape[] = {
     gp::imethod("Area", nullptr, "func() float64"), gp::imethod("Scale", nullptr, "func(float64)")};
 
@@ -2021,11 +2041,15 @@ if (gp::type_is(gp_x0, &gp_td_Rect)) { Rect v = gp::unbox<Rect>(gp_x0); ... } el
   is its position in the interface's methods sorted as the runtime's tables are (exported names by name,
   then unexported ones by name and package). An interface that embeds others has all their methods.
 - **Descriptors.** A named type that is not an interface has `gp_td_T` (`gp::named<T>(...)`) with its
-  two method tables and the thunks (above); a named interface has `gp_td_I` and `gp_im_I`; every
-  other type is a namespace-level `static const gp::type_desc* const gp_tdc_N` (`gp_tdp_T` for `*T`),
-  made at program start from the descriptors of its parts and interned by the runtime. (In the split
-  layout the descriptors are `extern` in `pkg.hpp` and defined in `pkg_desc.cpp`, and the
-  composite ones are plain `const` pointers there; a package that converts a type of another package
+  two method tables and the thunks (above), all constant-initialized (`gp::method_of<Sig, &thunk>` is a
+  constant expression); a named interface has `gp_td_I` and `gp_im_I`; every other type is
+  `gp::desc_get<&gp_tdc_N_p, &gp_tdc_N_make>()` (`gp_tdp_T` for `*T`): a constant-initialized pointer, null until
+  `gp_tdc_N_make()` makes the descriptor the first time it is asked, from the descriptors of its parts, interned
+  by the runtime, and stores it (the use is an inlined load and test at -O0, a const function that the
+  compilers hoist out of loops when they optimize). Nothing of a descriptor is made at
+  program start, so a library's package initialization works also when a host's C constructor runs it
+  before the library's static initialization. (In the split layout the descriptors are `extern` in
+  `pkg.hpp` and defined in `pkg_desc.cpp`, and so are the composite ones' pointers and makers; a package that converts a type of another package
   to an interface asks that package to define the descriptor and writes `&::gpkg_geom::gp_td_Point`,
   so the type has one descriptor in the program. The unit layout shows the `inline` and `static`
   forms of this section.) The
@@ -2223,7 +2247,7 @@ method tables must be sorted (exported names by name, then unexported ones by na
   `[]int`, of `int` and the itab are all different pointers, so `x.(T)` would fail across the
   boundary). Phase 06's `c-shared` mode keeps Go values out of its C interface.
 
-**What the compilers check.** `gp::method_of<Sig>(...)` has a `static_assert` that the thunk's type is
+**What the compilers check.** `gp::method_of<Sig, &thunk>(...)` has a `static_assert` that the thunk's type is
 `R(const gp::iface&, A...)` for the method's C++ signature, and the emitter writes
 `static_assert(gp::thunk_matches<Sig, decltype(&thunk)>, ...)` for every method of a type at a static
 conversion, so a C type that `go/types` can't tell from another is a compile error at the `.gp` line
@@ -2674,7 +2698,7 @@ gp::slice<gp::string> gp_inst_33fba50d_Map(gp::slice<int64_t> xs, gp::func<gp::s
 }
 
 void main() {
-    gp::fmt::Println(gp::fmt::as(gp_tdc_0, gpkg_main::gp_inst_33fba50d_Map(gp::slice_of<int64_t>({1, 2, 3}), ...)));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gpkg_main::gp_inst_33fba50d_Map(gp::slice_of<int64_t>({1, 2, 3}), ...)));
 }
 ```
 

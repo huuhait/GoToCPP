@@ -27,8 +27,10 @@ struct Event {
 static_assert(sizeof(Event) == 120 && alignof(Event) == 8);
 
 extern const gp::type_desc gp_td_Level;
-inline const Level Debug = Level(0);
-inline const Level Info = Level(1);
+inline constinit const gp::keep<Level> gp_keep_Debug{Level(0)};
+inline constexpr const Level& Debug = gp_keep_Debug.gp_v;
+inline constinit const gp::keep<Level> gp_keep_Info{Level(1)};
+inline constexpr const Level& Info = gp_keep_Info.gp_v;
 
 void main();
 
@@ -245,13 +247,13 @@ namespace gpkg_main {
 inline gp::string gp_thunk_Level_String(const gp::iface& gp_self) {
     return gp::unbox<Level>(gp_self).String();
 }
-inline const gp::method gp_vm_Level[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Level_String)};
+inline const gp::method gp_vm_Level[]{gp::method_of<gp::string(), &gp_thunk_Level_String>("String", nullptr, "func() string")};
 inline gp::string gp_thunk_pLevel_String(const gp::iface& gp_self) {
     gp::bptr<Level> gp_p = gp::unbox_borrow<Level>(gp_self);
     gp::check_wrap(gp_p, "value method main.Level.String called using nil *Level pointer");
     return gp_p->String();
 }
-inline const gp::method gp_pm_Level[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pLevel_String)};
+inline const gp::method gp_pm_Level[]{gp::method_of<gp::string(), &gp_thunk_pLevel_String>("String", nullptr, "func() string")};
 const gp::type_desc gp_td_Level = gp::named<Level>("main.Level", "main", gp::shape_basic(gp::kind::Int), gp::methods_of(gp_vm_Level), gp::methods_of(gp_pm_Level));
 
 } // namespace gpkg_main

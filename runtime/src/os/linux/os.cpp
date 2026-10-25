@@ -535,6 +535,15 @@ std::int64_t open_handles() noexcept {
     return n > 3 ? n - 3 : 0; // ".", ".." and the descriptor of the listing
 }
 
+void slot_handles(const wait_slot*, std::uintptr_t out[2]) noexcept {
+    out[0] = 0;
+    out[1] = 0;
+}
+
+bool handle_open(std::uintptr_t) noexcept {
+    return false;
+}
+
 } // namespace testing
 
 } // namespace gp::os

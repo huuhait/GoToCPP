@@ -38,7 +38,7 @@ std::tuple<int64_t, gp::error> safeDiv(int64_t a, int64_t b) {
 // gp[recover] col 8: this function calls recover(): it takes a ticket (gp::defer_ctx gp_dc) at
 //     entry; recover returns the panic value only when a deferred call of a panicking function
 //     calls it directly, as in Go
-        gp_df.gp_push_call_aware([err]<int = 1>() mutable -> void {
+        gp_df.gp_push_call_aware([err]<int = 1>() mutable GP_TRACE_FRAME -> void {
             gp::defer_ctx gp_dc = gp::take_defer_ctx();
 
 // ---- ./recover.gp:7: if r := recover(); r != nil {

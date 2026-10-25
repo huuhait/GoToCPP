@@ -221,7 +221,7 @@ Items inside a running job (see "Now") are not repeated here.
 - [x] 14.4: typed probes with the Windows target (done: 94c4a6d9, 14.6)
 - [x] 12.13c2 header locations in hover and go-to-definition (done: b392dcfe)
 - [x] 8.11: the stray files `a`, `a.cpp`, `xdg11/` at the repo root are gone (checked)
-- [x] `TestRuntimeObjectsHaveNoStaticInit` (done: 4966364a); `TestEditorFeaturesSweep` (semanticTokens, ac4cb183); `TestInteropUpToDate`; `TestProgramParallel` (not reproducible, 1 run); `TestStdlibStubs`/`TestGateNotesCurrent` (pass/skip on dev)
+- [x] `TestRuntimeObjectsHaveNoStaticInit` (done: 4966364a; regressed by dev.stdlows' shims.cpp, fixed again by dev.shimsinit); `TestEditorFeaturesSweep` (semanticTokens, ac4cb183); `TestInteropUpToDate`; `TestProgramParallel` (not reproducible, 1 run); `TestStdlibStubs`/`TestGateNotesCurrent` (pass/skip on dev)
 - [x] 5.4: an interface with a method named like a type compiles and runs (repro prints 3)
 - [x] 15.5 arm64 NEON group: not wanted, decided in runtime/include/gocpp/swiss.hpp:150 (SWAR as fast)
 - [x] 12.9 stray remote branch `origin/job/12-12.9`: deleted

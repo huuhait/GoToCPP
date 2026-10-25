@@ -37,7 +37,8 @@ The C++ that gocpp emit -annotate writes for it:
     namespace gpkg_main {
     void main();
 
-    extern gp::string greeting;
+    extern gp::keep<gp::string> gp_keep_greeting;
+    inline constexpr gp::string& greeting = gp_keep_greeting.gp_v;
 
     } // namespace gpkg_main
     //// gpkg/command-line-arguments/files.gp.cpp

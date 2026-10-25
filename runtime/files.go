@@ -60,7 +60,7 @@ func FS() fs.FS {
 // goos (a GOOS value: "linux", "windows") is compiled with: src/*.cpp and src/os/<goos>/*.cpp,
 // sorted. For an OS that has no OS layer, it returns only the portable files. The files of
 // package testing (their names start with "testing") are not among them: only a program that
-// imports testing is linked with them (TestingSources), because they replace the global
+// imports testing or testing/internal/testdeps is linked with them (TestingSources), because they replace the global
 // operator new (to count allocations) and hold the regular expression translator.
 func Sources(goos string) []string {
 	return sources(goos, false)
@@ -68,8 +68,8 @@ func Sources(goos string) []string {
 
 // TestingSources returns the paths in FS of the .cpp files of package testing (src/testing*.cpp and
 // src/os/<goos>/testing*.cpp), sorted: the natives of stdlib/testing and of testing/internal/testdeps
-// (gocpp/testing.hpp). The driver compiles and links them into the programs that import testing,
-// and into no other. (With one archive for the runtime, the linker takes these objects only when
+// (gocpp/testing.hpp). The driver compiles and links them into the programs that import one of
+// the two, and into no other. (With one archive for the runtime, the linker takes these objects only when
 // something refers to them; the natives of the testing package do.)
 func TestingSources(goos string) []string {
 	return sources(goos, true)

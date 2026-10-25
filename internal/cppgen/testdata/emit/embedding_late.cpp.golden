@@ -100,7 +100,7 @@ inline gp::slice<Pair> gp_thunk_Outer_Pair(const gp::iface& gp_self) {
 inline Item gp_thunk_Outer_Total(const gp::iface& gp_self) {
     return gp::unbox<Outer>(gp_self).Total();
 }
-inline const gp::method gp_vm_Outer[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_Outer_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_Outer_Pair), gp::method_of<Item()>("Total", nullptr, "func() main.Item", &gp_thunk_Outer_Total)};
+inline const gp::method gp_vm_Outer[]{gp::method_of<Item(), &gp_thunk_Outer_Item>("Item", nullptr, "func() main.Item"), gp::method_of<gp::slice<Pair>(), &gp_thunk_Outer_Pair>("Pair", nullptr, "func() []main.Pair"), gp::method_of<Item(), &gp_thunk_Outer_Total>("Total", nullptr, "func() main.Item")};
 inline Item gp_thunk_pOuter_Item(const gp::iface& gp_self) {
     return gp::unbox_borrow<Outer>(gp_self)->Item();
 }
@@ -118,7 +118,7 @@ inline Item gp_thunk_pOuter_Total(const gp::iface& gp_self) {
 inline Pair gp_thunk_pOuter_Use(const gp::iface& gp_self, Item gp_a0, Pair gp_a1) {
     return Outer::Use(gp::unbox_borrow<Outer>(gp_self), static_cast<Item&&>(gp_a0), static_cast<Pair&&>(gp_a1));
 }
-inline const gp::method gp_pm_Outer[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_pOuter_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_pOuter_Pair), gp::method_of<int64_t(Item, gp::ptr<Pair>)>("Take", nullptr, "func(main.Item, *main.Pair) int", &gp_thunk_pOuter_Take), gp::method_of<Item()>("Total", nullptr, "func() main.Item", &gp_thunk_pOuter_Total), gp::method_of<Pair(Item, Pair)>("Use", nullptr, "func(main.Item, main.Pair) main.Pair", &gp_thunk_pOuter_Use)};
+inline const gp::method gp_pm_Outer[]{gp::method_of<Item(), &gp_thunk_pOuter_Item>("Item", nullptr, "func() main.Item"), gp::method_of<gp::slice<Pair>(), &gp_thunk_pOuter_Pair>("Pair", nullptr, "func() []main.Pair"), gp::method_of<int64_t(Item, gp::ptr<Pair>), &gp_thunk_pOuter_Take>("Take", nullptr, "func(main.Item, *main.Pair) int"), gp::method_of<Item(), &gp_thunk_pOuter_Total>("Total", nullptr, "func() main.Item"), gp::method_of<Pair(Item, Pair), &gp_thunk_pOuter_Use>("Use", nullptr, "func(main.Item, main.Pair) main.Pair")};
 inline const gp::type_desc* gp_full_Outer();
 inline const gp::type_desc gp_td_Outer = gp::named<Outer>("main.Outer", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Outer), gp::methods_of(gp_vm_Outer), gp::methods_of(gp_pm_Outer));
 
@@ -134,7 +134,7 @@ inline Item gp_thunk_Base_Item(const gp::iface& gp_self) {
 inline gp::slice<Pair> gp_thunk_Base_Pair(const gp::iface& gp_self) {
     return gp::unbox<Base>(gp_self).Pair();
 }
-inline const gp::method gp_vm_Base[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_Base_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_Base_Pair)};
+inline const gp::method gp_vm_Base[]{gp::method_of<Item(), &gp_thunk_Base_Item>("Item", nullptr, "func() main.Item"), gp::method_of<gp::slice<Pair>(), &gp_thunk_Base_Pair>("Pair", nullptr, "func() []main.Pair")};
 inline Item gp_thunk_pBase_Item(const gp::iface& gp_self) {
     gp::bptr<Base> gp_p = gp::unbox_borrow<Base>(gp_self);
     gp::check_wrap(gp_p, "value method main.Base.Item called using nil *Base pointer");
@@ -148,17 +148,29 @@ inline gp::slice<Pair> gp_thunk_pBase_Pair(const gp::iface& gp_self) {
 inline int64_t gp_thunk_pBase_Take(const gp::iface& gp_self, Item gp_a0, gp::ptr<Pair> gp_a1) {
     return Base::Take(gp::unbox_borrow<Base>(gp_self), static_cast<Item&&>(gp_a0), gp::lend(static_cast<gp::ptr<Pair>&&>(gp_a1)));
 }
-inline const gp::method gp_pm_Base[]{gp::method_of<Item()>("Item", nullptr, "func() main.Item", &gp_thunk_pBase_Item), gp::method_of<gp::slice<Pair>()>("Pair", nullptr, "func() []main.Pair", &gp_thunk_pBase_Pair), gp::method_of<int64_t(Item, gp::ptr<Pair>)>("Take", nullptr, "func(main.Item, *main.Pair) int", &gp_thunk_pBase_Take)};
+inline const gp::method gp_pm_Base[]{gp::method_of<Item(), &gp_thunk_pBase_Item>("Item", nullptr, "func() main.Item"), gp::method_of<gp::slice<Pair>(), &gp_thunk_pBase_Pair>("Pair", nullptr, "func() []main.Pair"), gp::method_of<int64_t(Item, gp::ptr<Pair>), &gp_thunk_pBase_Take>("Take", nullptr, "func(main.Item, *main.Pair) int")};
 inline const gp::type_desc* gp_full_Base();
 inline const gp::type_desc gp_td_Base = gp::named<Base>("main.Base", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Base), gp::methods_of(gp_vm_Base), gp::methods_of(gp_pm_Base));
 
-static const gp::type_desc* const gp_tdp_Outer = gp::td_ptr<Outer>(&gp_td_Outer);
-static const gp::type_desc* const gp_tdp_Pair = gp::td_ptr<Pair>(&gp_td_Pair);
-static const gp::type_desc* const gp_tdc_2 = gp::td_array<Item, 2>(&gp_td_Item);
-static const gp::type_desc* const gp_tdc_3 = gp::td_func<gp::func<Pair(Item)>>({&gp_td_Item}, {&gp_td_Pair}, false);
+static constinit const gp::type_desc* gp_tdp_Outer_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdp_Outer_make() {
+    return gp::desc_publish(&gp_tdp_Outer_p, gp::td_ptr<Outer>(&gp_td_Outer));
+}
+static constinit const gp::type_desc* gp_tdp_Pair_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdp_Pair_make() {
+    return gp::desc_publish(&gp_tdp_Pair_p, gp::td_ptr<Pair>(&gp_td_Pair));
+}
+static constinit const gp::type_desc* gp_tdc_2_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_2_make() {
+    return gp::desc_publish(&gp_tdc_2_p, gp::td_array<Item, 2>(&gp_td_Item));
+}
+static constinit const gp::type_desc* gp_tdc_3_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_3_make() {
+    return gp::desc_publish(&gp_tdc_3_p, gp::td_func<gp::func<Pair(Item)>>({&gp_td_Item}, {&gp_td_Pair}, false));
+}
 
 inline const gp::type_desc* gp_full_Outer() {
-    static const gp::field_desc gp_f[]{gp::field_desc("Base", nullptr, &gp_td_Base, nullptr, true, gp::offset_of(&Outer::Base)), gp::field_desc("Mine", nullptr, &gp_td_Item, nullptr, false, gp::offset_of(&Outer::Mine)), gp::field_desc("Mine2", nullptr, gp_tdp_Pair, nullptr, false, gp::offset_of(&Outer::Mine2)), gp::field_desc("Arr", nullptr, gp_tdc_2, nullptr, false, gp::offset_of(&Outer::Arr)), gp::field_desc("F", nullptr, gp_tdc_3, nullptr, false, gp::offset_of(&Outer::F))};
+    static const gp::field_desc gp_f[]{gp::field_desc("Base", nullptr, &gp_td_Base, nullptr, true, gp::offset_of(&Outer::Base)), gp::field_desc("Mine", nullptr, &gp_td_Item, nullptr, false, gp::offset_of(&Outer::Mine)), gp::field_desc("Mine2", nullptr, gp::desc_get<&gp_tdp_Pair_p, &gp_tdp_Pair_make>(), nullptr, false, gp::offset_of(&Outer::Mine2)), gp::field_desc("Arr", nullptr, gp::desc_get<&gp_tdc_2_p, &gp_tdc_2_make>(), nullptr, false, gp::offset_of(&Outer::Arr)), gp::field_desc("F", nullptr, gp::desc_get<&gp_tdc_3_p, &gp_tdc_3_make>(), nullptr, false, gp::offset_of(&Outer::F))};
     static const gp::type_desc gp_d = gp::completed(gp_td_Outer, gp::shape_struct(gp_f, 5));
     return &gp_d;
 }
@@ -226,7 +238,7 @@ gpkg_main::Pair Outer::Use(gp::bptr<Outer> o, gpkg_main::Item i, gpkg_main::Pair
 
 void main() {
     gp::ptr<Outer> o = gp::new_<Outer>(Outer{.Base = Base{3}, .Mine = gpkg_main::Item{4}, .Mine2 = gp::new_<Pair>(Pair{1, 2})});
-    Taker m = gp::to_iface<Taker>(o, gp_tdp_Outer);
+    Taker m = gp::to_iface<Taker>(o, gp::desc_get<&gp_tdp_Outer_p, &gp_tdp_Outer_make>());
     { auto gp_t0 = o->Base.Item(); auto gp_t1 = m.Take(gpkg_main::Item{1}, o->Mine2); auto gp_t2 = o->Total(); gp::fmt::Println(gp::fmt::as(&gp_td_Item, gp_t0), gp_t1, gp::fmt::as(&gp_td_Item, gp_t2), gp::fmt::as(&gp_td_Pair, Outer::Use(gp::lend(o), gpkg_main::Item{1}, Pair{2, 3}))); }
 }
 

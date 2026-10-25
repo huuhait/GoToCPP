@@ -485,6 +485,135 @@ int main(void) { printf("main %d\n", (int)Peek()); return 0; }
 	})
 }
 
+// A host constructor that calls an exported function before the archive's static initialization
+// has run (its objects come after the host's in the link) works like a call from main: the package
+// initialization needs nothing that a dynamic initializer makes. The method tables are constant
+// (gp::method_of), the composite descriptors are interned at their first use, and the runtime's
+// state is constant or made at its first use (the timer heap, math's CPU flags: internal/build
+// TestRuntimeObjectsHaveNoStaticInit). Each package variable below needs one of them: an itab
+// built from a method table, the descriptor of *pe, errors' and fmt's own initialization with a
+// []int descriptor, a timer armed in init, floor (math's CPU flag).
+func TestModesCArchiveEarlyCallPackages(t *testing.T) {
+	t.Setenv("GOCPP_GATE_PHASE", "09") // math
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		dir := inDir(t, map[string]string{
+			"gocpp.mod": "module example.com/earlylib\n",
+			"lib.gp": `package main
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"time"
+)
+
+type T struct{ n int32 }
+
+func (t T) M() int32 { return t.n + 7 }
+
+type I interface{ M() int32 }
+
+type pe struct{ s string }
+
+func (p *pe) Error() string { return p.s }
+
+var (
+	v     I     = T{1}
+	e     error = &pe{"pe"}
+	errNo       = errors.New("no")
+	s           = fmt.Sprint(3, "x", []int{1, 2})
+	fl          = math.Floor(2.5)
+	tm    *time.Timer
+)
+
+func init() { tm = time.AfterFunc(time.Hour, func() {}) }
+
+//export Get
+func Get() int32 {
+	time.Sleep(time.Millisecond)
+	r := v.M() + int32(len(e.Error())+len(errNo.Error())+len(s)) + int32(fl)
+	if tm.Stop() {
+		tm.Reset(time.Hour)
+		r += 100
+	}
+	return r
+}
+
+func main() {}
+`,
+			"host/main.c": `#include <stdio.h>
+#include "libfx.h"
+__attribute__((constructor)) static void early(void) { printf("early %d\n", (int)Get()); }
+int main(void) { printf("main %d\n", (int)Get()); return 0; }
+`,
+		})
+		lib := buildLib(t, "c-archive", "libfx.a")
+		compileC(t, c, dir, "prog", "host/main.c", lib, "-lstdc++", "-pthread", "-lm", "-ldl")
+		out, errOut, code := runCmd(t, dir, nil, filepath.Join(dir, "prog"))
+		// 8 (v.M()) + 2 ("pe") + 2 ("no") + 7 ("3x[1 2]") + 2 (floor) + 100 (the timer was armed)
+		const want = "early 121\nmain 121\n"
+		if code != 0 || out != want || errOut != "" {
+			t.Errorf("exit %d\nstdout: %q (want %q)\nstderr: %s", code, out, want, errOut)
+		}
+	})
+}
+
+// exitLibFixture is a library whose goroutine runs on while the host's exit() ends the process: it
+// uses package variables (a slice of strings, a map) all the time. Go runs no destructor of a
+// package variable, and neither may gocpp (gp::keep storage, ADR-093): a destroyed slice or map
+// under the goroutine crashed the host at exit in most runs.
+var exitLibFixture = map[string]string{
+	"gocpp.mod": "module example.com/exitlib\n",
+	"lib.gp": `package main
+
+import "strings"
+
+var words = []string{"alpha", "beta", "gamma"}
+var table = map[string][]int{"a": {1, 2, 3}}
+
+var sink int
+
+//export Start
+func Start() {
+	go func() {
+		for {
+			s := strings.Join(words, ",")
+			sink += len(s) + len(table["a"])
+		}
+	}()
+}
+
+func main() {}
+`,
+	"host/main.c": `#include "libfx.h"
+int main(void) { Start(); for (volatile int i = 0; i < 10000000; i++) {} return 0; }
+`,
+}
+
+func TestModesLibraryExitWhileGoroutineRuns(t *testing.T) {
+	t.Setenv("GOCPP_GATE_PHASE", "09") // strings
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		for _, mode := range []string{"c-archive", "c-shared"} {
+			t.Run(mode, func(t *testing.T) {
+				dir := inDir(t, exitLibFixture)
+				if mode == "c-archive" {
+					lib := buildLib(t, mode, "libfx.a")
+					compileC(t, c, dir, "prog", "host/main.c", lib, "-lstdc++", "-pthread", "-lm", "-ldl")
+				} else {
+					buildLib(t, mode, "libfx.so")
+					compileC(t, c, dir, "prog", "host/main.c", "-L.", "-lfx", "-Wl,-rpath,"+dir, "-pthread")
+				}
+				for i := 0; i < 20; i++ {
+					out, errOut, code := runCmd(t, dir, nil, filepath.Join(dir, "prog"))
+					if code != 0 || out != "" || errOut != "" {
+						t.Fatalf("run %d: exit %d\nstdout: %q\nstderr: %s", i, code, out, errOut)
+					}
+				}
+			})
+		}
+	})
+}
+
 func TestModesCArchive(t *testing.T) {
 	t.Setenv("GOCPP_GATE_PHASE", libGate)
 	forEachCXX(t, func(t *testing.T, c testCXX) {

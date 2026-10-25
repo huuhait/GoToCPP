@@ -110,8 +110,8 @@ GOCPP_TEST_TARGET=windows go test ./tests -run 'TestRunWindows|TestWindowsProgra
 
 With `GOCPP_WINDOWS_SSH` the programs run on a real Windows PC over ssh (key authentication; they land in
 `%USERPROFILE%\gocpp-wintest\<run>\`, which is deleted at the end); without it, under Wine in an isolated
-prefix (Wine is not Windows: Wine 11.0 on AVX-512 CPUs cannot dispatch a stack overflow, and that
-program is skipped there). `TestRunWindows` builds the run tests listed in `tests/windows_sample.txt`
+prefix (Wine is not Windows: Wine 11.0 on AVX-512 CPUs cannot dispatch a stack overflow at its own
+guard page; the runtime puts one of its own higher up under Wine, so that program passes there too). `TestRunWindows` builds the run tests listed in `tests/windows_sample.txt`
 for Windows and runs them, with the same expectations as `TestRun`; `GOCPP_TEST_WINDOWS=all` runs every run test that
 `tests/windows_skip.txt` does not name, and each skip says why. `GOCPP_WINE_JOBS` (default 4) limits the
 programs that run under Wine at once, `GOCPP_REQUIRE_WINE=1` makes a missing wine or compiler a failure.

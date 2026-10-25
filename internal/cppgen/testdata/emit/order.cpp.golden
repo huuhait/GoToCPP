@@ -19,14 +19,14 @@ void main();
 #line 8 "$DIR/order.gp"
 constinit int64_t x = 1;
 constinit int64_t n = 0;
-constinit gp::string s{gp::static_bytes, "abc", 3};
+constinit gp::keep<gp::string> gp_keep_s{{gp::static_bytes, "abc", 3}};
 #line 13 "$DIR/order.gp"
 constinit int64_t first{};
 constinit int64_t p1{};
 #line 14 "$DIR/order.gp"
 constinit int64_t p2{};
 
-#line 17 "$DIR/order.gp"
+inline constexpr gp::string& s = gp_keep_s.gp_v;
 int64_t next() {
     n++;
     return n;

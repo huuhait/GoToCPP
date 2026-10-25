@@ -98,7 +98,7 @@ The C++ that gocpp emit -annotate writes for it:
     // gp[closures] col 8: func literal #1 is a C++ lambda (the stack trace names it func1); what it
     //     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
     //     value is wrapped in gp::func, whose copies share the captured state
-            gp_df.gp_push_call([fail, err]<int = 1>() mutable -> void {
+            gp_df.gp_push_call([fail, err]<int = 1>() mutable GP_TRACE_FRAME -> void {
 
     // ---- ./defer.gp:10: if fail {
     // gp[closures] col 6: captures fail by copy into the lambda: it never changes after the closure

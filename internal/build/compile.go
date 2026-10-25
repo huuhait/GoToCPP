@@ -144,6 +144,7 @@ type Builder struct {
 	LTO bool
 
 	ar       *archiverResult // the archiver of this build (archiver)
+	relr     *[]string       // the link flag of DT_RELR, once the link asked (relrFlags)
 	pchFresh sync.Map        // precompiled headers whose files were checked in this build (pch.go)
 
 	pchDone chan struct{}  // closed when the precompiled header that startPCH started is built

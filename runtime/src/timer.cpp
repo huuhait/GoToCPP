@@ -21,7 +21,7 @@ namespace gp::detail {
 
 // timer_rec is the record of one timer. It hangs on the channel object (chan_core::timer) and lives
 // as long as the channel does. Fields marked "heap" are guarded by the heap's mutex (the global
-// `h` below); the callbacks are set before the timer is armed and never change.
+// the_heap() below); the callbacks are set before the timer is armed and never change.
 struct timer_rec {
     timer_rec(chan_core* o, bool f) : owner(o), is_func(f) {}
     ~timer_rec();
@@ -91,7 +91,13 @@ struct heap {
     int busy = 0;
 };
 
-heap& h = *new heap;
+// the_heap is made at its first use (a function-local static: no initializer at program start, so
+// that a timer works in a library's package initialization that a host's C constructor runs
+// before the library's static initialization; internal/build TestRuntimeObjectsHaveNoStaticInit).
+heap& the_heap() {
+    static heap* const p = new heap;
+    return *p;
+}
 
 // ns of the wait until `when`, at most a day (the clock's arithmetic stays in range).
 std::chrono::nanoseconds wait_for(int64_t when, int64_t now) noexcept {
@@ -105,7 +111,7 @@ std::chrono::nanoseconds wait_for(int64_t when, int64_t now) noexcept {
 
 void thread_main();
 
-// sync_hint publishes the state of rec for timer_observe (h.mu held).
+// sync_hint publishes the state of rec for timer_observe (the heap's mutex held).
 void sync_hint(timer_rec* rec) {
     rec->hint.store(rec->sending || rec->firing ? INT64_MIN
                     : rec->armed                ? rec->when
@@ -113,17 +119,19 @@ void sync_hint(timer_rec* rec) {
                     std::memory_order_relaxed);
 }
 
-// ensure_thread starts the timer thread if it does not run (called with h.mu held).
+// ensure_thread starts the timer thread if it does not run (called with the heap's mutex held).
 void ensure_thread() {
+    heap& h = the_heap();
     if (!h.running) {
         h.running = true;
         std::thread(thread_main).detach();
     }
 }
 
-// arm puts rec into the map for `when` (h.mu held; rec is not armed). strong is the channel for an
-// AfterFunc timer, null for a channel timer, which the map holds weakly.
+// arm puts rec into the map for `when` (the heap's mutex held; rec is not armed). strong is the
+// channel for an AfterFunc timer, null for a channel timer, which the map holds weakly.
 void arm(timer_rec* rec, const std::shared_ptr<chan_core>& c, int64_t when, int64_t period) {
+    heap& h = the_heap();
     rec->when = when;
     rec->period = period;
     rec->armed = true;
@@ -143,9 +151,11 @@ void arm(timer_rec* rec, const std::shared_ptr<chan_core>& c, int64_t when, int6
     }
 }
 
-// disarm takes rec out of the map if it is there (h.mu held). The entry is returned, so that the
-// caller can drop it (the channel it holds strongly, maybe the last reference) after the unlock.
+// disarm takes rec out of the map if it is there (the heap's mutex held). The entry is returned, so
+// that the caller can drop it (the channel it holds strongly, maybe the last reference) after the
+// unlock.
 entry disarm(timer_rec* rec) {
+    heap& h = the_heap();
     entry e;
     if (rec->armed) {
         auto it = h.timers.find(key{rec->when, rec->id});
@@ -162,6 +172,7 @@ entry disarm(timer_rec* rec) {
 
 // end_send says that the send of rec is over (fire_mu is still held).
 void end_send(timer_rec* rec) {
+    heap& h = the_heap();
     std::lock_guard<std::mutex> lk(h.mu);
     rec->firing = false;
     sync_hint(rec);
@@ -172,6 +183,7 @@ void end_send(timer_rec* rec) {
 // holds the heap's lock, because a record that is being destroyed waits for that lock: after the
 // unlock, a channel that is held only weakly may be gone, record and all.)
 void fire(timer_rec* rec, const std::shared_ptr<chan_core>& c, uint64_t seq) {
+    heap& h = the_heap();
     if (rec->is_func) {
         // The goroutine gets its own copy of the function.
         gp::func<void()> f = rec->fn;
@@ -196,13 +208,14 @@ void fire(timer_rec* rec, const std::shared_ptr<chan_core>& c, uint64_t seq) {
     end_send(rec);
 }
 
-// begin_fire is what happens to a timer that is due, wherever it is noticed (h.mu held, e taken
-// out of the map): a ticker is armed for its next tick, which is one period after the one that is
-// due now, or the first one after the present when we are late (ticks are dropped, not queued:
-// Go's unlockAndRun); a one-shot timer is not armed any more. The send of a channel timer is
-// pending (`sending`) until it has been done, by the timer thread (fire) or by timer_observe,
+// begin_fire is what happens to a timer that is due, wherever it is noticed (the heap's mutex held,
+// e taken out of the map): a ticker is armed for its next tick, which is one period after the one
+// that is due now, or the first one after the present when we are late (ticks are dropped, not
+// queued: Go's unlockAndRun); a one-shot timer is not armed any more. The send of a channel timer
+// is pending (`sending`) until it has been done, by the timer thread (fire) or by timer_observe,
 // whichever takes fire_mu first. Returns how late the send is.
 void begin_fire(entry& e, int64_t due, int64_t now) {
+    heap& h = the_heap();
     timer_rec* rec = e.rec;
     int64_t delta = now - due;
     if (rec->period > 0) {
@@ -225,6 +238,7 @@ void begin_fire(entry& e, int64_t due, int64_t now) {
 }
 
 void thread_main() {
+    heap& h = the_heap();
     // This thread starts the goroutines of AfterFunc: it is the runtime's own, not a foreign one.
     adopt_internal();
     std::unique_lock<std::mutex> lk(h.mu);
@@ -273,8 +287,10 @@ void thread_main() {
 } // namespace
 
 timer_rec::~timer_rec() {
+    heap& h = the_heap();
     // The channel is gone: leave the map. (The thread holds the channel while it uses a record,
-    // so it is not inside this record. Called without h.mu: no code drops a channel with it held.)
+    // so it is not inside this record. Called without the heap's mutex: no code drops a channel
+    // with it held.)
     std::lock_guard<std::mutex> lk(h.mu);
     if (armed) {
         h.timers.erase(key{when, id});
@@ -283,6 +299,7 @@ timer_rec::~timer_rec() {
 
 void start_chan_timer(const std::shared_ptr<chan_core>& c, int64_t when, int64_t period,
                       gp::func<void(std::shared_ptr<chan_core>, int64_t)> send) {
+    heap& h = the_heap();
     auto rec = std::make_shared<timer_rec>(c.get(), false);
     rec->send = std::move(send);
     {
@@ -295,6 +312,7 @@ void start_chan_timer(const std::shared_ptr<chan_core>& c, int64_t when, int64_t
 }
 
 void start_func_timer(const std::shared_ptr<chan_core>& c, int64_t when, gp::func<void()> f) {
+    heap& h = the_heap();
     auto rec = std::make_shared<timer_rec>(c.get(), true);
     rec->fn = std::move(f);
     {
@@ -316,6 +334,7 @@ bool retime(const std::shared_ptr<chan_core>& c, chan_core* core, bool rearm, in
     if (rec == nullptr) {
         return false;
     }
+    heap& h = the_heap();
     // A channel timer: the lock that a running send holds. (AfterFunc has no send to wait for: a
     // goroutine that was started is not stopped by Stop, as in Go.)
     std::unique_lock<std::mutex> fire;
@@ -364,6 +383,7 @@ bool reset_timer(const std::shared_ptr<chan_core>& c, int64_t when, int64_t peri
 }
 
 void timer_observe(chan_core* core) {
+    heap& h = the_heap();
     timer_rec* rec = core->timer.get();
     if (rec->is_func) {
         return;
@@ -413,11 +433,13 @@ bool timer_try_send(chan_core* c, void* v) {
 }
 
 std::size_t timers_armed() noexcept {
+    heap& h = the_heap();
     std::lock_guard<std::mutex> lk(h.mu);
     return h.timers.size();
 }
 
 bool timers_can_wake() {
+    heap& h = the_heap();
     // The channels are held (strongly) in `keep` and dropped after the unlock: dropping the last
     // reference of a channel runs its record's destructor, which takes the heap's lock.
     std::vector<std::shared_ptr<chan_core>> keep;
@@ -445,13 +467,14 @@ bool timers_can_wake() {
 }
 
 void timers_shutdown() {
+    heap& h = the_heap();
     std::unique_lock<std::mutex> lk(h.mu);
     if (!h.running) {
         return;
     }
     h.stopping = true;
     h.cv.notify_all();
-    h.gone_cv.wait(lk, [] { return !h.running; });
+    h.gone_cv.wait(lk, [&h] { return !h.running; });
     h.stopping = false;
 }
 

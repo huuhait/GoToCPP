@@ -67,7 +67,17 @@ Things to know:
   memory that you free.
 - The runtime starts at the first call, from any thread; threads that C creates become goroutines on their own. Package
   variables and `init` run once, before the first exported function body.
+- The library takes the process's environment at that first call (of an exported function, or of
+  `gocpp_<name>::init()` in a cpp-lib): `os.Environ`, `os.Getenv` and the `$GODEBUG` settings start from what it is
+  then. Go's c-archive reads it when the program is loaded, so a host that calls `setenv` before its first call sees
+  its value in a gocpp library and not in Go's.
+- An exported function may be called from a C `__attribute__((constructor))` or a C++ static initializer of the host,
+  which run before the archive's own static initialization: the call works as from `main` (the type descriptors and
+  method tables are constants or made at their first use, and so is the runtime's state; a package variable of a C++
+  class is built by the package initialization, ADR-093). Go's c-archive hangs in such a call.
 - A panic that leaves an exported function prints Go's message and ends the process with status 2.
+- When the host's `main` returns or it calls `exit()`, the library's goroutines that still run go on until
+  the process ends, as with Go's libraries: no package variable is destroyed under them.
 - A shared library hides everything but the exports; two gocpp libraries can be loaded with `dlopen` into one
   process (each has its own runtime and globals) and unloaded with `dlclose`. A library that has a goroutine
   that has not ended (running or blocked) stays loaded: `dlclose` returns 0 and does nothing, as Go's c-shared

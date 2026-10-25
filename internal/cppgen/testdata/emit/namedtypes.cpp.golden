@@ -173,7 +173,10 @@ inline const gp::type_desc gp_td_Point = gp::named<Point>("main.Point", "main", 
 inline const gp::type_desc* gp_full_Moved();
 inline const gp::type_desc gp_td_Moved = gp::named<Moved>("main.Moved", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Moved));
 
-static const gp::type_desc* const gp_tdc_0 = gp::td_struct<gp_anon_b659807402d3b6d8>({gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::Y))});
+static constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_struct<gp_anon_b659807402d3b6d8>({gp::field_desc("X", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::X)), gp::field_desc("Y", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&gp_anon_b659807402d3b6d8::Y))}));
+}
 
 inline const gp::type_desc* gp_full_Pair() {
     static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp_td_Local, nullptr, false, gp::offset_of(&Pair::a)), gp::field_desc("b", "main", &gp_td_Local, nullptr, false, gp::offset_of(&Pair::b))};
@@ -209,12 +212,15 @@ void main();
 #line 55 "$DIR/namedtypes.gp"
 constinit Celsius gc = Celsius(21.5);
 #line 57 "$DIR/namedtypes.gp"
-constinit Name gn{gp::static_bytes, "pkg", 3};
+constinit gp::keep<Name> gp_keep_gn{{gp::static_bytes, "pkg", 3}};
 #line 59 "$DIR/namedtypes.gp"
 constinit Grid gg = Grid(gp::array<int64_t, 3>{7, 8, 9});
 #line 61 "$DIR/namedtypes.gp"
-constinit IDs gids{};
+constinit gp::keep<IDs> gp_keep_gids{};
 
+inline constexpr Name& gn = gp_keep_gn.gp_v;
+inline constexpr IDs& gids = gp_keep_gids.gp_v;
+#line 63 "$DIR/namedtypes.gp"
 Fahrenheit toF(Celsius c) {
     return Fahrenheit((c * Celsius(9.0) / Celsius(5.0) + Celsius(32.0)).gp_value());
 }
@@ -397,7 +403,7 @@ void conversions() {
 #line 208 "$DIR/namedtypes.gp"
         a = gp::convert<gp_anon_b659807402d3b6d8>(gp_it0.gp_v());
     }
-    gp::fmt::Println(gp::fmt::as(gp_tdc_0, a));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), a));
 }
 
 void main() {

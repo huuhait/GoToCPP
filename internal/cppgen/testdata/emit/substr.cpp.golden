@@ -12,9 +12,10 @@ void main();
 #line 9 "$DIR/substr.gp"
 constinit int64_t calls = 0;
 #line 16 "$DIR/substr.gp"
-constinit gp::string g{gp::static_bytes, "global", 6};
+constinit gp::keep<gp::string> gp_keep_g{{gp::static_bytes, "global", 6}};
 constinit int64_t n = 1;
 
+inline constexpr gp::string& g = gp_keep_g.gp_v;
 #line 11 "$DIR/substr.gp"
 int64_t next() {
     calls++;

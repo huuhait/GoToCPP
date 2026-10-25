@@ -8,7 +8,8 @@
 namespace gpkg_main {
 void main();
 
-extern gp::string greeting;
+extern gp::keep<gp::string> gp_keep_greeting;
+inline constexpr gp::string& greeting = gp_keep_greeting.gp_v;
 
 } // namespace gpkg_main
 //// gpkg/command-line-arguments/files.gp.cpp
@@ -39,7 +40,7 @@ namespace gpkg_main {
 // ---- ./files.gp:5: var greeting = "hello"
 // gp[initialization] col 5: package variable greeting is constinit: its initial value is a
 //     constant, so C++ has it at load time and no startup code runs
-constinit gp::string greeting{gp::static_bytes, "hello", 5};
+constinit gp::keep<gp::string> gp_keep_greeting{{gp::static_bytes, "hello", 5}};
 
 } // namespace gpkg_main
 

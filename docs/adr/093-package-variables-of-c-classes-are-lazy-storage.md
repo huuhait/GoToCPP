@@ -81,6 +81,68 @@ void gp_var_init() {
 - **Lazy construction at the first use** (a function-local static per access). It would add a guard check
   to every use of the variable; `gp_var_init` already is the one place that runs before any Go code.
 
+## Addendum (2026-10-24): an early call needs nothing of the static initialization
+
+The early call above ran `gp_var_init`, but anything else that the package initialization used and a
+dynamic initializer made was still missing: an interface conversion read the method tables of its type
+(`gp_vm_T`, `gp_pm_T`, dynamically initialized because `gp::method_of` stored the thunk with a
+`reinterpret_cast`) and crashed in `getitab`; the composite descriptors (`gp_tdc_N`, `gp_tdp_T`) were
+null; the runtime's timer heap and math's CPU flags were made at program start. Now none of them is:
+
+- `gp::method_of<Sig, &thunk>(...)` is a constant expression: the entry holds a pointer to a function
+  that gives the thunk (`gp::fn_getter`), so the tables are constant-initialized, with no cost at a call
+  through an itab (the itab holds the thunks themselves, as before).
+- A composite descriptor is a constant-initialized pointer `gp_tdc_N_p` that its maker
+  `gp_tdc_N_make()` fills at the first use (`gp::desc_get<&gp_tdc_N_p, &gp_tdc_N_make>()`: an acquire load
+  and a test at -O0; a const function when optimizing, which the compilers hoist out of loops, as they
+  did the namespace-scope const pointer of before).
+- The timer heap is a function-local static, math's `has_fma()` and `has_sse41()` look at the CPU at
+  their first call (a constant-initialized byte): `internal/build` `TestRuntimeObjectsHaveNoStaticInit`
+  allows no initializer in the runtime's objects but `testing.o`'s.
+
+`TestModesCArchiveEarlyCallPackages` calls from a host constructor a library whose initialization
+converts to interfaces, uses `errors`, `fmt` (with a `[]int`), `math.Floor` and arms a timer.
+
+## Addendum 2 (2026-10-24): no package storage is destroyed
+
+Every other package variable was `constinit T x{...}`, and a `T` with a destructor (a string, a slice,
+a map, an interface, a struct of them) was registered with `__cxa_atexit`. An executable never ran
+those (it ends with `gp::os::exit`), but a library's host that returns from `main` or calls `exit()`
+destroyed the variables while the library's goroutines still used them: a crash in 27 of 30 runs of a
+c-archive host, every run of a c-shared one, a heap-use-after-free under ASan. Go's c-archive runs no
+destructor. Now every package variable whose Go type owns something (a string, slice, map, pointer,
+interface, channel, func, or a struct or array of them) is the member of `gp::keep<T>` storage, a union
+whose destructor does nothing. A variable of a trivially destructible type (numbers, complex numbers, bools, arrays and
+structs of them) stays a plain `constinit T x{...}`: nothing is registered for it.
+
+```cpp
+extern gp::keep<gp::slice<gp::string>> gp_keep_words;                // pkg.hpp
+inline constexpr gp::slice<gp::string>& words = gp_keep_words.gp_v;  // pkg.hpp: the variable's name
+constinit gp::keep<gp::slice<gp::string>> gp_keep_words{};           // pkg_init.cpp
+```
+
+Every use names the variable, an `inline constexpr` reference to the member: an address constant, in
+every file, with no pointer object in memory. (The first version made the name a `constinit` reference
+variable: its address sat in a global initializer, alias analysis saw an escaped object, and a loop over
+another package's variable ran 68% slower with g++ `-release`.) The initialization is the variable's,
+constant as before. The exported constants of a named type (`pkg.hpp`, for C++ code) are kept the same way.
+A program has no start-up work for them, and the bench programs are smaller and start a little faster
+(a hello world: 2.09 against 2.25 MB with g++ `-release`). `TestModesLibraryExitWhileGoroutineRuns`
+runs the host 20 times for each compiler and mode. (g++ at `-O0` still registers the union's empty
+destructor; it destroys nothing.)
+
+## Addendum 3 (2026-10-24): large arrays of owning types are lazy too
+
+`var bigS [1 << 21]string` and `var bigP [1 << 20]*int` did not build with clang++ (also on dev):
+`constinit` makes the compiler build the object by constant evaluation, which clang++ ends after
+1 M steps ("variable does not have a constant initializer"). A package variable whose type owns something
+(a string, slice, map, pointer, interface, channel or func, or a struct or array of them) and has more than
+65536 such objects (`leafObjects` against `maxConstinitLeaves`, `internal/lower/pkgvars.go`) is therefore
+`gp::lazy` storage as well, with the same parts: no object at load time, the variable's name a `constinit`
+reference, `gp_var_init` building the zero value first, and the dynamic `gp::lazy_boot` initializer building
+it only when `gp_var_init` did not (a cpp-lib consumer that never calls `init()`). Smaller arrays
+(`[1 << 12]Rec`) stay `gp::keep` and `constinit`. Test: `tests/run/pkgvars_large_nontrivial.gp`.
+
 ## Consequences
 
 - `docs/spec/cpp-mapping.md` ("Package initialization") describes the two shapes.

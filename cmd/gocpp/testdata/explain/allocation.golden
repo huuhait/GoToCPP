@@ -55,7 +55,8 @@ The C++ that gocpp emit -annotate writes for it:
     static_assert(sizeof(big) == 24 && alignof(big) == 8);
 
     extern const gp::type_desc gp_td_big;
-    extern const gp::type_desc* const gp_tdc_0;
+    extern const gp::type_desc* gp_tdc_0_p;
+    [[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
     void main();
 
     } // namespace gpkg_main
@@ -106,7 +107,7 @@ The C++ that gocpp emit -annotate writes for it:
     //     non-pointer type with an Error method is, see the allocation note)
     // gp[strings] col 22: converting between a string and a slice copies the bytes (or decodes and
     //     encodes the runes): it allocates, as in Go
-        gp::fmt::Println(v, str, gp::fmt::as(gp_tdc_0, gp::to_bytes(str)));
+        gp::fmt::Println(v, str, gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gp::to_bytes(str)));
 
     // ---- ./allocation.gp:14: }
     }
@@ -121,7 +122,10 @@ The C++ that gocpp emit -annotate writes for it:
     static const gp::type_desc* gp_full_big();
     const gp::type_desc gp_td_big = gp::named<big>("main.big", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_big));
 
-    const gp::type_desc* const gp_tdc_0 = gp::td_slice<uint8_t>(&gp::td_uint8);
+    constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+    [[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+        return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<uint8_t>(&gp::td_uint8));
+    }
 
     static const gp::type_desc* gp_full_big() {
         static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp::td_int, nullptr, false, gp::offset_of(&big::a)), gp::field_desc("b", "main", &gp::td_int, nullptr, false, gp::offset_of(&big::b)), gp::field_desc("c", "main", &gp::td_int, nullptr, false, gp::offset_of(&big::c))};

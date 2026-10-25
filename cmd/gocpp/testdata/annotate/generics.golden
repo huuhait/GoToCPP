@@ -14,8 +14,10 @@ struct Big : gp::newtype<Big, gp::array<int64_t, 64>> {
 static_assert(sizeof(Big) == 512 && alignof(Big) == 8);
 
 extern const gp::type_desc gp_td_Big;
-extern const gp::type_desc* const gp_tdc_0;
-extern const gp::type_desc* const gp_tdc_1;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
+extern const gp::type_desc* gp_tdc_1_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make();
 void main();
 
 } // namespace gpkg_main
@@ -229,7 +231,7 @@ void main() {
 // gp[interfaces] col 62: fmt.Sprint: the runtime's gp::fmt functions take each operand with the
 //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
 //     non-pointer type with an Error method is, see the allocation note)
-    gp::fmt::Println(gp::fmt::as(gp_tdc_0, gpkg_main::gp_inst_a6f7f6b5_Map(gp::slice_of<int64_t>({1, 2, 3}), gp::func<gp::string(int64_t)>([]<int = 1>(int64_t i) mutable -> gp::string { return gp::fmt::Sprint(i * 2); }))));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gpkg_main::gp_inst_a6f7f6b5_Map(gp::slice_of<int64_t>({1, 2, 3}), gp::func<gp::string(int64_t)>([]<int = 1>(int64_t i) mutable -> gp::string { return gp::fmt::Sprint(i * 2); }))));
 
 // ---- ./generics.gp:28: fmt.Println(Map([]string{"a"}, func(s string) int { return len(s) }))
 // gp[generics] col 14: Map is the C++ function gp_inst_cad6a8a6_Map for the type arguments
@@ -238,7 +240,7 @@ void main() {
 // gp[closures] col 33: func literal #2 is a C++ lambda (the stack trace names it func2); what it
 //     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
 //     value is wrapped in gp::func, whose copies share the captured state
-    gp::fmt::Println(gp::fmt::as(gp_tdc_1, gpkg_main::gp_inst_cad6a8a6_Map(gp::slice_of<gp::string>({"a"_gs}), gp::func<int64_t(gp::string)>([]<int = 2>(gp::string s) mutable -> int64_t { return gp::len(s); }))));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), gpkg_main::gp_inst_cad6a8a6_Map(gp::slice_of<gp::string>({"a"_gs}), gp::func<int64_t(gp::string)>([]<int = 2>(gp::string s) mutable -> int64_t { return gp::len(s); }))));
 
 // ---- ./generics.gp:29: }
 }
@@ -253,8 +255,14 @@ namespace gpkg_main {
 static const gp::type_desc* gp_full_Big();
 const gp::type_desc gp_td_Big = gp::named<Big>("main.Big", "main", gp::shape_lazy(gp::shape_array(64, &gp::td_int), &gp_full_Big));
 
-const gp::type_desc* const gp_tdc_0 = gp::td_slice<gp::string>(&gp::td_string);
-const gp::type_desc* const gp_tdc_1 = gp::td_slice<int64_t>(&gp::td_int);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<gp::string>(&gp::td_string));
+}
+constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_slice<int64_t>(&gp::td_int));
+}
 
 static const gp::type_desc* gp_full_Big() {
     static const gp::type_desc gp_d = gp::completed(gp_td_Big, gp::shape_array(64, &gp::td_int));

@@ -154,16 +154,16 @@ double thunk_pCircle_Area(const gp::iface& self) {
 
 // The method tables, sorted.
 const gp::method gp_vm_Rect[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_Rect_Area),
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_Rect_Name),
+    gp::method_of<double(), &thunk_Rect_Area>("Area", nullptr, "func() float64"),
+    gp::method_of<gp::string(), &thunk_Rect_Name>("Name", nullptr, "func() string"),
 };
 const gp::method gp_pm_Rect[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_pRect_Area),
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_pRect_Name),
-    gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &thunk_pRect_Scale),
+    gp::method_of<double(), &thunk_pRect_Area>("Area", nullptr, "func() float64"),
+    gp::method_of<gp::string(), &thunk_pRect_Name>("Name", nullptr, "func() string"),
+    gp::method_of<void(double), &thunk_pRect_Scale>("Scale", nullptr, "func(float64)"),
 };
 const gp::method gp_pm_Circle[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_pCircle_Area),
+    gp::method_of<double(), &thunk_pCircle_Area>("Area", nullptr, "func() float64"),
 };
 
 const gp::imethod gp_im_Shape[] = {gp::imethod("Area", nullptr, "func() float64"),
@@ -590,11 +590,11 @@ void test_itab_building() {
 void test_itab_signatures() {
     using namespace gp;
     static const method ok_methods[] = {
-        method("Get", nullptr, "func() C.int", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("Get", nullptr, "func() C.int", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const type_desc td_gets_int =
         named<Rect>("main.GetsInt", "main", shape_struct(nullptr, 0), methods_of(ok_methods));
     static const method dbl_methods[] = {
-        method("Get", nullptr, "func() C.double", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("Get", nullptr, "func() C.double", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const type_desc td_gets_double =
         named<Rect>("main.GetsDouble", "main", shape_struct(nullptr, 0), methods_of(dbl_methods));
     const type_desc* iface_int = td_interface({imethod("Get", nullptr, "func() C.int")});
@@ -608,7 +608,7 @@ void test_itab_signatures() {
     CHECK(std::string(missing_method(iface_int, &td_gets_double)->gp_name) == "Get");
     // Plain Go signatures: one parameter more or a different result is another method.
     static const method sig_methods[] = {
-        method("Do", nullptr, "func(int) error", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("Do", nullptr, "func(int) error", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const type_desc td_do =
         named<Rect>("main.Do", "main", shape_struct(nullptr, 0), methods_of(sig_methods));
     CHECK(getitab(td_interface({imethod("Do", nullptr, "func(int) error")}), &td_do) != nullptr);
@@ -622,10 +622,10 @@ void test_itab_signatures() {
     // The name matters, in the way that the sorted walk could get wrong: methods before and
     // after the one the interface wants.
     static const method many[] = {
-        method("A", nullptr, "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area)),
-        method("C", nullptr, "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area)),
-        method("E", nullptr, "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area)),
-        method("a", "p", "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("A", nullptr, "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>),
+        method("C", nullptr, "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>),
+        method("E", nullptr, "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>),
+        method("a", "p", "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const type_desc td_many =
         named<Rect>("main.Many", "main", shape_struct(nullptr, 0), methods_of(many));
     CHECK(getitab(td_interface({imethod("C", nullptr, "func()")}), &td_many) != nullptr);
@@ -650,12 +650,12 @@ void test_itab_signatures() {
 void test_itab_unexported() {
     using namespace gp;
     static const method in_a[] = {
-        method("m", "example.com/a", "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("m", "example.com/a", "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const method in_b[] = {
-        method("m", "example.com/b", "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("m", "example.com/b", "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const method both[] = {
-        method("m", "example.com/a", "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area)),
-        method("m", "example.com/b", "func()", reinterpret_cast<fn_ptr>(&thunk_Rect_Area))};
+        method("m", "example.com/a", "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>),
+        method("m", "example.com/b", "func()", &gp::detail::erase_thunk<&thunk_Rect_Area>)};
     static const type_desc td_a =
         named<Rect>("a.T", "example.com/a", shape_struct(nullptr, 0), methods_of(in_a));
     static const type_desc td_b =
@@ -747,8 +747,8 @@ const gp::type_desc* Numberer::gp_desc() {
 void test_site_cache() {
     using namespace gp;
     // type A int64 and type B int64: one C++ type (int64_t here), two Go types, each with a Num.
-    static const method ma[] = {method_of<int64_t()>("Num", nullptr, "func() int", &thunk_num_a)};
-    static const method mb[] = {method_of<int64_t()>("Num", nullptr, "func() int", &thunk_num_b)};
+    static const method ma[] = {method_of<int64_t(), &thunk_num_a>("Num", nullptr, "func() int")};
+    static const method mb[] = {method_of<int64_t(), &thunk_num_b>("Num", nullptr, "func() int")};
     static const type_desc td_A =
         named<int64_t>("main.A", "main", shape_basic(kind::Int64), methods_of(ma));
     static const type_desc td_B =
@@ -800,11 +800,11 @@ std::tuple<int64_t, bool> thunk_Mixer_Split(const gp::iface& self, int64_t x) {
 }
 
 const gp::method gp_vm_Mixer[] = {
-    gp::method_of<void()>("Bump", nullptr, "func()", &thunk_Mixer_Bump),
-    gp::method_of<gp::string(int64_t, gp::string, gp::slice<int64_t>, double)>(
-        "Mix", nullptr, "func(int, string, []int, float64) string", &thunk_Mixer_Mix),
-    gp::method_of<std::tuple<int64_t, bool>(int64_t)>("Split", nullptr, "func(int) (int, bool)",
-                                                      &thunk_Mixer_Split),
+    gp::method_of<void(), &thunk_Mixer_Bump>("Bump", nullptr, "func()"),
+    gp::method_of<gp::string(int64_t, gp::string, gp::slice<int64_t>, double), &thunk_Mixer_Mix>(
+        "Mix", nullptr, "func(int, string, []int, float64) string"),
+    gp::method_of<std::tuple<int64_t, bool>(int64_t), &thunk_Mixer_Split>("Split", nullptr,
+                                                                          "func(int) (int, bool)"),
 };
 const gp::imethod gp_im_Calc[] = {
     gp::imethod("Bump", nullptr, "func()"),
@@ -869,8 +869,8 @@ void test_unbox_borrow() {
 void test_keep() {
     using namespace gp;
     static const method sm[] = {
-        method_of<double()>("Area", nullptr, "func() float64", &thunk_selfdrop_Area),
-        method_of<void(double)>("Scale", nullptr, "func(float64)", &thunk_pRect_Scale)};
+        method_of<double(), &thunk_selfdrop_Area>("Area", nullptr, "func() float64"),
+        method_of<void(double), &thunk_pRect_Scale>("Scale", nullptr, "func(float64)")};
     static const type_desc td_selfdrop =
         named<Rect>("main.SelfDrop", "main", shape_struct(nullptr, 0), methods_of(sm));
     g_holder = to_iface<Shape>(Rect{3, 4}, &td_selfdrop);
@@ -939,7 +939,7 @@ world make_world() {
         for (int b = 0; b < world::methods_n; b++) {
             if (mask & (1 << b)) {
                 w.tables.back().push_back(
-                    gp::method_of<void()>(method_names[b], nullptr, "func()", &dummy_thunk));
+                    gp::method_of<void(), &dummy_thunk>(method_names[b], nullptr, "func()"));
                 w.itables.back().push_back(gp::imethod(method_names[b], nullptr, "func()"));
             }
         }
@@ -1121,8 +1121,8 @@ void test_hooks_through_iface() {
 // --- the cases that end the program: a fatal error of the runtime (cxx_test.go runIface) ---
 
 const gp::method gp_unsorted[] = {
-    gp::method_of<double()>("Name", nullptr, "func() float64", &thunk_Rect_Area),
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_Rect_Area),
+    gp::method_of<double(), &thunk_Rect_Area>("Name", nullptr, "func() float64"),
+    gp::method_of<double(), &thunk_Rect_Area>("Area", nullptr, "func() float64"),
 };
 
 int run_case(const std::string& c) {

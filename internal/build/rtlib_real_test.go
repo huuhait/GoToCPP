@@ -348,17 +348,17 @@ func TestPrecompiledHeaderKeyedByFlags(t *testing.T) {
 
 // TestRuntimeObjectsHaveNoStaticInit: a library member is taken only for a symbol that something
 // wants, so a runtime object whose job is a global constructor would be dropped from programs
-// that don't reference it (rtlib.go). The runtime's objects have none, except the two that
-// initialize only data of their own, which nothing can read without taking the object: math.o
-// (has_fma and has_sse41, read through those symbols by the inline math functions) and timer.o
-// (the timer heap, used only by the timer functions), and testing.o (the natives of package
-// testing: its alarm and running-test state is in an unnamed namespace, so only its own functions
-// read it, and the object is taken by those functions only). A new initializer elsewhere fails
-// here.
+// that don't reference it (rtlib.go). And a library's package initialization may run before the
+// static initialization (an exported function that a host's C constructor calls, gocpp/lib.hpp):
+// what it uses must be ready then, constant-initialized or made at the first use (the timer heap,
+// math's CPU flags). The runtime's objects have no initializer, except testing.o (the natives of
+// package testing: its alarm and running-test state is in an unnamed namespace, so only its own
+// functions read it, and the object is taken by those functions only; a test binary has a main). A
+// new initializer elsewhere fails here.
 // A global with a destructor counts: its registration is an initializer too. The checks cover the
 // natives of package testing (rtfiles.TestingSources) as well. The ELF objects of Linux and the
 // COFF objects of the MinGW-w64 compilers (when they are installed) are read.
-var ownDataOnly = map[string]bool{"src_math.o": true, "src_timer.o": true, "src_testing.o": true}
+var ownDataOnly = map[string]bool{"src_testing.o": true}
 
 // staticInitSections are the section name prefixes that hold start-up and exit code pointers: ELF
 // (.init_array, .ctors, .preinit_array, .fini_array, .dtors) and COFF (.ctors and .dtors of GCC,

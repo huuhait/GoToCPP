@@ -17,8 +17,10 @@ struct T {
 };
 static_assert(sizeof(T) == 8 && alignof(T) == 8);
 
-extern const gp::type_desc* const gp_tdc_0;
-extern const gp::type_desc* const gp_tdc_1;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
+extern const gp::type_desc* gp_tdc_1_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make();
 void worker(const gp::chan<int64_t>& in, const gp::chan<int64_t>& out);
 gp::string kind(const gp::any& x);
 void main();
@@ -59,9 +61,9 @@ gp::string kind(const gp::any& x) {
     {
 #line 24 "$ROOT/tests/golden/chan_go.gp"
         const gp::any& gp_x0 = x;
-        if (gp::type_is(gp_x0, gp_tdc_0)) {
+        if (gp::type_is(gp_x0, gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>())) {
             return "bidirectional"_gs;
-        } else if (gp::type_is(gp_x0, gp_tdc_1)) {
+        } else if (gp::type_is(gp_x0, gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>())) {
             return "receive-only"_gs;
         }
 #line 29 "$ROOT/tests/golden/chan_go.gp"
@@ -78,7 +80,7 @@ void main() {
     T t{3};
     gp::go_call([](auto&& gp_a0, auto&& gp_a1) { gp_a0.Show(gp_a1); }, t, out);
     gp::go_call([](auto&& gp_a0) { gp::close(gp_a0); }, gp::make_chan<bool>());
-    { auto gp_t0 = gp::recv(out); auto gp_t1 = gp::recv(out); auto gp_t2 = gp::len(in); auto gp_t3 = gp::cap(in); auto gp_t4 = gpkg_main::kind(gp::to_iface<gp::any>(in, gp_tdc_0)); gp::println(gp_t0, gp_t1, gp_t2, gp_t3, gp_t4, gpkg_main::kind(gp::to_iface<gp::any>(in, gp_tdc_1))); }
+    { auto gp_t0 = gp::recv(out); auto gp_t1 = gp::recv(out); auto gp_t2 = gp::len(in); auto gp_t3 = gp::cap(in); auto gp_t4 = gpkg_main::kind(gp::to_iface<gp::any>(in, gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>())); gp::println(gp_t0, gp_t1, gp_t2, gp_t3, gp_t4, gpkg_main::kind(gp::to_iface<gp::any>(in, gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>()))); }
 }
 
 } // namespace gpkg_main
@@ -89,8 +91,14 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_chan<gp::chan<int64_t>>(gp::chan_dir::both, &gp::td_int);
-const gp::type_desc* const gp_tdc_1 = gp::td_chan<gp::chan<int64_t>>(gp::chan_dir::recv, &gp::td_int);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_chan<gp::chan<int64_t>>(gp::chan_dir::both, &gp::td_int));
+}
+constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_chan<gp::chan<int64_t>>(gp::chan_dir::recv, &gp::td_int));
+}
 
 } // namespace gpkg_main
 

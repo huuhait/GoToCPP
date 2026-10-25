@@ -125,8 +125,8 @@ that are real gaps go into `windows_skip.txt` with their reason (or are fixed).
 
 ## Wine
 
-Wine is not the way to test Windows: it does not deliver stack overflows on CPUs with a large XSAVE area (AVX-512)
-and differs in many details. `GOCPP_WINDOWS_WINE=1 make test-windows-smoke` runs the same suite with the same agent
+Wine is not the way to test Windows: it does not deliver a stack overflow at its own guard page on CPUs with a large
+XSAVE area (AVX-512; the runtime works around it with a guard page of its own under Wine) and differs in many details. `GOCPP_WINDOWS_WINE=1 make test-windows-smoke` runs the same suite with the same agent
 under Wine in an isolated prefix on this machine, for a developer who has no PC. It is never the default, and nothing
 selects it for you.
 

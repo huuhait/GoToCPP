@@ -481,6 +481,14 @@ bool interrupt_in(int ms) noexcept;
 std::int64_t cpu_time_ns() noexcept;
 std::int64_t open_handles() noexcept;
 
+// slot_handles(s, out) writes the two handles of the slot s (its timer and its wake-up event; 0
+// for one that is closed) to out, and handle_open(h) says whether the handle h is open
+// (GetHandleInformation): a test sees that a closed slot gave its handles back also where
+// open_handles can't tell (Wine's GetProcessHandleCount always says 0). Linux has no slots: no
+// handles, and none is open.
+void slot_handles(const wait_slot* s, std::uintptr_t out[2]) noexcept;
+bool handle_open(std::uintptr_t h) noexcept;
+
 // force_fallback(true) makes precise_timers false from now on (false undoes it): a test program
 // runs the fine-tick path of ADR-132 on a system that has the timers. No wait may be going on
 // when it is called.

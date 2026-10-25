@@ -445,7 +445,7 @@ func (g *gen) initFile(pf *PackageFiles) *cppir.File {
 // constDecls returns the exported constants of the package as C++ constants, for the C++ code that
 // uses the package (docs/spec/cpp-mapping.md): a number or a bool is an inline constexpr of its
 // type (an untyped constant has its default type), a string a constexpr std::string_view (a
-// gp::string is not constexpr), a constant of a named type an inline const of it. The generated
+// gp::string is not constexpr), a constant of a named type a reference to its gp::keep storage. The generated
 // code never reads them: go/types folds every use of a constant (expr.go), so a changed
 // constant changes the code that uses it, and the objects of the packages that use it are
 // rebuilt because their text changes.
@@ -459,8 +459,22 @@ func (g *gen) constDecls() []cppir.Decl {
 		name := g.escape(c.Name())
 		switch {
 		case isNewtype(t) && basicOf(under(t)) != nil && basicOf(under(t)).Info()&types.IsComplex == 0:
-			decls = append(decls, &cppir.VarDecl{Specs: []string{"inline", "const"}, Type: g.cxxType(t, c.Pos()),
-				Vars: []cppir.Declarator{{Name: name, Init: g.constant(c.Val(), t, c.Pos(), false)}}})
+			init := g.constant(c.Val(), t, c.Pos(), false)
+			if basicOf(under(t)).Info()&types.IsString != 0 && c.Val().Kind() == constant.String {
+				// gp::string's constructor of static bytes is constexpr ("..."_gs is not): the
+				// constant is constant-initialized, so a C++ caller that reads it in a static
+				// initializer of its own sees its value.
+				v := constant.StringVal(c.Val())
+				init = call(cppir.TypeString(g.cxxType(t, c.Pos())), cxxName("gp::static_bytes"), lit(cppir.CString(v)), lit(strconv.Itoa(len(v))))
+			}
+			// gp::keep storage, never destroyed (a string's destructor would run at exit, keptVar),
+			// and the constant's name a reference to it.
+			typ := g.cxxType(t, c.Pos())
+			decls = append(decls,
+				&cppir.VarDecl{Specs: []string{"inline", "constinit", "const"}, Type: &cppir.TypeName{Name: "gp::keep", Args: []cppir.Node{typ}},
+					Vars: []cppir.Declarator{{Name: keepName(name), Init: &cppir.InitList{Elems: []cppir.Expr{init}}}}},
+				&cppir.VarDecl{Specs: []string{"inline", "constexpr"}, Type: &cppir.Ref{Elem: &cppir.Const{Elem: typ}},
+					Vars: []cppir.Declarator{{Name: name, Init: &cppir.Member{X: cxxName(keepName(name)), Name: "gp_v"}}}})
 		case basicOf(t) == nil, basicOf(t).Info()&types.IsComplex != 0:
 		case basicOf(t).Info()&types.IsString != 0:
 			if c.Val().Kind() == constant.String {

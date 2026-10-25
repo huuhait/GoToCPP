@@ -45,8 +45,9 @@ toolchain, so it has to be able to fetch one).
 6. **Tests.** `GOCPP_TEST_TARGET=windows` makes the harness build run tests for Windows and run them on a
    real PC over ssh when `GOCPP_WINDOWS_SSH=user@host` is set (`internal/winssh`, the harness's copy of
    14.1's runner: the main way; the variable is the only place that names the machine), else under Wine
-   (`tests/windows_test.go`; Wine is not Windows: Wine 11.0 cannot dispatch a stack overflow on AVX-512
-   CPUs, and the overflow program skips there), with Wine kept away from the user's home and desktop
+   (`tests/windows_test.go`; Wine is not Windows: Wine 11.0 cannot dispatch a stack overflow at its own
+   guard page on AVX-512 CPUs, so the runtime puts a guard page of its own higher up under Wine, and the overflow
+   program passes there too), with Wine kept away from the user's home and desktop
    (`internal/wine`: its own prefix, HOME and XDG folders, `WINEDLLOVERRIDES`, no DISPLAY, a server that
    Close ends by its PID, then every process that still has the prefix in its environment) and proven so by
    a canary (`TestWineIsolation`). The default is a sample (`tests/windows_sample.txt`);

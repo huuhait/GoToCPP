@@ -42,9 +42,11 @@ cache, or the work folder).
 **The runtime has no static initializer that a library could drop**, because a library member is taken only for a symbol that
 something wants, so a constructor of a global in an object that nobody references would never run.
 The runtime's state is constant-initialized or lazy, and the programs' initialization is called by
-`gp_init_all()`. Two objects have an initializer (`math.o`: `has_fma`, `has_sse41`; `timer.o`: the timer
-heap), for data that only their own symbols reach, so any use of them takes the object and runs it. A test
-(`TestRuntimeObjectsHaveNoStaticInit`) reads the objects: a new initializer in another object fails it.
+`gp_init_all()`. None of the objects that a program or a library takes has an initializer: math's CPU
+flags (`has_fma()`, `has_sse41()`) and the timer heap are made at their first use, so they also work in a
+library's package initialization that a host's C constructor runs before the library's static
+initialization. (Only `testing.o`, which test binaries take, has one.) A test
+(`TestRuntimeObjectsHaveNoStaticInit`) reads the objects: a new initializer fails it.
 
 ## The archiver
 

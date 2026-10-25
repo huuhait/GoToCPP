@@ -81,8 +81,11 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 	b.sc = statMemo()
 	defer b.waitPCH() // a header that is still being built is finished, not left half done
 	defer b.stores.Wait()
-	// Only a program that imports testing is linked with the natives of testing (rtfiles.TestingSources).
-	usesTesting := slices.ContainsFunc(pkgs, func(pb PackageBuild) bool { return pb.Path == "testing" })
+	// Only a program with a package whose natives are there (testing, testing/internal/testdeps) is
+	// linked with the natives of testing (rtfiles.TestingSources). (A program that imports testdeps
+	// without testing, as tests/run/testdeps_match_cache does, linked on Linux only because the
+	// linker dropped the unused function that names one; MinGW's does not.)
+	usesTesting := slices.ContainsFunc(pkgs, func(pb PackageBuild) bool { return testingNatives[pb.Path] })
 	rtDir, rtObjs, rtErr := b.runtime(ctx, flags, usesTesting)
 	if rtErr != nil {
 		return rtErr
@@ -191,6 +194,24 @@ func (b *Builder) Link(ctx context.Context, pkgs []PackageBuild, out string) err
 			link = append([]string{flag}, link...)
 		}
 	}
+	relr := b.relrFlags(ctx) // (asked before the parts: linkParts takes the answer)
+	err := b.linkOnce(ctx, objs, libObjs, rtObjs, link, out)
+	var ce *CompileError
+	if err != nil && len(relr) > 0 && ctx.Err() == nil && errors.As(err, &ce) && ce.Link {
+		// The probe linked, but the real link did not: a linker option of the program that
+		// goes badly with the flag. Link again without it.
+		b.relr = &[]string{}
+		if err2 := b.linkOnce(ctx, objs, libObjs, rtObjs, link, out); err2 == nil {
+			return nil
+		}
+		b.relr = &relr // (the first error stands: the flag was not the cause)
+	}
+	return err
+}
+
+// linkOnce links the objects with the flags of the link as they are now (b.relr is the answer for
+// DT_RELR).
+func (b *Builder) linkOnce(ctx context.Context, objs, libObjs, rtObjs, link []string, out string) error {
 	plan, err := b.linkParts(objs, libObjs, rtObjs, link)
 	if err != nil {
 		return err
@@ -336,3 +357,7 @@ func (b *Builder) autoLTO(flags []string) []string {
 	}
 	return out
 }
+
+// testingNatives are the packages whose //gocpp:native functions are in the natives of testing
+// (rtfiles.TestingSources: runtime/src/testing.cpp, gp::testing).
+var testingNatives = map[string]bool{"testing": true, "testing/internal/testdeps": true}

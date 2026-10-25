@@ -62,7 +62,28 @@ inline double sqrt(double x) {
 // result, and a NaN is made quiet, as ROUNDSD makes it (a signaling NaN with its payload becomes
 // the quiet NaN with the same payload). The sign of a zero result follows x. Whether the CPU has
 // SSE4.1 (Go's x86HasSSE41): then these are the instruction ROUNDSD itself.
-extern const bool has_sse41;
+//
+// has_sse41() and has_fma() (Go's x86HasFMA) look at the CPU once, at the first call: the answer
+// is a constant-initialized byte (0 not looked at yet, 1 no, 2 yes), not an initializer at program
+// start, so that the math works the same in a library's package initialization that a host's C
+// constructor runs before the library's static initialization (internal/build
+// TestRuntimeObjectsHaveNoStaticInit). The call is one load and a compare.
+namespace detail {
+extern std::uint8_t cpu_sse41;
+extern std::uint8_t cpu_fma;
+bool cpu_detect_sse41() noexcept;
+bool cpu_detect_fma() noexcept;
+} // namespace detail
+
+inline bool has_sse41() noexcept {
+    const std::uint8_t s = __atomic_load_n(&detail::cpu_sse41, __ATOMIC_RELAXED);
+    return s == 2 || (s == 0 && detail::cpu_detect_sse41());
+}
+
+inline bool has_fma() noexcept {
+    const std::uint8_t s = __atomic_load_n(&detail::cpu_fma, __ATOMIC_RELAXED);
+    return s == 2 || (s == 0 && detail::cpu_detect_fma());
+}
 
 namespace detail {
 inline constexpr double two52 = 4503599627370496.0;
@@ -120,7 +141,7 @@ inline double round_to_even_sse2(double x) {
 
 inline double floor(double x) {
 #if defined(__x86_64__)
-    if (has_sse41) {
+    if (has_sse41()) {
         double r;
         asm("roundsd $9, %1, %0" : "=x"(r) : "x"(x));
         return r;
@@ -131,7 +152,7 @@ inline double floor(double x) {
 
 inline double ceil(double x) {
 #if defined(__x86_64__)
-    if (has_sse41) {
+    if (has_sse41()) {
         double r;
         asm("roundsd $10, %1, %0" : "=x"(r) : "x"(x));
         return r;
@@ -142,7 +163,7 @@ inline double ceil(double x) {
 
 inline double trunc(double x) {
 #if defined(__x86_64__)
-    if (has_sse41) {
+    if (has_sse41()) {
         double r;
         asm("roundsd $11, %1, %0" : "=x"(r) : "x"(x));
         return r;
@@ -154,7 +175,7 @@ inline double trunc(double x) {
 // round_to_even(x) is ROUNDSD with the mode "nearest even".
 inline double round_to_even(double x) {
 #if defined(__x86_64__)
-    if (has_sse41) {
+    if (has_sse41()) {
         double r;
         asm("roundsd $8, %1, %0" : "=x"(r) : "x"(x));
         return r;
@@ -166,10 +187,9 @@ inline double round_to_even(double x) {
 // fma(x, y, z) is x*y+z with one rounding, as the instruction VFMADD231SD does in Go on amd64 (the
 // same instruction, so that two NaN operands give the same NaN; without the instruction,
 // __builtin_fma).
-extern const bool has_fma;
 inline double fma(double x, double y, double z) {
 #if defined(__x86_64__)
-    if (has_fma) {
+    if (has_fma()) {
         // Go's VFMADD231SD (dest z, vvvv x, rm y): AT&T order is rm, vvvv, dest.
         asm("vfmadd231sd %2, %1, %0" : "+x"(z) : "x"(x), "x"(y));
         return z;

@@ -39,20 +39,21 @@ static_assert(sizeof(gp_inst_5122dbb8_Pair) == 72 && alignof(gp_inst_5122dbb8_Pa
 extern const gp::type_desc gp_td_gp_inst_e0e468d0_Stack;
 extern const gp::type_desc gp_td_gp_inst_5122dbb8_Pair;
 extern const gp::type_desc gp_td_Lenner;
-extern const gp::type_desc* const gp_tdc_0;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
 #ifndef GP_INST_E0E468D0_STACK_IMPL
 #define GP_INST_E0E468D0_STACK_IMPL
 inline int64_t gp_thunk_gp_inst_e0e468d0_Stack_Len(const gp::iface& gp_self) {
     return gp::unbox<gp_inst_e0e468d0_Stack>(gp_self).Len();
 }
-inline const gp::method gp_vm_gp_inst_e0e468d0_Stack[]{gp::method_of<int64_t()>("Len", nullptr, "func() int", &gp_thunk_gp_inst_e0e468d0_Stack_Len)};
+inline const gp::method gp_vm_gp_inst_e0e468d0_Stack[]{gp::method_of<int64_t(), &gp_thunk_gp_inst_e0e468d0_Stack_Len>("Len", nullptr, "func() int")};
 inline int64_t gp_thunk_pgp_inst_e0e468d0_Stack_Len(const gp::iface& gp_self) {
     return gp::unbox_borrow<gp_inst_e0e468d0_Stack>(gp_self)->Len();
 }
 inline void gp_thunk_pgp_inst_e0e468d0_Stack_Push(const gp::iface& gp_self, int64_t gp_a0) {
     gp_inst_e0e468d0_Stack::Push(gp::unbox<gp::ptr<gp_inst_e0e468d0_Stack>>(gp_self), static_cast<int64_t&&>(gp_a0));
 }
-inline const gp::method gp_pm_gp_inst_e0e468d0_Stack[]{gp::method_of<int64_t()>("Len", nullptr, "func() int", &gp_thunk_pgp_inst_e0e468d0_Stack_Len), gp::method_of<void(int64_t)>("Push", nullptr, "func(int)", &gp_thunk_pgp_inst_e0e468d0_Stack_Push)};
+inline const gp::method gp_pm_gp_inst_e0e468d0_Stack[]{gp::method_of<int64_t(), &gp_thunk_pgp_inst_e0e468d0_Stack_Len>("Len", nullptr, "func() int"), gp::method_of<void(int64_t), &gp_thunk_pgp_inst_e0e468d0_Stack_Push>("Push", nullptr, "func(int)")};
 inline const gp::type_desc* gp_full_gp_inst_e0e468d0_Stack();
 inline const gp::type_desc gp_td_gp_inst_e0e468d0_Stack = gp::named<gp_inst_e0e468d0_Stack>("main.Stack[int]", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_gp_inst_e0e468d0_Stack), gp::methods_of(gp_vm_gp_inst_e0e468d0_Stack), gp::methods_of(gp_pm_gp_inst_e0e468d0_Stack));
 inline const gp::type_desc* gp_full_gp_inst_e0e468d0_Stack() {
@@ -107,7 +108,7 @@ void main() {
     gp::ptr<gp_inst_e0e468d0_Stack> s = gp::new_<gp_inst_e0e468d0_Stack>();
     gp_inst_e0e468d0_Stack::Push(s, 1);
     gp_inst_5122dbb8_Pair p{"k"_gs, (*s)};
-    Lenner l = gp::to_iface<Lenner>(s, gp_tdc_0);
+    Lenner l = gp::to_iface<Lenner>(s, gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>());
     gp::fmt::Printf("%v %v %T\n"_gs, gp::fmt::as(&gp_td_gp_inst_5122dbb8_Pair, p), l.Len(), gp::fmt::as(&gp_td_gp_inst_5122dbb8_Pair, p));
 }
 
@@ -121,7 +122,10 @@ namespace gpkg_main {
 
 inline const gp::imethod gp_im_Lenner[]{gp::imethod("Len", nullptr, "func() int")};
 const gp::type_desc gp_td_Lenner = gp::named<Lenner>("main.Lenner", "main", gp::shape_interface(gp_im_Lenner));
-const gp::type_desc* const gp_tdc_0 = gp::td_ptr<gp_inst_e0e468d0_Stack>(&gp_td_gp_inst_e0e468d0_Stack);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_ptr<gp_inst_e0e468d0_Stack>(&gp_td_gp_inst_e0e468d0_Stack));
+}
 
 } // namespace gpkg_main
 

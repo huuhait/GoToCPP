@@ -20,24 +20,36 @@
 
 namespace gp::math {
 
-// Go's x86HasFMA. A plain global that the inline fma reads; set before main.
-const bool has_fma = [] {
-#if defined(__x86_64__)
-    __builtin_cpu_init();
-    return static_cast<bool>(__builtin_cpu_supports("fma"));
-#else
-    return false;
-#endif
-}();
+namespace detail {
 
-const bool has_sse41 = [] {
+// has_sse41 and has_fma (gocpp/math.hpp): 0 not looked at yet, 1 no, 2 yes. Two threads that look
+// at once store the same answer.
+constinit std::uint8_t cpu_sse41 = 0;
+constinit std::uint8_t cpu_fma = 0;
+
+bool cpu_detect_sse41() noexcept {
 #if defined(__x86_64__)
     __builtin_cpu_init();
-    return static_cast<bool>(__builtin_cpu_supports("sse4.1"));
+    const bool yes = __builtin_cpu_supports("sse4.1");
 #else
-    return false;
+    const bool yes = false;
 #endif
-}();
+    __atomic_store_n(&cpu_sse41, static_cast<std::uint8_t>(yes ? 2 : 1), __ATOMIC_RELAXED);
+    return yes;
+}
+
+bool cpu_detect_fma() noexcept {
+#if defined(__x86_64__)
+    __builtin_cpu_init();
+    const bool yes = __builtin_cpu_supports("fma");
+#else
+    const bool yes = false;
+#endif
+    __atomic_store_n(&cpu_fma, static_cast<std::uint8_t>(yes ? 2 : 1), __ATOMIC_RELAXED);
+    return yes;
+}
+
+} // namespace detail
 
 namespace {
 

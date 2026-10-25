@@ -12,7 +12,8 @@ import (
 // The link command (Phase 06 step 6.9). One function makes it from the parts that the build has
 // (linkArgs), so that its order is fixed and the same for the same program:
 //
-//	driver flags   debug flags, sanitizers, LTO; then -Wl,--gc-sections (not on macOS)
+//	driver flags   debug flags, sanitizers, LTO; then -Wl,--gc-sections (not on macOS) and
+//	               -Wl,-z,pack-relative-relocs (Linux, when the linker makes DT_RELR: relr.go)
 //	objects        the generated units in the order of the packages, then the objects of the
 //	               packages' own C and C++ files, then the objects of the modules' libraries
 //	               (each once)
@@ -42,7 +43,11 @@ func (b *Builder) linkParts(objs, libObjs, rtObjs, link []string) (linkParts, er
 		gc = []string{"-Wl,--gc-sections"}
 	}
 	ldflags := b.autoLTO(b.Env.LDFlags) // a bare -flto becomes -flto=auto for g++ (see autoLTO)
-	pre := slices.Concat(b.linkFlags(), gc, b.Mode.LinkFlagsFor(b.GOOS, b.Soname, b.VersionScript, b.ImportLib))
+	var relr []string                   // packed relative relocations, where the linker makes them (relr.go)
+	if b.relr != nil {
+		relr = *b.relr
+	}
+	pre := slices.Concat(b.linkFlags(), gc, relr, b.Mode.LinkFlagsFor(b.GOOS, b.Soname, b.VersionScript, b.ImportLib))
 	if b.LTO { // -lto and -flto in GOCPP_LDFLAGS: the flag once
 		ldflags = slices.DeleteFunc(slices.Clone(ldflags), func(f string) bool { return slices.Contains(pre, f) && strings.HasPrefix(f, "-flto") })
 	}

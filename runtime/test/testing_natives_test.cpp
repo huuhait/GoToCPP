@@ -28,6 +28,11 @@
 
 #include "threads_ended.hpp"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -53,20 +58,28 @@ void report(bool ok, const char* file, int line, const std::string& what) {
                "CHECK_STR(" #got ", " #want ") failed: got \"" + g_ + "\", want \"" + w_ + "\"");  \
     } while (0)
 
+#ifdef _WIN32
+// sys_text is the system's text of an error, as Go's errors have it: FormatMessage's on a real
+// Windows PC (pc), Wine's own words for the same error under Wine (wine; e.g. "File not found."
+// for "The system cannot find the file specified.", see tests/windows_test.go wineDiffs). The
+// harness says which: runtime/windows_test.go sets GOCPP_TEST_WINE=1 when it runs the program
+// under Wine; without it (a program started by hand) Wine is recognised by its ntdll, which has
+// wine_get_version.
+bool under_wine() {
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+}
+
+std::string sys_text(const char* pc, const char* wine) {
+    const char* w = std::getenv("GOCPP_TEST_WINE");
+    bool wn = w != nullptr ? std::string_view(w) == "1" : under_wine();
+    return wn ? wine : pc;
+}
+#endif
+
 gp::string gs(std::string_view s) {
     return gp::string::gp_copy(s);
 }
-
-#ifdef _WIN32
-// sys_text is the system's text of an error, as Go's errors have it: FormatMessage's on a real
-// Windows PC (pc), Wine's own words for the same error under Wine (wine). The harness says which:
-// runtime/windows_test.go sets GOCPP_TEST_WINE=1 when it runs the program under Wine (no
-// GOCPP_WINDOWS_SSH), as the tests of tests/ tell Wine from a real PC.
-std::string sys_text(const char* pc, const char* wine) {
-    const char* w = std::getenv("GOCPP_TEST_WINE");
-    return w != nullptr && std::string_view(w) == "1" ? wine : pc;
-}
-#endif
 
 std::string str(const gp::string& s) {
     return std::string(s.gp_view());

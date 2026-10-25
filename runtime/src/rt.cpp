@@ -1009,6 +1009,7 @@ const std::vector<gp::string>& envs() noexcept {
 
 namespace detail {
 
+// (At a library's first call, gp::lib::enter: the environment then, gocpp/main.hpp.)
 void load_process_info() {
     args_storage() = to_strings(os::process_arguments());
     envs_storage() = to_strings(os::environment());

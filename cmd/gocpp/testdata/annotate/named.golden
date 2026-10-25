@@ -72,13 +72,13 @@ namespace gpkg_main {
 inline double gp_thunk_Celsius_F(const gp::iface& gp_self) {
     return gp::unbox<Celsius>(gp_self).F();
 }
-inline const gp::method gp_vm_Celsius[]{gp::method_of<double()>("F", nullptr, "func() float64", &gp_thunk_Celsius_F)};
+inline const gp::method gp_vm_Celsius[]{gp::method_of<double(), &gp_thunk_Celsius_F>("F", nullptr, "func() float64")};
 inline double gp_thunk_pCelsius_F(const gp::iface& gp_self) {
     gp::bptr<Celsius> gp_p = gp::unbox_borrow<Celsius>(gp_self);
     gp::check_wrap(gp_p, "value method main.Celsius.F called using nil *Celsius pointer");
     return gp_p->F();
 }
-inline const gp::method gp_pm_Celsius[]{gp::method_of<double()>("F", nullptr, "func() float64", &gp_thunk_pCelsius_F)};
+inline const gp::method gp_pm_Celsius[]{gp::method_of<double(), &gp_thunk_pCelsius_F>("F", nullptr, "func() float64")};
 const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64), gp::methods_of(gp_vm_Celsius), gp::methods_of(gp_pm_Celsius));
 
 } // namespace gpkg_main

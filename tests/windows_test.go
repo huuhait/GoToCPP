@@ -2,7 +2,9 @@ package tests
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -122,7 +124,15 @@ func (w *windowsRunner) execute(t *testing.T, c *config, dir, exe string, args, 
 		return r
 	}
 	argv := append([]string{"-u", "DISPLAY", "-u", "WAYLAND_DISPLAY", "-u", "WAYLAND_SOCKET", w.env.Wine(), exe}, args...)
-	return c.run(t, job{dir: dir, env: append(w.env.Environ(), env...), name: "env", args: argv, show: "wine " + show})
+	return c.run(t, job{dir: dir, env: append(w.env.Environ(), env...), name: "env", args: argv, show: "wine " + show, files: true, helpers: wineHelpers})
+}
+
+// wineHelpers are the programs that Wine starts for a program and leaves running when it exits: the
+// helpers of the prefix (explorer.exe is restarted after it ended while the prefix was idle), and
+// the server. Any other process in the program's group is one that the program started and left.
+var wineHelpers = map[string]bool{
+	"explorer.exe": true, "services.exe": true, "winedevice.exe": true, "plugplay.exe": true,
+	"svchost.exe": true, "wineserver": true,
 }
 
 var (
@@ -345,7 +355,9 @@ func (c *config) windowsTest(t *testing.T, w *windowsRunner, p *program) bool {
 	t.Helper()
 	exeDir := t.TempDir()
 	out := filepath.Join(exeDir, p.name+".exe")
-	b := c.run(t, gocppJob(p.dir, nil, "", p.header.phase, "build", "-os", "windows", "-o", out, p.arg))
+	// (The environment of the test's build, as TestRun's: a // std-internal: test may import the
+	// standard library's internal packages.)
+	b := c.run(t, gocppJob(p.dir, runEnv(p.header), "", p.header.phase, "build", "-os", "windows", "-o", out, p.arg))
 	if b.problem != "" || b.exit != 0 {
 		t.Errorf("%s: %s\n%s", b.cmd, b.why(), indent(string(b.stderr)))
 		return false
@@ -355,13 +367,39 @@ func (c *config) windowsTest(t *testing.T, w *windowsRunner, p *program) bool {
 	r := w.execute(t, c, p.dir, out, nil, nil, p.name+".exe (build of "+p.path+")", false)
 	before := t.Failed()
 	r.stderr = windowsStderr(r.stderr)
-	checkRun(t, r, expect{
+	want := expect{
 		stdout:   p.header.output,
 		from:     "the // Output: block",
 		exitCode: p.header.exitCode,
 		stderr:   p.header.stderr,
-	})
+	}
+	if w.remote == nil {
+		if out, ok := wineOutput(t, p.name); ok {
+			want.stdout, want.from = out, wineOutputDir+"/"+p.name+".txt"
+		}
+	}
+	checkRun(t, r, want)
 	return t.Failed() == before
+}
+
+// wineOutputDir holds the stdout under Wine of the run tests whose // Output: (what the real PC
+// prints) differs there only because of Wine itself: its FormatMessage texts ("Invalid parameter."
+// for "The parameter is incorrect.") and its environment block (no "=C:" drive variables). Each
+// <name>.txt is what the same program built by real Go (GOOS=windows go build) prints under this
+// Wine; gocpp's must be the same. TestWineOutputFiles checks that each names a run test and differs
+// from its // Output: only by those texts (wineDiffs), so that it can't go stale.
+const wineOutputDir = "tests/run/testdata/wine"
+
+// wineOutput returns the Wine stdout of the run test name, if it has one.
+func wineOutput(t *testing.T, name string) (string, bool) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, wineOutputDir, name+".txt"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b), true
 }
 
 // What differs on Windows in a panic's message (the first lines of stderr), which the tests'
@@ -385,4 +423,67 @@ var wineNoise = regexp.MustCompile(`(?m)^wine client error:[0-9a-f]+: sendmsg: S
 func windowsStderr(b []byte) []byte {
 	b = wineNoise.ReplaceAll(b, nil)
 	return sehSignal.ReplaceAll(b, []byte("[signal SIGSEGV: segmentation violation code=0x1 $1 $2]"))
+}
+
+// TestWineOutputFiles: every file of wineOutputDir is the Wine stdout of a run test that exists.
+func TestWineOutputFiles(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join(repoRoot, wineOutputDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".txt")
+		if !ok || e.IsDir() {
+			t.Errorf("%s/%s: want only <run test>.txt files", wineOutputDir, e.Name())
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(repoRoot, "tests", "run", name+".gp"))
+		if err != nil {
+			t.Errorf("%s/%s: no run test tests/run/%s.gp", wineOutputDir, e.Name(), name)
+			continue
+		}
+		h, err := runFormat.parse("tests/run/"+name+".gp", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wine, err := os.ReadFile(filepath.Join(repoRoot, wineOutputDir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The two differ only in Wine's own texts: the same once those are mapped.
+		if a, b := wineMapped(strings.TrimSpace(h.output)), wineMapped(strings.TrimSpace(string(wine))); a != b {
+			t.Errorf("%s/%s differs from the // Output: of tests/run/%s.gp by more than Wine's texts (wineDiffs):\n%s",
+				wineOutputDir, e.Name(), name, explainMismatch(b, a))
+		}
+	}
+}
+
+// wineDiffs are what differs between a real PC's output and Wine's for the same program
+// (wineOutputDir): Wine's FormatMessage texts, and lines about the environment block's "=C:"
+// drive variables, which Wine's processes do not have.
+var wineDiffs = []struct {
+	rx   *regexp.Regexp
+	with string
+}{
+	{regexp.MustCompile(`Invalid parameter\.`), "The parameter is incorrect."},
+	{regexp.MustCompile(`(?m)^has =X: entries: (true|false)$`), "has =X: entries: (the system's)"},
+	// tests/testdata/windows/wstr.gp prints the length and the text of FormatMessageW's answer.
+	{regexp.MustCompile(`FormatMessageW: 17 "File not found\.\\r\\n"`), `FormatMessageW: 44 "The system cannot find the file specified.\r\n"`},
+	// tests/testdata/windows/winzoo.gp creates a DXGI factory without a window: Wine's dxgi answers
+	// DXGI_ERROR_UNSUPPORTED (0x887A0004) when its prefix has no display or GPU driver, as the
+	// harness's has not.
+	{regexp.MustCompile(`dxgi: CreateDXGIFactory1 -2005270524 false`), "dxgi: CreateDXGIFactory1 0 true"},
+}
+
+// wineText is text with each of wineDiffs replaced by the real PC's text.
+func wineText(text string) string {
+	for _, d := range wineDiffs {
+		text = d.rx.ReplaceAllString(text, d.with)
+	}
+	return text
+}
+
+// wineMapped is wineText with the CR LF line ends of Wine's output made LF.
+func wineMapped(text string) string {
+	return strings.ReplaceAll(wineText(text), "\r\n", "\n")
 }

@@ -59,8 +59,8 @@ int32_t thunk_hresult(const iface& self) {
 
 const type_desc* td_hresult_error() {
     static const method methods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_error),
-        method_of<int32_t()>("HResult", nullptr, "func() int32", &thunk_hresult),
+        method_of<gp::string(), &thunk_error>("Error", nullptr, "func() string"),
+        method_of<int32_t(), &thunk_hresult>("HResult", nullptr, "func() int32"),
     };
     static const type_desc td = named<HResultError>("runtime.HResultError", "runtime",
                                                     shape_struct(nullptr, 0), methods_of(methods));

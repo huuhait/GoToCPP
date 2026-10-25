@@ -6,12 +6,15 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-extern const gp::type_desc* const gp_tdc_0;
-extern const gp::type_desc* const gp_tdc_1;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
+extern const gp::type_desc* gp_tdc_1_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make();
 int64_t f(const gp::string& name, int64_t v);
 void main();
 
-extern gp::slice<gp::string> trace;
+extern gp::keep<gp::slice<gp::string>> gp_keep_trace;
+inline constexpr gp::slice<gp::string>& trace = gp_keep_trace.gp_v;
 
 } // namespace gpkg_main
 //// gpkg/command-line-arguments/order.gp.cpp
@@ -65,7 +68,7 @@ void main() {
 // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the
 //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
 //     non-pointer type with an Error method is, see the allocation note)
-    gp::fmt::Println(x, gp::fmt::as(gp_tdc_0, m), gp::fmt::as(gp_tdc_1, trace));
+    gp::fmt::Println(x, gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), m), gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), trace));
 
 // ---- ./order.gp:16: }
 }
@@ -77,8 +80,14 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_map<gp::string, int64_t>(&gp::td_string, &gp::td_int);
-const gp::type_desc* const gp_tdc_1 = gp::td_slice<gp::string>(&gp::td_string);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_map<gp::string, int64_t>(&gp::td_string, &gp::td_int));
+}
+constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_slice<gp::string>(&gp::td_string));
+}
 
 } // namespace gpkg_main
 //// gpkg/command-line-arguments/pkg_init.cpp
@@ -89,7 +98,7 @@ namespace gpkg_main {
 
 // ---- ./order.gp:5: var trace []string
 // gp[initialization] col 5: package variable trace is constinit: it starts as its zero value
-constinit gp::slice<gp::string> trace{};
+constinit gp::keep<gp::slice<gp::string>> gp_keep_trace{};
 
 } // namespace gpkg_main
 

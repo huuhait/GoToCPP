@@ -858,12 +858,27 @@ void test_wait_slot_close_and_open() {
     if (s == nullptr) {
         return;
     }
+    // The slot's own handles are closed, then open again. The process's handle count says that
+    // nothing else leaked where the system tells it (Wine's count is always 0).
+    std::uintptr_t h[2] = {};
+    gp::os::testing::slot_handles(s, h);
+    CHECK(gp::os::testing::handle_open(h[0]) && gp::os::testing::handle_open(h[1]));
     int64_t open_before = gp::os::testing::open_handles();
     gp::os::wait_slot_close(s);
-    CHECK(gp::os::testing::open_handles() <= open_before - 2);
+    CHECK(!gp::os::testing::handle_open(h[0]) && !gp::os::testing::handle_open(h[1]));
+    std::uintptr_t closed[2] = {1, 1};
+    gp::os::testing::slot_handles(s, closed);
+    CHECK(closed[0] == 0 && closed[1] == 0);
+    if (open_before > 0) {
+        CHECK(gp::os::testing::open_handles() <= open_before - 2);
+    }
     gp::os::wait_slot_wake(s);
     CHECK(gp::os::wait_slot_open(s));
-    CHECK(gp::os::testing::open_handles() == open_before);
+    gp::os::testing::slot_handles(s, h);
+    CHECK(gp::os::testing::handle_open(h[0]) && gp::os::testing::handle_open(h[1]));
+    if (open_before > 0) {
+        CHECK(gp::os::testing::open_handles() == open_before);
+    }
     gp::os::wait_slot_arm(s);
     CHECK(slot_wait_ns(s, 20'000'000, 0) >= 15'000'000);
     gp::os::wait_slot_close(s);

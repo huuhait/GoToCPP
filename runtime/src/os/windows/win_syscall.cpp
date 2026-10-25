@@ -18,6 +18,7 @@
 #include <cwchar>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <windows.h>
 
@@ -112,44 +113,202 @@ std::wstring wtf8_to_wide(std::string_view s) {
 
 } // namespace
 
-void win_setenv(uintptr_t key, uintptr_t value) {
-    // The C library keeps its own copy of the environment (getenv of C and C++ code reads it);
-    // SetEnvironmentVariable, which package syscall called, changed the process's. The two
-    // arguments are the NUL-terminated UTF-16 that Go's Setenv already made (lone surrogates
-    // intact). A key the library refuses (empty, with '=') is ignored.
-    auto k = reinterpret_cast<const wchar_t*>(key);
-    auto v = reinterpret_cast<const wchar_t*>(value);
-    _wputenv_s(k, v);
-    // The C library deletes the variable for an empty value (and so does it in the process's
-    // block); Go keeps a variable that is set to "" (LookupEnv says true), so the system's block
-    // gets the value again. (C's getenv then answers NULL for it: no way to hold an empty value in
-    // the C library's copy.)
-    SetEnvironmentVariableW(k, v);
-    if (std::wcscmp(k, L"GODEBUG") == 0) {
-        // (as Go's runtime: syscall_runtimeSetenv)
-        gp::godebug::env_changed(gp::os::to_utf8(v, std::wcslen(v)));
+namespace {
+
+// block_entries is the process's environment block (the system's, the one package syscall
+// reads), one "name=value" entry each, in its order.
+std::vector<std::wstring> block_entries() {
+    std::vector<std::wstring> out;
+    wchar_t* block = GetEnvironmentStringsW();
+    if (block == nullptr) {
+        return out;
+    }
+    for (const wchar_t* p = block; *p != 0; p += std::wcslen(p) + 1) {
+        out.emplace_back(p);
+    }
+    FreeEnvironmentStringsW(block);
+    return out;
+}
+
+// has_name says whether entry is a variable named key, the way the system compares names
+// (without case). A name may begin with '=' ("=C:=C:\x"): its '=' is looked for from the second
+// character on, as Go's syscall.Clearenv does.
+bool has_name(const std::wstring& entry, const wchar_t* key) {
+    std::size_t eq = entry.find(L'=', 1);
+    if (eq == std::wstring::npos) {
+        return false;
+    }
+    return CompareStringOrdinal(entry.c_str(), static_cast<int>(eq), key, -1, TRUE) == CSTR_EQUAL;
+}
+
+std::vector<std::wstring> entries_named(const std::vector<std::wstring>& block,
+                                        const wchar_t* key) {
+    std::vector<std::wstring> out;
+    for (const std::wstring& e : block) {
+        if (has_name(e, key)) {
+            out.push_back(e);
+        }
+    }
+    return out;
+}
+
+// The functions of ntdll that copy the environment block exactly (also two variables whose names
+// differ only in case, which a parent can pass and which SetEnvironmentStringsW would merge) and
+// put a copy back as the process's block. Exported by every ntdll since NT, and by Wine's.
+struct env_block_api {
+    LONG(WINAPI* create)(BOOLEAN clone, PWSTR* env) = nullptr;  // RtlCreateEnvironment
+    void(WINAPI* set_current)(PWSTR env, PWSTR* old) = nullptr; // RtlSetCurrentEnvironment
+    LONG(WINAPI* destroy)(PWSTR env) = nullptr;                 // RtlDestroyEnvironment
+};
+
+const env_block_api& block_api() {
+    static const env_block_api api = [] {
+        env_block_api a;
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (ntdll != nullptr) {
+            a.create = reinterpret_cast<decltype(a.create)>(
+                reinterpret_cast<void*>(GetProcAddress(ntdll, "RtlCreateEnvironment")));
+            a.set_current = reinterpret_cast<decltype(a.set_current)>(
+                reinterpret_cast<void*>(GetProcAddress(ntdll, "RtlSetCurrentEnvironment")));
+            a.destroy = reinterpret_cast<decltype(a.destroy)>(
+                reinterpret_cast<void*>(GetProcAddress(ntdll, "RtlDestroyEnvironment")));
+        }
+        if (a.create == nullptr || a.set_current == nullptr || a.destroy == nullptr) {
+            a = env_block_api{};
+        }
+        return a;
+    }();
+    return api;
+}
+
+// env_lock serializes os.Setenv and os.Unsetenv (win_setenv): the change of the system's block,
+// the C library's copy and the block put back are one step for the other goroutines that change
+// the environment, and for those that read it (syscall.Getenv and Environ hold it shared,
+// win_env_read_lock): while crt_sync works, the block may lack the variable for a moment. C or
+// C++ code that calls SetEnvironmentVariableW itself, on another thread, in that moment does not
+// take the lock: its change can be undone when the block is put back. (SRWLOCK_INIT is a
+// constant: no initializer at program start.)
+SRWLOCK env_lock = SRWLOCK_INIT;
+
+// crt_sync makes the C library's copy of the environment (what getenv of C and C++ code reads)
+// say for key what the system's block says, which package syscall has just changed: the value of
+// the block's FIRST variable of the name (Windows compares names without case, and a block can
+// hold several that differ in case, "godebug" and "GODEBUG", when the parent passed them), or no
+// variable when the block has none or its value is "" (the library cannot hold an empty value).
+// The library's calls (_wputenv_s) change the system's block too (SetEnvironmentVariableW, one
+// variable each), so the block is put back as it was afterwards: Go's syscall.Unsetenv removes
+// one variable of the name, and syscall.Setenv(k, "") keeps the variable (LookupEnv says true).
+void crt_sync(const wchar_t* key) {
+    const env_block_api& api = block_api();
+    PWSTR saved = nullptr;
+    if (api.create != nullptr && api.create(TRUE, &saved) < 0) {
+        saved = nullptr;
+    }
+    std::vector<std::wstring> before = block_entries();
+    std::vector<std::wstring> want = entries_named(before, key);
+    // Every variable of the name out of the library's copy (each call removes one), then the first
+    // value of the block in. A name the library refuses (empty, with '=') is left alone. The
+    // library has two copies, the narrow one that getenv reads and the wide one of _wgetenv, which
+    // it may make only at its first use, from the block as it is then (without the variable that
+    // syscall just removed): both are asked.
+    std::string narrow;
+    if (int n = WideCharToMultiByte(CP_ACP, 0, key, -1, nullptr, 0, nullptr, nullptr); n > 0) {
+        narrow.resize(static_cast<std::size_t>(n));
+        WideCharToMultiByte(CP_ACP, 0, key, -1, narrow.data(), n, nullptr, nullptr);
+        narrow.resize(static_cast<std::size_t>(n - 1));
+    }
+    auto has = [&] {
+        return _wgetenv(key) != nullptr ||
+               (!narrow.empty() && std::getenv(narrow.c_str()) != nullptr);
+    };
+    for (int i = 0; i < 256 && has(); i++) {
+        if (_wputenv_s(key, L"") != 0) {
+            break;
+        }
+    }
+    if (!want.empty()) {
+        const wchar_t* v = want[0].c_str() + want[0].find(L'=', 1) + 1;
+        if (*v != 0) {
+            _wputenv_s(key, v);
+        }
+    }
+    if (block_entries() == before) {
+        if (saved != nullptr) {
+            api.destroy(saved);
+        }
+        return;
+    }
+    if (saved != nullptr) {
+        PWSTR old = nullptr;
+        api.set_current(saved, &old);
+        if (old != nullptr) {
+            api.destroy(old);
+        }
+        return;
+    }
+    // (No ntdll functions: the variables of the name come back one at a time; only the first of
+    // several can.)
+    while (!entries_named(block_entries(), key).empty()) {
+        if (!SetEnvironmentVariableW(key, nullptr)) {
+            break;
+        }
+    }
+    if (!want.empty()) {
+        std::size_t eq = want[0].find(L'=', 1);
+        std::wstring name = want[0].substr(0, eq);
+        SetEnvironmentVariableW(name.c_str(), want[0].c_str() + eq + 1);
     }
 }
 
-void win_unsetenv(uintptr_t key) {
-    auto k = reinterpret_cast<const wchar_t*>(key);
-    _wputenv_s(k, L"");
-    // (The C library's call may leave the variable in the system's block, empty.)
-    SetEnvironmentVariableW(k, nullptr);
-    if (std::wcscmp(k, L"GODEBUG") == 0) {
-        gp::godebug::env_changed("");
+// set_env is syscall.Setenv's (value != null) or syscall.Unsetenv's (null) change of the system's
+// block, then of the C library's copy, under env_lock: 0, or the system's error.
+uintptr_t set_env(const wchar_t* key, const wchar_t* value) {
+    AcquireSRWLockExclusive(&env_lock);
+    uintptr_t err = 0;
+    if (SetEnvironmentVariableW(key, value)) {
+        crt_sync(key);
+    } else {
+        err = GetLastError();
     }
+    ReleaseSRWLockExclusive(&env_lock);
+    if (err == 0 && std::wcscmp(key, L"GODEBUG") == 0) {
+        // (as Go's runtime: syscall_runtimeSetenv and syscall_runtimeUnsetenv)
+        gp::godebug::env_changed(value == nullptr ? std::string()
+                                                  : gp::os::to_utf8(value, std::wcslen(value)));
+    }
+    return err;
+}
+
+} // namespace
+
+uintptr_t win_setenv(uintptr_t key, uintptr_t value) {
+    // The two arguments are the NUL-terminated UTF-16 that Go's Setenv made (lone surrogates
+    // intact).
+    return set_env(reinterpret_cast<const wchar_t*>(key), reinterpret_cast<const wchar_t*>(value));
+}
+
+uintptr_t win_unsetenv(uintptr_t key) {
+    return set_env(reinterpret_cast<const wchar_t*>(key), nullptr);
+}
+
+void win_env_read_lock() {
+    AcquireSRWLockShared(&env_lock);
+}
+
+void win_env_read_unlock() {
+    ReleaseSRWLockShared(&env_lock);
 }
 
 void runtime_setenv(const gp::string& key, const gp::string& value) {
     std::wstring k = wtf8_to_wide(key.gp_view());
     std::wstring v = wtf8_to_wide(value.gp_view());
-    win_setenv(reinterpret_cast<uintptr_t>(k.c_str()), reinterpret_cast<uintptr_t>(v.c_str()));
+    (void)win_setenv(reinterpret_cast<uintptr_t>(k.c_str()),
+                     reinterpret_cast<uintptr_t>(v.c_str()));
 }
 
 void runtime_unsetenv(const gp::string& key) {
     std::wstring k = wtf8_to_wide(key.gp_view());
-    win_unsetenv(reinterpret_cast<uintptr_t>(k.c_str()));
+    (void)win_unsetenv(reinterpret_cast<uintptr_t>(k.c_str()));
 }
 
 void sys_exit(int64_t code) {

@@ -677,7 +677,7 @@ const itab* build(const type_desc* inter, const type_desc* type) {
                 continue;
             }
             if (c == 0 && same_str(m.gp_sig, im.gp_sig) && m.gp_fn != nullptr) {
-                fun[i] = m.gp_fn;
+                fun[i] = m.gp_fn();
                 aware[i] = m.gp_aware;
                 found = true;
                 j++;

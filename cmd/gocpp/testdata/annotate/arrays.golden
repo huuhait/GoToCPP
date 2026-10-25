@@ -6,7 +6,8 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-extern const gp::type_desc* const gp_tdc_0;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
 int64_t sum(gp::array<int64_t, 3> a);
 void main();
 
@@ -63,7 +64,7 @@ void main() {
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
 // gp[order] col 22: gp_t1 holds the result of a call (or a value that a later call could change):
 //     Go evaluates it first, in order, where C++ leaves the order of the operands unspecified
-    { auto gp_t0 = gpkg_main::sum((*a)); auto gp_t1 = gpkg_main::sum(b); gp::fmt::Println(gp_t0, gp_t1, (*a) == b, gp::fmt::as(gp_tdc_0, gp::sub(a, 1))); }
+    { auto gp_t0 = gpkg_main::sum((*a)); auto gp_t1 = gpkg_main::sum(b); gp::fmt::Println(gp_t0, gp_t1, (*a) == b, gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gp::sub(a, 1))); }
 
 // ---- ./arrays.gp:18: }
 }
@@ -75,7 +76,10 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_slice<int64_t>(&gp::td_int);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<int64_t>(&gp::td_int));
+}
 
 } // namespace gpkg_main
 //// gpkg/command-line-arguments/pkg_init.cpp

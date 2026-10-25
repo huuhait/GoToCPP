@@ -178,8 +178,8 @@ hand once, and a test forbids `| head`, which makes a program die with SIGPIPE u
 | `linux` (arm64) | `ubuntu-24.04-arm` | the same `make ci` (`flake.nix` added `aarch64-linux` to the dev shell systems, without MinGW-w64 and Wine; its evaluation was checked, nothing was built for arm64) |
 | `windows` | `windows-2022` | `gocpp.exe` built on Windows; `TestRun` (phase limit 09, the highest phase of the sample) of every program of [`tests/windows_sample.txt`](../../tests/windows_sample.txt) with MSYS2's MinGW-w64 GCC (UCRT); one program with gocpp's own pinned llvm-mingw (downloaded, `GOCPP_TOOLCHAIN=pinned`) |
 
-**No CI leg uses Wine** (ADR-111; Wine 11 cannot deliver stack overflows on AVX-512 CPUs, which hosted runners may
-have). The two Linux legs take Wine off the `PATH` and empty `GOCPP_REQUIRE_WINE`, so the runtime's Wine tests skip
+**No CI leg uses Wine** (ADR-111; Wine 11 cannot deliver stack overflows at its own guard page on AVX-512 CPUs, which hosted
+runners may have, and differs from Windows in many details). The two Linux legs take Wine off the `PATH` and empty `GOCPP_REQUIRE_WINE`, so the runtime's Wine tests skip
 instead of failing (checked locally: with `wine` off the `PATH`, `TestWindowsRuntime` skips). Hosted-runner limits:
 a job stops after 360 minutes, which is the `timeout-minutes` of the `linux` legs, so a `make ci` that grows past it
 needs sharding like `sanitizers-nightly.yml`; the `ubuntu-24.04-arm` label is, as far as is known offline, free only

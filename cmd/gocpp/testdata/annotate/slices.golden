@@ -6,7 +6,8 @@
 #include <gocpp/rt.hpp>
 
 namespace gpkg_main {
-extern const gp::type_desc* const gp_tdc_0;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
 void main();
 
 } // namespace gpkg_main
@@ -50,7 +51,7 @@ void main() {
 // gp[interfaces] col 2: fmt.Println: the runtime's gp::fmt functions take each operand with the
 //     descriptor of its Go type (gp::fmt::as), not boxed into an interface first (an operand of a
 //     non-pointer type with an Error method is, see the allocation note)
-    gp::fmt::Println(gp::fmt::as(gp_tdc_0, xs), gp::fmt::as(gp_tdc_0, ys), gp::fmt::as(gp_tdc_0, zs), n);
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), xs), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), ys), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), zs), n);
 
 // ---- ./slices.gp:13: }
 }
@@ -62,7 +63,10 @@ void main() {
 
 namespace gpkg_main {
 
-const gp::type_desc* const gp_tdc_0 = gp::td_slice<int64_t>(&gp::td_int);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<int64_t>(&gp::td_int));
+}
 
 } // namespace gpkg_main
 //// gpkg/command-line-arguments/pkg_init.cpp

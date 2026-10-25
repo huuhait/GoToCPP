@@ -1,0 +1,11 @@
+"" "v" -> setenv: Invalid parameter.
+setenv false false
+"A=B" "v" -> setenv: Invalid parameter.
+setenv false false
+"A\x00B" "v" -> setenv: invalid argument
+setenv true true
+"AB" "v\x00" -> setenv: invalid argument
+setenv true true
+"OK" "fine" -> <nil>
+Invalid parameter.
+Invalid parameter.

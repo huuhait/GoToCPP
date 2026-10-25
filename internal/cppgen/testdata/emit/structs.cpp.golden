@@ -301,11 +301,26 @@ inline const gp::type_desc gp_td_gp_ = gp::named<gp_>("main.gp", "main", gp::sha
 inline const gp::type_desc* gp_full_std_();
 inline const gp::type_desc gp_td_std_ = gp::named<std_>("main.std", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_std_));
 
-static const gp::type_desc* const gp_tdc_0 = gp::td_struct<gp_anon_ea09bf59bebc5021>({gp::field_desc("l", "main", &gp_td_L, nullptr, false, gp::offset_of(&gp_anon_ea09bf59bebc5021::l))});
-static const gp::type_desc* const gp_tdc_1 = gp::td_struct<gp_anon_0c156597b9c01e50>({gp::field_desc("l", "main", &gp_td_L_1, nullptr, false, gp::offset_of(&gp_anon_0c156597b9c01e50::l))});
-static const gp::type_desc* const gp_tdc_2 = gp::td_struct<gp_anon_e67ed654f997cbc4>({gp::field_desc("X", nullptr, &gp::td_int, "json:\"x\"", false, gp::offset_of(&gp_anon_e67ed654f997cbc4::X))});
-static const gp::type_desc* const gp_tdc_3 = gp::td_array<int64_t, 3>(&gp::td_int);
-static const gp::type_desc* const gp_tdc_4 = gp::td_slice<int64_t>(&gp::td_int);
+static constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_struct<gp_anon_ea09bf59bebc5021>({gp::field_desc("l", "main", &gp_td_L, nullptr, false, gp::offset_of(&gp_anon_ea09bf59bebc5021::l))}));
+}
+static constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_struct<gp_anon_0c156597b9c01e50>({gp::field_desc("l", "main", &gp_td_L_1, nullptr, false, gp::offset_of(&gp_anon_0c156597b9c01e50::l))}));
+}
+static constinit const gp::type_desc* gp_tdc_2_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_2_make() {
+    return gp::desc_publish(&gp_tdc_2_p, gp::td_struct<gp_anon_e67ed654f997cbc4>({gp::field_desc("X", nullptr, &gp::td_int, "json:\"x\"", false, gp::offset_of(&gp_anon_e67ed654f997cbc4::X))}));
+}
+static constinit const gp::type_desc* gp_tdc_3_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_3_make() {
+    return gp::desc_publish(&gp_tdc_3_p, gp::td_array<int64_t, 3>(&gp::td_int));
+}
+static constinit const gp::type_desc* gp_tdc_4_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_4_make() {
+    return gp::desc_publish(&gp_tdc_4_p, gp::td_slice<int64_t>(&gp::td_int));
+}
 
 inline const gp::type_desc* gp_full_L() {
     static const gp::field_desc gp_f[]{gp::field_desc("a", "main", &gp::td_int, nullptr, false, gp::offset_of(&L::a))};
@@ -350,7 +365,7 @@ inline const gp::type_desc* gp_full_Inner() {
 }
 
 inline const gp::type_desc* gp_full_Words() {
-    static const gp::field_desc gp_f[]{gp::field_desc("Words", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Words::Words_)), gp::field_desc("class", "main", &gp::td_string, nullptr, false, gp::offset_of(&Words::class_)), gp::field_desc("new", "main", &gp::td_float64, nullptr, false, gp::offset_of(&Words::new_)), gp::field_desc("Point", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Words::Point)), gp::field_desc("arr", "main", gp_tdc_3, nullptr, false, gp::offset_of(&Words::arr)), gp::field_desc("nums", "main", gp_tdc_4, nullptr, false, gp::offset_of(&Words::nums))};
+    static const gp::field_desc gp_f[]{gp::field_desc("Words", nullptr, &gp::td_int, nullptr, false, gp::offset_of(&Words::Words_)), gp::field_desc("class", "main", &gp::td_string, nullptr, false, gp::offset_of(&Words::class_)), gp::field_desc("new", "main", &gp::td_float64, nullptr, false, gp::offset_of(&Words::new_)), gp::field_desc("Point", nullptr, &gp_td_Point, nullptr, false, gp::offset_of(&Words::Point)), gp::field_desc("arr", "main", gp::desc_get<&gp_tdc_3_p, &gp_tdc_3_make>(), nullptr, false, gp::offset_of(&Words::arr)), gp::field_desc("nums", "main", gp::desc_get<&gp_tdc_4_p, &gp_tdc_4_make>(), nullptr, false, gp::offset_of(&Words::nums))};
     static const gp::type_desc gp_d = gp::completed(gp_td_Words, gp::shape_struct(gp_f, 6));
     return &gp_d;
 }
@@ -381,9 +396,11 @@ void main();
 #line 83 "$DIR/structs.gp"
 constinit Point gpt{};
 constinit Rect grect{.Max = Point{3, 4}};
-constinit gp::ptr<Point> gptr{};
+constinit gp::keep<gp::ptr<Point>> gp_keep_gptr{};
 constinit int64_t x = 1;
 
+inline constexpr gp::ptr<Point>& gptr = gp_keep_gptr.gp_v;
+#line 88 "$DIR/structs.gp"
 int64_t f(int64_t tag) {
     gp::fmt::Print("f"_gs, tag, " "_gs);
     x++;
@@ -426,12 +443,12 @@ gp::ptr<Node> push(const gp::ptr<Node>& n, int64_t v) {
 #line 125 "$DIR/structs.gp"
 void local() {
 #line 128 "$DIR/structs.gp"
-    gp::fmt::Println(gp::fmt::as(&gp_td_L, L{1}), gp::fmt::as(&gp_td_Point_1, Point_1{true}), gp::fmt::as(gp_tdc_0, gp_anon_ea09bf59bebc5021{L{2}}));
+    gp::fmt::Println(gp::fmt::as(&gp_td_L, L{1}), gp::fmt::as(&gp_td_Point_1, Point_1{true}), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gp_anon_ea09bf59bebc5021{L{2}}));
 }
 
 void local2() {
 #line 133 "$DIR/structs.gp"
-    gp::fmt::Println(gp::fmt::as(&gp_td_L_1, L_1{"z"_gs}), gp::fmt::as(gp_tdc_1, gp_anon_0c156597b9c01e50{L_1{"y"_gs}}));
+    gp::fmt::Println(gp::fmt::as(&gp_td_L_1, L_1{"z"_gs}), gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), gp_anon_0c156597b9c01e50{L_1{"y"_gs}}));
 }
 
 void main() {
@@ -559,7 +576,7 @@ void main() {
     gp_anon_e67ed654f997cbc4 a2{2};
 #line 266 "$DIR/structs.gp"
     a1 = a2;
-    gp::fmt::Println(gp::fmt::as(gp_tdc_2, a1), a1 == a2, gp_anon_a9e1fb1acaf8c517{} == gp_anon_a9e1fb1acaf8c517{});
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_2_p, &gp_tdc_2_make>(), a1), a1 == a2, gp_anon_a9e1fb1acaf8c517{} == gp_anon_a9e1fb1acaf8c517{});
     local();
     local2();
 #line 272 "$DIR/structs.gp"

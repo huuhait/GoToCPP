@@ -96,12 +96,12 @@ int64_t thunk_pRec_Size(const gp::iface& self) {
 }
 
 const gp::method gp_vm_Rec[] = {
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_Rec_Name),
-    gp::method_of<int64_t()>("Size", nullptr, "func() int", &thunk_Rec_Size)};
+    gp::method_of<gp::string(), &thunk_Rec_Name>("Name", nullptr, "func() string"),
+    gp::method_of<int64_t(), &thunk_Rec_Size>("Size", nullptr, "func() int")};
 const gp::method gp_pm_Rec[] = {
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_pRec_Name),
-    gp::method_of<void(int64_t)>("Set", nullptr, "func(int)", &thunk_pRec_Set),
-    gp::method_of<int64_t()>("Size", nullptr, "func() int", &thunk_pRec_Size)};
+    gp::method_of<gp::string(), &thunk_pRec_Name>("Name", nullptr, "func() string"),
+    gp::method_of<void(int64_t), &thunk_pRec_Set>("Set", nullptr, "func(int)"),
+    gp::method_of<int64_t(), &thunk_pRec_Size>("Size", nullptr, "func() int")};
 const gp::imethod gp_im_Sizer[] = {gp::imethod("Size", nullptr, "func() int")};
 
 const gp::type_desc* gp_full_Rec();

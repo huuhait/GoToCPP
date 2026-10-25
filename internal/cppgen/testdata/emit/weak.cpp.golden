@@ -21,10 +21,13 @@ extern const gp::type_desc gp_td_Node;
 inline const gp::type_desc* gp_full_Node();
 inline const gp::type_desc gp_td_Node = gp::named<Node>("main.Node", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Node));
 
-static const gp::type_desc* const gp_tdc_0 = gp::td_weak<Node>(&gp_td_Node);
+static constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] static const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_weak<Node>(&gp_td_Node));
+}
 
 inline const gp::type_desc* gp_full_Node() {
-    static const gp::field_desc gp_f[]{gp::field_desc("val", "main", &gp::td_int, nullptr, false, gp::offset_of(&Node::val)), gp::field_desc("parent", "main", gp_tdc_0, nullptr, false, gp::offset_of(&Node::parent))};
+    static const gp::field_desc gp_f[]{gp::field_desc("val", "main", &gp::td_int, nullptr, false, gp::offset_of(&Node::val)), gp::field_desc("parent", "main", gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), nullptr, false, gp::offset_of(&Node::parent))};
     static const gp::type_desc gp_d = gp::completed(gp_td_Node, gp::shape_struct(gp_f, 2));
     return &gp_d;
 }
@@ -44,7 +47,7 @@ void main() {
     { auto gp_t7 = z == gp::weak_make<Node>(nullptr); auto gp_t8 = w == kid->parent; gp::fmt::Println(z == gp::weak_ptr<Node>{}, gp_t7, gp_t8, gp::weak_value(z) == nullptr); }
     gp::map<gp::weak_ptr<Node>, int64_t> m = gp::map_of<gp::weak_ptr<Node>, int64_t>({{w, 1}});
     gp::ref(m, gp::weak_make<Node>(root))++;
-    gp::fmt::Println(gp::get(m, w), gp::len(m), gp::fmt::as(gp_tdc_0, z));
+    gp::fmt::Println(gp::get(m, w), gp::len(m), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), z));
 }
 
 } // namespace gpkg_main

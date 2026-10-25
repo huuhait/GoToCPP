@@ -29,8 +29,10 @@ void main();
 gp::string joined();
 
 #line 13 "$DIR/defer.gp"
-constinit gp::slice<gp::string> trail{};
+constinit gp::keep<gp::slice<gp::string>> gp_keep_trail{};
 
+inline constexpr gp::slice<gp::string>& trail = gp_keep_trail.gp_v;
+#line 15 "$DIR/defer.gp"
 void note(const gp::string& s) {
 #line 15 "$DIR/defer.gp"
     trail = gp::append(static_cast<gp::slice<gp::string>&&>(trail), s);
@@ -430,7 +432,8 @@ int64_t jumps(int64_t n) {
     gp_ret0:; gp_df.gp_run(); return r;
 }
 
-int64_t fact(int64_t n) {
+GP_RECURSIVE int64_t fact(int64_t n) {
+    GP_RECURSION_MARK();
 #line 146 "$DIR/defer.gp"
     gp::ptr<int64_t> r = gp::new_<int64_t>();
 #line 146 "$DIR/defer.gp"

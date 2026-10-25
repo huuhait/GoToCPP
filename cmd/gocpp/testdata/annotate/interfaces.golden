@@ -43,7 +43,8 @@ static_assert(sizeof(Circle) == 8 && alignof(Circle) == 8);
 extern const gp::type_desc gp_td_Shape;
 extern const gp::type_desc gp_td_Rect;
 extern const gp::type_desc gp_td_Circle;
-extern const gp::type_desc* const gp_tdp_Circle;
+extern const gp::type_desc* gp_tdp_Circle_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Circle_make();
 inline const gp::type_desc* Shape::gp_desc() {
     return &gp_td_Shape;
 }
@@ -104,7 +105,7 @@ gp::string describe(const Shape& s) {
             return gp::fmt::Sprint("rect "_gs, v.w);
 
 // ---- ./interfaces.gp:19: case *Circle:
-        } else if (gp::type_is(gp_x0, gp_tdp_Circle)) {
+        } else if (gp::type_is(gp_x0, gp::desc_get<&gp_tdp_Circle_p, &gp_tdp_Circle_make>())) {
             gp::ptr<Circle> v = gp::unbox<gp::ptr<Circle>>(gp_x0);
 
 // ---- ./interfaces.gp:20: return fmt.Sprint("circle ", v.r)
@@ -135,7 +136,7 @@ void main() {
 //     (gp::new_)
 // gp[interfaces] col 16: pointer *Circle to Shape: no allocation, the interface shares the
 //     pointer's owner; a nil pointer still makes a non-nil interface
-    Shape b = gp::to_iface<Shape>(gp::new_<Circle>(Circle{1.0}), gp_tdp_Circle);
+    Shape b = gp::to_iface<Shape>(gp::new_<Circle>(Circle{1.0}), gp::desc_get<&gp_tdp_Circle_p, &gp_tdp_Circle_make>());
 
 // ---- ./interfaces.gp:28: r, ok := a.(Rect)
 // gp[interfaces] col 11: v, ok := x.(Rect): gp::assert_type2 compares type descriptors; no panic,
@@ -185,24 +186,27 @@ const gp::type_desc gp_td_Shape = gp::named<Shape>("main.Shape", "main", gp::sha
 inline double gp_thunk_Rect_Area(const gp::iface& gp_self) {
     return gp::unbox<Rect>(gp_self).Area();
 }
-inline const gp::method gp_vm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area)};
+inline const gp::method gp_vm_Rect[]{gp::method_of<double(), &gp_thunk_Rect_Area>("Area", nullptr, "func() float64")};
 inline double gp_thunk_pRect_Area(const gp::iface& gp_self) {
     gp::bptr<Rect> gp_p = gp::unbox_borrow<Rect>(gp_self);
     gp::check_wrap(gp_p, "value method main.Rect.Area called using nil *Rect pointer");
     return gp_p->Area();
 }
-inline const gp::method gp_pm_Rect[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pRect_Area)};
+inline const gp::method gp_pm_Rect[]{gp::method_of<double(), &gp_thunk_pRect_Area>("Area", nullptr, "func() float64")};
 static const gp::type_desc* gp_full_Rect();
 const gp::type_desc gp_td_Rect = gp::named<Rect>("main.Rect", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Rect), gp::methods_of(gp_vm_Rect), gp::methods_of(gp_pm_Rect));
 
 inline double gp_thunk_pCircle_Area(const gp::iface& gp_self) {
     return Circle::Area(gp::unbox_borrow<Circle>(gp_self));
 }
-inline const gp::method gp_pm_Circle[]{gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_pCircle_Area)};
+inline const gp::method gp_pm_Circle[]{gp::method_of<double(), &gp_thunk_pCircle_Area>("Area", nullptr, "func() float64")};
 static const gp::type_desc* gp_full_Circle();
 const gp::type_desc gp_td_Circle = gp::named<Circle>("main.Circle", "main", gp::shape_lazy(gp::shape_struct(nullptr, 0), &gp_full_Circle), {}, gp::methods_of(gp_pm_Circle));
 
-const gp::type_desc* const gp_tdp_Circle = gp::td_ptr<Circle>(&gp_td_Circle);
+constinit const gp::type_desc* gp_tdp_Circle_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdp_Circle_make() {
+    return gp::desc_publish(&gp_tdp_Circle_p, gp::td_ptr<Circle>(&gp_td_Circle));
+}
 
 static const gp::type_desc* gp_full_Rect() {
     static const gp::field_desc gp_f[]{gp::field_desc("w", "main", &gp::td_float64, nullptr, false, gp::offset_of(&Rect::w)), gp::field_desc("h", "main", &gp::td_float64, nullptr, false, gp::offset_of(&Rect::h))};

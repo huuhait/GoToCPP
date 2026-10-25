@@ -18,10 +18,14 @@ constinit gp::array<int64_t, 3> glit{1, 2, 3};
 constinit gp::array<int64_t, 5> gkeyed = gp::array_keyed<int64_t, 5>({{4, 40}, {1, 10}});
 constinit gp::array<gp::array<int32_t, 2>, 2> gnested{gp::array<int32_t, 2>{1, 2}, gp::array<int32_t, 2>{3, 4}};
 constinit gp::array<double, 3> gfloats = gp::array_keyed<double, 3>({{0, 0.5}, {2, -1.25}});
-constinit gp::array<gp::string, 2> gstrs{};
-constinit gp::slice<int64_t> gsl{};
-constinit gp::ptr<gp::array<int64_t, 3>> gp3{};
+constinit gp::keep<gp::array<gp::string, 2>> gp_keep_gstrs{};
+constinit gp::keep<gp::slice<int64_t>> gp_keep_gsl{};
+constinit gp::keep<gp::ptr<gp::array<int64_t, 3>>> gp_keep_gp3{};
 
+inline constexpr gp::array<gp::string, 2>& gstrs = gp_keep_gstrs.gp_v;
+inline constexpr gp::slice<int64_t>& gsl = gp_keep_gsl.gp_v;
+inline constexpr gp::ptr<gp::array<int64_t, 3>>& gp3 = gp_keep_gp3.gp_v;
+#line 25 "$DIR/arrays.gp"
 void show(gp::array<int64_t, 3> a) {
     gp::fmt::Println(a[0], a[1], a[2]);
 }

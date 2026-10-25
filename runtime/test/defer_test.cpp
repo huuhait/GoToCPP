@@ -891,9 +891,9 @@ void thunk_GuardB(const gp::iface& self) {
 }
 
 const gp::method gp_vm_GuardA[] = {
-    gp::method_of_aware<void()>("Guard", nullptr, "func()", &thunk_GuardA)};
+    gp::method_of_aware<void(), &thunk_GuardA>("Guard", nullptr, "func()")};
 const gp::method gp_vm_GuardB[] = {
-    gp::method_of<void()>("Guard", nullptr, "func()", &thunk_GuardB)};
+    gp::method_of<void(), &thunk_GuardB>("Guard", nullptr, "func()")};
 const gp::imethod gp_im_Guarder[] = {gp::imethod("Guard", nullptr, "func()")};
 const gp::type_desc gp_td_GuardA = gp::named<GuardA>(
     "main.GuardA", "main", gp::shape_struct(nullptr, 0), gp::methods_of(gp_vm_GuardA));
@@ -1309,7 +1309,7 @@ struct Label {
 
 void test_panic_values() {
     static const gp::method my_err_methods[] = {
-        gp::method_of<gp::string()>("Error", nullptr, "func() string", &my_err_error)};
+        gp::method_of<gp::string(), &my_err_error>("Error", nullptr, "func() string")};
     static const gp::type_desc td_my_err = gp::named<MyErr>(
         "main.MyErr", "main", gp::shape_struct(nullptr, 0), gp::methods_of(my_err_methods));
     static const gp::type_desc td_opaque_t =

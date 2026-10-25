@@ -1579,7 +1579,7 @@ iface self_of(const value& v) {
 // call_string calls the method m (func() string) of v.
 gp::string call_string(const value& v, const method* m) {
     iface self = self_of(v);
-    return reinterpret_cast<thunk_t<gp::string()>*>(m->gp_fn)(self);
+    return reinterpret_cast<thunk_t<gp::string()>*>(m->gp_fn())(self);
 }
 
 // state_pp is the printer of the State self, or null when the call that made it is over (Go's
@@ -1644,14 +1644,14 @@ std::tuple<int64_t, gp::error> st_write_string(const iface& self, gp::string s) 
 // *fmt.pp: the dynamic type of the State that a Format method gets.
 const type_desc* td_pp_ptr() {
     static const method pmethods[] = {
-        method_of<bool(int64_t)>("Flag", nullptr, "func(int) bool", &st_flag),
-        method_of<std::tuple<int64_t, bool>()>("Precision", nullptr, "func() (int, bool)",
-                                               &st_precision),
-        method_of<std::tuple<int64_t, bool>()>("Width", nullptr, "func() (int, bool)", &st_width),
-        method_of<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>)>(
-            "Write", nullptr, "func([]uint8) (int, error)", &st_write),
-        method_of<std::tuple<int64_t, gp::error>(gp::string)>(
-            "WriteString", nullptr, "func(string) (int, error)", &st_write_string),
+        method_of<bool(int64_t), &st_flag>("Flag", nullptr, "func(int) bool"),
+        method_of<std::tuple<int64_t, bool>(), &st_precision>("Precision", nullptr,
+                                                              "func() (int, bool)"),
+        method_of<std::tuple<int64_t, bool>(), &st_width>("Width", nullptr, "func() (int, bool)"),
+        method_of<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>), &st_write>(
+            "Write", nullptr, "func([]uint8) (int, error)"),
+        method_of<std::tuple<int64_t, gp::error>(gp::string), &st_write_string>(
+            "WriteString", nullptr, "func(string) (int, error)"),
     };
     static const type_desc td =
         named<pp_state>("fmt.pp", "fmt", shape_struct(nullptr, 0), {}, methods_of(pmethods));
@@ -1884,8 +1884,8 @@ bool pp::handle_methods(const value& vin, char32_t verb) {
         try {
             iface self = self_of(*v);
             State st = make_state(*this);
-            reinterpret_cast<thunk_t<void(State, int32_t)>*>(m->gp_fn)(self, std::move(st),
-                                                                       static_cast<int32_t>(verb));
+            reinterpret_cast<thunk_t<void(State, int32_t)>*>(m->gp_fn())(
+                self, std::move(st), static_cast<int32_t>(verb));
         } catch (const gp::panic_error&) {
             catch_panic(*v, verb, "Format");
         } catch (const std::exception&) {
@@ -2757,7 +2757,7 @@ const type_desc* full_wrap_errors();
 
 const type_desc& td_error_string() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_es_error)};
+        method_of<gp::string(), &thunk_es_error>("Error", nullptr, "func() string")};
     static const type_desc td = named<error_string_t>(
         "errors.errorString", "errors", shape_lazy(shape_struct(nullptr, 0), &full_error_string),
         {}, methods_of(pmethods));
@@ -2776,8 +2776,8 @@ const type_desc* td_error_string_ptr() {
 
 const type_desc& td_wrap_error() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_we_error),
-        method_of<gp::error()>("Unwrap", nullptr, "func() error", &thunk_we_unwrap),
+        method_of<gp::string(), &thunk_we_error>("Error", nullptr, "func() string"),
+        method_of<gp::error(), &thunk_we_unwrap>("Unwrap", nullptr, "func() error"),
     };
     static const type_desc td = named<wrap_error_t>(
         "fmt.wrapError", "fmt", shape_lazy(shape_struct(nullptr, 0), &full_wrap_error), {},
@@ -2799,8 +2799,8 @@ const type_desc* td_wrap_error_ptr() {
 
 const type_desc& td_wrap_errors() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_wes_error),
-        method_of<gp::slice<gp::error>()>("Unwrap", nullptr, "func() []error", &thunk_wes_unwrap),
+        method_of<gp::string(), &thunk_wes_error>("Error", nullptr, "func() string"),
+        method_of<gp::slice<gp::error>(), &thunk_wes_unwrap>("Unwrap", nullptr, "func() []error"),
     };
     static const type_desc td = named<wrap_errors_t>(
         "fmt.wrapErrors", "fmt", shape_lazy(shape_struct(nullptr, 0), &full_wrap_errors), {},

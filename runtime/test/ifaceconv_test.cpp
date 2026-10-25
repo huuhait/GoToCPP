@@ -149,19 +149,19 @@ gp::string thunk_pMyErr_Error(const gp::iface& self) {
 }
 
 const gp::method gp_vm_Rect[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_Rect_Area),
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_Rect_Name),
+    gp::method_of<double(), &thunk_Rect_Area>("Area", nullptr, "func() float64"),
+    gp::method_of<gp::string(), &thunk_Rect_Name>("Name", nullptr, "func() string"),
 };
 const gp::method gp_pm_Rect[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_pRect_Area),
-    gp::method_of<gp::string()>("Name", nullptr, "func() string", &thunk_pRect_Name),
-    gp::method_of<void(double)>("Scale", nullptr, "func(float64)", &thunk_pRect_Scale),
+    gp::method_of<double(), &thunk_pRect_Area>("Area", nullptr, "func() float64"),
+    gp::method_of<gp::string(), &thunk_pRect_Name>("Name", nullptr, "func() string"),
+    gp::method_of<void(double), &thunk_pRect_Scale>("Scale", nullptr, "func(float64)"),
 };
 const gp::method gp_pm_Circle[] = {
-    gp::method_of<double()>("Area", nullptr, "func() float64", &thunk_pCircle_Area),
+    gp::method_of<double(), &thunk_pCircle_Area>("Area", nullptr, "func() float64"),
 };
 const gp::method gp_pm_MyErr[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_pMyErr_Error),
+    gp::method_of<gp::string(), &thunk_pMyErr_Error>("Error", nullptr, "func() string"),
 };
 
 const gp::imethod gp_im_Shape[] = {gp::imethod("Area", nullptr, "func() float64"),

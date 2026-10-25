@@ -38,7 +38,7 @@ gp::string thunk_err_error(const iface& self) {
 
 const type_desc* td_err_ptr() {
     static const method pmethods[] = {
-        method_of<gp::string()>("Error", nullptr, "func() string", &thunk_err_error)};
+        method_of<gp::string(), &thunk_err_error>("Error", nullptr, "func() string")};
     static const field_desc f[] = {
         field_desc("s", "errors", &td_string, nullptr, false, offset_of(&err_string::gp_s))};
     static const type_desc td = named<err_string>("errors.errorString", "errors",
@@ -731,7 +731,7 @@ struct reader_bytes final : byte_source {
         for (;;) {
             auto [n, e] =
                 reinterpret_cast<thunk_t<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>)>*>(
-                    read->gp_fn)(r, one);
+                    read->gp_fn())(r, one);
             if (n >= 1) {
                 return one.gp_data()[0];
             }
@@ -830,13 +830,13 @@ struct dyn_runes final : rune_source {
     dyn_runes(const iface& x, const method* a, const method* b) : r(x), rr(a), ur(b) {}
     int32_t read_rune(int64_t& size, gp::error& err) override {
         auto [c, n, e] =
-            reinterpret_cast<thunk_t<std::tuple<int32_t, int64_t, gp::error>()>*>(rr->gp_fn)(r);
+            reinterpret_cast<thunk_t<std::tuple<int32_t, int64_t, gp::error>()>*>(rr->gp_fn())(r);
         size = n;
         err = std::move(e);
         return c;
     }
     gp::error unread_rune() override {
-        return reinterpret_cast<thunk_t<gp::error()>*>(ur->gp_fn)(r);
+        return reinterpret_cast<thunk_t<gp::error()>*>(ur->gp_fn())(r);
     }
 };
 
@@ -1575,15 +1575,15 @@ std::tuple<int64_t, bool> st_width(const iface& self) {
 // *fmt.ss: the dynamic type of the ScanState that a Scan method gets.
 const type_desc* td_ss_ptr() {
     static const method pmethods[] = {
-        method_of<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>)>(
-            "Read", nullptr, "func([]uint8) (int, error)", &st_read),
-        method_of<std::tuple<int32_t, int64_t, gp::error>()>(
-            "ReadRune", nullptr, "func() (int32, int, error)", &st_read_rune),
-        method_of<void()>("SkipSpace", nullptr, "func()", &st_skip_space),
-        method_of<std::tuple<gp::slice<uint8_t>, gp::error>(bool, gp::func<bool(int32_t)>)>(
-            "Token", nullptr, "func(bool, func(int32) bool) ([]uint8, error)", &st_token),
-        method_of<gp::error()>("UnreadRune", nullptr, "func() error", &st_unread_rune),
-        method_of<std::tuple<int64_t, bool>()>("Width", nullptr, "func() (int, bool)", &st_width),
+        method_of<std::tuple<int64_t, gp::error>(gp::slice<uint8_t>), &st_read>(
+            "Read", nullptr, "func([]uint8) (int, error)"),
+        method_of<std::tuple<int32_t, int64_t, gp::error>(), &st_read_rune>(
+            "ReadRune", nullptr, "func() (int32, int, error)"),
+        method_of<void(), &st_skip_space>("SkipSpace", nullptr, "func()"),
+        method_of<std::tuple<gp::slice<uint8_t>, gp::error>(bool, gp::func<bool(int32_t)>),
+                  &st_token>("Token", nullptr, "func(bool, func(int32) bool) ([]uint8, error)"),
+        method_of<gp::error(), &st_unread_rune>("UnreadRune", nullptr, "func() error"),
+        method_of<std::tuple<int64_t, bool>(), &st_width>("Width", nullptr, "func() (int, bool)"),
     };
     static const type_desc td =
         named<ss_state>("fmt.ss", "fmt", shape_struct(nullptr, 0), {}, methods_of(pmethods));
@@ -1675,7 +1675,7 @@ void ss::scan_one(int32_t verb, const value& arg) {
     if (arg.t != nullptr) {
         if (const method* m = find_scan_method(arg.t)) {
             iface self = self_of(arg);
-            gp::error err = reinterpret_cast<thunk_t<gp::error(ScanState, int32_t)>*>(m->gp_fn)(
+            gp::error err = reinterpret_cast<thunk_t<gp::error(ScanState, int32_t)>*>(m->gp_fn())(
                 self, make_scan_state(*this), verb);
             if (err != nullptr) {
                 if (err == io_eof()) {

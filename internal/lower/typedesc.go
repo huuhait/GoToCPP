@@ -20,9 +20,9 @@ import (
 //	any, error               &gp::td_any, &gp::td_error
 //	type Rect struct{...}    &gp_td_Rect      gp::named<Rect>("main.Rect", "main", shape, vm, pm)
 //	type Shape interface     &gp_td_Shape     (ifaces.go)
-//	*Rect, []int, [3]T, map  a namespace-level pointer, interned at program start:
-//	                         static const gp::type_desc* const gp_tdp_Rect = gp::td_ptr<Rect>(&gp_td_Rect);
-//	                         static const gp::type_desc* const gp_tdc_0 = gp::td_slice<int64_t>(&gp::td_int);
+//	*Rect, []int, [3]T, map  interned the first time (no code at program start) and kept in a
+//	                         constant-initialized pointer (descDecls): gp::desc_get<&gp_tdp_Rect_p,
+//	                         &gp_tdp_Rect_make>() for gp::td_ptr<Rect>(&gp_td_Rect)
 //
 // A named type's descriptor object has its two method tables (the method set of T and of *T)
 // and the thunks they hold:
@@ -36,7 +36,7 @@ import (
 //	inline void gp_thunk_pRect_Scale(const gp::iface& self, double a0) {
 //	    Rect::Scale(gp::unbox<gp::ptr<Rect>>(self), static_cast<double&&>(a0));
 //	}
-//	inline const gp::method gp_vm_Rect[] = {gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk_Rect_Area)};
+//	inline const gp::method gp_vm_Rect[] = {gp::method_of<double(), &gp_thunk_Rect_Area>("Area", nullptr, "func() float64")};
 //	inline const gp::method gp_pm_Rect[] = {...Area, Scale...};
 //
 // The tables are sorted as the runtime says (canon.go: methodLess), the signatures are the
@@ -85,7 +85,7 @@ type namedDesc struct {
 	vmt, pmt cppir.Expr
 }
 
-// A compDesc is a namespace-level pointer to the interned descriptor of a composite type.
+// A compDesc is the function that gives the interned descriptor of a composite type.
 type compDesc struct {
 	name string
 	init cppir.Expr
@@ -265,8 +265,8 @@ func hasPromoted(st *types.Struct) bool {
 	return false
 }
 
-// comp registers the composite descriptor of t (once, by its identity text) and returns the
-// name of its pointer. name may be "" (gp_tdc_N).
+// comp registers the composite descriptor of t (once, by its identity text) and returns its use
+// (compUse). name may be "" (gp_tdc_N).
 func (g *gen) comp(t types.Type, name string, init cppir.Expr) cppir.Expr {
 	if g.inShared > 0 || g.descInline > 0 {
 		// In the shared text of an instance of a generic type, which every package that uses it
@@ -277,7 +277,7 @@ func (g *gen) comp(t types.Type, name string, init cppir.Expr) cppir.Expr {
 	dt := g.dtable()
 	key := g.canonText(t)
 	if c := dt.byKey[key]; c != nil {
-		return cxxName(c.name)
+		return compUse(c.name)
 	}
 	if name == "" {
 		name = "gp_tdc_" + strconv.Itoa(len(dt.comps))
@@ -285,7 +285,15 @@ func (g *gen) comp(t types.Type, name string, init cppir.Expr) cppir.Expr {
 	c := &compDesc{name: name, init: init}
 	dt.byKey[key] = c
 	dt.comps = append(dt.comps, c)
-	return cxxName(c.name)
+	return compUse(c.name)
+}
+
+// coldFn is the attribute of the makers of the composite descriptors (descDecls).
+const coldFn = "[[gnu::cold, gnu::noinline]]"
+
+// compUse is the use of the composite descriptor name (descDecls): gp::desc_get<&name_p, &name_make>().
+func compUse(name string) cppir.Expr {
+	return templateCall("gp::desc_get", []cppir.Node{addrOf(name + "_p"), addrOf(name + "_make")})
 }
 
 // constDesc returns the descriptor of t if it is a constant (&gp::td_int, &gp_td_Rect), else nil.
@@ -459,17 +467,41 @@ func (g *gen) descDecls(p *implParts) {
 	for _, a := range dt.anons {
 		p.addDef(a.decls...)
 	}
+	descPtr := &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}
 	for _, c := range dt.comps {
-		d := &cppir.VarDecl{
-			Specs: []string{"static"},
-			Type:  &cppir.Const{Elem: &cppir.Ptr{Elem: &cppir.Const{Elem: typeName("gp::type_desc")}}},
-			Vars:  []cppir.Declarator{{Name: c.name, Init: c.init}},
+		// The descriptor is interned the first time it is asked, and its pointer kept in a
+		// constant-initialized variable: no initializer at program start (a host's C constructor may
+		// call an exported function of a library before the library's dynamic initialization). A
+		// use (comp) is gp::desc_get: an inlined load and test at -O0, a const function when
+		// optimizing, which the compilers hoist out of loops and merge (gocpp/type.hpp):
+		//
+		//	constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+		//	const gp::type_desc* gp_tdc_0_make() { return gp::desc_publish(&gp_tdc_0_p, <init>); }
+		//	... gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>() ...
+		//
+		// (The interning gives the same pointer to every thread that makes it.)
+		slot, mk := c.name+"_p", c.name+"_make"
+		v := &cppir.VarDecl{Specs: []string{"static", "constinit"}, Type: descPtr,
+			Vars: []cppir.Declarator{{Name: slot, Init: lit("nullptr")}}}
+		// (The maker is cold and out of line: the use stays a load and a test in the caller.)
+		make := &cppir.Func{
+			Specs:  []string{coldFn, "static"},
+			Result: descPtr,
+			Name:   mk,
+			Body:   &cppir.Block{Stmts: []cppir.Stmt{&cppir.Return{X: call("gp::desc_publish", addrOf(slot), c.init)}}},
 		}
 		if g.split {
-			d.Specs = nil
-			p.addExt(&cppir.VarDecl{Specs: []string{"extern"}, Type: d.Type, Vars: []cppir.Declarator{{Name: c.name}}})
+			// pkg.hpp: the slot and the maker declared, the fast path inline; pkg_desc.cpp: the
+			// definitions.
+			v.Specs = []string{"constinit"}
+			make.Specs = []string{coldFn}
+			proto := *make
+			proto.Body = nil
+			p.addExt(&cppir.VarDecl{Specs: []string{"extern"}, Type: descPtr, Vars: []cppir.Declarator{{Name: slot}}}, &proto)
+			p.addDef(v, make)
+			continue
 		}
-		p.addDef(d)
+		p.addDef(v, make)
 	}
 	if len(dt.comps) > 0 {
 		p.addDef(&cppir.Blank{})
@@ -568,7 +600,7 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 			thunk := g.thunk(nd, m, ptr, decls)
 			sig := m.fn.Signature()
 			params, result := g.sigCxx(sig, pos)
-			args := []cppir.Expr{lit(cppir.CString(m.fn.Name())), lit("nullptr"), lit(cppir.CString(g.canonText(sig))), addrOf(thunk)}
+			args := []cppir.Expr{lit(cppir.CString(m.fn.Name())), lit("nullptr"), lit(cppir.CString(g.canonText(sig)))}
 			if !exportedName(m.fn.Name()) {
 				args[1] = lit(cppir.CString(pkgPath(m.fn)))
 			}
@@ -585,7 +617,9 @@ func (g *gen) tables(nd *namedDesc, pos token.Pos, decls *[]cppir.Decl) (vmt, pm
 				maker = "gp::method_of_aware"
 			}
 			elems = append(elems, &cppir.Call{
-				Fun:  &cppir.Name{Name: maker, Args: []cppir.Node{&cppir.FuncType{Result: result, Params: params}}},
+				// The thunk is a template argument: the entry is a constant expression, so the
+				// table is constant-initialized (gocpp/type.hpp, method_of).
+				Fun:  &cppir.Name{Name: maker, Args: []cppir.Node{&cppir.FuncType{Result: result, Params: params}, addrOf(thunk)}},
 				Args: args,
 			})
 		}

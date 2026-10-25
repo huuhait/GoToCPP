@@ -37,9 +37,6 @@ type windowsProgram struct {
 	// buildOnly programs are linked and not run (they need a DLL next to the program and a display).
 	libs, buildOnly bool
 	dir             string // a folder of tests/testdata/windows to build as a package (gocpp build .), instead of name.gp
-	// wineGap says why a result is Wine's, not the program's, and the test then skips: it returns the
-	// reason for a result that this Wine produces and a real Windows doesn't, or "".
-	wineGap func(exit int, stdout, stderr string) string
 }
 
 var windowsPrograms = []windowsProgram{
@@ -72,19 +69,14 @@ var windowsPrograms = []windowsProgram{
 	},
 	{name: "env", env: []string{"GOCPP_WIN_VAR=value with spaces=and equals"}, stdout: "value with spaces=and equals\n", phase: 6},
 	{name: "env", stdout: "unset\n", phase: 6},
+	// os.LookupEnv while another goroutine's os.Setenv runs: never missing (env_lock, shared).
+	{name: "envrace", stdout: "ZV missing: false OTHER missing: false reads>0: true\n", phase: 9},
 	{
 		// The main thread's stack is 8 MiB (-Wl,--stack), a vectored exception handler turns the
 		// overflow into Go's message, and the exit code is 2.
 		name: "overflow", exit: 2, phase: 6,
-		// Wine 11.0 on a CPU with a large XSAVE area (AVX-512) cannot dispatch a stack overflow: it
-		// ends the program with exit code 1 and no message (runtime/README.md, "The Windows OS
-		// layer"; 14.1's overflow-* cases fail the same way under Wine there). A real PC passes.
-		wineGap: func(exit int, stdout, stderr string) string {
-			if exit == 1 && stdout == "start\n" && stderr == "" {
-				return "this Wine does not dispatch a stack overflow (exit 1, no message; Wine 11.0 on AVX-512 CPUs); GOCPP_WINDOWS_SSH runs it on a real PC"
-			}
-			return ""
-		},
+		// (Under Wine, which keeps one guard page at the very end of a stack, the runtime places a
+		// guard page of its own higher up, so the overflow is reported there too: thread.cpp.)
 		stdout: "start\n",
 		stderr: regexp.MustCompile(`^runtime: goroutine stack exceeds 1000000000-byte limit\n(runtime: sp=0x[0-9a-f]+ stack=\[0x[0-9a-f]+, 0x[0-9a-f]+\]\n)?fatal error: stack overflow\n`),
 	},
@@ -302,18 +294,17 @@ func TestWindowsPrograms(t *testing.T) {
 			if r.problem != "" {
 				t.Fatalf("%s: %s\nstderr:\n%s", r.cmd, r.problem, indent(string(r.stderr)))
 			}
-			if p.wineGap != nil {
-				if why := p.wineGap(r.exit, string(r.stdout), string(r.stderr)); why != "" && windowsHost() == "" && os.Getenv("GOCPP_REQUIRE_WINE_OVERFLOW") != "1" {
-					t.Skip(why)
-				}
-			}
 			if r.exit != p.exit {
 				t.Errorf("%s, want exit code %d\nstderr:\n%s", r.status, p.exit, indent(string(r.stderr)))
 			}
+			stdout := string(r.stdout)
+			if w.env != nil {
+				stdout = wineText(stdout) // Wine's own texts read as the real PC's (wineDiffs)
+			}
 			if p.check != nil {
-				p.check(t, string(r.stdout))
-			} else if string(r.stdout) != p.stdout {
-				t.Errorf("stdout %q, want %q", r.stdout, p.stdout)
+				p.check(t, stdout)
+			} else if stdout != p.stdout {
+				t.Errorf("stdout %q, want %q", stdout, p.stdout)
 			}
 			switch {
 			case p.stderr == nil && len(r.stderr) > 0:

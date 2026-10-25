@@ -12,6 +12,8 @@ import "os/exec"
 func inGroup(*exec.Cmd)   {}
 func track(int, bool)     {}
 func killGroup(int) error { return nil }
-func stopRunning()        {}
-func isStopping() bool    { return false }
-func killOnSignal(string) {}
+
+func groupLeft(int, map[string]bool) []string { return nil }
+func stopRunning()                            {}
+func isStopping() bool                        { return false }
+func killOnSignal(string)                     {}

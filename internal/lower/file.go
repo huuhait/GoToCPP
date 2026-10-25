@@ -310,11 +310,12 @@ func (g *gen) pos(p token.Pos) cppir.Pos {
 // package's initialization. unitFile puts them in one translation unit; the split layout
 // (split.go) puts them in different files.
 type outputs struct {
-	protos []cppir.Decl // the prototypes of the functions
-	vars   []cppir.Decl // the definitions of the package variables
-	varExt []cppir.Decl // their extern declarations (the split layout's header)
-	funcs  []cppir.Decl // the definitions of the functions, in source order
-	inits  []cppir.Decl // gp_var_init and gp_init_funcs
+	protos  []cppir.Decl // the prototypes of the functions
+	vars    []cppir.Decl // the definitions of the package variables
+	varExt  []cppir.Decl // their extern declarations (the split layout's header)
+	varRefs []cppir.Decl // the references to gp::keep storage, for a single file (also in varExt)
+	funcs   []cppir.Decl // the definitions of the functions, in source order
+	inits   []cppir.Decl // gp_var_init and gp_init_funcs
 
 	byFile map[string][]cppir.Decl // the definitions of the functions by the .gp file
 	files  []string                // the files of byFile, in the order of the first definition
@@ -388,6 +389,7 @@ func (g *gen) file() *cppir.File {
 	ns.Decls = append(ns.Decls, g.out.protos...)
 	ns.Decls = append(ns.Decls, g.out.allInstDecls(g.instUnitOrder())...)
 	ns.Decls = append(ns.Decls, g.out.vars...)
+	ns.Decls = append(ns.Decls, g.out.varRefs...)
 	ns.Decls = append(ns.Decls, g.out.funcs...)
 	ns.Decls = append(ns.Decls, g.out.inits...)
 	f.Decls = append(f.Decls, ns, &cppir.Blank{})

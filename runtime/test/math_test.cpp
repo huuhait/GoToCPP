@@ -57,7 +57,7 @@ uint64_t b(double x) {
 
 void test_exp() {
     // exp_fma is compiled for the FMA instruction: it runs only on a CPU that has it
-    if (gp::math::has_fma) {
+    if (gp::math::has_fma()) {
         for (const F1& c : exp_fma_cases) {
             CHECK_BITS(b(gp::math::exp_fma(d(c.x))), c.want, "exp_fma(" + hex(c.x) + ")");
         }
@@ -67,7 +67,7 @@ void test_exp() {
     }
     // exp picks one of the two paths, by the CPU and GODEBUG, as Go does: the table of the path it
     // took
-    const bool fma_path = gp::math::has_fma &&
+    const bool fma_path = gp::math::has_fma() &&
                           !gp::math::cpu_feature_disabled(std::getenv("GODEBUG"), "fma") &&
                           !gp::math::cpu_feature_disabled(std::getenv("GODEBUG"), "avx");
     const F1* table = fma_path ? exp_fma_cases : exp_nofma_cases;

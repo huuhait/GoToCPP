@@ -47,7 +47,8 @@ uint64_t runtime_rand();
 
 // runtime_setenv and runtime_unsetenv keep the C library's environment the same as the one
 // package syscall keeps (setenv(3) and unsetenv(3)), so that C and C++ code the program calls sees
-// what os.Setenv set. They ignore a key that the OS refuses.
+// what os.Setenv set. They ignore a key that the OS refuses. (On Windows they are win_setenv and
+// win_unsetenv.)
 void runtime_setenv(const gp::string& key, const gp::string& value);
 void runtime_unsetenv(const gp::string& key);
 
@@ -243,12 +244,19 @@ std::tuple<uintptr_t, uintptr_t> win_loadlibrary(uintptr_t name);
 std::tuple<uintptr_t, uintptr_t> win_loadsystemlibrary(uintptr_t name);
 std::tuple<uintptr_t, uintptr_t> win_getprocaddress(uintptr_t handle, uintptr_t name);
 
-// win_setenv and win_unsetenv put the variable into the C library's copy of the environment too
-// (and keep an empty value in the system's block); key and value are the addresses of
-// NUL-terminated UTF-16 strings, the ones that Go's Setenv already made, so unpaired surrogates
-// stay as they are.
-void win_setenv(uintptr_t key, uintptr_t value);
-void win_unsetenv(uintptr_t key);
+// win_setenv and win_unsetenv are syscall.Setenv's and Unsetenv's change of the environment: the
+// system's block (SetEnvironmentVariableW: 0, or its error), then the C library's copy, which
+// then has the block's first value of the name (none for "", which it cannot hold), with the
+// block left as the system call made it (an empty value stays, and an unset removes one variable
+// of the name, as in Go), one call at a time. key and value are the addresses of NUL-terminated
+// UTF-16 strings, the ones that Go's Setenv made, so unpaired surrogates stay as they are.
+uintptr_t win_setenv(uintptr_t key, uintptr_t value);
+uintptr_t win_unsetenv(uintptr_t key);
+
+// win_env_read_lock and win_env_read_unlock hold the lock of win_setenv shared: syscall.Getenv and
+// Environ read the system's block under it, so they never see a Setenv half done.
+void win_env_read_lock();
+void win_env_read_unlock();
 
 // sys_flush_stdio flushes C's stdio before a write to a standard handle (flush_c_stdio).
 void sys_flush_stdio();

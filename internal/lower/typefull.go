@@ -27,8 +27,8 @@ import (
 //	    return &gp_d;
 //	}
 //
-// The function is defined after the pointers to the composite descriptors it names (gp_tdc_N,
-// which are interned at program start), and its object stays the identity of the type: the
+// The function is defined after the functions of the composite descriptors it names (gp_tdc_N(),
+// which intern them at their first call), and its object stays the identity of the type: the
 // complete copy is only read. A part with a C/C++ type, which go/types has no type for, gets its
 // descriptor from the C++ type (gp::cxx_desc, gocpp/fmt.hpp): the type of the member
 // (decltype(Rect::f)), or the element of the named type's class (gp::detail::elem_t<Items>).

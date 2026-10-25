@@ -35,12 +35,15 @@ int64_t setHandler();
 void main();
 
 #line 15 "$DIR/closures.gp"
-constinit gp::func<gp::string(gp::string)> greeting{};
+constinit gp::keep<gp::func<gp::string(gp::string)>> gp_keep_greeting{};
 #line 17 "$DIR/closures.gp"
-constinit gp::func<int64_t()> counterAt{};
+constinit gp::keep<gp::func<int64_t()>> gp_keep_counterAt{};
 #line 25 "$DIR/closures.gp"
-constinit gp::func<int64_t(int64_t)> handler{};
+constinit gp::keep<gp::func<int64_t(int64_t)>> gp_keep_handler{};
 
+inline constexpr gp::func<gp::string(gp::string)>& greeting = gp_keep_greeting.gp_v;
+inline constexpr gp::func<int64_t()>& counterAt = gp_keep_counterAt.gp_v;
+inline constexpr gp::func<int64_t(int64_t)>& handler = gp_keep_handler.gp_v;
 #line 29 "$DIR/closures.gp"
 int64_t visit(const gp::slice<int64_t>& xs, const Visitor& v) {
     int64_t n = 0;
@@ -131,7 +134,7 @@ int64_t named() {
     gp::ptr<int64_t> r = gp::new_<int64_t>();
 #line 97 "$DIR/closures.gp"
     gp::defer_frame gp_df; try {
-        gp_df.gp_push_call([r]<int = 1>() mutable -> void { (*r) = (*r) * 2; });
+        gp_df.gp_push_call([r]<int = 1>() mutable GP_TRACE_FRAME -> void { (*r) = (*r) * 2; });
         (*r) = 21; goto gp_ret0;
     } catch (gp::panic_error& gp_p) {
 #line 100 "$DIR/closures.gp"

@@ -10,11 +10,16 @@ gp::slice<int64_t> build(int64_t n);
 void main();
 
 #line 14 "$DIR/slices.gp"
-constinit gp::slice<int64_t> gnil{};
-constinit gp::slice<gp::string> gzero{};
-constinit gp::slice<int64_t> glit{};
-constinit gp::slice<uint8_t> gbytes{};
+constinit gp::keep<gp::slice<int64_t>> gp_keep_gnil{};
+constinit gp::keep<gp::slice<gp::string>> gp_keep_gzero{};
+constinit gp::keep<gp::slice<int64_t>> gp_keep_glit{};
+constinit gp::keep<gp::slice<uint8_t>> gp_keep_gbytes{};
 
+inline constexpr gp::slice<int64_t>& gnil = gp_keep_gnil.gp_v;
+inline constexpr gp::slice<gp::string>& gzero = gp_keep_gzero.gp_v;
+inline constexpr gp::slice<int64_t>& glit = gp_keep_glit.gp_v;
+inline constexpr gp::slice<uint8_t>& gbytes = gp_keep_gbytes.gp_v;
+#line 19 "$DIR/slices.gp"
 void show(const gp::slice<int64_t>& s) {
     gp::fmt::Print("["_gs);
     for (auto gp_it0 = gp::range_slice(s); gp::range_next(gp_it0);) {

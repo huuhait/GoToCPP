@@ -9,11 +9,13 @@ std::tuple<bool, bool> operator_();
 void main();
 
 #line 19 "$DIR/keywords.gp"
-constinit gp::string namespace_{gp::static_bytes, "ns", 2};
+constinit gp::keep<gp::string> gp_keep_namespace_{{gp::static_bytes, "ns", 2}};
 constinit int64_t _Pragma_ = 3;
 constinit int64_t __int128_ = 4;
-constinit gp::string __FILE___{gp::static_bytes, "file", 4};
+constinit gp::keep<gp::string> gp_keep___FILE___{{gp::static_bytes, "file", 4}};
 
+inline constexpr gp::string& namespace_ = gp_keep_namespace_.gp_v;
+inline constexpr gp::string& __FILE___ = gp_keep___FILE___.gp_v;
 #line 7 "$DIR/keywords.gp"
 int64_t new_(int64_t class_) {
     return class_ + 1;

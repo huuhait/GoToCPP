@@ -30,7 +30,7 @@ void main() {
 // gp[closures] col 5: func literal #1 is a C++ lambda (the stack trace names it func1); what it
 //     captures is copied into the lambda (a box is shared), and a lambda that is used as a func
 //     value is wrapped in gp::func, whose copies share the captured state
-    gp::go_call([ch]<int = 1>() mutable -> void {
+    gp::go_call([ch]<int = 1>() mutable GP_TRACE_FRAME -> void {
 
 // ---- ./channels.gp:8: for i := 0; i < 3; i++ {
         for (int64_t i = 0; i < 3; i++) {

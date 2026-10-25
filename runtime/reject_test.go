@@ -107,7 +107,7 @@ var rejectCases = []struct {
 	// type than the method's signature: C types are all invalid for go/types, so `Get() C.int`
 	// may be taken for `Get() C.double`; the call through the itab would then call the thunk with
 	// the wrong signature.
-	{"method-thunk", "int64_t thunk(const gp::iface&);\nauto m = gp::method_of<double()>(\"Area\", nullptr, \"func() float64\", &thunk); // bad\n",
+	{"method-thunk", "int64_t thunk(const gp::iface&);\nauto m = gp::method_of<double(), &thunk>(\"Area\", nullptr, \"func() float64\"); // bad\n",
 		"the thunk's type is not R(const gp::iface&, A...)"},
 	// The same check, at a static conversion site: the emitter's static_assert.
 	{"slot-thunk", "int64_t thunk(const gp::iface&);\nstatic_assert(gp::thunk_matches<double(), decltype(&thunk)>, \"gocpp: the thunk of T.Get has another C++ type than the interface's slot\"); // bad\n",
@@ -194,7 +194,7 @@ struct CA : gp::iface {
 static_assert(gp::thunk_matches<double(), decltype(&gp_thunk)>, "the thunk of CA.Area");
 static_assert(gp::thunk_matches<void(int64_t, gp::string), void(const gp::iface&, int64_t, gp::string)>, "args");
 void g(const CA& a, const gp::type_desc* td) {
-	gp::method m = gp::method_of<double()>("Area", nullptr, "func() float64", &gp_thunk);
+	gp::method m = gp::method_of<double(), &gp_thunk>("Area", nullptr, "func() float64");
 	gp::any x = a;
 	CA nil{nullptr};
 	CA b = gp::to_iface<CA>(int64_t(1), td);

@@ -10,27 +10,34 @@ import (
 	"unsafe"
 )
 
-// nativeSetenv and nativeUnsetenv keep the C library's environment (getenv of C and C++ code the
-// program calls) the same as the one the process has (gocpp: Go's runtime does the same for cgo). They get the
-// UTF-16 that Setenv made (a string would lose the unpaired surrogates of a WTF-8 name or value).
+// nativeSetenv and nativeUnsetenv change the process's environment (SetEnvironmentVariable) and
+// keep the C library's copy (getenv of C and C++ code the program calls) the same, as one step
+// (gocpp: Go's runtime keeps the C copy for cgo): 0, or the system's error. They get the UTF-16
+// that Setenv made (a string would lose the unpaired surrogates of a WTF-8 name or value).
 //
 //gocpp:native gp::syscall::win_setenv
-func nativeSetenv(k, v uintptr)
+func nativeSetenv(k, v uintptr) uintptr
 
 //gocpp:native gp::syscall::win_unsetenv
-func nativeUnsetenv(k uintptr)
+func nativeUnsetenv(k uintptr) uintptr
 
-func runtimeSetenv(keyp, v *uint16) {
-	nativeSetenv(uintptr(unsafe.Pointer(keyp)), uintptr(unsafe.Pointer(v)))
-}
+// envReadLock and envReadUnlock hold the lock of nativeSetenv shared, for Getenv and Environ: a
+// Setenv that is putting the block back (the C library's copy changes it on the way) is not seen
+// half done, as in Go, where the variable is there or not.
+//
+//gocpp:native gp::syscall::win_env_read_lock
+func envReadLock()
 
-func runtimeUnsetenv(keyp *uint16) { nativeUnsetenv(uintptr(unsafe.Pointer(keyp))) }
+//gocpp:native gp::syscall::win_env_read_unlock
+func envReadUnlock()
 
 func Getenv(key string) (value string, found bool) {
 	keyp, err := UTF16PtrFromString(key)
 	if err != nil {
 		return "", false
 	}
+	envReadLock()
+	defer envReadUnlock()
 	n := uint32(100)
 	for {
 		b := make([]uint16, n)
@@ -53,11 +60,9 @@ func Setenv(key, value string) error {
 	if err != nil {
 		return err
 	}
-	e := SetEnvironmentVariable(keyp, v)
-	if e != nil {
-		return e
+	if e := nativeSetenv(uintptr(unsafe.Pointer(keyp)), uintptr(unsafe.Pointer(v))); e != 0 {
+		return Errno(e)
 	}
-	runtimeSetenv(keyp, v)
 	return nil
 }
 
@@ -66,11 +71,9 @@ func Unsetenv(key string) error {
 	if err != nil {
 		return err
 	}
-	e := SetEnvironmentVariable(keyp, nil)
-	if e != nil {
-		return e
+	if e := nativeUnsetenv(uintptr(unsafe.Pointer(keyp))); e != 0 {
+		return Errno(e)
 	}
-	runtimeUnsetenv(keyp)
 	return nil
 }
 
@@ -89,6 +92,8 @@ func Clearenv() {
 }
 
 func Environ() []string {
+	envReadLock()
+	defer envReadUnlock()
 	envp, e := GetEnvironmentStrings()
 	if e != nil {
 		return nil

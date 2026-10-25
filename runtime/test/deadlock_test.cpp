@@ -25,6 +25,9 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -61,18 +64,47 @@ void report(bool ok, const char* file, int line, const std::string& what) {
                #got " = " + std::to_string(gp_got) + ", want " + std::to_string(gp_want));         \
     } while (0)
 
-// wait_for polls pred until it is true, for at most two minutes, and says whether it got true.
+// dump_all says where everything is, for a wait that timed out: every other goroutine with its
+// stack (the parked and sleeping ones capture their own), and on Linux every thread of the process
+// with its state and the kernel function it waits in (/proc/self/task).
+void dump_all(const char* file, int line) {
+    std::string out = std::string(file) + ":" + std::to_string(line) + ": the wait timed out\n";
+    gp::detail::append_other_goroutines(out);
+#ifdef __linux__
+    out += "\nthreads:\n";
+    std::error_code ec;
+    for (const auto& task : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+        auto read = [&](const char* name) {
+            std::ifstream f(task.path() / name);
+            std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            while (!text.empty() && text.back() == '\n') {
+                text.pop_back();
+            }
+            return text;
+        };
+        out += "  " + task.path().filename().string() + ": " + read("stat") +
+               " wchan=" + read("wchan") + "\n";
+    }
+#endif
+    say(out);
+}
+
+// wait_for polls pred until it is true, for at most two minutes, and says whether it got true. On a
+// timeout it dumps the goroutines and threads (dump_all), so that a hang shows where it is.
 template <typename P>
-bool wait_for(P pred) {
+bool wait_for_at(P pred, const char* file, int line) {
     auto end = std::chrono::steady_clock::now() + 2min;
     while (!pred()) {
         if (std::chrono::steady_clock::now() > end) {
+            dump_all(file, line);
             return false;
         }
         std::this_thread::sleep_for(100us);
     }
     return true;
 }
+
+#define wait_for(...) wait_for_at(__VA_ARGS__, __FILE__, __LINE__)
 
 bool contains(const std::string& s, const std::string& part) {
     return s.find(part) != std::string::npos;
@@ -746,6 +778,58 @@ void test_dump_sleep() {
     CHECK(g.wait());
 }
 
+// A goroutine that starts to sleep after the report collected the goroutines: the report decided
+// by the reason it read then (none: it was running, so no stack was asked for) and lists the
+// goroutine with that reason. (It read the reason again at the end, and printed "[sleep]" without
+// the stack: the race of test_dump_sleep under load.) Deterministic: a goroutine that never
+// answers holds the report for its whole budget (a second), and the other one goes to sleep
+// meanwhile.
+void test_dump_sleep_late() {
+    arm({});
+    std::mutex m;
+    std::condition_variable cv;
+    bool go_on = false;
+    std::atomic<bool> entered{false};
+    std::atomic<bool> spinning{false};
+    std::atomic<bool> begin{false};
+    std::atomic<bool> finish{false};
+    group g;
+    g.go([&] {
+        gp::detail::block_scope b("never answers");
+        entered = true;
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [&] { return go_on; });
+    });
+    g.go([&] {
+        spinning = true;
+        while (!begin.load()) {
+            std::this_thread::yield();
+        }
+        while (!finish.load()) {
+            gp::time::sleep(1'000'000);
+        }
+    });
+    CHECK(wait_for([&] { return entered.load() && spinning.load(); }));
+    // While the report waits for the first goroutine, the second goes to sleep.
+    std::thread later([&] {
+        std::this_thread::sleep_for(100ms);
+        begin = true;
+    });
+    std::string out;
+    gp::detail::append_other_goroutines(out);
+    later.join();
+    CHECK(contains(out, "[never answers]"));
+    std::string block = block_of(out, "sleep");
+    CHECK(block.empty() || block.rfind("created by", 0) != 0); // listed as sleeping: with a stack
+    finish = true;
+    {
+        std::lock_guard<std::mutex> lk(m);
+        go_on = true;
+    }
+    cv.notify_all();
+    CHECK(g.wait());
+}
+
 int callback_target(int x) {
     return x;
 }
@@ -952,6 +1036,7 @@ void run_unit_tests() {
     test_dump_barrier();
     test_dump_barrier_fails();
     test_dump_sleep();
+    test_dump_sleep_late();
     test_many_goroutines();
     test_nil_reasons(); // last: it leaves two goroutines asleep for ever
     gp::detail::set_deadlock_hook(nullptr);

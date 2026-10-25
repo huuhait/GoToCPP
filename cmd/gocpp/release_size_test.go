@@ -62,6 +62,18 @@ func fileSize(t *testing.T, path string) int64 {
 	return fi.Size()
 }
 
+// hasRELR reports whether the ELF program at path has packed relative relocations (DT_RELR, tag 36).
+func hasRELR(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := elf.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	vals, err := f.DynValue(elf.DynTag(36))
+	return err == nil && len(vals) > 0
+}
+
 // withoutGDBScripts returns names without .debug_gdb_scripts: the section of the pretty printers is
 // not debug information, it is in the runtime of every program, and only -strip removes it.
 func withoutGDBScripts(names []string) []string {
@@ -116,6 +128,11 @@ func TestBuildSizeModes(t *testing.T) {
 					t.Fatalf("gocpp build %v = %+v", m.flags, r)
 				}
 				size[m.name] = fileSize(t, out)
+				// The relative relocations are packed (DT_RELR, internal/build relr.go): the
+				// linkers of the dev shell make them.
+				if !hasRELR(t, out) {
+					t.Errorf("the program has no DT_RELR: the link lacks -Wl,-z,pack-relative-relocs")
+				}
 				names, symtab := debugSections(t, out)
 				if got := len(withoutGDBScripts(names)) > 0; got != m.debug {
 					t.Errorf("debug sections %q: has debug information = %v, want %v", names, got, m.debug)
@@ -179,5 +196,60 @@ func TestBuildSizeModes(t *testing.T) {
 		if size["release strip"] >= size["release"] || size["release strip"] >= size["strip"] {
 			t.Errorf("sizes %v: -release -strip is not the smallest", size)
 		}
+	})
+}
+
+// The DT_RELR link flag (internal/build relr.go) follows the build's own linker: with
+// GOCPP_LDFLAGS=-fuse-ld=gold (which does not know -z pack-relative-relocs) the program still
+// links, and a link that fails with the flag, after a probe that passed, is made again without it.
+func TestBuildRelrLinkFlags(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("DT_RELR is ELF's")
+	}
+	forEachCXX(t, func(t *testing.T, c testCXX) {
+		cacheOn(t)
+		t.Setenv("GOCPP_CFLAGS", "")
+		t.Setenv("GOCPP_CXXFLAGS", "")
+		t.Run("gold", func(t *testing.T) {
+			if _, err := exec.LookPath("ld.gold"); err != nil {
+				t.Skip("no gold linker")
+			}
+			t.Setenv("GOCPP_LDFLAGS", "-fuse-ld=gold")
+			inDir(t, map[string]string{"main.gp": sizeProgram})
+			out := t.TempDir() + "/prog"
+			r := gocppRun("", false, "build", "-o", out, "main.gp")
+			if r.code != 0 {
+				t.Fatalf("gocpp build with -fuse-ld=gold = %+v", r)
+			}
+			if hasRELR(t, out) {
+				t.Errorf("the gold link has a DT_RELR: the probe ignored GOCPP_LDFLAGS")
+			}
+		})
+		t.Run("retry", func(t *testing.T) {
+			dir := t.TempDir()
+			log := dir + "/refused"
+			fake := dir + "/c++"
+			// Links like the compiler, but refuses the flag in a real link (the probe's link has
+			// --fatal-warnings and passes).
+			script := "#!/bin/sh\ncase \" $* \" in\n*' -Wl,-z,pack-relative-relocs '*)\n" +
+				"case \" $* \" in *--fatal-warnings*|*' -c '*) ;; *) echo refused >> " + log + "; echo 'fake linker: no pack-relative-relocs' >&2; exit 1;; esac;;\nesac\nexec " + c.name + " \"$@\"\n"
+			if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GOCPP_CXX", fake)
+			t.Setenv("GOCPP_LDFLAGS", "")
+			inDir(t, map[string]string{"main.gp": sizeProgram})
+			out := t.TempDir() + "/prog"
+			r := gocppRun("", false, "build", "-o", out, "main.gp")
+			if r.code != 0 {
+				t.Fatalf("gocpp build = %+v", r)
+			}
+			if data, _ := os.ReadFile(log); !strings.Contains(string(data), "refused") {
+				t.Errorf("the link never had the flag: the retry was not exercised")
+			}
+			if hasRELR(t, out) {
+				t.Errorf("the program has a DT_RELR although the link refused the flag")
+			}
+		})
 	})
 }

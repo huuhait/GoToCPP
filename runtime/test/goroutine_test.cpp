@@ -792,7 +792,7 @@ gp::string bad_err_error(const gp::iface&) {
     gp::panic("inside Error"_gs);
 }
 const gp::method bad_err_methods[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &bad_err_error)};
+    gp::method_of<gp::string(), &bad_err_error>("Error", nullptr, "func() string")};
 const gp::type_desc td_bad_err = gp::named<BadErr>(
     "main.BadErr", "main", gp::shape_struct(nullptr, 0), gp::methods_of(bad_err_methods));
 

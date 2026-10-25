@@ -324,6 +324,13 @@ func (g *gen) packageVars() {
 			g.lazyVar(v)
 			continue
 		}
+		if !trivialDtor(v.Type()) && leafObjects(v.Type()) > maxConstinitLeaves {
+			// A large array of strings, pointers, ...: clang++ stops a constant evaluation at
+			// 1 M steps ("variable does not have a constant initializer"), so it is not
+			// constinit: gp::lazy storage, built by gp_var_init (or at start-up) as a zero value.
+			g.lazyVar(v)
+			continue
+		}
 		if !complete(v.Type()) {
 			// A C/C++ type (ctypes.go): its zero value, and the value in gp_var_init. Not
 			// constinit: a C++ class may have a constructor that isn't constexpr.
@@ -344,9 +351,7 @@ func (g *gen) packageVars() {
 		} else if x := g.constLit(byVar[v]); x != nil {
 			value = x // an array or a struct literal of constants (pkgvars.go)
 		}
-		d := varDecl(g.pos(v.Pos()), typ, g.names[v], value)
-		d.Specs = []string{"constinit"}
-		g.addVar(d)
+		g.keptVar(v, typ, value)
 	}
 	for _, init := range g.info.InitOrder {
 		if constInit(g.info, init) == nil && !nilInit(g.info, init) && g.constLit(init) == nil {

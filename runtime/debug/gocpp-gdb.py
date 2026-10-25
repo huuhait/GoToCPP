@@ -2737,10 +2737,15 @@ def _panic_state():
 
 
 def _is_rethrow():
-    """True at a throw whose caller is defer_frame::gp_run (the selected frame is the throw)."""
+    """True at a throw that defer_frame::gp_run makes: its caller is gp_run, or throw_moved /
+    throw_copied (src/defer.cpp: the noinline functions gp_run throws from, so that the unwinder
+    stops in nothing of its own) and theirs is gp_run (the selected frame is the throw)."""
     try:
         caller = gdb.selected_frame().older()
         name = caller.name() if caller is not None else None
+        if isinstance(name, str) and re.search(r"::throw_(moved|copied)$", name):
+            caller = caller.older()
+            name = caller.name() if caller is not None else None
         return isinstance(name, str) and name.startswith("gp::defer_frame::gp_run")
     except gdb.error:
         return False

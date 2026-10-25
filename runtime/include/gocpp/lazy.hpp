@@ -22,6 +22,7 @@
 #pragma once
 
 #include <new>
+#include <type_traits>
 
 namespace gp {
 
@@ -57,6 +58,34 @@ private:
         T gp_value;
     };
 };
+
+// keep<T> is the storage of every package variable whose type has a destructor (and of a package's
+// exported constant of a named type, for C++ code): `constinit gp::keep<T> gp_keep_v{init};`,
+// initialized like the variable was (aggregate initialization of its one member gp_v), and never
+// destroyed. The variable's name is an `inline constexpr T& v = gp_keep_v.gp_v;` of the package's
+// header (an address constant: no pointer object that alias analysis would see escape). keep<T> is a
+// union whose destructor does nothing (no member is destroyed) when T has a destructor, and a plain
+// struct (a trivial destructor, so the compilers register nothing at exit) for any other T. A package
+// variable of a trivially destructible Go type (numbers, complex numbers, bools, arrays and structs of
+// them) is a plain constinit object and does not use keep. A variable that a host's exit() destroyed
+// while the library's goroutines still ran crashed them (Go's c-archive runs no destructor either),
+// and an executable ends without destructors anyway (gp::os::exit). (g++ at -O0 still registers the
+// empty destructor of the union: it runs nothing.)
+namespace detail {
+template <typename T>
+struct keep_plain {
+    T gp_v;
+};
+template <typename T>
+union keep_union {
+    T gp_v;
+    constexpr ~keep_union() {}
+};
+} // namespace detail
+
+template <typename T>
+using keep = std::conditional_t<std::is_trivially_destructible_v<T>, detail::keep_plain<T>,
+                                detail::keep_union<T>>;
 
 // lazy_boot{storage} builds the object when static initialization gets to it, if gp_var_init
 // has not built it yet.

@@ -23,7 +23,7 @@ import (
 // says the Go type, which saves the descriptor (and its code) in the usual calls:
 //
 //	fmt.Println(n, s, ok, f)          gp::fmt::Println(n, s, ok, f);            // int, string, bool, float64
-//	fmt.Println(p, xs)                gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp_tdc_0, xs));
+//	fmt.Println(p, xs)                gp::fmt::Println(gp::fmt::as(&gp_td_Point, p), gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), xs));
 //	fmt.Println(n64)                  gp::fmt::Println(gp::fmt::as(&gp::td_int64, n64));   // C++ can't tell int64 from int
 //	fmt.Println(err, nil)             gp::fmt::Println(err, gp::any());
 //	fmt.Fprintln(os.Stderr, x)        gp::fmt::Fprintln(gpkg_os::Stderr, x);   // the *os.File in the variable, as an io.Writer

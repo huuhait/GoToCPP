@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -1264,6 +1265,16 @@ type job struct {
 	args     []string
 	show     string // the command as messages show it, so that it can be run by hand
 	combined bool   // stdout and stderr go to the same buffer, result.stdout
+	// files: the command's output goes to files that run reads when the command has exited, not
+	// to pipes. A Wine program that loads user32 makes Wine start explorer.exe again when the one
+	// of the prefix ended after some idle seconds, and that helper inherits the program's pipes
+	// and keeps them open for a long time ("it exited, but a process that it started kept its
+	// output open"); a file does not make anyone wait.
+	files bool
+	// helpers (with files) are the programs that may still run in the command's process group when it
+	// has exited, as lower-case file names (Wine's explorer.exe, ...); any other process left is a
+	// problem, as a process that keeps the pipes open is without files.
+	helpers map[string]bool
 }
 
 // A result is what a finished job did.
@@ -1349,19 +1360,45 @@ func (c *config) run(t *testing.T, j job) result {
 		stderr = &capBuffer{max: maxOutput, stop: cancel}
 	}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	var outFile, errFile *os.File
+	if j.files {
+		var err error
+		if outFile, errFile, err = jobFiles(t, j.combined); err != nil {
+			return result{cmd: j.show, exit: -1, problem: fmt.Sprintf("it didn't start: %v", err)}
+		}
+		cmd.Stdout, cmd.Stderr = outFile, errFile
+		// A pipe is cut at maxOutput by capBuffer; a file is watched instead, so that a program that
+		// prints without end does not fill the disk until the timeout.
+		watchDone := make(chan struct{})
+		defer close(watchDone)
+		go watchJobFiles(watchDone, cancel, []*os.File{outFile, errFile}, maxOutput)
+	}
 	// A stopped command (SIGTERM, see inGroup) is killed if it still runs
 	// waitDelay later; and when a process that the command started keeps the
 	// output pipes open after the command exits, run stops waiting then.
 	cmd.WaitDelay = waitDelay
 	inGroup(cmd)
+	var leftover string
 	err := cmd.Start()
 	if err == nil {
 		track(cmd.Process.Pid, true)
 		err = cmd.Wait()
+		if j.files && cmd.ProcessState != nil && ctx.Err() == nil {
+			// (without files, a process that keeps the pipes open is ErrWaitDelay below)
+			if left := groupLeft(cmd.Process.Pid, j.helpers); len(left) > 0 {
+				leftover = "it exited, but a process that it started kept running: " + strings.Join(left, "; ")
+			}
+		}
 		killGroup(cmd.Process.Pid) // whatever the command left running
 		track(cmd.Process.Pid, false)
 	}
 
+	if j.files {
+		readJobFile(outFile, stdout)
+		if !j.combined {
+			readJobFile(errFile, stderr)
+		}
+	}
 	r := result{cmd: j.show, stdout: stdout.buf.Bytes(), exit: -1}
 	if !j.combined {
 		r.stderr = stderr.buf.Bytes()
@@ -1379,8 +1416,59 @@ func (c *config) run(t *testing.T, j job) result {
 		r.problem = fmt.Sprintf("it didn't start: %v", err)
 	case errors.Is(err, exec.ErrWaitDelay):
 		r.problem = "it exited, but a process that it started kept its output open"
+	case leftover != "":
+		r.problem = leftover
 	}
 	return r
+}
+
+// watchJobFiles stops the job (cancel) when a file of its output grows past max bytes, until done is
+// closed. (readJobFile then sees the size and sets the buffer's full flag, as capBuffer does.)
+func watchJobFiles(done <-chan struct{}, cancel func(), files []*os.File, max int) {
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+		}
+		for _, f := range files {
+			if fi, err := f.Stat(); err == nil && fi.Size() > int64(max) {
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// jobFiles makes the files of the output of a job with files (stdout and stderr; stderr is the
+// stdout file when combined), in the test's temporary folder.
+func jobFiles(t *testing.T, combined bool) (out, errf *os.File, err error) {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err = os.Create(filepath.Join(dir, "stdout")); err != nil {
+		return nil, nil, err
+	}
+	if combined {
+		return out, out, nil
+	}
+	if errf, err = os.Create(filepath.Join(dir, "stderr")); err != nil {
+		out.Close()
+		return nil, nil, err
+	}
+	return out, errf, nil
+}
+
+// readJobFile puts the first max bytes of the file f (written by a job) in b, with b's full flag
+// and stop as when the job wrote them to b itself, and closes the file.
+func readJobFile(f *os.File, b *capBuffer) {
+	defer f.Close()
+	if fi, err := f.Stat(); err == nil && fi.Size() > int64(b.max) {
+		b.full = true
+	}
+	data, _ := io.ReadAll(io.LimitReader(io.NewSectionReader(f, 0, 1<<62), int64(b.max)))
+	b.buf.Write(data)
 }
 
 // capBuffer keeps the first max bytes written to it. When more come, it

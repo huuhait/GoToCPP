@@ -96,7 +96,8 @@ Bad:
   `cpu.sse41=off`). The bits of a NaN are outside the contract of operators anyway (point 4); this is the one case
   where a `math` function differs, and no test covers it.
 - Go decides `FMA` and the rounding intrinsics by the CPU only (`x86HasFMA`, `x86HasSSE41`), not by `GODEBUG`; gocpp
-  does the same (`has_fma`, `has_sse41`). `GODEBUG=cpu.fma=off` changes only `Exp`'s path, as in Go.
+  does the same (`has_fma()`, `has_sse41()`, which look at the CPU at their first call). `GODEBUG=cpu.fma=off` changes
+  only `Exp`'s path, as in Go.
 - The expected outputs of the `math_*` tests were taken from Go on a CPU with AVX and FMA, so `Exp` took its FMA path:
   the tests that use `Exp` (directly or through `Pow`, `Sinh`, ...) would fail on a CPU without AVX or FMA, where Go
   and gocpp both take the other path and print other last bits. The unit test `runtime/test/math_test.cpp` has the

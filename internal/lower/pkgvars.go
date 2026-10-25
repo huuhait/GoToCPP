@@ -236,7 +236,9 @@ func unconvert(x cppir.Expr) cppir.Expr {
 	}
 }
 
-// lazyVar adds the package variable v whose type holds a C or C++ class by value (cmpHasC):
+// lazyVar adds the package variable v whose type holds a C or C++ class by value (cmpHasC), or
+// that owns more than maxConstinitLeaves objects (a large array of strings or pointers: clang++
+// can't build it by constant evaluation, and so it can't be constinit either):
 // std.vector[int], std.mutex, a C struct, a struct of ours with such a field. C++ may not
 // evaluate the constructor of such a class at compile time (std::ofstream, a class that counts
 // its objects), so the variable cannot be constinit, and a variable with a dynamic initializer
@@ -266,4 +268,109 @@ func (g *gen) lazyVar(v *types.Var) {
 	g.out.varExt = append(g.out.varExt, &cppir.VarDecl{Specs: []string{"extern"}, Type: &cppir.Ref{Elem: typ}, Vars: []cppir.Declarator{{Name: name}}})
 	g.lazyVars = append(g.lazyVars, store)
 	g.varInits = true
+}
+
+// The storage of a package variable (ADR-093, addendum 2): Go runs no destructor of a package
+// variable, and neither does gocpp. A constinit object whose type has a destructor would be
+// registered with __cxa_atexit, and a library's host that calls exit() would destroy the variables
+// while the library's goroutines still use them. A variable of a trivially destructible Go type
+// (numbers, complex numbers, bools, arrays and structs of them) is a plain constinit object, as it always was. Any
+// other is the member of a gp::keep<T> (gocpp/lazy.hpp: a union whose destructor does nothing),
+// constant-initialized as the variable was, and the variable's name is an inline constexpr
+// reference to it, defined in the header (or after the storage, in a single file):
+//
+//	extern gp::keep<gp::slice<gp::string>> gp_keep_words;                // header
+//	inline constexpr gp::slice<gp::string>& words = gp_keep_words.gp_v;  // header
+//	constinit gp::keep<gp::slice<gp::string>> gp_keep_words{...};        // pkg_init.cpp
+//
+// The reference is an address constant, not a pointer object in memory: a use is a use of the
+// object, in every file, and the compilers see the object itself, not a pointer that was stored
+// in a global initializer (which makes the object look escaped to alias analysis: a variable of
+// another package was 68% slower in a g++ -release loop with a constinit reference variable).
+
+// keptVar declares the package variable v of the C++ type typ with the initializer value (a
+// braced list, empty for the zero value, or an expression).
+func (g *gen) keptVar(v *types.Var, typ cppir.Type, value cppir.Expr) {
+	name := g.names[v]
+	pos := g.pos(v.Pos())
+	if trivialDtor(v.Type()) {
+		d := varDecl(pos, typ, name, value)
+		d.Specs = []string{"constinit"}
+		g.addVar(d)
+		return
+	}
+	init := &cppir.InitList{} // the zero value: the member value-initialized
+	if l, ok := value.(*cppir.InitList); !ok || len(l.Elems) > 0 || l.Type != nil {
+		init.Elems = []cppir.Expr{value}
+	}
+	keep := &cppir.TypeName{Name: "gp::keep", Args: []cppir.Node{typ}}
+	g.out.vars = append(g.out.vars,
+		&cppir.VarDecl{Pos: pos, Specs: []string{"constinit"}, Type: keep,
+			Vars: []cppir.Declarator{{Name: keepName(name), Init: init}}})
+	ext := &cppir.VarDecl{Specs: []string{"extern"}, Type: keep, Vars: []cppir.Declarator{{Name: keepName(name)}}}
+	ref := &cppir.VarDecl{Specs: []string{"inline", "constexpr"}, Type: &cppir.Ref{Elem: typ},
+		Vars: []cppir.Declarator{{Name: name, Init: &cppir.Member{X: cxxName(keepName(name)), Name: "gp_v"}}}}
+	g.out.varExt = append(g.out.varExt, ext, ref)
+	g.out.varRefs = append(g.out.varRefs, ref)
+}
+
+// trivialDtor reports whether the C++ type of the Go type t has a trivial destructor: a number (complex
+// too) or a bool, or an array or a struct (named or not) of them. Everything else (strings, slices, maps,
+// pointers, interfaces, channels, funcs) owns something.
+func trivialDtor(t types.Type) bool {
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		return u.Info()&(types.IsNumeric|types.IsBoolean) != 0
+	case *types.Array:
+		return trivialDtor(u.Elem())
+	case *types.Struct:
+		for i := range u.NumFields() {
+			if !trivialDtor(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return !hasC(u)
+	}
+	return false
+}
+
+// keepName is the name of the storage of the package variable (or exported constant) name.
+func keepName(name string) string { return "gp_keep_" + name }
+
+// maxConstinitLeaves is the number of objects with a constructor (strings, slices, pointers, ...)
+// that a constinit variable may have: clang++ ends a constant evaluation after 1 M steps, and an array
+// of 1 << 21 strings needs more. An array of 1 << 12 records of three such fields is far below it.
+const maxConstinitLeaves = 1 << 16
+
+// leafObjects estimates how many objects with a constructor the zero value of t builds: one for a
+// string, slice, map, pointer, interface, channel or func, the elements' for an array, the fields'
+// for a struct (saturating, so that a nested array of arrays can't overflow).
+func leafObjects(t types.Type) int64 {
+	const sat = 1 << 40
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		if u.Info()&types.IsString != 0 || u.Kind() == types.UnsafePointer {
+			return 1
+		}
+		return 0
+	case *types.Array:
+		n, e := u.Len(), leafObjects(u.Elem())
+		if e == 0 {
+			return 0
+		}
+		if n > sat/e {
+			return sat
+		}
+		return n * e
+	case *types.Struct:
+		var n int64
+		for i := range u.NumFields() {
+			n += leafObjects(u.Field(i).Type())
+			if n > sat {
+				return sat
+			}
+		}
+		return n
+	}
+	return 1
 }

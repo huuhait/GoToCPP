@@ -103,20 +103,20 @@ gp::string thunk_SliceErr_Error(const gp::iface& self) {
 }
 
 const gp::method gp_pm_PtrErr[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_pPtrErr_Error)};
+    gp::method_of<gp::string(), &thunk_pPtrErr_Error>("Error", nullptr, "func() string")};
 const gp::method gp_vm_ValErr[] = {
-    gp::method_of<int64_t()>("Code", nullptr, "func() int", &thunk_ValErr_Code),
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_ValErr_Error)};
+    gp::method_of<int64_t(), &thunk_ValErr_Code>("Code", nullptr, "func() int"),
+    gp::method_of<gp::string(), &thunk_ValErr_Error>("Error", nullptr, "func() string")};
 const gp::method gp_pm_ValErr[] = {
-    gp::method_of<int64_t()>("Code", nullptr, "func() int", &thunk_pValErr_Code),
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_pValErr_Error)};
+    gp::method_of<int64_t(), &thunk_pValErr_Code>("Code", nullptr, "func() int"),
+    gp::method_of<gp::string(), &thunk_pValErr_Error>("Error", nullptr, "func() string")};
 const gp::method gp_vm_SliceErr[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_SliceErr_Error)};
+    gp::method_of<gp::string(), &thunk_SliceErr_Error>("Error", nullptr, "func() string")};
 gp::string thunk_NoAssign_Error(const gp::iface& self) {
     return gp::unbox<NoAssign>(self).Error();
 }
 const gp::method gp_vm_NoAssign[] = {
-    gp::method_of<gp::string()>("Error", nullptr, "func() string", &thunk_NoAssign_Error)};
+    gp::method_of<gp::string(), &thunk_NoAssign_Error>("Error", nullptr, "func() string")};
 const gp::imethod gp_im_Coder[] = {gp::imethod("Code", nullptr, "func() int")};
 
 const gp::type_desc gp_td_PtrErr = gp::named<PtrErr>(

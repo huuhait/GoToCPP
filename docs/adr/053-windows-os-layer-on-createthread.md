@@ -115,6 +115,6 @@ layer for step 14.1 on the dev shell's MinGW-w64 showed:
   suite on Windows: on a real PC over ssh when `GOCPP_WINDOWS_SSH=user@host` is set (the variable is the only
   place that names the machine; the programs go to `%USERPROFILE%\gocpp-wintest\<run id>\`, which is deleted
   at the end; nothing else on the PC is touched), otherwise under Wine in an isolated prefix. Wine is not
-  Windows (it cannot dispatch a stack overflow on a CPU with AVX-512: Wine 11.0 commits the whole stack and keeps one guard page, so the 3392-byte exception frame does not fit; and it has no console). If the Wine test binary is killed, the Wine helpers (`winedevice.exe` and others) stay alive; `wineserver -k` under its `WINEPREFIX` ends them: the console
+  Windows (it cannot dispatch a stack overflow at its own guard page on a CPU with AVX-512: Wine 11.0 commits the whole stack and keeps one guard page, so the 3392-byte exception frame does not fit, and the thread layer puts a guard page of its own 128 KiB higher under Wine, where Wine raises the overflow with room for the frame; and it has no console). If the Wine test binary is killed, the Wine helpers (`winedevice.exe` and others) stay alive; `wineserver -k` under its `WINEPREFIX` ends them: the console
   path (`WriteConsoleW`) and the real exit codes of a crash are left to the real-Windows checklist of step
   14.7.

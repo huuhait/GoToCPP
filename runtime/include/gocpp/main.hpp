@@ -39,7 +39,9 @@ const std::vector<gp::string>& envs() noexcept;
 namespace detail {
 
 // load_process_info sets args() and envs() from the running process, for a library that no
-// run_main started (gp::lib::enter, gocpp/lib.hpp): the host program's arguments and environment.
+// run_main started (gp::lib::enter, gocpp/lib.hpp): the host program's arguments and environment
+// at the first call of an exported function (or of a cpp-lib's init()), not at load time as Go's
+// c-archive: what the host setenv's before that call is in envs() (docs/guides/libraries.md).
 void load_process_info();
 
 } // namespace detail

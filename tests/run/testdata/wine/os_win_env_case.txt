@@ -1,0 +1,16 @@
+PATH found as pAtH: true
+<nil>
+"one" "one" "one"
+<nil>
+"two" "two"
+entries: 1
+<nil>
+after Unsetenv: false 0
+<nil>
+"" true
+setenv: Invalid parameter.
+setenv: Invalid parameter.
+setenv: invalid argument
+setenv: invalid argument
+has =X: entries: false
+val val |

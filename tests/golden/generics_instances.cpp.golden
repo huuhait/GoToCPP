@@ -13,8 +13,10 @@ struct Celsius : gp::newtype<Celsius, double> {
 static_assert(sizeof(Celsius) == 8 && alignof(Celsius) == 8);
 
 extern const gp::type_desc gp_td_Celsius;
-extern const gp::type_desc* const gp_tdc_0;
-extern const gp::type_desc* const gp_tdc_1;
+extern const gp::type_desc* gp_tdc_0_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make();
+extern const gp::type_desc* gp_tdc_1_p;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make();
 void main();
 
 } // namespace gpkg_main
@@ -146,10 +148,10 @@ gp::string Celsius::String() const {
 #line 43 "$ROOT/tests/golden/generics_instances.gp"
 void main() {
     { auto gp_t0 = gpkg_main::gp_inst_85534c42_Sum(gp::slice_of<int64_t>({1, 2, 3})); auto gp_t1 = gpkg_main::gp_inst_9dbd1a38_Sum(gp::slice_of<int8_t>({100, 100})); gp::fmt::Println(gp_t0, gp_t1, gp::fmt::as(&gp_td_Celsius, gpkg_main::gp_inst_8991a4a5_Sum(gp::slice_of<Celsius>({Celsius(1.5), Celsius(2.0)})))); }
-    gp::fmt::Println(gp::fmt::as(gp_tdc_0, gpkg_main::gp_inst_e672b225_Map(gp::slice_of<int64_t>({1, 2}), gp::func<gp::string(int64_t)>([]<int = 1>(int64_t i) mutable -> gp::string { return gp::fmt::Sprint(i); }))));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_0_p, &gp_tdc_0_make>(), gpkg_main::gp_inst_e672b225_Map(gp::slice_of<int64_t>({1, 2}), gp::func<gp::string(int64_t)>([]<int = 1>(int64_t i) mutable -> gp::string { return gp::fmt::Sprint(i); }))));
     { auto gp_t2 = gpkg_main::gp_inst_b640bdec_Show(Celsius(36.6)); auto gp_t3 = gpkg_main::gp_inst_649bf509_Kind(1); gp::fmt::Println(gp_t2, gp_t3, gpkg_main::gp_inst_837ffab2_Kind("s"_gs)); }
     gp::func<gp::slice<int64_t>(gp::slice<gp::string>, gp::func<int64_t(gp::string)>)> f = gp::func_of<&gpkg_main::gp_inst_65fca2ad_Map>();
-    gp::fmt::Println(gp::fmt::as(gp_tdc_1, f(gp::slice_of<gp::string>({"ab"_gs}), gp::func<int64_t(gp::string)>([]<int = 2>(gp::string s) mutable -> int64_t { return gp::len(s); }))));
+    gp::fmt::Println(gp::fmt::as(gp::desc_get<&gp_tdc_1_p, &gp_tdc_1_make>(), f(gp::slice_of<gp::string>({"ab"_gs}), gp::func<int64_t(gp::string)>([]<int = 2>(gp::string s) mutable -> int64_t { return gp::len(s); }))));
 }
 
 } // namespace gpkg_main
@@ -163,17 +165,23 @@ namespace gpkg_main {
 inline gp::string gp_thunk_Celsius_String(const gp::iface& gp_self) {
     return gp::unbox<Celsius>(gp_self).String();
 }
-inline const gp::method gp_vm_Celsius[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_Celsius_String)};
+inline const gp::method gp_vm_Celsius[]{gp::method_of<gp::string(), &gp_thunk_Celsius_String>("String", nullptr, "func() string")};
 inline gp::string gp_thunk_pCelsius_String(const gp::iface& gp_self) {
     gp::bptr<Celsius> gp_p = gp::unbox_borrow<Celsius>(gp_self);
     gp::check_wrap(gp_p, "value method main.Celsius.String called using nil *Celsius pointer");
     return gp_p->String();
 }
-inline const gp::method gp_pm_Celsius[]{gp::method_of<gp::string()>("String", nullptr, "func() string", &gp_thunk_pCelsius_String)};
+inline const gp::method gp_pm_Celsius[]{gp::method_of<gp::string(), &gp_thunk_pCelsius_String>("String", nullptr, "func() string")};
 const gp::type_desc gp_td_Celsius = gp::named<Celsius>("main.Celsius", "main", gp::shape_basic(gp::kind::Float64), gp::methods_of(gp_vm_Celsius), gp::methods_of(gp_pm_Celsius));
 
-const gp::type_desc* const gp_tdc_0 = gp::td_slice<gp::string>(&gp::td_string);
-const gp::type_desc* const gp_tdc_1 = gp::td_slice<int64_t>(&gp::td_int);
+constinit const gp::type_desc* gp_tdc_0_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_0_make() {
+    return gp::desc_publish(&gp_tdc_0_p, gp::td_slice<gp::string>(&gp::td_string));
+}
+constinit const gp::type_desc* gp_tdc_1_p = nullptr;
+[[gnu::cold, gnu::noinline]] const gp::type_desc* gp_tdc_1_make() {
+    return gp::desc_publish(&gp_tdc_1_p, gp::td_slice<int64_t>(&gp::td_int));
+}
 
 } // namespace gpkg_main
 
