@@ -548,15 +548,22 @@ few packages lose files that they need and get overlays (below): `internal/goroo
   its `gc`-only file and pulls 10 runtime functions instead of 20. Sonic's JIT and
   anything that needs Go's write barrier never will.
 - **The hook table**: the runtime functions that the other standard packages reach with
-  `//go:linkname`. The `net/http` + `crypto/tls` closure has 166 distinct `//go:linkname`
-  targets: 149 in the runtime (9 of them only for `internal/synctest`) and 17 between other
-  standard packages or to the linker. The runtime ones include the semaphores, spinning and
-  `notifyList` of `sync` and `internal/sync`, `internal/poll`'s nine `runtime_poll*`
-  functions, `time`'s timers and `now`, `syscall`'s `entersyscall` and `exitsyscall` (they do
-  nothing, §2.5), 37 for `reflect`, `iter`'s coroutines, `weak`, `unique` and the bubble checks
-  of `synctest`. Counting the functions that packages push into the runtime too, the runtime has
-  154 such functions for `net/http` + `crypto/tls`, and 187 with `testing` and its test main
-  (linux/amd64). Windows adds its own: `loadlibrary`, `getprocaddress`, `SyscallN` and
+  `//go:linkname`. The dry run of 2026-10-24 (`tools/gostddryrun`,
+  `gostd/dryrun/go1.25.14`, linux/amd64) counts 303 distinct two-argument `//go:linkname`
+  targets in the `net/http` + `crypto/tls` closure. 169 of them are runtime hooks: 151 pushed
+  by the runtime into closure packages and 18 pulled from the runtime; 9 are only for
+  `internal/synctest`, and 14 are linker symbols. The plan's earlier 166/149/17 came from a
+  one-off survey whose counting method was not recorded; the dry run's data replaces it. 163
+  targets are bodyless in their target package, 154 provided by the runtime and 9 not; 5 of
+  those 9 need a native or overlay of their own (`internal/runtime/atomic.StoreReluintptr`,
+  `sync/atomic.{CompareAndSwapUintptr,StoreUintptr,SwapUintptr}`, `time.now`). The runtime ones
+  include the semaphores, spinning and `notifyList` of `sync` and `internal/sync`,
+  `internal/poll`'s nine `runtime_poll*` functions, `time`'s timers and `now`, `syscall`'s
+  `entersyscall` and `exitsyscall` (they do nothing, §2.5), 40 for `reflect`, `iter`'s
+  coroutines, `weak`, `unique` and the bubble checks of `synctest`. The dry run counts 151
+  runtime pushes for `net/http` + `crypto/tls` (the plan's earlier 154 is not reproducible);
+  the 187 with `testing` and its test main is not measured yet, because the dry run does not
+  walk `testing`'s closure. Windows adds its own: `loadlibrary`, `getprocaddress`, `SyscallN` and
   `Syscall6` to `Syscall18`, `compileCallback`, `QueryPerformanceCounter`, and more (17
   bodyless functions that only Windows has). Each one is a C++ native over the shared runtime:
   threads, `gp::waiter`, the timer thread and the semaphore table of Phase 08.
@@ -591,8 +598,9 @@ check.
 **`//go:linkname` in Go packages.** Go 1.25 uses it in five ways, and all are handled: pulls (a
 declaration without a body that names another package's symbol: `x/net` pulls
 `syscall.getsockopt`), pushes (a package defines a symbol under another package's name: `os` →
-`net.newUnixFile`, `sync` → `syscall.hasWaitingReaders`, and 19 from `internal/runtime/maps`
-into the runtime, `runtime.mapaccess1` and its variants), one-argument linknames that only
+`net.newUnixFile`, `sync` → `syscall.hasWaitingReaders`, and 17 from `internal/runtime/maps`
+into the runtime, `runtime.mapaccess1` and its variants — the dry run counts 17, the plan said
+19), one-argument linknames that only
 export a symbol, linknamed variables (`runtime.zeroVal`, `math/bits`' `overflowError` and
 `divideError`), and the linker symbol `go:fipsinfo` of the FIPS 140 module. A pull or a push of
 a symbol that exists in translated code or in the runtime is resolved to that symbol's C++ name;
@@ -889,7 +897,8 @@ standard packages that it converts.
       (`SetGCPercent`, `SetMemoryLimit`, `FreeOSMemory`, `ReadBuildInfo` from the module graph
       that gocpp built, `Stack`, `PrintStack`); `runtime/trace` and `runtime/pprof` build and
       report that they are not supported.
-    - Natives for the 149 runtime symbols and for the runtime's pushes:
+    - Natives for the 169 runtime hook targets (151 pushes and 18 pulls; the dry run of
+      2026-10-24) and for the runtime's pushes:
       - `sync` and `internal/sync`: semaphores, spinning and `notifyList`. `procPin` is a
         per-slot lock. The pools are emptied before the collections that gocpp starts, as in
         Go, outside the stop and outside bdwgc's lock, with all slots held; collections that
@@ -1166,10 +1175,14 @@ What the survey found:
   alone is 65 packages: even `crypto/rand`, `sha1` or `md5` pull about 25 crypto packages, 15 of
   them in the FIPS 140 module.
 - **`net`** is needed by 11 modules and **`net/http`** by 6. The `net/http` + `crypto/tls` closure
-  is 178 packages and 324,441 lines (a port would have to add 103 of them, 157,885 lines; gp
-  lacks 123 in all). Its standard packages reach **166 distinct `//go:linkname` targets**, 149
-  of them in the runtime; by package, 37 for `reflect`, 18 for `sync`, 15 for `syscall`, 12 for
-  `internal/poll`, 7 for `time`, and more (§2.7).
+  is 176 packages (the dry run of 2026-10-24; `go list -deps` gives 177 with `unsafe`, which is
+  not a package, and the plan's earlier 178 came from the one-off survey) and 324,441 lines (a
+  port would have to add 103 of them, 157,885 lines; gp lacks 123 in all). Its standard packages
+  reach **303 distinct two-argument `//go:linkname` targets**, 169 of them runtime hooks (151
+  pushed by the runtime, 18 pulled from it); by package, 40 for `reflect`, 18 for `sync`, 12 for
+  `syscall`, 11 for `internal/poll`, 7 for `time`, and more (§2.7). The plan's earlier
+  166/149/17 and 37/18/15/12/7 do not reproduce under any recorded definition; the dry run's
+  numbers replace them.
 - **`unsafe` beyond `Sizeof`** appears in 8 modules, zero-copy `string` ↔ `[]byte` in 6, and
   `//go:linkname` in 5. Outside `x/sys`, only gin (20 pulls from ugorji into runtime internals,
   10 under the `gocpp` tag, and 2 from `x/net` into `syscall`) and sqlite (7 into `math/big`'s

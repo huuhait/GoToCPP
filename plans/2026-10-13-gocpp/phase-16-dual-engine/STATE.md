@@ -15,7 +15,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [ ] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds
   - [ ] Windows: the same measurements, plus thread starts and the scan of static roots in each collection
-  - [~] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b)
+  - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b, clean after 3 rounds; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`)
 - [ ] 16.2 ADR: the design (1–2 weeks)
   - [ ] names; descriptors and the scheme for offsets, `typelinks` and unnamed types; the heap scan stages and the extra byte; misaligned access
   - [ ] import rules and `"go:..."` imports; the gp view, the allowlist of twins, the boundary table, the call-only list and its directive, `gc.New[T]`, `gc.File`, which channels cross
@@ -140,9 +140,33 @@ package.
   `go test -parallel 16`, `scripts/gp-focused -cpus 16`). The spike of 16.1 is split into
   independent jobs: 16.1a (vendor and build bdwgc 8.2.12), 16.1b (the dry run of Go's standard
   library) and 16.1c (the GC-engine walking skeleton in the emitter, with the minimal `gp::gc`
-  values and a test heap). Further jobs (the bdwgc backend of `gp::gc`, Go-layout structs and
-  maps, the four spike packages, the five boundary shapes, the measurements, Windows) follow
-  when these are reviewed.
+  values and a test heap). Further jobs follow when these are reviewed: 16.1d (the bdwgc
+  backend of `gp::gc`: roots, thread registration, blocking sections, collection), 16.1e
+  (Go-layout values: structs, pointers, slices, maps, interfaces, funcs, `new_`/`make`/`append`),
+  16.1f (the four spike packages and the stubs for `runtime`, `internal/bytealg`,
+  `internal/reflectlite`), 16.1g (the five boundary shapes), 16.1h (the measurements) and
+  16.1i (the Windows items, blocked until the real PC is reachable). The real versions of this
+  code land in steps 16.3–16.8.
+- 2026-10-24 (16.1b, clean after 2 rounds plus 4 nits): the dry run measured, for go1.25.14
+  (identical on go1.25.7), linux/amd64: 303 distinct two-argument `//go:linkname` targets in the
+  `net/http` + `crypto/tls` closure; 169 runtime hooks (151 pushed by the runtime, 18 pulled);
+  9 synctest-only; 14 linker symbols; 163 bodyless targets (154 provided by the runtime, 9 not,
+  and 5 of those need a native or overlay); 176 closure packages; 17 pushes from
+  `internal/runtime/maps`; by package 40 `reflect`, 18 `sync`, 12 `syscall`, 11
+  `internal/poll`, 7 `time`. The plan's §2.7/§7.1 counts (166/149/17, 178 packages, 19 maps
+  pushes, 154/187, 37/18/15/12/7) did not reproduce under any recorded definition; the README
+  now carries the measured numbers and says so.
+- 2026-10-24 (16.1a, round 1 review): the build did **not** actually disable bdwgc's
+  incremental mode — `gcconfig.h` defines `MPROTECT_VDB`/`SOFT_VDB` itself, and
+  `GC_ENABLE_INCREMENTAL=1` turned it on, so bdwgc could take `SIGSEGV`/`SIGBUS` from gocpp's
+  runtime. Round 2 adds `-DGC_DISABLE_INCREMENTAL` (verified: `GC_is_incremental_mode()` stays
+  0 with `GC_ENABLE_INCREMENTAL=1`), keeps the Windows sources in the vendored tree
+  (`win32_threads.c`, a goos-aware source list; the MinGW build itself stays M10 work), and
+  leaves bdwgc's `SIGSYS` default under TSan instead of overriding the signal.
+- 2026-10-24 (environment): this machine has no `GOCPP_WINDOWS_SSH` and no llvm-mingw, so the
+  Windows items of 16.1 (the bdwgc build with llvm-mingw, the Windows measurements) are open
+  until the real PC or a cross toolchain is available. The dry run of Go's standard library for
+  `windows/amd64` does not need the PC (it reads Go's source), so 16.1b covers it.
 - 2026-10-21: phase created from your idea ("a non-GC engine for gp and C/C++, another GC
   engine for Go; then we can import any Go package in the world"). The first draft recorded
   options B1–B4 and eight questions.
@@ -233,6 +257,9 @@ package.
 
 ## Log
 
+- 2026-10-24: job 16.1b merged into `p16` after a clean review (3 rounds): the dry run and its
+  data are in `gostd/dryrun/go1.25.14`, the tool in `tools/gostddryrun`; the plan's §2.7/§7.1
+  counts were corrected to the measured ones (see "Decisions / notes").
 - 2026-10-24: the phase started (your decision). Jobs 16.1a, 16.1b and 16.1c assigned; the
   workspace and the 16-thread cap are recorded in "Decisions / notes".
 - 2026-10-21: phase created (the idea, the options, eight questions).
