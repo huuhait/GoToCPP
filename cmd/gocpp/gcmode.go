@@ -231,16 +231,50 @@ func (d *driver) gcCompileDir(dir, out string) (exe, work string, code int) {
 		}
 		return "", "", d.gcError(err)
 	}
+	// The GC engine's heap is bdwgc (phase-16 README §2.4, job 16.1d): build the vendored
+	// collector for this compiler and sanitizer (internal/build.Builder.Bdwgc caches it once per
+	// toolchain and sanitizer), and compile the GC engine's sources with GOCPP_GC_BDWGC, which
+	// selects heap_bdwgc.cpp over the unit-test backend. A program that is not built with
+	// -gc-engine never reaches this and links no bdwgc symbol.
+	//
+	// The builder gets no environment flags: this path does not apply GOCPP_CFLAGS/GOCPP_CXXFLAGS
+	// to the program's compiles yet (a limit of the walking skeleton, job 16.1c), so building the
+	// collector with them could give it a sanitizer or a target the program does not have. -asan
+	// is the one mode that reaches both, through Builder.ASan.
+	b := &build.Builder{CXX: cxx, ASan: d.flags.asan, GOOS: d.check.goos, Work: work,
+		Cache: cacheDir(), Jobs: d.flags.jobs, Stderr: d.stderr}
+	if d.flags.x {
+		b.Trace = d.stderr
+	}
+	lib, err := b.Bdwgc(d.ctx, build.BdwgcConfig{})
+	if err != nil {
+		if sig := d.interrupted(); sig != nil {
+			return "", "", stopStatus(sig)
+		}
+		return "", "", d.gcError(err)
+	}
 	if out == "" {
 		out = filepath.Join(work, "prog"+exeSuffixFor(d.check.goos))
 	}
 	args := build.CompileFlags(cxx, d.flags.asan, false)
 	args = append(args, build.GeneratedFlags(cxx)...)
+	if d.check.goos == "linux" {
+		// The collector and the runtime's threads use pthreads; the ARC engine's link has this
+		// flag too. (bdwgc's own LinkFlags add -lpthread; this also sets _REENTRANT and the
+		// compiler's thread-safe TLS for the program.)
+		args = append(args, "-pthread")
+	}
+	args = append(args, "-DGOCPP_GC_BDWGC=1")
+	args = append(args, lib.CompileFlags...)
 	args = append(args, "-I", filepath.Join(rt, "include"), genFile)
 	for _, src := range rtfiles.GCSources(d.check.goos) {
 		args = append(args, filepath.Join(rt, filepath.FromSlash(src)))
 	}
+	// The archive comes after every object file, and its link flags (the C library's threads
+	// and dl, and the sanitizer's runtime) after it.
 	args = append(args, "-o", out)
+	args = append(args, lib.Archive)
+	args = append(args, lib.LinkFlags...)
 	if d.flags.x {
 		words := []string{cxx.Name()}
 		for _, a := range args {

@@ -4,6 +4,7 @@
 #include <gocpp/nofortify.h>
 #include "chan_core.hpp"
 #include "timed_wait.hpp"
+#include <gocpp/gc/hooks.hpp>
 #include <gocpp/rt.hpp>
 
 #include <atomic>
@@ -225,6 +226,14 @@ void begin_fire(entry& e, int64_t due, int64_t now) {
 }
 
 void thread_main() {
+    // The timer thread touches GC memory (it starts the goroutines of AfterFunc, which allocate)
+    // and it waits on the timer condition variable, so it registers with the GC engine's
+    // collector for its whole life and unregisters when it ends (gocpp/gc/hooks.hpp, phase-16
+    // README §2.5; job 16.1d). A null hook in the reference-counting engine makes this two
+    // branches. Its own wait on the timer heap's condition variable is not a blocking section
+    // yet: 16.4 wraps the runtime's remaining waits (this one, the netpoller's and blocking
+    // I/O).
+    gc_thread_guard gc_guard;
     // This thread starts the goroutines of AfterFunc: it is the runtime's own, not a foreign one.
     adopt_internal();
     std::unique_lock<std::mutex> lk(h.mu);
@@ -266,6 +275,10 @@ void thread_main() {
         deadlock_check();
         lk.lock();
     }
+    // Unregister before timers_shutdown sees h.running == false, so a caller that waits for the
+    // thread knows it has left the collector. The guard above makes the forced-unwind paths
+    // unregister too; its leave is a no-op now.
+    gc_leave_thread();
     h.running = false;
     h.gone_cv.notify_all();
 }

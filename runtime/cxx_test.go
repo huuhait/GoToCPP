@@ -355,7 +355,11 @@ func TestCXX(t *testing.T) {
 					}
 					// bdwgc is vendored for Linux only (phase 16 README §2.4, M10 adds Windows).
 					if runtime.GOOS == "linux" {
-						progs = append(progs, prog{src: "test/bdwgc_test.cpp", weight: 4, bdwgc: true})
+						progs = append(progs,
+							prog{src: "test/bdwgc_test.cpp", weight: 4, bdwgc: true},
+							// The GC engine's bdwgc backend (job 16.1d): the whole runtime and the
+							// GC engine's sources, with heap_bdwgc.cpp selected.
+							prog{src: "test/gc_heap_bdwgc_test.cpp", weight: 4, bdwgc: true, gc: true})
 					}
 					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, progs)
 
@@ -369,6 +373,13 @@ func TestCXX(t *testing.T) {
 						}
 						t.Parallel()
 						runBdwgc(t, bins.bin(t, "test/bdwgc_test.cpp"))
+					})
+					t.Run("gc_heap_bdwgc", func(t *testing.T) {
+						if runtime.GOOS != "linux" {
+							t.Skip("bdwgc is vendored for linux")
+						}
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/gc_heap_bdwgc_test.cpp"))
 					})
 					t.Run("concepts", func(t *testing.T) {
 						t.Parallel()

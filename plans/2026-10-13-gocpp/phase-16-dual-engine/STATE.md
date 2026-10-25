@@ -11,7 +11,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
 ### Part A: decide (4–6 weeks)
 - [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
   - [x] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows MinGW-w64 on the real PC), once per sanitizer (jobs 16.1a + 16.1a-win, both clean and merged: Linux GCC/Clang + ASan/TSan; Windows MinGW-w64 with bdwgc's CMake pthreads+WIN32 branch, 25 sources, smoke test on the real PC. Not tested: llvm-mingw (the PC has no clang) and ASan/TSan on Windows; the ADR of 16.2 records both.)
-  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c merged the walking skeleton: hidden `-gc-engine`, stock-`go/parser` loading of `.go` files, `go/types`, a minimal GC-mode emitter with Go's layout/arithmetic/evaluation order and `#line`, and `gp::gc` string/print/heap with a malloc test backend; the four packages and the stubs are 16.1f, the bdwgc backend is 16.1d, the values are 16.1e)
+  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (jobs 16.1c + 16.1d merged: hidden `-gc-engine`, stock-`go/parser` loading of `.go` files, `go/types`, a minimal GC-mode emitter with Go's layout/arithmetic/evaluation order and `#line`, `gp::gc` string/print/heap, and the bdwgc backend — GC_INIT and thread registration, `GC_malloc`/`GC_malloc_atomic` with zeroing, roots as uncollectable cells, `GC_do_blocking` around parks/Sleep, a timer thread registered, stats, signals SIGRTMIN+6/+7 and SIGSYS under TSan, `-DGC_DISABLE_INCREMENTAL` — with the malloc backend kept for unit tests. The four packages, the stubs and the loader are 16.1f; the values are 16.1e)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (jobs 16.1h-base + 16.1h-prog merged: the harness is `tools/gcbench`, the programs `bench/gc` (binarytrees, parks, syscalls, goroutines: 1k/10k, blocked/running/mixed, depth), the Go/ARC baselines are `docs/benchmarks/gc-engine-spike.md`, re-measured on the new host. At 10k blocked goroutines, peak RSS per goroutine is 3.5 KiB (Go) vs 13.2 KiB (ARC). The GC rows and the stop-the-world pause hook, the boundary costs, compile time/size and the Windows runs are 16.1h)
   - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
@@ -170,6 +170,10 @@ package.
   0 with `GC_ENABLE_INCREMENTAL=1`), keeps the Windows sources in the vendored tree
   (`win32_threads.c`, a goos-aware source list; the MinGW build itself stays M10 work), and
   leaves bdwgc's `SIGSYS` default under TSan instead of overriding the signal.
+- 2026-10-25 (memory cap): the user caps total memory at **64 GB across all workers**.
+  With five concurrent workers the per-command cap is **12 GB** (`scripts/gp-focused -mem 12G`,
+  `systemd-run -p MemoryMax=12G` for other heavy commands), so the sum stays at 60 GB or less.
+  The 16-thread cap is unchanged.
 - 2026-10-25 (host change): the Linux host was replaced (an AMD EPYC 7W83, 64
   logical cores, about 103 GiB, instead of the 192-core Threadripper). Job 16.1h-prog
   re-measured the whole `docs/benchmarks/gc-engine-spike.md` on the new host, so the
@@ -275,6 +279,17 @@ package.
 
 ## Log
 
+- 2026-10-25: job 16.1d merged into `p16` after a clean review (2 rounds): the bdwgc backend of
+  `gp::gc` and the thread/blocking plumbing. `heap_bdwgc.cpp` does `GC_INIT` and thread
+  registration, scanned/atomic allocation (both zeroed), `GC_do_blocking` with an exception-safe
+  thunk, roots as uncollectable cells, collection and stats; goroutine threads and the timer
+  thread register and unregister on every exit path (a guard plus an explicit leave), and the
+  waiter's parks, timed waits and `Sleep` run in blocking sections. The GC-mode driver links
+  the cached bdwgc archive and calls `gp::gc::init()` in the generated `main`; a `.gp` program
+  still links no bdwgc or `gp::gc` symbol. The 41-check C++ suite (roots, cycles, atomic
+  pointer-free blocks, 1,000 threads then a collection, blocking during a collection, stats)
+  passes with g++/clang++ at O0/O2 and under ASan+UBSan and TSan. The review's misaligned
+  `alloc_atomic` test was proven by mutation; the old-phase `shims.cpp` failure stays untouched.
 - 2026-10-25: job 16.1h-prog merged into `p16` after a clean review (2 rounds): the goroutine
   program (1k/10k, blocked/running/mixed, depth) and its rows (wall, CPU, RSS, RSS per
   goroutine) are in `tools/gcbench`/`bench/gc`, and the whole benchmark document was

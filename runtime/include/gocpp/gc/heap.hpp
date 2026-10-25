@@ -2,9 +2,13 @@
 //
 // The engine reaches the collector only through this interface, so that the backend can become
 // bdwgc (job 16.1d), an own collector, or a port of Go's collector without touching the
-// generated code. Job 16.1c ships one backend, heap_malloc.cpp: malloc, no collector, no
-// thread registration and no roots that it has to trace. It is the spike backend and exists so
-// that the rest of the engine can be built and tested before bdwgc is vendored.
+// generated code. There are two backends, chosen at build time by the macro GOCPP_GC_BDWGC (the
+// GC engine's own build sets it; the runtime's unit tests do not):
+//   - heap_malloc.cpp: malloc, no collector, no thread registration and no roots that it has to
+//     trace. The unit-test backend (job 16.1c).
+//   - heap_bdwgc.cpp: the vendored bdwgc (job 16.1d). Only one of the two defines process_heap
+//     in a build, so there is no ODR violation.
+// A program that is not built by the GC engine compiles neither: it links no gp::gc symbol.
 //
 // What a backend must guarantee (Go's rules, which bdwgc gives):
 //   - alloc returns size bytes, zeroed, that the collector scans for pointers.
@@ -36,10 +40,14 @@
 namespace gp::gc {
 
 // A statistics is what a backend reports to runtime.ReadMemStats and debug.FreeOSMemory
-// (README §2.4). The malloc backend of job 16.1c frees nothing, so it reports live bytes only.
+// (README §2.4). bytes is the collector's own count of the bytes allocated so far, so it is not
+// comparable across backends: the malloc backend adds up what it allocated and frees nothing,
+// and the bdwgc backend reports bdwgc's total bytes allocated (GC_get_heap_usage_safe), which
+// includes the collector's own bookkeeping. allocs counts the calls that gp::gc made, because
+// bdwgc counts bytes only (README §2.4: testing.AllocsPerRun reads Mallocs).
 struct statistics {
-    std::uint64_t allocs = 0; // the number of allocations
-    std::uint64_t bytes = 0;  // the bytes allocated, also the live bytes while nothing is freed
+    std::uint64_t allocs = 0;      // the number of allocations gp::gc made
+    std::uint64_t bytes = 0;       // the bytes the backend reports allocated
     std::uint64_t collections = 0; // the number of collect calls
 };
 
@@ -63,7 +71,11 @@ public:
     virtual void enter_thread() = 0;
     virtual void leave_thread() = 0;
 
-    // blocking runs fn(data) in a blocking section.
+    // blocking runs fn(data) in a blocking section. fn must not allocate and must not take a
+    // runtime lock: the frames inside the section are not scanned, and the collector's lock is
+    // taken around the call. (A condition variable's own lock is fine: the wait releases it, as
+    // src/waiter.cpp does.) If fn throws, the backend catches the exception at the C boundary
+    // and rethrows it after the section ends (bdwgc's callback is C code).
     virtual void blocking(blocking_fn fn, void* data) = 0;
 
     // make_root makes a root that holds p and returns its handle; set_root stores p in the root
@@ -81,9 +93,16 @@ public:
     virtual const char* name() const = 0;
 };
 
-// process_heap returns the process-wide heap: the malloc backend of job 16.1c, and the bdwgc
-// backend of job 16.1d behind the same interface.
+// process_heap returns the process-wide heap: the malloc backend (the unit tests) or the bdwgc
+// backend (GOCPP_GC_BDWGC, the GC engine's own build), behind the same interface.
 heap& process_heap();
+
+// init does the collector's process setup, once, before any other thread exists and before the
+// first allocation: bdwgc's GC_INIT, its signals, GC_allow_register_threads, the main thread's
+// registration, and the installation of the hooks that the shared runtime calls
+// (gocpp/gc/hooks.hpp). The GC engine's generated main calls it before the package's main. The
+// malloc backend's init does nothing.
+void init();
 
 // new_ allocates a T in the GC heap and constructs it there from args. The allocation is
 // scanned, so T may hold pointers (README §2.1: gp::gc::new_<node>(node{...})).

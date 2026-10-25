@@ -1,6 +1,7 @@
 // Goroutines (gocpp/goroutine.hpp): the threads, ids and count, and the end of a goroutine
 // that panics. Standard C++ only: the OS is reached through gp::os (gocpp/os.hpp).
 #include <gocpp/nofortify.h>
+#include <gocpp/gc/hooks.hpp>
 #include <gocpp/goroutine.hpp>
 #include <gocpp/os.hpp>
 #include <gocpp/race.hpp>
@@ -239,7 +240,10 @@ void pool_remove(worker* w) {
 // every goroutine. (reporting and barrier_failed are in sched::report_state, on a line of their
 // own.)
 
-// The goroutine's side after it stored null in cur (see above).
+// The goroutine's side after it stored null in cur (see above). Its lock wait is not a blocking
+// section: a report is short, and a goroutine that is ending is registered until its thread
+// leaves the collector (worker_main). 16.4 lists the runtime's remaining waits and wraps them
+// (this one, waiter.cpp's gp_post_wait and the timer thread's own wait).
 void wait_for_reports() {
     if (sched::report_state.reporting.load(std::memory_order_seq_cst) != 0) {
         race::no_sync ns;
@@ -347,6 +351,13 @@ goroutine* idle_wait(worker* w) {
 
 // The body of a goroutine's thread: the worker w, which go_start made, has the first goroutine.
 void worker_main(void* p) {
+    // The thread registers with the GC engine's collector before it runs any Go code, and
+    // unregisters on every exit path: the end of the loop (return or the idle-reuse timeout) and
+    // a forced unwind from os::exit_thread, whose destructors run. In the reference-counting
+    // engine the hook is null and this is two branches (gocpp/gc/hooks.hpp, phase-16 README
+    // §2.5; job 16.1d). A registered thread that exits without unregistering makes bdwgc's next
+    // collection abort.
+    gc_thread_guard gc_guard;
     auto* w = static_cast<worker*>(p);
     goroutine* g = w->next;
     w->next = nullptr;
@@ -357,6 +368,11 @@ void worker_main(void* p) {
         }
         g = idle_wait(w);
     }
+    // Out of the collector before the thread counts itself gone: end_threads (and the tests)
+    // then know that a thread at 0 has unregistered, not only that it is about to. The guard
+    // above covers the paths that never reach this line (os::exit_thread's forced unwind); its
+    // leave is a no-op now.
+    gc_leave_thread();
     reg_remove(w);
     delete w;
     race::no_sync ns;

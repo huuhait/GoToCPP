@@ -53,12 +53,17 @@ func later(n int) int {
 		"auto gp_t0 = later(int64_t(2));", // the call is hoisted: Go's order is its own
 		`gp::gc::println(gp_t0, gp::gc::lit("x"));`,
 		"int main() {",
+		"gp::gc::init();", // the collector's process setup, before the package's main (job 16.1d)
 		"gopkg_main::main();",
 		`#line 3 "main.go"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the C++ lacks %q:\n%s", want, out)
 		}
+	}
+	// The collector is initialized before the package's main can allocate.
+	if init, main := strings.Index(out, "gp::gc::init();"), strings.Index(out, "gopkg_main::main();"); init < 0 || main < 0 || init > main {
+		t.Errorf("gp::gc::init() is not before gopkg_main::main():\n%s", out)
 	}
 	if proto, def := strings.Index(out, "int64_t later(int64_t n);"), strings.Index(out, "int64_t later(int64_t n) {"); proto < 0 || def < 0 || proto > def {
 		t.Errorf("the prototype of later is not before its definition:\n%s", out)

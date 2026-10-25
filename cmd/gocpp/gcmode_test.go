@@ -408,7 +408,8 @@ func TestGCEngineSubsetErrors(t *testing.T) {
 }
 
 // TestGCEngineNoGCSymbols checks phase-16 README §2.3 rule 7: a .gp program links no gp::gc
-// symbol. The GC engine's own program does link them, which makes the check meaningful.
+// symbol and no bdwgc (job 16.1d links the vendored collector into the GC engine's programs
+// only). The GC engine's own program does link both, which makes the check meaningful.
 func TestGCEngineNoGCSymbols(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads an ELF program's symbols with nm")
@@ -429,6 +430,8 @@ func TestGCEngineNoGCSymbols(t *testing.T) {
 		}
 		if syms := nmSymbols(t, nm, gpProg); bytes.Contains(syms, []byte("_ZN2gp2gc")) {
 			t.Errorf("a .gp program has a gp::gc symbol:\n%s", gcSymbols(syms))
+		} else if bdwgcSyms := bdwgcSymbols(syms); len(bdwgcSyms) != 0 {
+			t.Errorf("a .gp program has a bdwgc symbol:\n%s", bdwgcSyms)
 		}
 
 		goDir := t.TempDir()
@@ -441,6 +444,8 @@ func TestGCEngineNoGCSymbols(t *testing.T) {
 		}
 		if syms := nmSymbols(t, nm, gcProg); !bytes.Contains(syms, []byte("_ZN2gp2gc")) {
 			t.Errorf("the GC engine's program links no gp::gc symbol, so the .gp check proves nothing")
+		} else if len(bdwgcSymbols(syms)) == 0 {
+			t.Errorf("the GC engine's program links no bdwgc symbol, so the .gp check proves nothing")
 		}
 	})
 }
@@ -453,6 +458,20 @@ func nmSymbols(t *testing.T, nm, prog string) []byte {
 		t.Fatalf("nm %s: %v", prog, err)
 	}
 	return out
+}
+
+// bdwgcSymbols returns the lines of nm's output that name a bdwgc symbol: the collector's C
+// names (the archive defines GC_malloc, GC_gcollect, GC_register_my_thread, ...).
+func bdwgcSymbols(out []byte) string {
+	var b strings.Builder
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "GC_malloc") || strings.Contains(line, "GC_gcollect") ||
+			strings.Contains(line, "GC_register_my_thread") {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // gcSymbols returns the lines of nm's output that name a gp::gc symbol.

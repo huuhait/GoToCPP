@@ -145,6 +145,33 @@ func TestBdwgcSmoke(t *testing.T) {
 	}
 }
 
+// TestBdwgcHeapTSan builds and runs the GC engine's bdwgc backend test (runtime/test/
+// gc_heap_bdwgc_test.cpp) under ThreadSanitizer: roots, a collected cycle, a pointer-free object
+// that must not keep a pointer-shaped number alive, 1,000 goroutine threads that register,
+// allocate, unregister and exit, and a collection while a thread sits in a blocking section
+// (job 16.1d). cxx_test.go runs the same program at -O0, -O2 and under ASan + UBSan; this test
+// adds the sanitizer that the bdwgc TSan build exists for (README §2.5, §2.7's risks table).
+func TestBdwgcHeapTSan(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("the host is not Linux; bdwgcwin_test.go builds bdwgc for Windows")
+	}
+	rt := extractRuntime(t)
+	for _, c := range compilers(t) {
+		t.Run(c.name, func(t *testing.T) {
+			if c.missing != "" {
+				t.Skip(c.missing)
+			}
+			t.Parallel()
+			// The same flags as bdwgcModes' "tsan" entry (the runtime's TSan mode).
+			tsan := []string{"-O1", "-fsanitize=thread", "-fno-omit-frame-pointer"}
+			bins := c.startBuilds(t, rt, t.TempDir(), tsan,
+				[]prog{{src: "test/gc_heap_bdwgc_test.cpp", bdwgc: true, gc: true, weight: 4}})
+			runUnit(t, bins.bin(t, "test/gc_heap_bdwgc_test.cpp"))
+		})
+	}
+}
+
 // runBdwgc runs the smoke program: exit code 0, nothing on stderr, and "OK" as the last line of
 // stdout.
 func runBdwgc(t *testing.T, bin string) {

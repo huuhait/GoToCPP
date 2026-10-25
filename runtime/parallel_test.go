@@ -378,9 +378,19 @@ func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testi
 	if gc {
 		gsrcs := rtfiles.GCSources(c.targetOS())
 		gobjs := make([]string, len(gsrcs))
+		// With bdwgc too, the GC engine's sources are the bdwgc backend: GOCPP_GC_BDWGC takes
+		// heap_malloc.cpp out and compiles heap_bdwgc.cpp (phase-16 README §2.4; job 16.1d),
+		// and gc.h needs the library's compile flags.
+		gflags := slices.Clone(c.flags(flags))
+		if bdwgc {
+			gflags = append(gflags, "-DGOCPP_GC_BDWGC=1")
+			if lib != nil {
+				gflags = append(gflags, lib.CompileFlags...)
+			}
+		}
 		err = parallel(len(gsrcs), func(i int) error {
 			gobjs[i] = filepath.Join(outDir, fmt.Sprintf("%s-gc%d.o", name, i))
-			args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c",
+			args := append(slices.Clone(gflags), "-I", filepath.Join(rt, "include"), "-c",
 				filepath.Join(rt, filepath.FromSlash(gsrcs[i])), "-o", gobjs[i])
 			return c.compileCmd(prioRT, outDir, nil, args)
 		})

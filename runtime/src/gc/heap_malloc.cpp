@@ -1,14 +1,18 @@
 // gocpp/gc/heap_malloc.cpp: the malloc-backed backend of gp::gc::heap (phase-16 README §2.4).
 //
-// This is the spike backend of job 16.1c, not a collector: alloc and alloc_atomic are calloc,
-// so memory is zeroed but never freed; a root is one malloc'd cell that holds the pointer;
-// collect only counts; enter_thread, leave_thread and blocking do nothing, because there is no
-// collector to register a thread with or to stop. The bdwgc backend of job 16.1d replaces this
-// file behind the same interface (heap.hpp), and the walking skeleton's tests must then pass
-// with it unchanged.
+// This is the unit-test backend of job 16.1c, not a collector: alloc and alloc_atomic are
+// calloc, so memory is zeroed but never freed; a root is one malloc'd cell that holds the
+// pointer; collect only counts; enter_thread, leave_thread and blocking do nothing, because
+// there is no collector to register a thread with or to stop. The bdwgc backend of job 16.1d
+// (heap_bdwgc.cpp) is the GC engine's real one; the runtime's unit tests keep this one.
 //
 // The backend is not thread-safe: the counters are plain integers. A program of job 16.1c has
 // one thread; job 16.4 registers threads and gives the counters their atomics.
+//
+// The GC engine's own build compiles this file with -DGOCPP_GC_BDWGC, which takes it out and
+// compiles heap_bdwgc.cpp instead: exactly one of the two defines process_heap (heap.hpp).
+#if !defined(GOCPP_GC_BDWGC)
+
 #include <gocpp/nofortify.h>
 #include <gocpp/gc/heap.hpp>
 
@@ -76,4 +80,9 @@ heap& process_heap() {
     return the_heap;
 }
 
+// init does nothing: there is no collector to set up and no thread to register.
+void init() {}
+
 } // namespace gp::gc
+
+#endif // !GOCPP_GC_BDWGC

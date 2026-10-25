@@ -122,11 +122,14 @@ func EmitGo(fset *token.FileSet, pkg *types.Package, info *types.Info, files []*
 	})
 	// int main(): the GC engine's program entry, a plain C++ main function. The ARC engine's
 	// gp::run_main (runtime/include/gocpp/main.hpp) starts the reference-counting runtime; the
-	// GC engine has nothing to start yet (job 16.1d registers the main thread).
+	// GC engine's gp::gc::init() does the collector's process setup (bdwgc's GC_INIT, its
+	// signals, GC_allow_register_threads and the main thread's registration; job 16.1d) before
+	// the package's main, and before anything can allocate.
 	file.Decls = append(file.Decls, &cppir.Func{
 		Result: &cppir.TypeName{Name: "int"},
 		Name:   "main",
 		Body: &cppir.Block{Stmts: []cppir.Stmt{
+			&cppir.ExprStmt{X: &cppir.Call{Fun: &cppir.Name{Name: "gp::gc::init"}}},
 			&cppir.ExprStmt{X: &cppir.Call{Fun: &cppir.Name{Name: e.ns + "::main"}}},
 			&cppir.Return{X: &cppir.Lit{Text: "0"}},
 		}},

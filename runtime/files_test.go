@@ -112,7 +112,7 @@ func TestSources(t *testing.T) {
 func TestGCSources(t *testing.T) {
 	for _, goos := range []string{"linux", "windows"} {
 		srcs := rtfiles.GCSources(goos)
-		for _, want := range []string{"src/gc/arith.cpp", "src/gc/heap_malloc.cpp", "src/gc/print.cpp", "src/gc/string.cpp"} {
+		for _, want := range []string{"src/gc/arith.cpp", "src/gc/heap_bdwgc.cpp", "src/gc/heap_malloc.cpp", "src/gc/print.cpp", "src/gc/string.cpp"} {
 			if !slices.Contains(srcs, want) {
 				t.Errorf("GCSources(%s) = %q lacks %s", goos, srcs, want)
 			}

@@ -5,10 +5,11 @@
 // (gp::gc::string) and the reference-counting engine's (gp::string) can live in one program
 // without a clash.
 //
-// This is the walking skeleton of job 16.1c: heap.hpp declares the small gp::gc::heap interface
-// over a malloc-backed backend (src/gc/heap_malloc.cpp), string.hpp Go's 16-byte string, and
-// print.hpp the builtins print and println. bdwgc (job 16.1d), Go-layout structs, slices, maps,
-// interfaces and goroutines (16.5, 16.8) are not here yet.
+// heap.hpp declares the small gp::gc::heap interface over two backends (GOCPP_GC_BDWGC chooses
+// src/gc/heap_bdwgc.cpp over the malloc test backend), string.hpp Go's 16-byte string, and
+// print.hpp the builtins print and println. The shared runtime reaches the collector through
+// gocpp/gc/hooks.hpp (job 16.1d). Go-layout structs, slices, maps, interfaces and goroutines
+// (16.5, 16.8) are not here yet.
 #pragma once
 
 // First, before any system header: at -O0, this turns off the _FORTIFY_SOURCE that a Nix
