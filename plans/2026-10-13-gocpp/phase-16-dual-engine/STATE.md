@@ -279,6 +279,17 @@ package.
 
 ## Log
 
+- 2026-10-25 (16.1f split): job 16.1f2-plan merged the construct/closure analysis and the
+  reusable corpus (`gostd/spike/analysis`, 22 programs with a manifest and a `go run` oracle,
+  plus the measured "compiles today" table). It recommends splitting 16.1f into: **f1**
+  packages/imports + `container/list` (decls/init, structs/embedding/zero-size,
+  pointers/`new`, methods/promotion, `any`/interfaces/assertions/type switches,
+  switch/labels); **f2** values/slices/arrays/strings/maps + `unicode` (and `println`'s
+  float/complex format); **f3** generic functions, `errors`/`math`/`stringslite`/bytealg,
+  `strconv`; **f4** func values/closures/variadics, defer/panic/recover, `go`/channels/select,
+  binarytrees; **f5** generics in depth, `slices`/`cmp`/`iter`, `sort`; **f6** `unsafe`,
+  `sync/atomic`/`internal/sync`/`sync`, `io`, `strings` (range-over-func); **f7** the
+  integration run of the four packages + binarytrees. f1 needs the loader (16.1f-load, paused).
 - 2026-10-25: job 16.1e merged into `p16` after a clean review (2 rounds): the Go-layout value
   layer. Slices/arrays/interfaces/funcs/maps/chans in Go's exact layout, the struct-layout
   helpers, append growth against real `growslice`, Go's bounds/nil/division panics, a generated
