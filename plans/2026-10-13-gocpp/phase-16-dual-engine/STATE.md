@@ -11,7 +11,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
 ### Part A: decide (4–6 weeks)
 - [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
   - [x] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows MinGW-w64 on the real PC), once per sanitizer (jobs 16.1a + 16.1a-win, both clean and merged: Linux GCC/Clang + ASan/TSan; Windows MinGW-w64 with bdwgc's CMake pthreads+WIN32 branch, 25 sources, smoke test on the real PC. Not tested: llvm-mingw (the PC has no clang) and ASan/TSan on Windows; the ADR of 16.2 records both.)
-  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (jobs 16.1c + 16.1d merged: hidden `-gc-engine`, stock-`go/parser` loading of `.go` files, `go/types`, a minimal GC-mode emitter with Go's layout/arithmetic/evaluation order and `#line`, `gp::gc` string/print/heap, and the bdwgc backend — GC_INIT and thread registration, `GC_malloc`/`GC_malloc_atomic` with zeroing, roots as uncollectable cells, `GC_do_blocking` around parks/Sleep, a timer thread registered, stats, signals SIGRTMIN+6/+7 and SIGSYS under TSan, `-DGC_DISABLE_INCREMENTAL` — with the malloc backend kept for unit tests. The four packages, the stubs and the loader are 16.1f; the values are 16.1e)
+  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (jobs 16.1c + 16.1d merged: hidden `-gc-engine`, stock-`go/parser` loading of `.go` files, `go/types`, a minimal GC-mode emitter with Go's layout/arithmetic/evaluation order and `#line`, `gp::gc` string/print/heap, and the bdwgc backend — GC_INIT and thread registration, `GC_malloc`/`GC_malloc_atomic` with zeroing, roots as uncollectable cells, `GC_do_blocking` around parks/Sleep, a timer thread registered, stats, signals SIGRTMIN+6/+7 and SIGSYS under TSan, `-DGC_DISABLE_INCREMENTAL` — with the malloc backend kept for unit tests. Job 16.1f-stubs merged the closure analysis and the pure-Go stubs for `runtime`, `internal/bytealg` and `internal/reflectlite` (22 translated packages, 42 edges, 91 bodyless declarations outside the stubs, 6 pulls, 42 pushes; the four packages build against the stubs with the real `go` toolchain). The four packages' emission and the loader are 16.1f (the loader job is paused); the values are 16.1e)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (jobs 16.1h-base + 16.1h-prog merged: the harness is `tools/gcbench`, the programs `bench/gc` (binarytrees, parks, syscalls, goroutines: 1k/10k, blocked/running/mixed, depth), the Go/ARC baselines are `docs/benchmarks/gc-engine-spike.md`, re-measured on the new host. At 10k blocked goroutines, peak RSS per goroutine is 3.5 KiB (Go) vs 13.2 KiB (ARC). The GC rows and the stop-the-world pause hook, the boundary costs, compile time/size and the Windows runs are 16.1h)
   - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
@@ -279,6 +279,22 @@ package.
 
 ## Log
 
+- 2026-10-25: job 16.1f-stubs merged into `p16` after a clean review (2 rounds): the closure
+  analysis (`gostd/spike/closure.json` + README) and pure-Go stubs for `runtime`,
+  `internal/bytealg`, `internal/reflectlite`. The closure is 22 translated packages (not the
+  plan's shorter list: `internal/stringslite`, `internal/synctest`, `internal/sync`,
+  `internal/abi`, `internal/cpu`, `internal/goarch`, `internal/race`, `math`, `sync/atomic` join
+  it), with 12/16/2 stub identifiers, 6 pulls, 42 pushes (39 definitions + 3 references) and 91
+  bodyless declarations outside the stubs; the four spike packages build against the stubs under
+  the real `go` toolchain. The stubs carry a `//go:build gocpp` linkname table, a mechanism the
+  engine's push rules must support. Two prose-only nits (the 42-symbol summary still says
+  "pushes" where 3 are pulls; a generator comment) are recorded in the merge message.
+- 2026-10-25: job 16.1f-load (the GC-mode GOROOT package loader) is **paused**: its commit
+  adddef2e on `job/16.1f-load` is not merged; the review requested 2 should-fix + 5 nits (the
+  import-cycle error lacks a position; CheckGoGraph is not idempotent on the failure path; plus
+  five small items). The user stopped the coder, so it is not resumed without an explicit ask;
+  the findings are saved in `/tmp/p16-tickets/16.1f-load-round2.md`. The shared `internal/gostdsel`
+  move and the loader itself were verified sound; only the fixes are outstanding.
 - 2026-10-25: job 16.1d merged into `p16` after a clean review (2 rounds): the bdwgc backend of
   `gp::gc` and the thread/blocking plumbing. `heap_bdwgc.cpp` does `GC_INIT` and thread
   registration, scanned/atomic allocation (both zeroed), `GC_do_blocking` with an exception-safe

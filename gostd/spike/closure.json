@@ -1,0 +1,4542 @@
+{
+  "schema": 1,
+  "tool": "gostd-spike-closure",
+  "go_version": "go1.25.14\ntime 2026-08-18T21:44:21Z",
+  "go_minor": "go1.25",
+  "tags": {
+    "goos": "linux",
+    "goarch": "amd64",
+    "compiler": "gocpp",
+    "cgo_enabled": false,
+    "release_tags": [
+      "go1.1",
+      "go1.2",
+      "go1.3",
+      "go1.4",
+      "go1.5",
+      "go1.6",
+      "go1.7",
+      "go1.8",
+      "go1.9",
+      "go1.10",
+      "go1.11",
+      "go1.12",
+      "go1.13",
+      "go1.14",
+      "go1.15",
+      "go1.16",
+      "go1.17",
+      "go1.18",
+      "go1.19",
+      "go1.20",
+      "go1.21",
+      "go1.22",
+      "go1.23",
+      "go1.24",
+      "go1.25"
+    ],
+    "tool_tags": [
+      "amd64.v1",
+      "goexperiment.aliastypeparams",
+      "goexperiment.dwarf5",
+      "goexperiment.regabiargs",
+      "goexperiment.regabiwrappers",
+      "goexperiment.swissmap",
+      "goexperiment.synchashtriemap"
+    ],
+    "build_tags": [
+      "math_big_pure_go",
+      "purego",
+      "unix"
+    ]
+  },
+  "roots": [
+    "container/list",
+    "strings",
+    "strconv",
+    "sort"
+  ],
+  "stubs": [
+    "runtime",
+    "internal/bytealg",
+    "internal/reflectlite"
+  ],
+  "packages": [
+    {
+      "path": "cmp",
+      "name": "cmp",
+      "dir": "src/cmp",
+      "files": [
+        "cmp.go"
+      ],
+      "imports": null,
+      "why": "imported"
+    },
+    {
+      "path": "container/list",
+      "name": "list",
+      "dir": "src/container/list",
+      "files": [
+        "list.go"
+      ],
+      "imports": null,
+      "why": ""
+    },
+    {
+      "path": "errors",
+      "name": "errors",
+      "dir": "src/errors",
+      "files": [
+        "errors.go",
+        "join.go",
+        "wrap.go"
+      ],
+      "imports": [
+        "internal/reflectlite"
+      ],
+      "stub_imports": [
+        "internal/reflectlite"
+      ],
+      "why": "imported"
+    },
+    {
+      "path": "internal/abi",
+      "name": "abi",
+      "dir": "src/internal/abi",
+      "files": [
+        "abi.go",
+        "abi_amd64.go",
+        "compiletype.go",
+        "escape.go",
+        "funcpc.go",
+        "iface.go",
+        "map_noswiss.go",
+        "map_select_swiss.go",
+        "map_swiss.go",
+        "rangefuncconsts.go",
+        "runtime.go",
+        "stack.go",
+        "switch.go",
+        "symtab.go",
+        "type.go"
+      ],
+      "s_files": [
+        "abi_test.s",
+        "stub.s"
+      ],
+      "imports": [
+        "internal/goarch"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "internal/abi/funcpc.go",
+          "line": 22,
+          "name": "FuncPCABI0",
+          "sig": "func FuncPCABI0(f interface{}) (uintptr)"
+        },
+        {
+          "file": "internal/abi/funcpc.go",
+          "line": 31,
+          "name": "FuncPCABIInternal",
+          "sig": "func FuncPCABIInternal(f interface{}) (uintptr)"
+        }
+      ]
+    },
+    {
+      "path": "internal/cpu",
+      "name": "cpu",
+      "dir": "src/internal/cpu",
+      "files": [
+        "cpu.go",
+        "cpu_x86.go"
+      ],
+      "s_files": [
+        "cpu.s",
+        "cpu_x86.s"
+      ],
+      "imports": null,
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "internal/cpu/cpu_x86.go",
+          "line": 12,
+          "name": "cpuid",
+          "sig": "func cpuid(eaxArg, ecxArg uint32) (uint32)"
+        },
+        {
+          "file": "internal/cpu/cpu_x86.go",
+          "line": 15,
+          "name": "xgetbv",
+          "sig": "func xgetbv() (uint32)"
+        },
+        {
+          "file": "internal/cpu/cpu_x86.go",
+          "line": 18,
+          "name": "getGOAMD64level",
+          "sig": "func getGOAMD64level() (int32)"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 154,
+          "kind": "one-argument",
+          "local": "X86"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 155,
+          "kind": "one-argument",
+          "local": "ARM"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 156,
+          "kind": "one-argument",
+          "local": "ARM64"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 157,
+          "kind": "one-argument",
+          "local": "Loong64"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 158,
+          "kind": "one-argument",
+          "local": "MIPS64X"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 159,
+          "kind": "one-argument",
+          "local": "PPC64"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 160,
+          "kind": "one-argument",
+          "local": "S390X"
+        },
+        {
+          "package": "internal/cpu",
+          "file": "internal/cpu/cpu.go",
+          "line": 161,
+          "kind": "one-argument",
+          "local": "RISCV64"
+        }
+      ]
+    },
+    {
+      "path": "internal/goarch",
+      "name": "goarch",
+      "dir": "src/internal/goarch",
+      "files": [
+        "goarch.go",
+        "goarch_amd64.go",
+        "zgoarch_amd64.go"
+      ],
+      "imports": null,
+      "why": "imported"
+    },
+    {
+      "path": "internal/race",
+      "name": "race",
+      "dir": "src/internal/race",
+      "files": [
+        "doc.go",
+        "norace.go"
+      ],
+      "imports": [
+        "internal/abi"
+      ],
+      "why": "imported"
+    },
+    {
+      "path": "internal/stringslite",
+      "name": "stringslite",
+      "dir": "src/internal/stringslite",
+      "files": [
+        "strings.go"
+      ],
+      "imports": [
+        "internal/bytealg"
+      ],
+      "stub_imports": [
+        "internal/bytealg"
+      ],
+      "why": "imported"
+    },
+    {
+      "path": "internal/sync",
+      "name": "sync",
+      "dir": "src/internal/sync",
+      "files": [
+        "hashtriemap.go",
+        "mutex.go",
+        "runtime.go"
+      ],
+      "imports": [
+        "internal/abi",
+        "internal/goarch",
+        "internal/race",
+        "sync/atomic"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "internal/sync/hashtriemap.go",
+          "line": 724,
+          "name": "runtime_rand",
+          "sig": "func runtime_rand() (uint64)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 21,
+          "name": "runtime_SemacquireMutex",
+          "sig": "func runtime_SemacquireMutex(s *uint32, lifo bool, skipframes int)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 32,
+          "name": "runtime_Semrelease",
+          "sig": "func runtime_Semrelease(s *uint32, handoff bool, skipframes int)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 38,
+          "name": "runtime_canSpin",
+          "sig": "func runtime_canSpin(i int) (bool)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 43,
+          "name": "runtime_doSpin",
+          "sig": "func runtime_doSpin()"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 46,
+          "name": "runtime_nanotime",
+          "sig": "func runtime_nanotime() (int64)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 49,
+          "name": "throw",
+          "sig": "func throw(string)"
+        },
+        {
+          "file": "internal/sync/runtime.go",
+          "line": 52,
+          "name": "fatal",
+          "sig": "func fatal(string)"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/hashtriemap.go",
+          "line": 723,
+          "kind": "pull",
+          "local": "runtime_rand",
+          "target": "runtime.rand",
+          "sig": "func runtime_rand() (uint64)"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 20,
+          "kind": "one-argument",
+          "local": "runtime_SemacquireMutex"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 31,
+          "kind": "one-argument",
+          "local": "runtime_Semrelease"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 37,
+          "kind": "one-argument",
+          "local": "runtime_canSpin"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 42,
+          "kind": "one-argument",
+          "local": "runtime_doSpin"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 45,
+          "kind": "one-argument",
+          "local": "runtime_nanotime"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 48,
+          "kind": "one-argument",
+          "local": "throw"
+        },
+        {
+          "package": "internal/sync",
+          "file": "internal/sync/runtime.go",
+          "line": 51,
+          "kind": "one-argument",
+          "local": "fatal"
+        }
+      ]
+    },
+    {
+      "path": "internal/synctest",
+      "name": "synctest",
+      "dir": "src/internal/synctest",
+      "files": [
+        "synctest.go"
+      ],
+      "imports": [
+        "internal/abi"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 16,
+          "name": "Run",
+          "sig": "func Run(f func(...))"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 19,
+          "name": "Wait",
+          "sig": "func Wait()"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 24,
+          "name": "IsInBubble",
+          "sig": "func IsInBubble() (bool)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 44,
+          "name": "associate",
+          "sig": "func associate(p unsafe.Pointer) (int)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 52,
+          "name": "disassociate",
+          "sig": "func disassociate(b unsafe.Pointer)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 60,
+          "name": "isAssociated",
+          "sig": "func isAssociated(p unsafe.Pointer) (bool)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 63,
+          "name": "acquire",
+          "sig": "func acquire() (any)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 66,
+          "name": "release",
+          "sig": "func release(any)"
+        },
+        {
+          "file": "internal/synctest/synctest.go",
+          "line": 69,
+          "name": "inBubble",
+          "sig": "func inBubble(any, func(...))"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 15,
+          "kind": "one-argument",
+          "local": "Run"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 18,
+          "kind": "one-argument",
+          "local": "Wait"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 23,
+          "kind": "one-argument",
+          "local": "IsInBubble"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 43,
+          "kind": "one-argument",
+          "local": "associate"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 51,
+          "kind": "one-argument",
+          "local": "disassociate"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 59,
+          "kind": "one-argument",
+          "local": "isAssociated"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 62,
+          "kind": "one-argument",
+          "local": "acquire"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 65,
+          "kind": "one-argument",
+          "local": "release"
+        },
+        {
+          "package": "internal/synctest",
+          "file": "internal/synctest/synctest.go",
+          "line": 68,
+          "kind": "one-argument",
+          "local": "inBubble"
+        }
+      ]
+    },
+    {
+      "path": "io",
+      "name": "io",
+      "dir": "src/io",
+      "files": [
+        "io.go",
+        "multi.go",
+        "pipe.go"
+      ],
+      "imports": [
+        "errors",
+        "sync"
+      ],
+      "why": "imported"
+    },
+    {
+      "path": "iter",
+      "name": "iter",
+      "dir": "src/iter",
+      "files": [
+        "iter.go"
+      ],
+      "imports": [
+        "internal/race",
+        "runtime"
+      ],
+      "stub_imports": [
+        "runtime"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "iter/iter.go",
+          "line": 232,
+          "name": "newcoro",
+          "sig": "func newcoro(func(...)) (*coro)"
+        },
+        {
+          "file": "iter/iter.go",
+          "line": 235,
+          "name": "coroswitch",
+          "sig": "func coroswitch(*coro)"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "iter",
+          "file": "iter/iter.go",
+          "line": 231,
+          "kind": "pull",
+          "local": "newcoro",
+          "target": "runtime.newcoro",
+          "sig": "func newcoro(func(...)) (*coro)"
+        },
+        {
+          "package": "iter",
+          "file": "iter/iter.go",
+          "line": 234,
+          "kind": "pull",
+          "local": "coroswitch",
+          "target": "runtime.coroswitch",
+          "sig": "func coroswitch(*coro)"
+        }
+      ]
+    },
+    {
+      "path": "math",
+      "name": "math",
+      "dir": "src/math",
+      "files": [
+        "abs.go",
+        "acosh.go",
+        "asin.go",
+        "asinh.go",
+        "atan.go",
+        "atan2.go",
+        "atanh.go",
+        "bits.go",
+        "cbrt.go",
+        "const.go",
+        "copysign.go",
+        "dim.go",
+        "dim_asm.go",
+        "erf.go",
+        "erfinv.go",
+        "exp.go",
+        "exp2_noasm.go",
+        "exp_amd64.go",
+        "exp_asm.go",
+        "expm1.go",
+        "floor.go",
+        "floor_asm.go",
+        "fma.go",
+        "frexp.go",
+        "gamma.go",
+        "hypot.go",
+        "hypot_asm.go",
+        "j0.go",
+        "j1.go",
+        "jn.go",
+        "ldexp.go",
+        "lgamma.go",
+        "log.go",
+        "log10.go",
+        "log1p.go",
+        "log_asm.go",
+        "logb.go",
+        "mod.go",
+        "modf.go",
+        "modf_noasm.go",
+        "nextafter.go",
+        "pow.go",
+        "pow10.go",
+        "remainder.go",
+        "signbit.go",
+        "sin.go",
+        "sincos.go",
+        "sinh.go",
+        "sqrt.go",
+        "stubs.go",
+        "tan.go",
+        "tanh.go",
+        "trig_reduce.go",
+        "unsafe.go"
+      ],
+      "s_files": [
+        "dim_amd64.s",
+        "exp_amd64.s",
+        "floor_amd64.s",
+        "hypot_amd64.s",
+        "log_amd64.s"
+      ],
+      "imports": [
+        "internal/cpu",
+        "math/bits"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "math/dim_asm.go",
+          "line": 11,
+          "name": "archMax",
+          "sig": "func archMax(x, y float64) (float64)"
+        },
+        {
+          "file": "math/dim_asm.go",
+          "line": 15,
+          "name": "archMin",
+          "sig": "func archMin(x, y float64) (float64)"
+        },
+        {
+          "file": "math/exp_asm.go",
+          "line": 11,
+          "name": "archExp",
+          "sig": "func archExp(x float64) (float64)"
+        },
+        {
+          "file": "math/floor_asm.go",
+          "line": 11,
+          "name": "archFloor",
+          "sig": "func archFloor(x float64) (float64)"
+        },
+        {
+          "file": "math/floor_asm.go",
+          "line": 15,
+          "name": "archCeil",
+          "sig": "func archCeil(x float64) (float64)"
+        },
+        {
+          "file": "math/floor_asm.go",
+          "line": 19,
+          "name": "archTrunc",
+          "sig": "func archTrunc(x float64) (float64)"
+        },
+        {
+          "file": "math/hypot_asm.go",
+          "line": 11,
+          "name": "archHypot",
+          "sig": "func archHypot(p, q float64) (float64)"
+        },
+        {
+          "file": "math/log_asm.go",
+          "line": 11,
+          "name": "archLog",
+          "sig": "func archLog(x float64) (float64)"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "math",
+          "file": "math/unsafe.go",
+          "line": 19,
+          "kind": "one-argument",
+          "local": "Float32bits"
+        }
+      ]
+    },
+    {
+      "path": "math/bits",
+      "name": "bits",
+      "dir": "src/math/bits",
+      "files": [
+        "bits.go",
+        "bits_errors.go",
+        "bits_tables.go"
+      ],
+      "imports": null,
+      "why": "imported",
+      "linkname": [
+        {
+          "package": "math/bits",
+          "file": "math/bits/bits_errors.go",
+          "line": 11,
+          "kind": "variable",
+          "local": "overflowError",
+          "target": "runtime.overflowError"
+        },
+        {
+          "package": "math/bits",
+          "file": "math/bits/bits_errors.go",
+          "line": 14,
+          "kind": "variable",
+          "local": "divideError",
+          "target": "runtime.divideError"
+        }
+      ]
+    },
+    {
+      "path": "slices",
+      "name": "slices",
+      "dir": "src/slices",
+      "files": [
+        "iter.go",
+        "slices.go",
+        "sort.go",
+        "zsortanyfunc.go",
+        "zsortordered.go"
+      ],
+      "imports": [
+        "cmp",
+        "iter",
+        "math/bits"
+      ],
+      "why": "imported"
+    },
+    {
+      "path": "sort",
+      "name": "sort",
+      "dir": "src/sort",
+      "files": [
+        "search.go",
+        "slice.go",
+        "sort.go",
+        "zsortfunc.go",
+        "zsortinterface.go"
+      ],
+      "imports": [
+        "internal/reflectlite",
+        "math/bits",
+        "slices"
+      ],
+      "stub_imports": [
+        "internal/reflectlite"
+      ],
+      "why": ""
+    },
+    {
+      "path": "strconv",
+      "name": "strconv",
+      "dir": "src/strconv",
+      "files": [
+        "atob.go",
+        "atoc.go",
+        "atof.go",
+        "atoi.go",
+        "bytealg.go",
+        "ctoa.go",
+        "decimal.go",
+        "doc.go",
+        "eisel_lemire.go",
+        "ftoa.go",
+        "ftoaryu.go",
+        "isprint.go",
+        "itoa.go",
+        "quote.go"
+      ],
+      "imports": [
+        "errors",
+        "internal/bytealg",
+        "internal/stringslite",
+        "math",
+        "math/bits",
+        "unicode/utf8"
+      ],
+      "stub_imports": [
+        "internal/bytealg"
+      ],
+      "why": ""
+    },
+    {
+      "path": "strings",
+      "name": "strings",
+      "dir": "src/strings",
+      "files": [
+        "builder.go",
+        "clone.go",
+        "compare.go",
+        "iter.go",
+        "reader.go",
+        "replace.go",
+        "search.go",
+        "strings.go"
+      ],
+      "imports": [
+        "errors",
+        "internal/abi",
+        "internal/bytealg",
+        "internal/stringslite",
+        "io",
+        "iter",
+        "math/bits",
+        "sync",
+        "unicode",
+        "unicode/utf8"
+      ],
+      "stub_imports": [
+        "internal/bytealg"
+      ],
+      "why": ""
+    },
+    {
+      "path": "sync",
+      "name": "sync",
+      "dir": "src/sync",
+      "files": [
+        "cond.go",
+        "hashtriemap.go",
+        "mutex.go",
+        "once.go",
+        "oncefunc.go",
+        "pool.go",
+        "poolqueue.go",
+        "runtime.go",
+        "runtime2.go",
+        "rwmutex.go",
+        "waitgroup.go"
+      ],
+      "imports": [
+        "internal/race",
+        "internal/sync",
+        "internal/synctest",
+        "runtime",
+        "sync/atomic"
+      ],
+      "stub_imports": [
+        "runtime"
+      ],
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "sync/pool.go",
+          "line": 83,
+          "name": "runtime_randn",
+          "sig": "func runtime_randn(n uint32) (uint32)"
+        },
+        {
+          "file": "sync/pool.go",
+          "line": 306,
+          "name": "runtime_registerPoolCleanup",
+          "sig": "func runtime_registerPoolCleanup(cleanup func(...))"
+        },
+        {
+          "file": "sync/pool.go",
+          "line": 307,
+          "name": "runtime_procPin",
+          "sig": "func runtime_procPin() (int)"
+        },
+        {
+          "file": "sync/pool.go",
+          "line": 308,
+          "name": "runtime_procUnpin",
+          "sig": "func runtime_procUnpin()"
+        },
+        {
+          "file": "sync/pool.go",
+          "line": 315,
+          "name": "runtime_LoadAcquintptr",
+          "sig": "func runtime_LoadAcquintptr(ptr *uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/pool.go",
+          "line": 318,
+          "name": "runtime_StoreReluintptr",
+          "sig": "func runtime_StoreReluintptr(ptr *uintptr, val uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 14,
+          "name": "runtime_Semacquire",
+          "sig": "func runtime_Semacquire(s *uint32)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 17,
+          "name": "runtime_SemacquireWaitGroup",
+          "sig": "func runtime_SemacquireWaitGroup(s *uint32, synctestDurable bool)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 27,
+          "name": "runtime_SemacquireRWMutexR",
+          "sig": "func runtime_SemacquireRWMutexR(s *uint32, lifo bool, skipframes int)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 28,
+          "name": "runtime_SemacquireRWMutex",
+          "sig": "func runtime_SemacquireRWMutex(s *uint32, lifo bool, skipframes int)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 37,
+          "name": "runtime_Semrelease",
+          "sig": "func runtime_Semrelease(s *uint32, handoff bool, skipframes int)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 40,
+          "name": "runtime_notifyListAdd",
+          "sig": "func runtime_notifyListAdd(l *notifyList) (uint32)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 43,
+          "name": "runtime_notifyListWait",
+          "sig": "func runtime_notifyListWait(l *notifyList, t uint32)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 46,
+          "name": "runtime_notifyListNotifyAll",
+          "sig": "func runtime_notifyListNotifyAll(l *notifyList)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 49,
+          "name": "runtime_notifyListNotifyOne",
+          "sig": "func runtime_notifyListNotifyOne(l *notifyList)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 52,
+          "name": "runtime_notifyListCheck",
+          "sig": "func runtime_notifyListCheck(size uintptr)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 58,
+          "name": "throw",
+          "sig": "func throw(string)"
+        },
+        {
+          "file": "sync/runtime.go",
+          "line": 59,
+          "name": "fatal",
+          "sig": "func fatal(string)"
+        }
+      ],
+      "linkname": [
+        {
+          "package": "sync",
+          "file": "sync/pool.go",
+          "line": 82,
+          "kind": "pull",
+          "local": "runtime_randn",
+          "target": "runtime.randn",
+          "sig": "func runtime_randn(n uint32) (uint32)"
+        },
+        {
+          "package": "sync",
+          "file": "sync/pool.go",
+          "line": 256,
+          "kind": "one-argument",
+          "local": "poolCleanup"
+        },
+        {
+          "package": "sync",
+          "file": "sync/pool.go",
+          "line": 314,
+          "kind": "pull",
+          "local": "runtime_LoadAcquintptr",
+          "target": "internal/runtime/atomic.LoadAcquintptr",
+          "sig": "func runtime_LoadAcquintptr(ptr *uintptr) (uintptr)"
+        },
+        {
+          "package": "sync",
+          "file": "sync/pool.go",
+          "line": 317,
+          "kind": "pull",
+          "local": "runtime_StoreReluintptr",
+          "target": "internal/runtime/atomic.StoreReluintptr",
+          "sig": "func runtime_StoreReluintptr(ptr *uintptr, val uintptr) (uintptr)"
+        },
+        {
+          "package": "sync",
+          "file": "sync/rwmutex.go",
+          "line": 232,
+          "kind": "push",
+          "local": "syscall_hasWaitingReaders",
+          "target": "syscall.hasWaitingReaders",
+          "sig": "func syscall_hasWaitingReaders(rw *RWMutex) (bool)"
+        }
+      ]
+    },
+    {
+      "path": "sync/atomic",
+      "name": "atomic",
+      "dir": "src/sync/atomic",
+      "files": [
+        "doc.go",
+        "doc_64.go",
+        "type.go",
+        "value.go"
+      ],
+      "s_files": [
+        "asm.s"
+      ],
+      "imports": null,
+      "why": "imported",
+      "bodyless": [
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 71,
+          "name": "SwapInt32",
+          "sig": "func SwapInt32(addr *int32, new int32) (int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 77,
+          "name": "SwapUint32",
+          "sig": "func SwapUint32(addr *uint32, new uint32) (uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 83,
+          "name": "SwapUintptr",
+          "sig": "func SwapUintptr(addr *uintptr, new uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 87,
+          "name": "SwapPointer",
+          "sig": "func SwapPointer(addr *unsafe.Pointer, new unsafe.Pointer) (unsafe.Pointer)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 93,
+          "name": "CompareAndSwapInt32",
+          "sig": "func CompareAndSwapInt32(addr *int32, old, new int32) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 99,
+          "name": "CompareAndSwapUint32",
+          "sig": "func CompareAndSwapUint32(addr *uint32, old, new uint32) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 105,
+          "name": "CompareAndSwapUintptr",
+          "sig": "func CompareAndSwapUintptr(addr *uintptr, old, new uintptr) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 109,
+          "name": "CompareAndSwapPointer",
+          "sig": "func CompareAndSwapPointer(addr *unsafe.Pointer, old, new unsafe.Pointer) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 115,
+          "name": "AddInt32",
+          "sig": "func AddInt32(addr *int32, delta int32) (int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 123,
+          "name": "AddUint32",
+          "sig": "func AddUint32(addr *uint32, delta uint32) (uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 129,
+          "name": "AddUintptr",
+          "sig": "func AddUintptr(addr *uintptr, delta uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 136,
+          "name": "AndInt32",
+          "sig": "func AndInt32(addr *int32, mask int32) (int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 143,
+          "name": "AndUint32",
+          "sig": "func AndUint32(addr *uint32, mask uint32) (uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 150,
+          "name": "AndUintptr",
+          "sig": "func AndUintptr(addr *uintptr, mask uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 157,
+          "name": "OrInt32",
+          "sig": "func OrInt32(addr *int32, mask int32) (int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 164,
+          "name": "OrUint32",
+          "sig": "func OrUint32(addr *uint32, mask uint32) (uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 171,
+          "name": "OrUintptr",
+          "sig": "func OrUintptr(addr *uintptr, mask uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 177,
+          "name": "LoadInt32",
+          "sig": "func LoadInt32(addr *int32) (int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 183,
+          "name": "LoadUint32",
+          "sig": "func LoadUint32(addr *uint32) (uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 189,
+          "name": "LoadUintptr",
+          "sig": "func LoadUintptr(addr *uintptr) (uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 193,
+          "name": "LoadPointer",
+          "sig": "func LoadPointer(addr *unsafe.Pointer) (unsafe.Pointer)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 199,
+          "name": "StoreInt32",
+          "sig": "func StoreInt32(addr *int32, val int32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 205,
+          "name": "StoreUint32",
+          "sig": "func StoreUint32(addr *uint32, val uint32)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 211,
+          "name": "StoreUintptr",
+          "sig": "func StoreUintptr(addr *uintptr, val uintptr)"
+        },
+        {
+          "file": "sync/atomic/doc.go",
+          "line": 215,
+          "name": "StorePointer",
+          "sig": "func StorePointer(addr *unsafe.Pointer, val unsafe.Pointer)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 14,
+          "name": "SwapInt64",
+          "sig": "func SwapInt64(addr *int64, new int64) (int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 21,
+          "name": "SwapUint64",
+          "sig": "func SwapUint64(addr *uint64, new uint64) (uint64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 28,
+          "name": "CompareAndSwapInt64",
+          "sig": "func CompareAndSwapInt64(addr *int64, old, new int64) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 35,
+          "name": "CompareAndSwapUint64",
+          "sig": "func CompareAndSwapUint64(addr *uint64, old, new uint64) (bool)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 42,
+          "name": "AddInt64",
+          "sig": "func AddInt64(addr *int64, delta int64) (int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 51,
+          "name": "AddUint64",
+          "sig": "func AddUint64(addr *uint64, delta uint64) (uint64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 58,
+          "name": "AndInt64",
+          "sig": "func AndInt64(addr *int64, mask int64) (int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 65,
+          "name": "AndUint64",
+          "sig": "func AndUint64(addr *uint64, mask uint64) (uint64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 72,
+          "name": "OrInt64",
+          "sig": "func OrInt64(addr *int64, mask int64) (int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 79,
+          "name": "OrUint64",
+          "sig": "func OrUint64(addr *uint64, mask uint64) (uint64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 86,
+          "name": "LoadInt64",
+          "sig": "func LoadInt64(addr *int64) (int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 93,
+          "name": "LoadUint64",
+          "sig": "func LoadUint64(addr *uint64) (uint64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 100,
+          "name": "StoreInt64",
+          "sig": "func StoreInt64(addr *int64, val int64)"
+        },
+        {
+          "file": "sync/atomic/doc_64.go",
+          "line": 107,
+          "name": "StoreUint64",
+          "sig": "func StoreUint64(addr *uint64, val uint64)"
+        },
+        {
+          "file": "sync/atomic/value.go",
+          "line": 193,
+          "name": "runtime_procPin",
+          "sig": "func runtime_procPin() (int)"
+        },
+        {
+          "file": "sync/atomic/value.go",
+          "line": 194,
+          "name": "runtime_procUnpin",
+          "sig": "func runtime_procUnpin()"
+        }
+      ]
+    },
+    {
+      "path": "unicode",
+      "name": "unicode",
+      "dir": "src/unicode",
+      "files": [
+        "casetables.go",
+        "digit.go",
+        "graphic.go",
+        "letter.go",
+        "tables.go"
+      ],
+      "imports": null,
+      "why": "imported"
+    },
+    {
+      "path": "unicode/utf8",
+      "name": "utf8",
+      "dir": "src/unicode/utf8",
+      "files": [
+        "utf8.go"
+      ],
+      "imports": null,
+      "why": "imported"
+    }
+  ],
+  "stub_usage": [
+    {
+      "package": "runtime",
+      "identifiers": [
+        {
+          "name": "GOMAXPROCS",
+          "kind": "func",
+          "object": "func runtime.GOMAXPROCS(n int) int",
+          "uses": [
+            {
+              "package": "sync",
+              "file": "sync/pool.go",
+              "line": 240,
+              "col": 18,
+              "enclosing": "func (*Pool) pinSlow",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "Goexit",
+          "kind": "func",
+          "object": "func runtime.Goexit()",
+          "uses": [
+            {
+              "package": "iter",
+              "file": "iter/iter.go",
+              "line": 322,
+              "col": 13,
+              "enclosing": "func Pull",
+              "form": "call"
+            },
+            {
+              "package": "iter",
+              "file": "iter/iter.go",
+              "line": 342,
+              "col": 14,
+              "enclosing": "func Pull",
+              "form": "call"
+            },
+            {
+              "package": "iter",
+              "file": "iter/iter.go",
+              "line": 439,
+              "col": 13,
+              "enclosing": "func Pull2",
+              "form": "call"
+            },
+            {
+              "package": "iter",
+              "file": "iter/iter.go",
+              "line": 459,
+              "col": 14,
+              "enclosing": "func Pull2",
+              "form": "call"
+            }
+          ]
+        }
+      ],
+      "directly_imported_by": [
+        "iter",
+        "sync"
+      ],
+      "bodyless_in_go_source": [
+        {
+          "file": "runtime/alg.go",
+          "line": 64,
+          "name": "memhash",
+          "sig": "func memhash(p unsafe.Pointer, h, s uintptr) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/alg.go",
+          "line": 66,
+          "name": "memhash32",
+          "sig": "func memhash32(p unsafe.Pointer, h uintptr) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/alg.go",
+          "line": 68,
+          "name": "memhash64",
+          "sig": "func memhash64(p unsafe.Pointer, h uintptr) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/alg.go",
+          "line": 92,
+          "name": "strhash",
+          "sig": "func strhash(p unsafe.Pointer, h uintptr) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/atomic_pointer.go",
+          "line": 103,
+          "name": "sync_atomic_StoreUintptr",
+          "sig": "func sync_atomic_StoreUintptr(ptr *uintptr, new uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/atomic_pointer.go",
+          "line": 126,
+          "name": "sync_atomic_SwapUintptr",
+          "sig": "func sync_atomic_SwapUintptr(ptr *uintptr, new uintptr) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/atomic_pointer.go",
+          "line": 145,
+          "name": "sync_atomic_CompareAndSwapUintptr",
+          "sig": "func sync_atomic_CompareAndSwapUintptr(ptr *uintptr, old, new uintptr) (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cgo_mmap.go",
+          "line": 68,
+          "name": "sysMmap",
+          "sig": "func sysMmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uint32) (unsafe.Pointer, int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cgo_mmap.go",
+          "line": 77,
+          "name": "callCgoMmap",
+          "sig": "func callCgoMmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uint32) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cgo_mmap.go",
+          "line": 86,
+          "name": "sysMunmap",
+          "sig": "func sysMunmap(addr unsafe.Pointer, n uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cgo_mmap.go",
+          "line": 96,
+          "name": "callCgoMunmap",
+          "sig": "func callCgoMunmap(addr unsafe.Pointer, n uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cgo_sigaction.go",
+          "line": 136,
+          "name": "callCgoSigaction",
+          "sig": "func callCgoSigaction(sig uintptr, new, old *sigactiont) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/cputicks.go",
+          "line": 15,
+          "name": "cputicks",
+          "sig": "func cputicks() (int64)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/debugcall.go",
+          "line": 19,
+          "name": "debugCallV2",
+          "sig": "func debugCallV2()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/debugcall.go",
+          "line": 20,
+          "name": "debugCallPanicked",
+          "sig": "func debugCallPanicked(val any)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast32_swiss.go",
+          "line": 12,
+          "name": "mapaccess1_fast32",
+          "sig": "func mapaccess1_fast32(t *abi.SwissMapType, m *maps.Map, key uint32) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast32_swiss.go",
+          "line": 21,
+          "name": "mapaccess2_fast32",
+          "sig": "func mapaccess2_fast32(t *abi.SwissMapType, m *maps.Map, key uint32) (unsafe.Pointer, bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast32_swiss.go",
+          "line": 40,
+          "name": "mapassign_fast32",
+          "sig": "func mapassign_fast32(t *abi.SwissMapType, m *maps.Map, key uint32) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast32_swiss.go",
+          "line": 55,
+          "name": "mapassign_fast32ptr",
+          "sig": "func mapassign_fast32ptr(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast32_swiss.go",
+          "line": 62,
+          "name": "mapdelete_fast32",
+          "sig": "func mapdelete_fast32(t *abi.SwissMapType, m *maps.Map, key uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast64_swiss.go",
+          "line": 12,
+          "name": "mapaccess1_fast64",
+          "sig": "func mapaccess1_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast64_swiss.go",
+          "line": 21,
+          "name": "mapaccess2_fast64",
+          "sig": "func mapaccess2_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) (unsafe.Pointer, bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast64_swiss.go",
+          "line": 40,
+          "name": "mapassign_fast64",
+          "sig": "func mapassign_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast64_swiss.go",
+          "line": 56,
+          "name": "mapassign_fast64ptr",
+          "sig": "func mapassign_fast64ptr(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_fast64_swiss.go",
+          "line": 64,
+          "name": "mapdelete_fast64",
+          "sig": "func mapdelete_fast64(t *abi.SwissMapType, m *maps.Map, key uint64)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_faststr_swiss.go",
+          "line": 13,
+          "name": "mapaccess1_faststr",
+          "sig": "func mapaccess1_faststr(t *abi.SwissMapType, m *maps.Map, ky string) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_faststr_swiss.go",
+          "line": 21,
+          "name": "mapaccess2_faststr",
+          "sig": "func mapaccess2_faststr(t *abi.SwissMapType, m *maps.Map, ky string) (unsafe.Pointer, bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_faststr_swiss.go",
+          "line": 41,
+          "name": "mapassign_faststr",
+          "sig": "func mapassign_faststr(t *abi.SwissMapType, m *maps.Map, s string) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_faststr_swiss.go",
+          "line": 47,
+          "name": "mapdelete_faststr",
+          "sig": "func mapdelete_faststr(t *abi.SwissMapType, m *maps.Map, ky string)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_swiss.go",
+          "line": 102,
+          "name": "mapaccess1",
+          "sig": "func mapaccess1(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_swiss.go",
+          "line": 107,
+          "name": "mapinitnoop",
+          "sig": "func mapinitnoop()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_swiss.go",
+          "line": 113,
+          "name": "mapaccess2",
+          "sig": "func mapaccess2(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) (unsafe.Pointer, bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/map_swiss.go",
+          "line": 155,
+          "name": "mapassign",
+          "sig": "func mapassign(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 10,
+          "name": "gettid",
+          "sig": "func gettid() (uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 13,
+          "name": "rt_sigaction",
+          "sig": "func rt_sigaction(sig uintptr, new, old *sigactiont, size uintptr) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 14,
+          "name": "getpid",
+          "sig": "func getpid() (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 14,
+          "name": "tgkill",
+          "sig": "func tgkill(tgid, tid, sig int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 16,
+          "name": "sigreturn__sigaction",
+          "sig": "func sigreturn__sigaction()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 16,
+          "name": "sigtramp",
+          "sig": "func sigtramp()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 17,
+          "name": "cgoSigtramp",
+          "sig": "func cgoSigtramp()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 18,
+          "name": "sigaltstack",
+          "sig": "func sigaltstack(new, old *stackt)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 18,
+          "name": "mincore",
+          "sig": "func mincore(addr unsafe.Pointer, n uintptr, dst *byte) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 20,
+          "name": "setitimer",
+          "sig": "func setitimer(mode int32, new, old *itimerval)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 22,
+          "name": "timer_create",
+          "sig": "func timer_create(clockid int32, sevp *sigevent, timerid *int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 27,
+          "name": "timer_settime",
+          "sig": "func timer_settime(timerid int32, flags int32, new, old *itimerspec) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 34,
+          "name": "timer_delete",
+          "sig": "func timer_delete(timerid int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 35,
+          "name": "rtsigprocmask",
+          "sig": "func rtsigprocmask(how int32, new, old *sigset, size int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 41,
+          "name": "raise",
+          "sig": "func raise(sig uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 41,
+          "name": "raiseproc",
+          "sig": "func raiseproc(sig uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 46,
+          "name": "sched_getaffinity",
+          "sig": "func sched_getaffinity(pid, len uintptr, buf *byte) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 49,
+          "name": "futex",
+          "sig": "func futex(addr unsafe.Pointer, op int32, val uint32, ts, addr2 unsafe.Pointer, val3 uint32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 51,
+          "name": "osyield",
+          "sig": "func osyield()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 55,
+          "name": "pipe2",
+          "sig": "func pipe2(flags int32) (int32, int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/os_linux.go",
+          "line": 189,
+          "name": "clone",
+          "sig": "func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 54,
+          "name": "panicIndex",
+          "sig": "func panicIndex(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 54,
+          "name": "panicIndexU",
+          "sig": "func panicIndexU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 55,
+          "name": "panicSliceAlen",
+          "sig": "func panicSliceAlen(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 56,
+          "name": "panicSliceAlenU",
+          "sig": "func panicSliceAlenU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 58,
+          "name": "panicSliceAcap",
+          "sig": "func panicSliceAcap(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 59,
+          "name": "panicSliceAcapU",
+          "sig": "func panicSliceAcapU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 60,
+          "name": "panicSliceB",
+          "sig": "func panicSliceB(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 64,
+          "name": "panicSlice3Alen",
+          "sig": "func panicSlice3Alen(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 64,
+          "name": "panicSliceBU",
+          "sig": "func panicSliceBU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 64,
+          "name": "panicSlice3AlenU",
+          "sig": "func panicSlice3AlenU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 65,
+          "name": "panicSlice3Acap",
+          "sig": "func panicSlice3Acap(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 66,
+          "name": "panicSlice3AcapU",
+          "sig": "func panicSlice3AcapU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 67,
+          "name": "panicSlice3B",
+          "sig": "func panicSlice3B(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 68,
+          "name": "panicSlice3BU",
+          "sig": "func panicSlice3BU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 72,
+          "name": "panicSlice3C",
+          "sig": "func panicSlice3C(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 72,
+          "name": "panicSlice3CU",
+          "sig": "func panicSlice3CU(x uint, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/panic.go",
+          "line": 73,
+          "name": "panicSliceConvert",
+          "sig": "func panicSliceConvert(x int, y int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/preempt.go",
+          "line": 11,
+          "name": "asyncPreempt",
+          "sig": "func asyncPreempt()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/proc.go",
+          "line": 55,
+          "name": "switchToCrashStack0",
+          "sig": "func switchToCrashStack0(fn func(...))",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/proc.go",
+          "line": 223,
+          "name": "main_main",
+          "sig": "func main_main()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/proc.go",
+          "line": 784,
+          "name": "mstart",
+          "sig": "func mstart()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/signal_unix.go",
+          "line": 57,
+          "name": "sigfwd",
+          "sig": "func sigfwd(fn uintptr, sig uint32, info *siginfo, ctx unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 1,
+          "name": "call67108864",
+          "sig": "func call67108864(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 3,
+          "name": "procyield",
+          "sig": "func procyield(cycles uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 3,
+          "name": "call134217728",
+          "sig": "func call134217728(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 13,
+          "name": "call268435456",
+          "sig": "func call268435456(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 13,
+          "name": "asmcgocall",
+          "sig": "func asmcgocall(fn, arg unsafe.Pointer) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 13,
+          "name": "publicationBarrier",
+          "sig": "func publicationBarrier()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 14,
+          "name": "morestack",
+          "sig": "func morestack()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 14,
+          "name": "call536870912",
+          "sig": "func call536870912(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 17,
+          "name": "call1073741824",
+          "sig": "func call1073741824(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 21,
+          "name": "morestack_noctxt",
+          "sig": "func morestack_noctxt()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 21,
+          "name": "goexit",
+          "sig": "func goexit(neverCallThisFunction)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 22,
+          "name": "rt0_go",
+          "sig": "func rt0_go()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 23,
+          "name": "systemstack_switch",
+          "sig": "func systemstack_switch()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 26,
+          "name": "getg",
+          "sig": "func getg() (*g)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 26,
+          "name": "cgocallback",
+          "sig": "func cgocallback(fn, frame, ctxt uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 27,
+          "name": "gogo",
+          "sig": "func gogo(buf *gobuf)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 27,
+          "name": "breakpoint",
+          "sig": "func breakpoint()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 27,
+          "name": "setg",
+          "sig": "func setg(gg *g)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 27,
+          "name": "asminit",
+          "sig": "func asminit()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 34,
+          "name": "call16",
+          "sig": "func call16(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 36,
+          "name": "call32",
+          "sig": "func call32(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 40,
+          "name": "call64",
+          "sig": "func call64(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 43,
+          "name": "checkASM",
+          "sig": "func checkASM() (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 44,
+          "name": "memequal_varlen",
+          "sig": "func memequal_varlen(a, b unsafe.Pointer) (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 49,
+          "name": "call128",
+          "sig": "func call128(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 57,
+          "name": "call256",
+          "sig": "func call256(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 61,
+          "name": "mcall",
+          "sig": "func mcall(fn func(...))",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 64,
+          "name": "call512",
+          "sig": "func call512(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 66,
+          "name": "call1024",
+          "sig": "func call1024(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 69,
+          "name": "abort",
+          "sig": "func abort()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 71,
+          "name": "call2048",
+          "sig": "func call2048(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 72,
+          "name": "call4096",
+          "sig": "func call4096(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 74,
+          "name": "call8192",
+          "sig": "func call8192(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 76,
+          "name": "gcWriteBarrier1",
+          "sig": "func gcWriteBarrier1()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 79,
+          "name": "call16384",
+          "sig": "func call16384(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 81,
+          "name": "call32768",
+          "sig": "func call32768(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 83,
+          "name": "call65536",
+          "sig": "func call65536(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 87,
+          "name": "call131072",
+          "sig": "func call131072(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 88,
+          "name": "gcWriteBarrier2",
+          "sig": "func gcWriteBarrier2()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 89,
+          "name": "gcWriteBarrier3",
+          "sig": "func gcWriteBarrier3()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 90,
+          "name": "gcWriteBarrier4",
+          "sig": "func gcWriteBarrier4()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 91,
+          "name": "systemstack",
+          "sig": "func systemstack(fn func(...))",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 91,
+          "name": "call262144",
+          "sig": "func call262144(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 92,
+          "name": "gcWriteBarrier5",
+          "sig": "func gcWriteBarrier5()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 93,
+          "name": "gcWriteBarrier6",
+          "sig": "func gcWriteBarrier6()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 93,
+          "name": "gcWriteBarrier7",
+          "sig": "func gcWriteBarrier7()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 95,
+          "name": "gcWriteBarrier8",
+          "sig": "func gcWriteBarrier8()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 97,
+          "name": "duffcopy",
+          "sig": "func duffcopy()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 97,
+          "name": "call524288",
+          "sig": "func call524288(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 97,
+          "name": "duffzero",
+          "sig": "func duffzero()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 102,
+          "name": "addmoduledata",
+          "sig": "func addmoduledata()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 102,
+          "name": "reflectcall",
+          "sig": "func reflectcall(stackArgsType *_type, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 107,
+          "name": "call1048576",
+          "sig": "func call1048576(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 108,
+          "name": "sigpanic0",
+          "sig": "func sigpanic0()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 113,
+          "name": "call2097152",
+          "sig": "func call2097152(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 115,
+          "name": "call4194304",
+          "sig": "func call4194304(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 118,
+          "name": "call8388608",
+          "sig": "func call8388608(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 123,
+          "name": "call16777216",
+          "sig": "func call16777216(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 131,
+          "name": "call33554432",
+          "sig": "func call33554432(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 151,
+          "name": "memclrNoHeapPointers",
+          "sig": "func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 192,
+          "name": "memmove",
+          "sig": "func memmove(to, from unsafe.Pointer, n uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs.go",
+          "line": 212,
+          "name": "memequal",
+          "sig": "func memequal(a, b unsafe.Pointer, size uintptr) (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 16,
+          "name": "read",
+          "sig": "func read(fd int32, p unsafe.Pointer, n int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 16,
+          "name": "closefd",
+          "sig": "func closefd(fd int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 17,
+          "name": "exit",
+          "sig": "func exit(code int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 17,
+          "name": "usleep",
+          "sig": "func usleep(usec uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 23,
+          "name": "write1",
+          "sig": "func write1(fd uintptr, p unsafe.Pointer, n int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 26,
+          "name": "open",
+          "sig": "func open(name *byte, mode, perm int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 31,
+          "name": "madvise",
+          "sig": "func madvise(addr unsafe.Pointer, n uintptr, flags int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs2.go",
+          "line": 40,
+          "name": "exitThread",
+          "sig": "func exitThread(wait *atomic.Uint32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs3.go",
+          "line": 9,
+          "name": "nanotime1",
+          "sig": "func nanotime1() (int64)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 9,
+          "name": "gcWriteBarrierCX",
+          "sig": "func gcWriteBarrierCX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 9,
+          "name": "gcWriteBarrierDX",
+          "sig": "func gcWriteBarrierDX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 10,
+          "name": "gcWriteBarrierBX",
+          "sig": "func gcWriteBarrierBX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 10,
+          "name": "gcWriteBarrierBP",
+          "sig": "func gcWriteBarrierBP()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 12,
+          "name": "gcWriteBarrierSI",
+          "sig": "func gcWriteBarrierSI()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 14,
+          "name": "gcWriteBarrierR8",
+          "sig": "func gcWriteBarrierR8()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 15,
+          "name": "gcWriteBarrierR9",
+          "sig": "func gcWriteBarrierR9()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 17,
+          "name": "stackcheck",
+          "sig": "func stackcheck()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 18,
+          "name": "settls",
+          "sig": "func settls()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 19,
+          "name": "retpolineAX",
+          "sig": "func retpolineAX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 19,
+          "name": "retpolineCX",
+          "sig": "func retpolineCX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 19,
+          "name": "retpolineDX",
+          "sig": "func retpolineDX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 20,
+          "name": "retpolineBX",
+          "sig": "func retpolineBX()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 21,
+          "name": "retpolineBP",
+          "sig": "func retpolineBP()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 23,
+          "name": "retpolineSI",
+          "sig": "func retpolineSI()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 23,
+          "name": "retpolineDI",
+          "sig": "func retpolineDI()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 24,
+          "name": "retpolineR8",
+          "sig": "func retpolineR8()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 26,
+          "name": "retpolineR9",
+          "sig": "func retpolineR9()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 26,
+          "name": "retpolineR10",
+          "sig": "func retpolineR10()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 27,
+          "name": "retpolineR11",
+          "sig": "func retpolineR11()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 30,
+          "name": "retpolineR12",
+          "sig": "func retpolineR12()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 30,
+          "name": "retpolineR13",
+          "sig": "func retpolineR13()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 31,
+          "name": "retpolineR14",
+          "sig": "func retpolineR14()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 31,
+          "name": "retpolineR15",
+          "sig": "func retpolineR15()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 32,
+          "name": "asmcgocall_no_g",
+          "sig": "func asmcgocall_no_g(fn, arg unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 38,
+          "name": "asmcgocall_landingpad",
+          "sig": "func asmcgocall_landingpad()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 46,
+          "name": "spillArgs",
+          "sig": "func spillArgs()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 47,
+          "name": "unspillArgs",
+          "sig": "func unspillArgs()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_amd64.go",
+          "line": 49,
+          "name": "getfp",
+          "sig": "func getfp() (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_linux.go",
+          "line": 7,
+          "name": "sbrk0",
+          "sig": "func sbrk0() (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_linux.go",
+          "line": 16,
+          "name": "access",
+          "sig": "func access(name *byte, mode int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_linux.go",
+          "line": 17,
+          "name": "connect",
+          "sig": "func connect(fd int32, addr unsafe.Pointer, len int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/stubs_linux.go",
+          "line": 18,
+          "name": "socket",
+          "sig": "func socket(domain int32, typ int32, prot int32) (int32)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/symtab.go",
+          "line": 412,
+          "name": "badFuncInfoEntry",
+          "sig": "func badFuncInfoEntry(funcInfo) (uintptr)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/symtab.go",
+          "line": 505,
+          "name": "badSrcFuncName",
+          "sig": "func badSrcFuncName(srcFunc) (string)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/symtabinl.go",
+          "line": 162,
+          "name": "badSrcFunc",
+          "sig": "func badSrcFunc(*inlineUnwinder, inlineFrame) (srcFunc)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/test_amd64.go",
+          "line": 5,
+          "name": "testSPWrite",
+          "sig": "func testSPWrite()",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/timeasm.go",
+          "line": 14,
+          "name": "time_now",
+          "sig": "func time_now() (int64, int32, int64)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "runtime/vgetrandom_linux.go",
+          "line": 10,
+          "name": "vgetrandom1",
+          "sig": "func vgetrandom1(buf *byte, length uintptr, flags uint32, state uintptr, stateSize uintptr) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        }
+      ]
+    },
+    {
+      "package": "internal/bytealg",
+      "identifiers": [
+        {
+          "name": "MaxBruteForce",
+          "kind": "const",
+          "object": "const internal/bytealg.MaxBruteForce untyped int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 44,
+              "col": 24,
+              "enclosing": "func Index",
+              "form": "qualified"
+            },
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 128,
+              "col": 32,
+              "enclosing": "func IndexRune",
+              "form": "qualified"
+            }
+          ]
+        },
+        {
+          "name": "PrimeRK",
+          "kind": "const",
+          "object": "const internal/bytealg.PrimeRK untyped int",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 102,
+              "col": 17,
+              "enclosing": "func LastIndex",
+              "form": "qualified"
+            },
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 108,
+              "col": 16,
+              "enclosing": "func LastIndex",
+              "form": "qualified"
+            }
+          ]
+        },
+        {
+          "name": "CompareString",
+          "kind": "func",
+          "object": "func internal/bytealg.CompareString(a string, b string) int",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/compare.go",
+              "line": 16,
+              "col": 17,
+              "enclosing": "func Compare",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "CountString",
+          "kind": "func",
+          "object": "func internal/bytealg.CountString(s string, c byte) int",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 48,
+              "col": 18,
+              "enclosing": "func Count",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "Cutover",
+          "kind": "func",
+          "object": "func internal/bytealg.Cutover(n int) int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 68,
+              "col": 23,
+              "enclosing": "func Index",
+              "form": "call"
+            },
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 167,
+              "col": 41,
+              "enclosing": "func IndexRune",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "HashStrRev",
+          "kind": "func",
+          "object": "func internal/bytealg.HashStrRev[T string | []byte](sep T) (uint32, uint32)",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 98,
+              "col": 25,
+              "enclosing": "func LastIndex",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "IndexByteString",
+          "kind": "func",
+          "object": "func internal/bytealg.IndexByteString(s string, c byte) int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 25,
+              "col": 17,
+              "enclosing": "func IndexByte",
+              "form": "call"
+            },
+            {
+              "package": "strconv",
+              "file": "strconv/bytealg.go",
+              "line": 13,
+              "col": 17,
+              "enclosing": "func index",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "IndexRabinKarp",
+          "kind": "func",
+          "object": "func internal/bytealg.IndexRabinKarp[T string | []byte](s T, sep T) int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 98,
+              "col": 17,
+              "enclosing": "func Index",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "IndexString",
+          "kind": "func",
+          "object": "func internal/bytealg.IndexString(a string, b string) int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 45,
+              "col": 19,
+              "enclosing": "func Index",
+              "form": "call"
+            },
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 69,
+              "col": 18,
+              "enclosing": "func Index",
+              "form": "call"
+            },
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 177,
+              "col": 20,
+              "enclosing": "func IndexRune",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "LastIndexByteString",
+          "kind": "func",
+          "object": "func internal/bytealg.LastIndexByteString(s string, c byte) int",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 88,
+              "col": 18,
+              "enclosing": "func LastIndex",
+              "form": "call"
+            },
+            {
+              "package": "strings",
+              "file": "strings/strings.go",
+              "line": 286,
+              "col": 17,
+              "enclosing": "func LastIndexByte",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "MakeNoZero",
+          "kind": "func",
+          "object": "func internal/bytealg.MakeNoZero(n int) []byte",
+          "uses": [
+            {
+              "package": "strings",
+              "file": "strings/builder.go",
+              "line": 67,
+              "col": 17,
+              "enclosing": "func (*Builder) grow",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "MaxLen",
+          "kind": "var",
+          "object": "var internal/bytealg.MaxLen int",
+          "uses": [
+            {
+              "package": "internal/stringslite",
+              "file": "internal/stringslite/strings.go",
+              "line": 42,
+              "col": 20,
+              "enclosing": "func Index",
+              "form": "qualified"
+            }
+          ]
+        }
+      ],
+      "directly_imported_by": [
+        "internal/stringslite",
+        "strconv",
+        "strings"
+      ],
+      "bodyless_in_go_source": [
+        {
+          "file": "internal/bytealg/bytealg.go",
+          "line": 134,
+          "name": "MakeNoZero",
+          "sig": "func MakeNoZero(n int) ([]byte)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/compare_native.go",
+          "line": 14,
+          "name": "Compare",
+          "sig": "func Compare(a, b []byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/compare_native.go",
+          "line": 19,
+          "name": "abigen_runtime_cmpstring",
+          "sig": "func abigen_runtime_cmpstring(a, b string) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/count_native.go",
+          "line": 9,
+          "name": "Count",
+          "sig": "func Count(b []byte, c byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/count_native.go",
+          "line": 11,
+          "name": "CountString",
+          "sig": "func CountString(s string, c byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/equal_native.go",
+          "line": 18,
+          "name": "abigen_runtime_memequal",
+          "sig": "func abigen_runtime_memequal(a, b unsafe.Pointer, size uintptr) (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/equal_native.go",
+          "line": 20,
+          "name": "abigen_runtime_memequal_varlen",
+          "sig": "func abigen_runtime_memequal_varlen(a, b unsafe.Pointer) (bool)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/index_native.go",
+          "line": 14,
+          "name": "Index",
+          "sig": "func Index(a, b []byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/index_native.go",
+          "line": 17,
+          "name": "IndexString",
+          "sig": "func IndexString(a, b string) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/indexbyte_native.go",
+          "line": 10,
+          "name": "IndexByte",
+          "sig": "func IndexByte(b []byte, c byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/bytealg/indexbyte_native.go",
+          "line": 14,
+          "name": "IndexByteString",
+          "sig": "func IndexByteString(s string, c byte) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        }
+      ]
+    },
+    {
+      "package": "internal/reflectlite",
+      "identifiers": [
+        {
+          "name": "Interface",
+          "kind": "const",
+          "object": "const internal/reflectlite.Interface internal/abi.Kind",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 110,
+              "col": 38,
+              "enclosing": "func As",
+              "form": "qualified"
+            }
+          ]
+        },
+        {
+          "name": "Ptr",
+          "kind": "const",
+          "object": "const internal/reflectlite.Ptr internal/abi.Kind",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 106,
+              "col": 31,
+              "enclosing": "func As",
+              "form": "qualified"
+            }
+          ]
+        },
+        {
+          "name": "Swapper",
+          "kind": "func",
+          "object": "func internal/reflectlite.Swapper(slice any) func(i int, j int)",
+          "uses": [
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 26,
+              "col": 22,
+              "enclosing": "func Slice",
+              "form": "call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 43,
+              "col": 22,
+              "enclosing": "func SliceStable",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "TypeOf",
+          "kind": "func",
+          "object": "func internal/reflectlite.TypeOf(i any) internal/reflectlite.Type",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 49,
+              "col": 30,
+              "enclosing": "func Is",
+              "form": "call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 118,
+              "col": 18,
+              "enclosing": "func as",
+              "form": "call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 147,
+              "col": 29,
+              "enclosing": "package scope",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "ValueOf",
+          "kind": "func",
+          "object": "func internal/reflectlite.ValueOf(i any) internal/reflectlite.Value",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 104,
+              "col": 21,
+              "enclosing": "func As",
+              "form": "call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 119,
+              "col": 37,
+              "enclosing": "func as",
+              "form": "call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 25,
+              "col": 20,
+              "enclosing": "func Slice",
+              "form": "call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 42,
+              "col": 20,
+              "enclosing": "func SliceStable",
+              "form": "call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 53,
+              "col": 20,
+              "enclosing": "func SliceIsSorted",
+              "form": "call"
+            }
+          ]
+        },
+        {
+          "name": "AssignableTo",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Type).AssignableTo(u internal/reflectlite.Type) bool",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 118,
+              "col": 30,
+              "enclosing": "func as",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Comparable",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Type).Comparable() bool",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 49,
+              "col": 45,
+              "enclosing": "func Is",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Elem",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Type).Elem() internal/reflectlite.Type",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 109,
+              "col": 20,
+              "enclosing": "func As",
+              "form": "method-call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 119,
+              "col": 14,
+              "enclosing": "func as",
+              "form": "method-call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 147,
+              "col": 51,
+              "enclosing": "package scope",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Implements",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Type).Implements(u internal/reflectlite.Type) bool",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 110,
+              "col": 63,
+              "enclosing": "func As",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "IsNil",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Value).IsNil() bool",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 106,
+              "col": 42,
+              "enclosing": "func As",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Kind",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Type).Kind() internal/reflectlite.Kind",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 106,
+              "col": 9,
+              "enclosing": "func As",
+              "form": "method-call"
+            },
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 110,
+              "col": 16,
+              "enclosing": "func As",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Len",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Value).Len() int",
+          "uses": [
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 27,
+              "col": 15,
+              "enclosing": "func Slice",
+              "form": "method-call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 44,
+              "col": 39,
+              "enclosing": "func SliceStable",
+              "form": "method-call"
+            },
+            {
+              "package": "sort",
+              "file": "sort/slice.go",
+              "line": 54,
+              "col": 10,
+              "enclosing": "func SliceIsSorted",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Set",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Value).Set(x internal/reflectlite.Value)",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 119,
+              "col": 21,
+              "enclosing": "func as",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Type",
+          "kind": "method",
+          "object": "func (internal/reflectlite.Value).Type() internal/reflectlite.Type",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 105,
+              "col": 13,
+              "enclosing": "func As",
+              "form": "method-call"
+            }
+          ]
+        },
+        {
+          "name": "Type",
+          "kind": "type",
+          "object": "type internal/reflectlite.Type interface{AssignableTo(u internal/reflectlite.Type) bool; Comparable() bool; Elem() internal/reflectlite.Type; Implements(u internal/reflectlite.Type) bool; Kind() internal/reflectlite.Kind; Name() string; PkgPath() string; Size() uintptr; String() string; common() *internal/abi.Type; uncommon() *internal/reflectlite.uncommonType}",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 116,
+              "col": 84,
+              "enclosing": "func as",
+              "form": "qualified"
+            }
+          ]
+        },
+        {
+          "name": "Value",
+          "kind": "type",
+          "object": "type internal/reflectlite.Value struct{typ_ *internal/abi.Type; ptr unsafe.Pointer; internal/reflectlite.flag}",
+          "uses": [
+            {
+              "package": "errors",
+              "file": "errors/wrap.go",
+              "line": 116,
+              "col": 54,
+              "enclosing": "func as",
+              "form": "qualified"
+            }
+          ]
+        }
+      ],
+      "directly_imported_by": [
+        "errors",
+        "sort"
+      ],
+      "bodyless_in_go_source": [
+        {
+          "file": "internal/reflectlite/type.go",
+          "line": 1,
+          "name": "resolveNameOff",
+          "sig": "func resolveNameOff(ptrInModule unsafe.Pointer, off int32) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/type.go",
+          "line": 14,
+          "name": "resolveTypeOff",
+          "sig": "func resolveTypeOff(rtype unsafe.Pointer, off int32) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/value.go",
+          "line": 17,
+          "name": "unsafe_New",
+          "sig": "func unsafe_New(*abi.Type) (unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/value.go",
+          "line": 79,
+          "name": "ifaceE2I",
+          "sig": "func ifaceE2I(t *abi.Type, src any, dst unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/value.go",
+          "line": 81,
+          "name": "typedmemmove",
+          "sig": "func typedmemmove(t *abi.Type, dst, src unsafe.Pointer)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/value.go",
+          "line": 107,
+          "name": "chanlen",
+          "sig": "func chanlen(unsafe.Pointer) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        },
+        {
+          "file": "internal/reflectlite/value.go",
+          "line": 110,
+          "name": "maplen",
+          "sig": "func maplen(unsafe.Pointer) (int)",
+          "note": "implemented by assembly or a runtime push in Go's source; the stub replaces it"
+        }
+      ]
+    }
+  ],
+  "runtime": {
+    "pulls_out_of_closure": [
+      {
+        "package": "sync",
+        "local": "runtime_LoadAcquintptr",
+        "target": "internal/runtime/atomic.LoadAcquintptr",
+        "target_package": "internal/runtime/atomic",
+        "sig": "func runtime_LoadAcquintptr(ptr *uintptr) (uintptr)",
+        "file": "sync/pool.go",
+        "line": 314
+      },
+      {
+        "package": "sync",
+        "local": "runtime_StoreReluintptr",
+        "target": "internal/runtime/atomic.StoreReluintptr",
+        "target_package": "internal/runtime/atomic",
+        "sig": "func runtime_StoreReluintptr(ptr *uintptr, val uintptr) (uintptr)",
+        "file": "sync/pool.go",
+        "line": 317
+      },
+      {
+        "package": "iter",
+        "local": "coroswitch",
+        "target": "runtime.coroswitch",
+        "target_package": "runtime",
+        "sig": "func coroswitch(*coro)",
+        "file": "iter/iter.go",
+        "line": 234
+      },
+      {
+        "package": "iter",
+        "local": "newcoro",
+        "target": "runtime.newcoro",
+        "target_package": "runtime",
+        "sig": "func newcoro(func(...)) (*coro)",
+        "file": "iter/iter.go",
+        "line": 231
+      },
+      {
+        "package": "internal/sync",
+        "local": "runtime_rand",
+        "target": "runtime.rand",
+        "target_package": "runtime",
+        "sig": "func runtime_rand() (uint64)",
+        "file": "internal/sync/hashtriemap.go",
+        "line": 723
+      },
+      {
+        "package": "sync",
+        "local": "runtime_randn",
+        "target": "runtime.randn",
+        "target_package": "runtime",
+        "sig": "func runtime_randn(n uint32) (uint32)",
+        "file": "sync/pool.go",
+        "line": 82
+      }
+    ],
+    "pushes_into_closure": [
+      {
+        "symbol": "internal/sync.fatal",
+        "runtime_impl": "internal_sync_fatal",
+        "kind": "push",
+        "file": "runtime/panic.go",
+        "line": 1054,
+        "runtime_sig": "func internal_sync_fatal(s string)"
+      },
+      {
+        "symbol": "internal/sync.runtime_SemacquireMutex",
+        "runtime_impl": "internal_sync_runtime_SemacquireMutex",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 93,
+        "runtime_sig": "func internal_sync_runtime_SemacquireMutex(addr *uint32, lifo bool, skipframes int)"
+      },
+      {
+        "symbol": "internal/sync.runtime_Semrelease",
+        "runtime_impl": "internal_sync_runtime_Semrelease",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 122,
+        "runtime_sig": "func internal_sync_runtime_Semrelease(addr *uint32, handoff bool, skipframes int)"
+      },
+      {
+        "symbol": "internal/sync.runtime_canSpin",
+        "runtime_impl": "internal_sync_runtime_canSpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7503,
+        "runtime_sig": "func internal_sync_runtime_canSpin(i int) (bool)"
+      },
+      {
+        "symbol": "internal/sync.runtime_doSpin",
+        "runtime_impl": "internal_sync_runtime_doSpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7520,
+        "runtime_sig": "func internal_sync_runtime_doSpin()"
+      },
+      {
+        "symbol": "internal/sync.runtime_nanotime",
+        "runtime_impl": "internal_sync_nanotime",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 717,
+        "runtime_sig": "func internal_sync_nanotime() (int64)"
+      },
+      {
+        "symbol": "internal/sync.throw",
+        "runtime_impl": "internal_sync_throw",
+        "kind": "push",
+        "file": "runtime/panic.go",
+        "line": 1049,
+        "runtime_sig": "func internal_sync_throw(s string)"
+      },
+      {
+        "symbol": "internal/synctest.IsInBubble",
+        "runtime_impl": "synctest_isInBubble",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 327,
+        "runtime_sig": "func synctest_isInBubble() (bool)"
+      },
+      {
+        "symbol": "internal/synctest.Run",
+        "runtime_impl": "synctestRun",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 170,
+        "runtime_sig": "func synctestRun(f func(...))"
+      },
+      {
+        "symbol": "internal/synctest.Wait",
+        "runtime_impl": "synctestWait",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 282,
+        "runtime_sig": "func synctestWait()"
+      },
+      {
+        "symbol": "internal/synctest.acquire",
+        "runtime_impl": "synctest_acquire",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 332,
+        "runtime_sig": "func synctest_acquire() (any)"
+      },
+      {
+        "symbol": "internal/synctest.associate",
+        "runtime_impl": "synctest_associate",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 437,
+        "runtime_sig": "func synctest_associate(p unsafe.Pointer) (int)"
+      },
+      {
+        "symbol": "internal/synctest.disassociate",
+        "runtime_impl": "synctest_disassociate",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 444,
+        "runtime_sig": "func synctest_disassociate(p unsafe.Pointer)"
+      },
+      {
+        "symbol": "internal/synctest.inBubble",
+        "runtime_impl": "synctest_inBubble",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 346,
+        "runtime_sig": "func synctest_inBubble(bubble any, f func(...))"
+      },
+      {
+        "symbol": "internal/synctest.isAssociated",
+        "runtime_impl": "synctest_isAssociated",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 451,
+        "runtime_sig": "func synctest_isAssociated(p unsafe.Pointer) (bool)"
+      },
+      {
+        "symbol": "internal/synctest.release",
+        "runtime_impl": "synctest_release",
+        "kind": "push",
+        "file": "runtime/synctest.go",
+        "line": 341,
+        "runtime_sig": "func synctest_release(bubble any)"
+      },
+      {
+        "symbol": "sync.event",
+        "runtime_impl": "mutexevent",
+        "kind": "push",
+        "file": "runtime/mprof.go",
+        "line": 837,
+        "runtime_sig": "func mutexevent(cycles int64, skip int)"
+      },
+      {
+        "symbol": "sync.fatal",
+        "runtime_impl": "sync_fatal",
+        "kind": "push",
+        "file": "runtime/panic.go",
+        "line": 1024,
+        "runtime_sig": "func sync_fatal(s string)"
+      },
+      {
+        "symbol": "sync.runtime_Semacquire",
+        "runtime_impl": "sync_runtime_Semacquire",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 69,
+        "runtime_sig": "func sync_runtime_Semacquire(addr *uint32)"
+      },
+      {
+        "symbol": "sync.runtime_SemacquireRWMutex",
+        "runtime_impl": "sync_runtime_SemacquireRWMutex",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 103,
+        "runtime_sig": "func sync_runtime_SemacquireRWMutex(addr *uint32, lifo bool, skipframes int)"
+      },
+      {
+        "symbol": "sync.runtime_SemacquireRWMutexR",
+        "runtime_impl": "sync_runtime_SemacquireRWMutexR",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 98,
+        "runtime_sig": "func sync_runtime_SemacquireRWMutexR(addr *uint32, lifo bool, skipframes int)"
+      },
+      {
+        "symbol": "sync.runtime_SemacquireWaitGroup",
+        "runtime_impl": "sync_runtime_SemacquireWaitGroup",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 108,
+        "runtime_sig": "func sync_runtime_SemacquireWaitGroup(addr *uint32, synctestDurable bool)"
+      },
+      {
+        "symbol": "sync.runtime_Semrelease",
+        "runtime_impl": "sync_runtime_Semrelease",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 88,
+        "runtime_sig": "func sync_runtime_Semrelease(addr *uint32, handoff bool, skipframes int)"
+      },
+      {
+        "symbol": "sync.runtime_canSpin",
+        "runtime_impl": "sync_runtime_canSpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7538,
+        "runtime_sig": "func sync_runtime_canSpin(i int) (bool)"
+      },
+      {
+        "symbol": "sync.runtime_doSpin",
+        "runtime_impl": "sync_runtime_doSpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7554,
+        "runtime_sig": "func sync_runtime_doSpin()"
+      },
+      {
+        "symbol": "sync.runtime_notifyListAdd",
+        "runtime_impl": "notifyListAdd",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 570,
+        "runtime_sig": "func notifyListAdd(l *notifyList) (uint32)"
+      },
+      {
+        "symbol": "sync.runtime_notifyListCheck",
+        "runtime_impl": "notifyListCheck",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 709,
+        "runtime_sig": "func notifyListCheck(sz uintptr)"
+      },
+      {
+        "symbol": "sync.runtime_notifyListNotifyAll",
+        "runtime_impl": "notifyListNotifyAll",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 615,
+        "runtime_sig": "func notifyListNotifyAll(l *notifyList)"
+      },
+      {
+        "symbol": "sync.runtime_notifyListNotifyOne",
+        "runtime_impl": "notifyListNotifyOne",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 652,
+        "runtime_sig": "func notifyListNotifyOne(l *notifyList)"
+      },
+      {
+        "symbol": "sync.runtime_notifyListWait",
+        "runtime_impl": "notifyListWait",
+        "kind": "push",
+        "file": "runtime/sema.go",
+        "line": 580,
+        "runtime_sig": "func notifyListWait(l *notifyList, t uint32)"
+      },
+      {
+        "symbol": "sync.runtime_procPin",
+        "runtime_impl": "sync_runtime_procPin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7477,
+        "runtime_sig": "func sync_runtime_procPin() (int)"
+      },
+      {
+        "symbol": "sync.runtime_procUnpin",
+        "runtime_impl": "sync_runtime_procUnpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7483,
+        "runtime_sig": "func sync_runtime_procUnpin()"
+      },
+      {
+        "symbol": "sync.runtime_registerPoolCleanup",
+        "runtime_impl": "sync_runtime_registerPoolCleanup",
+        "kind": "push",
+        "file": "runtime/mgc.go",
+        "line": 1816,
+        "runtime_sig": "func sync_runtime_registerPoolCleanup(f func(...))"
+      },
+      {
+        "symbol": "sync.throw",
+        "runtime_impl": "sync_throw",
+        "kind": "push",
+        "file": "runtime/panic.go",
+        "line": 1019,
+        "runtime_sig": "func sync_throw(s string)"
+      },
+      {
+        "symbol": "sync/atomic.CompareAndSwapPointer",
+        "runtime_impl": "sync_atomic_CompareAndSwapPointer",
+        "kind": "push",
+        "file": "runtime/atomic_pointer.go",
+        "line": 114,
+        "runtime_sig": "func sync_atomic_CompareAndSwapPointer(ptr *unsafe.Pointer, old, new unsafe.Pointer) (bool)"
+      },
+      {
+        "symbol": "sync/atomic.CompareAndSwapUintptr",
+        "runtime_impl": "sync_atomic_CompareAndSwapUintptr",
+        "kind": "pull",
+        "file": "runtime/atomic_pointer.go",
+        "line": 111,
+        "runtime_sig": "func sync_atomic_CompareAndSwapUintptr(ptr *uintptr, old, new uintptr) (bool)"
+      },
+      {
+        "symbol": "sync/atomic.StorePointer",
+        "runtime_impl": "sync_atomic_StorePointer",
+        "kind": "push",
+        "file": "runtime/atomic_pointer.go",
+        "line": 83,
+        "runtime_sig": "func sync_atomic_StorePointer(ptr *unsafe.Pointer, new unsafe.Pointer)"
+      },
+      {
+        "symbol": "sync/atomic.StoreUintptr",
+        "runtime_impl": "sync_atomic_StoreUintptr",
+        "kind": "pull",
+        "file": "runtime/atomic_pointer.go",
+        "line": 80,
+        "runtime_sig": "func sync_atomic_StoreUintptr(ptr *uintptr, new uintptr)"
+      },
+      {
+        "symbol": "sync/atomic.SwapPointer",
+        "runtime_impl": "sync_atomic_SwapPointer",
+        "kind": "push",
+        "file": "runtime/atomic_pointer.go",
+        "line": 98,
+        "runtime_sig": "func sync_atomic_SwapPointer(ptr *unsafe.Pointer, new unsafe.Pointer) (unsafe.Pointer)"
+      },
+      {
+        "symbol": "sync/atomic.SwapUintptr",
+        "runtime_impl": "sync_atomic_SwapUintptr",
+        "kind": "pull",
+        "file": "runtime/atomic_pointer.go",
+        "line": 95,
+        "runtime_sig": "func sync_atomic_SwapUintptr(ptr *uintptr, new uintptr) (uintptr)"
+      },
+      {
+        "symbol": "sync/atomic.runtime_procPin",
+        "runtime_impl": "sync_atomic_runtime_procPin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7489,
+        "runtime_sig": "func sync_atomic_runtime_procPin() (int)"
+      },
+      {
+        "symbol": "sync/atomic.runtime_procUnpin",
+        "runtime_impl": "sync_atomic_runtime_procUnpin",
+        "kind": "push",
+        "file": "runtime/proc.go",
+        "line": 7495,
+        "runtime_sig": "func sync_atomic_runtime_procUnpin()"
+      }
+    ]
+  },
+  "natives_outside_stubs": [
+    {
+      "package": "internal/abi",
+      "file": "internal/abi/funcpc.go",
+      "line": 22,
+      "name": "FuncPCABI0",
+      "sig": "func FuncPCABI0(f interface{}) (uintptr)"
+    },
+    {
+      "package": "internal/abi",
+      "file": "internal/abi/funcpc.go",
+      "line": 31,
+      "name": "FuncPCABIInternal",
+      "sig": "func FuncPCABIInternal(f interface{}) (uintptr)"
+    },
+    {
+      "package": "internal/cpu",
+      "file": "internal/cpu/cpu_x86.go",
+      "line": 12,
+      "name": "cpuid",
+      "sig": "func cpuid(eaxArg, ecxArg uint32) (uint32)"
+    },
+    {
+      "package": "internal/cpu",
+      "file": "internal/cpu/cpu_x86.go",
+      "line": 15,
+      "name": "xgetbv",
+      "sig": "func xgetbv() (uint32)"
+    },
+    {
+      "package": "internal/cpu",
+      "file": "internal/cpu/cpu_x86.go",
+      "line": 18,
+      "name": "getGOAMD64level",
+      "sig": "func getGOAMD64level() (int32)"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/hashtriemap.go",
+      "line": 724,
+      "name": "runtime_rand",
+      "sig": "func runtime_rand() (uint64)"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 21,
+      "name": "runtime_SemacquireMutex",
+      "sig": "func runtime_SemacquireMutex(s *uint32, lifo bool, skipframes int)",
+      "provided_by": "runtime push internal_sync_runtime_SemacquireMutex"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 32,
+      "name": "runtime_Semrelease",
+      "sig": "func runtime_Semrelease(s *uint32, handoff bool, skipframes int)",
+      "provided_by": "runtime push internal_sync_runtime_Semrelease"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 38,
+      "name": "runtime_canSpin",
+      "sig": "func runtime_canSpin(i int) (bool)",
+      "provided_by": "runtime push internal_sync_runtime_canSpin"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 43,
+      "name": "runtime_doSpin",
+      "sig": "func runtime_doSpin()",
+      "provided_by": "runtime push internal_sync_runtime_doSpin"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 46,
+      "name": "runtime_nanotime",
+      "sig": "func runtime_nanotime() (int64)",
+      "provided_by": "runtime push internal_sync_nanotime"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 49,
+      "name": "throw",
+      "sig": "func throw(string)",
+      "provided_by": "runtime push internal_sync_throw"
+    },
+    {
+      "package": "internal/sync",
+      "file": "internal/sync/runtime.go",
+      "line": 52,
+      "name": "fatal",
+      "sig": "func fatal(string)",
+      "provided_by": "runtime push internal_sync_fatal"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 16,
+      "name": "Run",
+      "sig": "func Run(f func(...))",
+      "provided_by": "runtime push synctestRun"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 19,
+      "name": "Wait",
+      "sig": "func Wait()",
+      "provided_by": "runtime push synctestWait"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 24,
+      "name": "IsInBubble",
+      "sig": "func IsInBubble() (bool)",
+      "provided_by": "runtime push synctest_isInBubble"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 44,
+      "name": "associate",
+      "sig": "func associate(p unsafe.Pointer) (int)",
+      "provided_by": "runtime push synctest_associate"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 52,
+      "name": "disassociate",
+      "sig": "func disassociate(b unsafe.Pointer)",
+      "provided_by": "runtime push synctest_disassociate"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 60,
+      "name": "isAssociated",
+      "sig": "func isAssociated(p unsafe.Pointer) (bool)",
+      "provided_by": "runtime push synctest_isAssociated"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 63,
+      "name": "acquire",
+      "sig": "func acquire() (any)",
+      "provided_by": "runtime push synctest_acquire"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 66,
+      "name": "release",
+      "sig": "func release(any)",
+      "provided_by": "runtime push synctest_release"
+    },
+    {
+      "package": "internal/synctest",
+      "file": "internal/synctest/synctest.go",
+      "line": 69,
+      "name": "inBubble",
+      "sig": "func inBubble(any, func(...))",
+      "provided_by": "runtime push synctest_inBubble"
+    },
+    {
+      "package": "iter",
+      "file": "iter/iter.go",
+      "line": 232,
+      "name": "newcoro",
+      "sig": "func newcoro(func(...)) (*coro)"
+    },
+    {
+      "package": "iter",
+      "file": "iter/iter.go",
+      "line": 235,
+      "name": "coroswitch",
+      "sig": "func coroswitch(*coro)"
+    },
+    {
+      "package": "math",
+      "file": "math/dim_asm.go",
+      "line": 11,
+      "name": "archMax",
+      "sig": "func archMax(x, y float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/dim_asm.go",
+      "line": 15,
+      "name": "archMin",
+      "sig": "func archMin(x, y float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/exp_asm.go",
+      "line": 11,
+      "name": "archExp",
+      "sig": "func archExp(x float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/floor_asm.go",
+      "line": 11,
+      "name": "archFloor",
+      "sig": "func archFloor(x float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/floor_asm.go",
+      "line": 15,
+      "name": "archCeil",
+      "sig": "func archCeil(x float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/floor_asm.go",
+      "line": 19,
+      "name": "archTrunc",
+      "sig": "func archTrunc(x float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/hypot_asm.go",
+      "line": 11,
+      "name": "archHypot",
+      "sig": "func archHypot(p, q float64) (float64)"
+    },
+    {
+      "package": "math",
+      "file": "math/log_asm.go",
+      "line": 11,
+      "name": "archLog",
+      "sig": "func archLog(x float64) (float64)"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 83,
+      "name": "runtime_randn",
+      "sig": "func runtime_randn(n uint32) (uint32)"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 306,
+      "name": "runtime_registerPoolCleanup",
+      "sig": "func runtime_registerPoolCleanup(cleanup func(...))",
+      "provided_by": "runtime push sync_runtime_registerPoolCleanup"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 307,
+      "name": "runtime_procPin",
+      "sig": "func runtime_procPin() (int)",
+      "provided_by": "runtime push sync_runtime_procPin"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 308,
+      "name": "runtime_procUnpin",
+      "sig": "func runtime_procUnpin()",
+      "provided_by": "runtime push sync_runtime_procUnpin"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 315,
+      "name": "runtime_LoadAcquintptr",
+      "sig": "func runtime_LoadAcquintptr(ptr *uintptr) (uintptr)"
+    },
+    {
+      "package": "sync",
+      "file": "sync/pool.go",
+      "line": 318,
+      "name": "runtime_StoreReluintptr",
+      "sig": "func runtime_StoreReluintptr(ptr *uintptr, val uintptr) (uintptr)"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 14,
+      "name": "runtime_Semacquire",
+      "sig": "func runtime_Semacquire(s *uint32)",
+      "provided_by": "runtime push sync_runtime_Semacquire"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 17,
+      "name": "runtime_SemacquireWaitGroup",
+      "sig": "func runtime_SemacquireWaitGroup(s *uint32, synctestDurable bool)",
+      "provided_by": "runtime push sync_runtime_SemacquireWaitGroup"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 27,
+      "name": "runtime_SemacquireRWMutexR",
+      "sig": "func runtime_SemacquireRWMutexR(s *uint32, lifo bool, skipframes int)",
+      "provided_by": "runtime push sync_runtime_SemacquireRWMutexR"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 28,
+      "name": "runtime_SemacquireRWMutex",
+      "sig": "func runtime_SemacquireRWMutex(s *uint32, lifo bool, skipframes int)",
+      "provided_by": "runtime push sync_runtime_SemacquireRWMutex"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 37,
+      "name": "runtime_Semrelease",
+      "sig": "func runtime_Semrelease(s *uint32, handoff bool, skipframes int)",
+      "provided_by": "runtime push sync_runtime_Semrelease"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 40,
+      "name": "runtime_notifyListAdd",
+      "sig": "func runtime_notifyListAdd(l *notifyList) (uint32)",
+      "provided_by": "runtime push notifyListAdd"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 43,
+      "name": "runtime_notifyListWait",
+      "sig": "func runtime_notifyListWait(l *notifyList, t uint32)",
+      "provided_by": "runtime push notifyListWait"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 46,
+      "name": "runtime_notifyListNotifyAll",
+      "sig": "func runtime_notifyListNotifyAll(l *notifyList)",
+      "provided_by": "runtime push notifyListNotifyAll"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 49,
+      "name": "runtime_notifyListNotifyOne",
+      "sig": "func runtime_notifyListNotifyOne(l *notifyList)",
+      "provided_by": "runtime push notifyListNotifyOne"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 52,
+      "name": "runtime_notifyListCheck",
+      "sig": "func runtime_notifyListCheck(size uintptr)",
+      "provided_by": "runtime push notifyListCheck"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 58,
+      "name": "throw",
+      "sig": "func throw(string)",
+      "provided_by": "runtime push sync_throw"
+    },
+    {
+      "package": "sync",
+      "file": "sync/runtime.go",
+      "line": 59,
+      "name": "fatal",
+      "sig": "func fatal(string)",
+      "provided_by": "runtime push sync_fatal"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 71,
+      "name": "SwapInt32",
+      "sig": "func SwapInt32(addr *int32, new int32) (int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 77,
+      "name": "SwapUint32",
+      "sig": "func SwapUint32(addr *uint32, new uint32) (uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 83,
+      "name": "SwapUintptr",
+      "sig": "func SwapUintptr(addr *uintptr, new uintptr) (uintptr)",
+      "provided_by": "the target package's own symbol (runtime references it as sync_atomic_SwapUintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 87,
+      "name": "SwapPointer",
+      "sig": "func SwapPointer(addr *unsafe.Pointer, new unsafe.Pointer) (unsafe.Pointer)",
+      "provided_by": "runtime push sync_atomic_SwapPointer"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 93,
+      "name": "CompareAndSwapInt32",
+      "sig": "func CompareAndSwapInt32(addr *int32, old, new int32) (bool)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 99,
+      "name": "CompareAndSwapUint32",
+      "sig": "func CompareAndSwapUint32(addr *uint32, old, new uint32) (bool)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 105,
+      "name": "CompareAndSwapUintptr",
+      "sig": "func CompareAndSwapUintptr(addr *uintptr, old, new uintptr) (bool)",
+      "provided_by": "the target package's own symbol (runtime references it as sync_atomic_CompareAndSwapUintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 109,
+      "name": "CompareAndSwapPointer",
+      "sig": "func CompareAndSwapPointer(addr *unsafe.Pointer, old, new unsafe.Pointer) (bool)",
+      "provided_by": "runtime push sync_atomic_CompareAndSwapPointer"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 115,
+      "name": "AddInt32",
+      "sig": "func AddInt32(addr *int32, delta int32) (int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 123,
+      "name": "AddUint32",
+      "sig": "func AddUint32(addr *uint32, delta uint32) (uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 129,
+      "name": "AddUintptr",
+      "sig": "func AddUintptr(addr *uintptr, delta uintptr) (uintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 136,
+      "name": "AndInt32",
+      "sig": "func AndInt32(addr *int32, mask int32) (int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 143,
+      "name": "AndUint32",
+      "sig": "func AndUint32(addr *uint32, mask uint32) (uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 150,
+      "name": "AndUintptr",
+      "sig": "func AndUintptr(addr *uintptr, mask uintptr) (uintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 157,
+      "name": "OrInt32",
+      "sig": "func OrInt32(addr *int32, mask int32) (int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 164,
+      "name": "OrUint32",
+      "sig": "func OrUint32(addr *uint32, mask uint32) (uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 171,
+      "name": "OrUintptr",
+      "sig": "func OrUintptr(addr *uintptr, mask uintptr) (uintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 177,
+      "name": "LoadInt32",
+      "sig": "func LoadInt32(addr *int32) (int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 183,
+      "name": "LoadUint32",
+      "sig": "func LoadUint32(addr *uint32) (uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 189,
+      "name": "LoadUintptr",
+      "sig": "func LoadUintptr(addr *uintptr) (uintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 193,
+      "name": "LoadPointer",
+      "sig": "func LoadPointer(addr *unsafe.Pointer) (unsafe.Pointer)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 199,
+      "name": "StoreInt32",
+      "sig": "func StoreInt32(addr *int32, val int32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 205,
+      "name": "StoreUint32",
+      "sig": "func StoreUint32(addr *uint32, val uint32)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 211,
+      "name": "StoreUintptr",
+      "sig": "func StoreUintptr(addr *uintptr, val uintptr)",
+      "provided_by": "the target package's own symbol (runtime references it as sync_atomic_StoreUintptr)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc.go",
+      "line": 215,
+      "name": "StorePointer",
+      "sig": "func StorePointer(addr *unsafe.Pointer, val unsafe.Pointer)",
+      "provided_by": "runtime push sync_atomic_StorePointer"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 14,
+      "name": "SwapInt64",
+      "sig": "func SwapInt64(addr *int64, new int64) (int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 21,
+      "name": "SwapUint64",
+      "sig": "func SwapUint64(addr *uint64, new uint64) (uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 28,
+      "name": "CompareAndSwapInt64",
+      "sig": "func CompareAndSwapInt64(addr *int64, old, new int64) (bool)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 35,
+      "name": "CompareAndSwapUint64",
+      "sig": "func CompareAndSwapUint64(addr *uint64, old, new uint64) (bool)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 42,
+      "name": "AddInt64",
+      "sig": "func AddInt64(addr *int64, delta int64) (int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 51,
+      "name": "AddUint64",
+      "sig": "func AddUint64(addr *uint64, delta uint64) (uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 58,
+      "name": "AndInt64",
+      "sig": "func AndInt64(addr *int64, mask int64) (int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 65,
+      "name": "AndUint64",
+      "sig": "func AndUint64(addr *uint64, mask uint64) (uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 72,
+      "name": "OrInt64",
+      "sig": "func OrInt64(addr *int64, mask int64) (int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 79,
+      "name": "OrUint64",
+      "sig": "func OrUint64(addr *uint64, mask uint64) (uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 86,
+      "name": "LoadInt64",
+      "sig": "func LoadInt64(addr *int64) (int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 93,
+      "name": "LoadUint64",
+      "sig": "func LoadUint64(addr *uint64) (uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 100,
+      "name": "StoreInt64",
+      "sig": "func StoreInt64(addr *int64, val int64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/doc_64.go",
+      "line": 107,
+      "name": "StoreUint64",
+      "sig": "func StoreUint64(addr *uint64, val uint64)"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/value.go",
+      "line": 193,
+      "name": "runtime_procPin",
+      "sig": "func runtime_procPin() (int)",
+      "provided_by": "runtime push sync_atomic_runtime_procPin"
+    },
+    {
+      "package": "sync/atomic",
+      "file": "sync/atomic/value.go",
+      "line": 194,
+      "name": "runtime_procUnpin",
+      "sig": "func runtime_procUnpin()",
+      "provided_by": "runtime push sync_atomic_runtime_procUnpin"
+    }
+  ],
+  "summary": {
+    "packages": 22,
+    "packages_by_why": {
+      "imported": 18,
+      "root": 4
+    },
+    "import_edges": 42,
+    "stub_identifiers": {
+      "internal/bytealg": 12,
+      "internal/reflectlite": 16,
+      "runtime": 2
+    },
+    "stub_uses_total": {
+      "internal/bytealg": 19,
+      "internal/reflectlite": 28,
+      "runtime": 5
+    },
+    "linknames_by_kind": {
+      "one-argument": 26,
+      "pull": 6,
+      "push": 1,
+      "variable": 2
+    },
+    "runtime_pulls": 6,
+    "runtime_pushes_into_closure": 42,
+    "external_packages": 20,
+    "natives_outside_stubs": 91
+  },
+  "notes": [
+    "The walk starts at the four roots and stops at runtime, internal/bytealg and internal/reflectlite: those three are replaced by gostd/spike/stub/, so their own imports are not translated.",
+    "The tag set is the gocpp one of Phase 16 README 2.7 (compiler gocpp, purego, math_big_pure_go, CGO_ENABLED=0), not the gc tag set.",
+    "A 'pull' linkname is a bodyless declaration of a closure package whose linker name is another package's symbol; 'push' has a body; 'one-argument' only exports the local symbol.",
+    "runtime.pushes_into_closure are the definitions the runtime stub has to provide for closure packages (sync, internal/sync, iter, internal/synctest); in the GC engine they are natives.",
+    "natives_outside_stubs are bodyless declarations of closure packages outside the three stubs (internal/abi intrinsics, sync/atomic assembly, sync/internal-sync/synctest runtime hooks); 16.1f does not write them, but the four packages need them in the engine.",
+    "The source tree is identified by go_version only; the absolute path is deliberately not recorded, so a rerun from another copy of the same Go release is byte-identical."
+  ]
+}
