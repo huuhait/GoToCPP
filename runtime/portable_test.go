@@ -17,12 +17,25 @@ import (
 // mingwCXX is the MinGW-w64 cross compiler of the dev shell (flake.nix).
 const mingwCXX = "x86_64-w64-mingw32-g++"
 
+// bdwgcSyntaxFlags are what the compile of a source that includes the vendored bdwgc's
+// <gc.h> needs on top of baseFlags and -I include: the include directory of the vendored copy
+// (third_party/bdwgc/include), and the defines of a program linked with its static library, as
+// internal/build's BdwgcLib.CompileFlags gives them (gc.h declares the thread API only with
+// GC_THREADS, the registration is explicit so gc.h must not redirect pthread_create, and the
+// library is static so it is not a DLL). Without them the GC engine's test programs fail here
+// with "gc.h: No such file or directory", although the bdwgc tests compile them with them.
+var bdwgcSyntaxFlags = []string{"-I", "third_party/bdwgc/include",
+	"-DGC_THREADS", "-DGC_NO_THREAD_REDIRECTS", "-DGC_NOT_DLL"}
+
 // TestWindowsSyntax compiles the portable C++ of the runtime (everything outside src/os/)
 // and its Windows OS layer (src/os/windows/, which Phase 14 completes) for Windows with
 // MinGW-w64, syntax only. It backs up TestNoOSHeadersOutsideOS, which sees only #include
 // lines: a POSIX function that glibc's standard headers declare anyway (g++ defines
 // _GNU_SOURCE, so <cstdio> declares fileno) or a hand-written OS declaration doesn't compile
-// for Windows. It is skipped when the cross compiler isn't installed.
+// for Windows. A source that includes the vendored bdwgc's <gc.h> gets bdwgcSyntaxFlags, as
+// the bdwgc tests compile it (TestCXX's bdwgc groups, and TestBdwgcWindowsProbes for the
+// Windows probe, which skips without GOCPP_WINDOWS_SSH). It is skipped when the cross
+// compiler isn't installed.
 func TestWindowsSyntax(t *testing.T) {
 	t.Parallel()
 	cc, err := build.LookCXX(t.Context(), mingwCXX)
@@ -30,6 +43,7 @@ func TestWindowsSyntax(t *testing.T) {
 		t.Skipf("no MinGW-w64 cross compiler: %v", err)
 	}
 	var files []string
+	needsBdwgc := make(map[string]bool) // a source's absolute path -> it includes <gc.h>
 	disk := os.DirFS(".")
 	err = fs.WalkDir(disk, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -42,7 +56,18 @@ func TestWindowsSyntax(t *testing.T) {
 			return fs.SkipDir // another OS's layer
 		}
 		if !d.IsDir() && path.Ext(p) == ".cpp" {
-			files = append(files, sourcePath(t, p))
+			src, data := sourcePathBytes(t, p)
+			files = append(files, src)
+			// The sources that include the vendored bdwgc's <gc.h> (the GC engine's test
+			// programs, jobs 16.1a and 16.1d) get bdwgcSyntaxFlags. The test is textual:
+			// another spelling (#include "gc.h", #include<gc.h>, an indirect include) gets no
+			// flags and then fails loudly below with "gc.h: No such file or directory", so it
+			// is never a false green; an include inside a comment adds only harmless flags.
+			// src/gc/heap_bdwgc.cpp matches too, but it includes <gc.h> only under
+			// GOCPP_GC_BDWGC, which this check does not define, so the flags are inert for it.
+			if strings.Contains(string(data), "#include <gc.h>") {
+				needsBdwgc[src] = true
+			}
 		}
 		return nil
 	})
@@ -51,7 +76,11 @@ func TestWindowsSyntax(t *testing.T) {
 	}
 	// One command for each file, all at the same time.
 	if err := parallel(len(files), func(i int) error {
-		args := append(slices.Clone(baseFlags), "-O0", "-fsyntax-only", "-I", "include", files[i])
+		args := append(slices.Clone(baseFlags), "-O0", "-fsyntax-only", "-I", "include")
+		if needsBdwgc[files[i]] {
+			args = append(args, bdwgcSyntaxFlags...)
+		}
+		args = append(args, files[i])
 		out, _, code, err := command(".", build.CompilerEnv(), true, cc.Path, args...)
 		if err != nil || code != 0 || len(out) != 0 {
 			return fmt.Errorf("%s %s: exit %d %v\n%s", cc.Path, strings.Join(args, " "), code, err, out)

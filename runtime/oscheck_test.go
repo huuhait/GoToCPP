@@ -38,6 +38,22 @@ var stdHeaders = func() map[string]bool {
 	return m
 }()
 
+// allowedHeaders are the includes that the OS rule lets a file of runtime/ have beyond the
+// standard C++ headers and gocpp/: a file that leaves the portable runtime on purpose. The
+// vendored bdwgc's <gc.h> is the GC engine's backend library: src/gc/heap_bdwgc.cpp includes
+// it under GOCPP_GC_BDWGC (phase-16 README §2.4), and the bdwgc test programs link that
+// library. test/bdwgc_windows_probe.cpp is a Windows-only program (built for Windows, run under
+// Wine or the real PC), and test/runtimepkg_test.cpp tests Linux's scheduler under __linux__.
+// The header must still be one that exists on the systems the file builds on; this is the same
+// kind of narrow exception as raceAtomicity below.
+var allowedHeaders = map[string][]string{
+	"src/gc/heap_bdwgc.cpp":        {"gc.h"},
+	"test/bdwgc_test.cpp":          {"gc.h"},
+	"test/gc_heap_bdwgc_test.cpp":  {"gc.h"},
+	"test/bdwgc_windows_probe.cpp": {"gc.h", "windows.h"},
+	"test/runtimepkg_test.cpp":     {"sched.h"},
+}
+
 // skipCheck reports whether the file p of runtime/ is left out of the OS check: the Go files
 // and the two text files at the root. Every other file is checked, whatever its name, because
 // C++ can #include a file of any name ("sneaky.inl", "helpers").
@@ -94,7 +110,7 @@ func checkIncludes(fsys fs.FS, p string) ([]string, error) {
 		switch {
 		case strings.HasPrefix(arg, "<"):
 			name, _, ok := strings.Cut(arg[1:], ">")
-			if !ok || !(stdHeaders[name] || strings.HasPrefix(name, "gocpp/")) {
+			if !ok || !(stdHeaders[name] || strings.HasPrefix(name, "gocpp/") || slices.Contains(allowedHeaders[p], name)) {
 				bad = append(bad, where+": not a standard C++ header")
 			}
 		case strings.HasPrefix(arg, `"`):
@@ -131,6 +147,13 @@ func checkTree(fsys fs.FS) ([]string, int, error) {
 			return skipped(d)
 		}
 		if d.IsDir() {
+			// The vendored bdwgc (job 16.1a) is upstream code, not gocpp's: it has its own
+			// OS layers (third_party/bdwgc/src/windows/win32_threads.c includes <pthread.h>,
+			// <process.h> and more) and is not held to gocpp's rule. TestClangFormat skips it
+			// for the same reason.
+			if p == "third_party" {
+				return fs.SkipDir
+			}
 			if p == "src/os" {
 				return fs.SkipDir
 			}
@@ -149,7 +172,9 @@ func checkTree(fsys fs.FS) ([]string, int, error) {
 
 // TestNoOSHeadersOutsideOS checks the OS rule: in runtime/, only src/os/ may include OS
 // headers. Everything else uses standard C++, so that the same code builds on Linux and
-// Windows. It checks every file except the Go files, README.md and compile_flags.txt.
+// Windows. It checks every file except the Go files, README.md, compile_flags.txt and the
+// vendored third_party/ (upstream code with its own OS layers); a file that leaves the portable
+// runtime on purpose is listed in allowedHeaders.
 func TestNoOSHeadersOutsideOS(t *testing.T) {
 	bad, checked, err := checkTree(os.DirFS("."))
 	if err != nil {
@@ -178,6 +203,11 @@ func TestCheckIncludes(t *testing.T) {
 		"src/os_helpers":           "#include <sys/stat.h>\n",
 		"test/data.txt":            "#include <windows.h>\n",
 		"src/os/linux/x.hpp":       "#include <unistd.h>\n", // the OS layer may
+		// checkTree skips the vendored third_party/, which is upstream code.
+		"third_party/bdwgc/src/windows/win32_threads.c": "#include <pthread.h>\n#include <windows.h>\n",
+		// allowedHeaders: the GC engine's bdwgc backend may include the vendored <gc.h>, but
+		// the exception is per header: its <windows.h> is still reported.
+		"src/gc/heap_bdwgc.cpp": "#include <gc.h>\n#include <windows.h>\n#include <gocpp/gc/heap.hpp>\n",
 	}
 	fsys := fstest.MapFS{}
 	for name, text := range files {
@@ -195,8 +225,8 @@ func TestCheckIncludes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checked != 6 {
-		t.Errorf("checkTree checked %d files, want 6 (all but files.go, README.md and src/os/)", checked)
+	if checked != 7 {
+		t.Errorf("checkTree checked %d files, want 7 (all but files.go, README.md, third_party/ and src/os/)", checked)
 	}
 	for _, f := range []string{"include/gocpp/sneaky.inl:1:", "src/os_helpers:1:", "test/data.txt:1:", "src/bad.cpp:12:"} {
 		if !slices.ContainsFunc(bad, func(m string) bool { return strings.Contains(m, "runtime/"+f) }) {
@@ -204,8 +234,18 @@ func TestCheckIncludes(t *testing.T) {
 		}
 	}
 	for _, m := range bad {
-		if strings.HasPrefix(m, "runtime/src/os/") || strings.HasPrefix(m, "runtime/files.go") || strings.HasPrefix(m, "runtime/README.md") {
+		if strings.Contains(m, "runtime/src/gc/heap_bdwgc.cpp") && strings.Contains(m, "<gc.h>") {
+			t.Errorf("checkTree reports the allowed <gc.h>: %s", m)
+		}
+		if strings.HasPrefix(m, "runtime/src/os/") || strings.HasPrefix(m, "runtime/files.go") ||
+			strings.HasPrefix(m, "runtime/README.md") || strings.HasPrefix(m, "runtime/third_party/") {
 			t.Errorf("checkTree checked a file it must skip: %s", m)
 		}
+	}
+	// allowedHeaders is narrow twice over: a listed file may have only its listed headers.
+	if !slices.ContainsFunc(bad, func(m string) bool {
+		return strings.Contains(m, "runtime/src/gc/heap_bdwgc.cpp:2: #include <windows.h>")
+	}) {
+		t.Errorf("checkTree does not report <windows.h> in src/gc/heap_bdwgc.cpp:\n%s", strings.Join(bad, "\n"))
 	}
 }

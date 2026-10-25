@@ -182,14 +182,23 @@ func (c cxx) flags(more []string) []string {
 // reads it, not when a compiler that the test runs does.
 func sourcePath(t *testing.T, p string) string {
 	t.Helper()
-	if _, err := os.ReadFile(p); err != nil {
+	abs, _ := sourcePathBytes(t, p)
+	return abs
+}
+
+// sourcePathBytes is sourcePath for a test that also looks at the file's text: it returns
+// the absolute path and the contents, from one read that go test's cache sees.
+func sourcePathBytes(t *testing.T, p string) (string, []byte) {
+	t.Helper()
+	data, err := os.ReadFile(p)
+	if err != nil {
 		t.Fatal(err)
 	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return abs
+	return abs, data
 }
 
 // The cases of the differential test (the case names of testdata/diff/main.go).
