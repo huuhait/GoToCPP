@@ -1,0 +1,2792 @@
+{
+  "schema": 1,
+  "tool": "gcbench",
+  "generated": "2026-10-25T01:24:03Z",
+  "smoke": false,
+  "reps": 5,
+  "warmup": 1,
+  "depth": 18,
+  "threads": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64
+  ],
+  "command": "gcbench run -bench all -flavor go,arc,gc -threads 1,2,4,8,16,32,64 -reps 5 -warmup 1 -cxx g++ -out /tmp/gcbench-baseline.json -md docs/benchmarks/gc-engine-spike.md -work /tmp/gcbench-baseline-work",
+  "commit": "853b5cf2",
+  "cxx": "g++",
+  "gate_phase": "15",
+  "timeout_ms": 300000,
+  "machine": {
+    "cpu": "AMD Ryzen Threadripper PRO 9995WX 96-Cores",
+    "cores": 192,
+    "mem_gib": 503,
+    "os": "linux/amd64 6.19.6",
+    "go": "go version go1.25.14 linux/amd64",
+    "gxx": "g++ (GCC) 15.3.0",
+    "clang": "clang version 21.1.8",
+    "gocpp": "gocpp dev (phase 05) go1.25.14 linux/amd64",
+    "load_before": [
+      43.9,
+      41.49,
+      50.93
+    ],
+    "load_after": [
+      77.19,
+      58.16,
+      55.8
+    ],
+    "max_load": 24,
+    "busy": true
+  },
+  "programs": [
+    {
+      "name": "binarytrees",
+      "about": "allocate, walk and free small pointer trees (allocation speed and peak memory)",
+      "path": "bench/gc/binarytrees",
+      "flavors": [
+        {
+          "flavor": "go",
+          "status": "ok",
+          "build_command": "go build -o prog .",
+          "build_ms": 79,
+          "bin_size": 1949178,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 701060675,
+                  "cpu_ns": 696498000,
+                  "rss_kb": 12796,
+                  "rusage_rss_kb": 12796,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 618599101,
+                  "cpu_ns": 615808000,
+                  "rss_kb": 12776,
+                  "rusage_rss_kb": 11424,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 601522687,
+                  "cpu_ns": 599416000,
+                  "rss_kb": 10688,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 598589259,
+                  "cpu_ns": 596608000,
+                  "rss_kb": 10696,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 609063645,
+                  "cpu_ns": 604569000,
+                  "rss_kb": 10692,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 609063645,
+                "mad": 9535456,
+                "min": 598589259,
+                "max": 701060675
+              },
+              "cpu": {
+                "n": 5,
+                "median": 604569000,
+                "mad": 7961000,
+                "min": 596608000,
+                "max": 696498000
+              },
+              "rss": {
+                "n": 5,
+                "median": 10696,
+                "mad": 8,
+                "min": 10688,
+                "max": 12796
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 379508739,
+                  "cpu_ns": 736140000,
+                  "rss_kb": 16068,
+                  "rusage_rss_kb": 16068,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 515979037,
+                  "cpu_ns": 984057000,
+                  "rss_kb": 42644,
+                  "rusage_rss_kb": 42644,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 966577050,
+                  "cpu_ns": 1709039000,
+                  "rss_kb": 12220,
+                  "rusage_rss_kb": 12220,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 549969043,
+                  "cpu_ns": 1031269000,
+                  "rss_kb": 15424,
+                  "rusage_rss_kb": 15424,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 564677339,
+                  "cpu_ns": 1055661000,
+                  "rss_kb": 24712,
+                  "rusage_rss_kb": 24712,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 549969043,
+                "mad": 33990006,
+                "min": 379508739,
+                "max": 966577050
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1031269000,
+                "mad": 47212000,
+                "min": 736140000,
+                "max": 1709039000
+              },
+              "rss": {
+                "n": 5,
+                "median": 16068,
+                "mad": 3848,
+                "min": 12220,
+                "max": 42644
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 404201317,
+                  "cpu_ns": 1493947000,
+                  "rss_kb": 12128,
+                  "rusage_rss_kb": 12128,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 422752347,
+                  "cpu_ns": 1521667000,
+                  "rss_kb": 14848,
+                  "rusage_rss_kb": 14848,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 464406437,
+                  "cpu_ns": 1673001000,
+                  "rss_kb": 11864,
+                  "rusage_rss_kb": 11864,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 483984092,
+                  "cpu_ns": 1739544000,
+                  "rss_kb": 11892,
+                  "rusage_rss_kb": 11892,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 409572074,
+                  "cpu_ns": 1507476000,
+                  "rss_kb": 11568,
+                  "rusage_rss_kb": 11568,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 422752347,
+                "mad": 18551030,
+                "min": 404201317,
+                "max": 483984092
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1521667000,
+                "mad": 27720000,
+                "min": 1493947000,
+                "max": 1739544000
+              },
+              "rss": {
+                "n": 5,
+                "median": 11892,
+                "mad": 236,
+                "min": 11568,
+                "max": 14848
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 467866699,
+                  "cpu_ns": 3210773000,
+                  "rss_kb": 13432,
+                  "rusage_rss_kb": 13432,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 467953311,
+                  "cpu_ns": 3141417000,
+                  "rss_kb": 16756,
+                  "rusage_rss_kb": 16756,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 479340287,
+                  "cpu_ns": 3260370000,
+                  "rss_kb": 12960,
+                  "rusage_rss_kb": 12960,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 444885669,
+                  "cpu_ns": 3017941000,
+                  "rss_kb": 12792,
+                  "rusage_rss_kb": 12792,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 446076919,
+                  "cpu_ns": 3075796000,
+                  "rss_kb": 12644,
+                  "rusage_rss_kb": 12644,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 467866699,
+                "mad": 11473588,
+                "min": 444885669,
+                "max": 479340287
+              },
+              "cpu": {
+                "n": 5,
+                "median": 3141417000,
+                "mad": 69356000,
+                "min": 3017941000,
+                "max": 3260370000
+              },
+              "rss": {
+                "n": 5,
+                "median": 12960,
+                "mad": 316,
+                "min": 12644,
+                "max": 16756
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 432429165,
+                  "cpu_ns": 5613841000,
+                  "rss_kb": 26528,
+                  "rusage_rss_kb": 26528,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 444983513,
+                  "cpu_ns": 5807078000,
+                  "rss_kb": 24796,
+                  "rusage_rss_kb": 24796,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 453168642,
+                  "cpu_ns": 5897524000,
+                  "rss_kb": 27284,
+                  "rusage_rss_kb": 27284,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 452764757,
+                  "cpu_ns": 5889778000,
+                  "rss_kb": 28464,
+                  "rusage_rss_kb": 28464,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 447267495,
+                  "cpu_ns": 5674872000,
+                  "rss_kb": 22832,
+                  "rusage_rss_kb": 22832,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 447267495,
+                "mad": 5497262,
+                "min": 432429165,
+                "max": 453168642
+              },
+              "cpu": {
+                "n": 5,
+                "median": 5807078000,
+                "mad": 90446000,
+                "min": 5613841000,
+                "max": 5897524000
+              },
+              "rss": {
+                "n": 5,
+                "median": 26528,
+                "mad": 1732,
+                "min": 22832,
+                "max": 28464
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 426775066,
+                  "cpu_ns": 9707250000,
+                  "rss_kb": 48212,
+                  "rusage_rss_kb": 48212,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 445488980,
+                  "cpu_ns": 10133346000,
+                  "rss_kb": 49704,
+                  "rusage_rss_kb": 49704,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 434438071,
+                  "cpu_ns": 10085874000,
+                  "rss_kb": 50192,
+                  "rusage_rss_kb": 50192,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 437239256,
+                  "cpu_ns": 10252918000,
+                  "rss_kb": 47700,
+                  "rusage_rss_kb": 47700,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 437936404,
+                  "cpu_ns": 10138724000,
+                  "rss_kb": 48244,
+                  "rusage_rss_kb": 48244,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 437239256,
+                "mad": 2801185,
+                "min": 426775066,
+                "max": 445488980
+              },
+              "cpu": {
+                "n": 5,
+                "median": 10133346000,
+                "mad": 47472000,
+                "min": 9707250000,
+                "max": 10252918000
+              },
+              "rss": {
+                "n": 5,
+                "median": 48244,
+                "mad": 544,
+                "min": 47700,
+                "max": 50192
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 453673090,
+                  "cpu_ns": 18305507000,
+                  "rss_kb": 95412,
+                  "rusage_rss_kb": 95412,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 444227412,
+                  "cpu_ns": 18649280000,
+                  "rss_kb": 93608,
+                  "rusage_rss_kb": 93608,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 449000186,
+                  "cpu_ns": 18799328000,
+                  "rss_kb": 85124,
+                  "rusage_rss_kb": 85124,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 442280701,
+                  "cpu_ns": 18493824000,
+                  "rss_kb": 93400,
+                  "rusage_rss_kb": 93400,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 440248842,
+                  "cpu_ns": 17760662000,
+                  "rss_kb": 93240,
+                  "rusage_rss_kb": 93240,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 444227412,
+                "mad": 3978570,
+                "min": 440248842,
+                "max": 453673090
+              },
+              "cpu": {
+                "n": 5,
+                "median": 18493824000,
+                "mad": 188317000,
+                "min": 17760662000,
+                "max": 18799328000
+              },
+              "rss": {
+                "n": 5,
+                "median": 93400,
+                "mad": 208,
+                "min": 85124,
+                "max": 95412
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "arc",
+          "status": "ok",
+          "build_command": "gocpp build -o prog .",
+          "build_ms": 13183,
+          "bin_size": 28517552,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 7958997735,
+                  "cpu_ns": 7912218000,
+                  "rss_kb": 10824,
+                  "rusage_rss_kb": 10824,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 6890974068,
+                  "cpu_ns": 6861130000,
+                  "rss_kb": 13760,
+                  "rusage_rss_kb": 10856,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 6594644655,
+                  "cpu_ns": 6563020000,
+                  "rss_kb": 13732,
+                  "rusage_rss_kb": 10860,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 6969611178,
+                  "cpu_ns": 6938275000,
+                  "rss_kb": 13764,
+                  "rusage_rss_kb": 10856,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 7114361698,
+                  "cpu_ns": 7081619000,
+                  "rss_kb": 13784,
+                  "rusage_rss_kb": 10812,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 6969611178,
+                "mad": 144750520,
+                "min": 6594644655,
+                "max": 7958997735
+              },
+              "cpu": {
+                "n": 5,
+                "median": 6938275000,
+                "mad": 143344000,
+                "min": 6563020000,
+                "max": 7912218000
+              },
+              "rss": {
+                "n": 5,
+                "median": 13760,
+                "mad": 24,
+                "min": 10824,
+                "max": 13784
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 3854550179,
+                  "cpu_ns": 6809636000,
+                  "rss_kb": 15464,
+                  "rusage_rss_kb": 15464,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3758576375,
+                  "cpu_ns": 6847650000,
+                  "rss_kb": 15464,
+                  "rusage_rss_kb": 15464,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 4488260740,
+                  "cpu_ns": 7868333000,
+                  "rss_kb": 15436,
+                  "rusage_rss_kb": 15436,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 4260058829,
+                  "cpu_ns": 7458510000,
+                  "rss_kb": 15412,
+                  "rusage_rss_kb": 15412,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 4653536508,
+                  "cpu_ns": 7928332000,
+                  "rss_kb": 15432,
+                  "rusage_rss_kb": 15432,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 4260058829,
+                "mad": 393477679,
+                "min": 3758576375,
+                "max": 4653536508
+              },
+              "cpu": {
+                "n": 5,
+                "median": 7458510000,
+                "mad": 469822000,
+                "min": 6809636000,
+                "max": 7928332000
+              },
+              "rss": {
+                "n": 5,
+                "median": 15436,
+                "mad": 24,
+                "min": 15412,
+                "max": 15464
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 2813992779,
+                  "cpu_ns": 8020761000,
+                  "rss_kb": 12320,
+                  "rusage_rss_kb": 12320,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2420230893,
+                  "cpu_ns": 7298602000,
+                  "rss_kb": 15436,
+                  "rusage_rss_kb": 15436,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3309459387,
+                  "cpu_ns": 8472507000,
+                  "rss_kb": 15456,
+                  "rusage_rss_kb": 15456,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2973126600,
+                  "cpu_ns": 8253679000,
+                  "rss_kb": 15452,
+                  "rusage_rss_kb": 15452,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2423759292,
+                  "cpu_ns": 7354449000,
+                  "rss_kb": 15444,
+                  "rusage_rss_kb": 15444,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 2813992779,
+                "mad": 390233487,
+                "min": 2420230893,
+                "max": 3309459387
+              },
+              "cpu": {
+                "n": 5,
+                "median": 8020761000,
+                "mad": 451746000,
+                "min": 7298602000,
+                "max": 8472507000
+              },
+              "rss": {
+                "n": 5,
+                "median": 15444,
+                "mad": 8,
+                "min": 12320,
+                "max": 15456
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 1473806988,
+                  "cpu_ns": 8252282000,
+                  "rss_kb": 23140,
+                  "rusage_rss_kb": 23140,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1523618481,
+                  "cpu_ns": 8349047000,
+                  "rss_kb": 23112,
+                  "rusage_rss_kb": 23112,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1419799713,
+                  "cpu_ns": 7846391000,
+                  "rss_kb": 23152,
+                  "rusage_rss_kb": 23152,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1334039401,
+                  "cpu_ns": 7640406000,
+                  "rss_kb": 23144,
+                  "rusage_rss_kb": 23144,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1363126652,
+                  "cpu_ns": 7692766000,
+                  "rss_kb": 23144,
+                  "rusage_rss_kb": 23144,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 1419799713,
+                "mad": 56673061,
+                "min": 1334039401,
+                "max": 1523618481
+              },
+              "cpu": {
+                "n": 5,
+                "median": 7846391000,
+                "mad": 205985000,
+                "min": 7640406000,
+                "max": 8349047000
+              },
+              "rss": {
+                "n": 5,
+                "median": 23144,
+                "mad": 4,
+                "min": 23112,
+                "max": 23152
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 649431090,
+                  "cpu_ns": 7665232000,
+                  "rss_kb": 40036,
+                  "rusage_rss_kb": 40036,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 641224242,
+                  "cpu_ns": 7589069000,
+                  "rss_kb": 40012,
+                  "rusage_rss_kb": 40012,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 630987508,
+                  "cpu_ns": 7566216000,
+                  "rss_kb": 38496,
+                  "rusage_rss_kb": 38496,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 702867083,
+                  "cpu_ns": 7645895000,
+                  "rss_kb": 38508,
+                  "rusage_rss_kb": 38508,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 641739513,
+                  "cpu_ns": 7557995000,
+                  "rss_kb": 36960,
+                  "rusage_rss_kb": 36960,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 641739513,
+                "mad": 7691577,
+                "min": 630987508,
+                "max": 702867083
+              },
+              "cpu": {
+                "n": 5,
+                "median": 7589069000,
+                "mad": 31074000,
+                "min": 7557995000,
+                "max": 7665232000
+              },
+              "rss": {
+                "n": 5,
+                "median": 38508,
+                "mad": 1504,
+                "min": 36960,
+                "max": 40036
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 374995004,
+                  "cpu_ns": 8556491000,
+                  "rss_kb": 72272,
+                  "rusage_rss_kb": 72272,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 367118952,
+                  "cpu_ns": 8408969000,
+                  "rss_kb": 67672,
+                  "rusage_rss_kb": 67672,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 385347897,
+                  "cpu_ns": 8477447000,
+                  "rss_kb": 70760,
+                  "rusage_rss_kb": 70760,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 377920559,
+                  "cpu_ns": 8283884000,
+                  "rss_kb": 72272,
+                  "rusage_rss_kb": 72272,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 408613846,
+                  "cpu_ns": 8561152000,
+                  "rss_kb": 70764,
+                  "rusage_rss_kb": 70764,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 377920559,
+                "mad": 7427338,
+                "min": 367118952,
+                "max": 408613846
+              },
+              "cpu": {
+                "n": 5,
+                "median": 8477447000,
+                "mad": 79044000,
+                "min": 8283884000,
+                "max": 8561152000
+              },
+              "rss": {
+                "n": 5,
+                "median": 70764,
+                "mad": 1508,
+                "min": 67672,
+                "max": 72272
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "checksum 34847678",
+              "samples": [
+                {
+                  "wall_ns": 280556129,
+                  "cpu_ns": 10278308000,
+                  "rss_kb": 132192,
+                  "rusage_rss_kb": 132192,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 273226767,
+                  "cpu_ns": 9628549000,
+                  "rss_kb": 129132,
+                  "rusage_rss_kb": 129132,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 251022524,
+                  "cpu_ns": 9335443000,
+                  "rss_kb": 132184,
+                  "rusage_rss_kb": 132184,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 245373945,
+                  "cpu_ns": 9523304000,
+                  "rss_kb": 129116,
+                  "rusage_rss_kb": 129116,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 242549846,
+                  "cpu_ns": 9183831000,
+                  "rss_kb": 133736,
+                  "rusage_rss_kb": 133736,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 251022524,
+                "mad": 8472678,
+                "min": 242549846,
+                "max": 280556129
+              },
+              "cpu": {
+                "n": 5,
+                "median": 9523304000,
+                "mad": 187861000,
+                "min": 9183831000,
+                "max": 10278308000
+              },
+              "rss": {
+                "n": 5,
+                "median": 132184,
+                "mad": 1552,
+                "min": 129116,
+                "max": 133736
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "gc",
+          "status": "not-available",
+          "note": "not available yet (16.1d/16.1f): flag provided but not defined: -gc-engine",
+          "build_command": "gocpp build -gc-engine -o prog .",
+          "build_ms": 0,
+          "bin_size": 0
+        }
+      ]
+    },
+    {
+      "name": "parks",
+      "about": "park and wake goroutines on channels, on select and in Sleep (blocking sections)",
+      "path": "bench/gc/parks",
+      "flavors": [
+        {
+          "flavor": "go",
+          "status": "ok",
+          "build_command": "go build -o prog .",
+          "build_ms": 93,
+          "bin_size": 1945392,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "ops 200",
+              "samples": [
+                {
+                  "wall_ns": 212420866,
+                  "cpu_ns": 1893000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 212075729,
+                  "cpu_ns": 1908000,
+                  "rss_kb": 3460,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 212460807,
+                  "cpu_ns": 1774000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 212499956,
+                  "cpu_ns": 1931000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 212580988,
+                  "cpu_ns": 2067000,
+                  "rss_kb": 3460,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 212460807,
+                "mad": 39941,
+                "min": 212075729,
+                "max": 212580988
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1908000,
+                "mad": 23000,
+                "min": 1774000,
+                "max": 2067000
+              },
+              "rss": {
+                "n": 5,
+                "median": 3456,
+                "mad": 0,
+                "min": 3456,
+                "max": 3460
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "ops 160400",
+              "samples": [
+                {
+                  "wall_ns": 220523421,
+                  "cpu_ns": 12822000,
+                  "rss_kb": 3524,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 221544013,
+                  "cpu_ns": 12279000,
+                  "rss_kb": 3524,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 221269782,
+                  "cpu_ns": 13308000,
+                  "rss_kb": 3528,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 221083473,
+                  "cpu_ns": 11828000,
+                  "rss_kb": 3532,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 220683472,
+                  "cpu_ns": 10796000,
+                  "rss_kb": 3528,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 221083473,
+                "mad": 400001,
+                "min": 220523421,
+                "max": 221544013
+              },
+              "cpu": {
+                "n": 5,
+                "median": 12279000,
+                "mad": 543000,
+                "min": 10796000,
+                "max": 13308000
+              },
+              "rss": {
+                "n": 5,
+                "median": 3528,
+                "mad": 4,
+                "min": 3524,
+                "max": 3532
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "ops 320800",
+              "samples": [
+                {
+                  "wall_ns": 225444550,
+                  "cpu_ns": 29353000,
+                  "rss_kb": 5588,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 228066677,
+                  "cpu_ns": 32641000,
+                  "rss_kb": 5588,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 228694940,
+                  "cpu_ns": 34849000,
+                  "rss_kb": 5592,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 227552636,
+                  "cpu_ns": 31931000,
+                  "rss_kb": 3540,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 225624151,
+                  "cpu_ns": 29233000,
+                  "rss_kb": 5592,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 227552636,
+                "mad": 1142304,
+                "min": 225444550,
+                "max": 228694940
+              },
+              "cpu": {
+                "n": 5,
+                "median": 31931000,
+                "mad": 2578000,
+                "min": 29233000,
+                "max": 34849000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5588,
+                "mad": 4,
+                "min": 3540,
+                "max": 5592
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "ops 641600",
+              "samples": [
+                {
+                  "wall_ns": 242344392,
+                  "cpu_ns": 99685000,
+                  "rss_kb": 5628,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 236364815,
+                  "cpu_ns": 77066000,
+                  "rss_kb": 5628,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 238925290,
+                  "cpu_ns": 87444000,
+                  "rss_kb": 5636,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 236927361,
+                  "cpu_ns": 77856000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 244068912,
+                  "cpu_ns": 96588000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 238925290,
+                "mad": 2560475,
+                "min": 236364815,
+                "max": 244068912
+              },
+              "cpu": {
+                "n": 5,
+                "median": 87444000,
+                "mad": 9588000,
+                "min": 77066000,
+                "max": 99685000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5628,
+                "mad": 4,
+                "min": 5624,
+                "max": 5636
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "ops 1283200",
+              "samples": [
+                {
+                  "wall_ns": 245649145,
+                  "cpu_ns": 208266000,
+                  "rss_kb": 7716,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 244370196,
+                  "cpu_ns": 183166000,
+                  "rss_kb": 9776,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 249339695,
+                  "cpu_ns": 228951000,
+                  "rss_kb": 7724,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 250629162,
+                  "cpu_ns": 233830000,
+                  "rss_kb": 7712,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 249617694,
+                  "cpu_ns": 243385000,
+                  "rss_kb": 7724,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 249339695,
+                "mad": 1289467,
+                "min": 244370196,
+                "max": 250629162
+              },
+              "cpu": {
+                "n": 5,
+                "median": 228951000,
+                "mad": 14434000,
+                "min": 183166000,
+                "max": 243385000
+              },
+              "rss": {
+                "n": 5,
+                "median": 7724,
+                "mad": 8,
+                "min": 7712,
+                "max": 9776
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "ops 2566400",
+              "samples": [
+                {
+                  "wall_ns": 247728869,
+                  "cpu_ns": 433548000,
+                  "rss_kb": 11888,
+                  "rusage_rss_kb": 10452,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 249900990,
+                  "cpu_ns": 492175000,
+                  "rss_kb": 11872,
+                  "rusage_rss_kb": 10448,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 250777828,
+                  "cpu_ns": 474198000,
+                  "rss_kb": 11888,
+                  "rusage_rss_kb": 10444,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 251824138,
+                  "cpu_ns": 500222000,
+                  "rss_kb": 12504,
+                  "rusage_rss_kb": 12504,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 253441117,
+                  "cpu_ns": 523239000,
+                  "rss_kb": 11884,
+                  "rusage_rss_kb": 10452,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 250777828,
+                "mad": 1046310,
+                "min": 247728869,
+                "max": 253441117
+              },
+              "cpu": {
+                "n": 5,
+                "median": 492175000,
+                "mad": 17977000,
+                "min": 433548000,
+                "max": 523239000
+              },
+              "rss": {
+                "n": 5,
+                "median": 11888,
+                "mad": 4,
+                "min": 11872,
+                "max": 12504
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "ops 5132800",
+              "samples": [
+                {
+                  "wall_ns": 259725070,
+                  "cpu_ns": 1110399000,
+                  "rss_kb": 18660,
+                  "rusage_rss_kb": 18660,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 262145956,
+                  "cpu_ns": 1123072000,
+                  "rss_kb": 18664,
+                  "rusage_rss_kb": 18664,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 259010209,
+                  "cpu_ns": 1139067000,
+                  "rss_kb": 18668,
+                  "rusage_rss_kb": 18668,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 261240428,
+                  "cpu_ns": 1050489000,
+                  "rss_kb": 20736,
+                  "rusage_rss_kb": 20736,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 260896001,
+                  "cpu_ns": 1117280000,
+                  "rss_kb": 20716,
+                  "rusage_rss_kb": 20716,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 260896001,
+                "mad": 1170931,
+                "min": 259010209,
+                "max": 262145956
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1117280000,
+                "mad": 6881000,
+                "min": 1050489000,
+                "max": 1139067000
+              },
+              "rss": {
+                "n": 5,
+                "median": 18668,
+                "mad": 8,
+                "min": 18660,
+                "max": 20736
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "arc",
+          "status": "ok",
+          "build_command": "gocpp build -o prog .",
+          "build_ms": 2414,
+          "bin_size": 28428624,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "ops 200",
+              "samples": [
+                {
+                  "wall_ns": 31841721,
+                  "cpu_ns": 1875000,
+                  "rss_kb": 5644,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 32452127,
+                  "cpu_ns": 2243000,
+                  "rss_kb": 5648,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 32199889,
+                  "cpu_ns": 2217000,
+                  "rss_kb": 5644,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 32407180,
+                  "cpu_ns": 2252000,
+                  "rss_kb": 5648,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 32695172,
+                  "cpu_ns": 2443000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 32407180,
+                "mad": 207291,
+                "min": 31841721,
+                "max": 32695172
+              },
+              "cpu": {
+                "n": 5,
+                "median": 2243000,
+                "mad": 26000,
+                "min": 1875000,
+                "max": 2443000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5644,
+                "mad": 4,
+                "min": 5624,
+                "max": 5648
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "ops 160400",
+              "samples": [
+                {
+                  "wall_ns": 62574327,
+                  "cpu_ns": 62435000,
+                  "rss_kb": 5792,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 83257397,
+                  "cpu_ns": 94627000,
+                  "rss_kb": 5796,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 183237748,
+                  "cpu_ns": 262175000,
+                  "rss_kb": 5860,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 201574285,
+                  "cpu_ns": 284084000,
+                  "rss_kb": 5856,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 218169349,
+                  "cpu_ns": 298729000,
+                  "rss_kb": 5836,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 183237748,
+                "mad": 34931601,
+                "min": 62574327,
+                "max": 218169349
+              },
+              "cpu": {
+                "n": 5,
+                "median": 262175000,
+                "mad": 36554000,
+                "min": 62435000,
+                "max": 298729000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5836,
+                "mad": 24,
+                "min": 5792,
+                "max": 5860
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "ops 320800",
+              "samples": [
+                {
+                  "wall_ns": 199965331,
+                  "cpu_ns": 538907000,
+                  "rss_kb": 5888,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 192297900,
+                  "cpu_ns": 341420000,
+                  "rss_kb": 5836,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 56085606,
+                  "cpu_ns": 96693000,
+                  "rss_kb": 5900,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 221006198,
+                  "cpu_ns": 373624000,
+                  "rss_kb": 5892,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 197849275,
+                  "cpu_ns": 540569000,
+                  "rss_kb": 5944,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 197849275,
+                "mad": 5551375,
+                "min": 56085606,
+                "max": 221006198
+              },
+              "cpu": {
+                "n": 5,
+                "median": 373624000,
+                "mad": 165283000,
+                "min": 96693000,
+                "max": 540569000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5892,
+                "mad": 8,
+                "min": 5836,
+                "max": 5944
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "ops 641600",
+              "samples": [
+                {
+                  "wall_ns": 200359734,
+                  "cpu_ns": 1023232000,
+                  "rss_kb": 5936,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 209155058,
+                  "cpu_ns": 1026925000,
+                  "rss_kb": 5932,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 207110940,
+                  "cpu_ns": 744232000,
+                  "rss_kb": 5952,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 219042561,
+                  "cpu_ns": 1030105000,
+                  "rss_kb": 5892,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 196129725,
+                  "cpu_ns": 884619000,
+                  "rss_kb": 5952,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 207110940,
+                "mad": 6751206,
+                "min": 196129725,
+                "max": 219042561
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1023232000,
+                "mad": 6873000,
+                "min": 744232000,
+                "max": 1030105000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5936,
+                "mad": 16,
+                "min": 5892,
+                "max": 5952
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "ops 1283200",
+              "samples": [
+                {
+                  "wall_ns": 253253061,
+                  "cpu_ns": 2570667000,
+                  "rss_kb": 6036,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 225688360,
+                  "cpu_ns": 2383694000,
+                  "rss_kb": 6036,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 252774152,
+                  "cpu_ns": 2636587000,
+                  "rss_kb": 6096,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 211561963,
+                  "cpu_ns": 2275554000,
+                  "rss_kb": 6040,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 209580409,
+                  "cpu_ns": 2057134000,
+                  "rss_kb": 6108,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 225688360,
+                "mad": 16107951,
+                "min": 209580409,
+                "max": 253253061
+              },
+              "cpu": {
+                "n": 5,
+                "median": 2383694000,
+                "mad": 186973000,
+                "min": 2057134000,
+                "max": 2636587000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6040,
+                "mad": 4,
+                "min": 6036,
+                "max": 6108
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "ops 2566400",
+              "samples": [
+                {
+                  "wall_ns": 331653010,
+                  "cpu_ns": 7097157000,
+                  "rss_kb": 6304,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 342927926,
+                  "cpu_ns": 7124492000,
+                  "rss_kb": 6380,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 336322511,
+                  "cpu_ns": 7090869000,
+                  "rss_kb": 6372,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 349205121,
+                  "cpu_ns": 7378955000,
+                  "rss_kb": 6372,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 341929388,
+                  "cpu_ns": 7012567000,
+                  "rss_kb": 6380,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 341929388,
+                "mad": 5606877,
+                "min": 331653010,
+                "max": 349205121
+              },
+              "cpu": {
+                "n": 5,
+                "median": 7097157000,
+                "mad": 27335000,
+                "min": 7012567000,
+                "max": 7378955000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6372,
+                "mad": 8,
+                "min": 6304,
+                "max": 6380
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "ops 5132800",
+              "samples": [
+                {
+                  "wall_ns": 437344832,
+                  "cpu_ns": 19073667000,
+                  "rss_kb": 6860,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 441261903,
+                  "cpu_ns": 19576904000,
+                  "rss_kb": 6984,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 434559362,
+                  "cpu_ns": 19377091000,
+                  "rss_kb": 6924,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 438510464,
+                  "cpu_ns": 18501334000,
+                  "rss_kb": 6900,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 441752973,
+                  "cpu_ns": 19171804000,
+                  "rss_kb": 6932,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 438510464,
+                "mad": 2751439,
+                "min": 434559362,
+                "max": 441752973
+              },
+              "cpu": {
+                "n": 5,
+                "median": 19171804000,
+                "mad": 205287000,
+                "min": 18501334000,
+                "max": 19576904000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6924,
+                "mad": 24,
+                "min": 6860,
+                "max": 6984
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "gc",
+          "status": "not-available",
+          "note": "not available yet (16.1d/16.1f): flag provided but not defined: -gc-engine",
+          "build_command": "gocpp build -gc-engine -o prog .",
+          "build_ms": 0,
+          "bin_size": 0
+        }
+      ]
+    },
+    {
+      "name": "syscalls",
+      "about": "os.Getpid and time.Now in a loop (the syscalls of the runtime's time path)",
+      "path": "bench/gc/syscalls",
+      "flavors": [
+        {
+          "flavor": "go",
+          "status": "ok",
+          "build_command": "go build -o prog .",
+          "build_ms": 95,
+          "bin_size": 1943815,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "ops 1000000",
+              "samples": [
+                {
+                  "wall_ns": 44598504,
+                  "cpu_ns": 44256000,
+                  "rss_kb": 3452,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 42900084,
+                  "cpu_ns": 42614000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 42795827,
+                  "cpu_ns": 42440000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 41351850,
+                  "cpu_ns": 41102000,
+                  "rss_kb": 3452,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 41465621,
+                  "cpu_ns": 41206000,
+                  "rss_kb": 3456,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 42795827,
+                "mad": 1330206,
+                "min": 41351850,
+                "max": 44598504
+              },
+              "cpu": {
+                "n": 5,
+                "median": 42440000,
+                "mad": 1234000,
+                "min": 41102000,
+                "max": 44256000
+              },
+              "rss": {
+                "n": 5,
+                "median": 3456,
+                "mad": 0,
+                "min": 3452,
+                "max": 3456
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "ops 2000000",
+              "samples": [
+                {
+                  "wall_ns": 41641204,
+                  "cpu_ns": 80975000,
+                  "rss_kb": 3528,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 45603342,
+                  "cpu_ns": 89142000,
+                  "rss_kb": 3528,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 46946338,
+                  "cpu_ns": 91774000,
+                  "rss_kb": 3524,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 42053253,
+                  "cpu_ns": 81644000,
+                  "rss_kb": 3524,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 44479005,
+                  "cpu_ns": 85219000,
+                  "rss_kb": 3520,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 44479005,
+                "mad": 2425752,
+                "min": 41641204,
+                "max": 46946338
+              },
+              "cpu": {
+                "n": 5,
+                "median": 85219000,
+                "mad": 3923000,
+                "min": 80975000,
+                "max": 91774000
+              },
+              "rss": {
+                "n": 5,
+                "median": 3524,
+                "mad": 4,
+                "min": 3520,
+                "max": 3528
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "ops 4000000",
+              "samples": [
+                {
+                  "wall_ns": 44957323,
+                  "cpu_ns": 175108000,
+                  "rss_kb": 3532,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 43905363,
+                  "cpu_ns": 170065000,
+                  "rss_kb": 3528,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 40677007,
+                  "cpu_ns": 156903000,
+                  "rss_kb": 3524,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 44719656,
+                  "cpu_ns": 172294000,
+                  "rss_kb": 3544,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 43804041,
+                  "cpu_ns": 165762000,
+                  "rss_kb": 3536,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 43905363,
+                "mad": 814293,
+                "min": 40677007,
+                "max": 44957323
+              },
+              "cpu": {
+                "n": 5,
+                "median": 170065000,
+                "mad": 4303000,
+                "min": 156903000,
+                "max": 175108000
+              },
+              "rss": {
+                "n": 5,
+                "median": 3532,
+                "mad": 4,
+                "min": 3524,
+                "max": 3544
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "ops 8000000",
+              "samples": [
+                {
+                  "wall_ns": 43662199,
+                  "cpu_ns": 327854000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 41861506,
+                  "cpu_ns": 314944000,
+                  "rss_kb": 5620,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 42679654,
+                  "cpu_ns": 326087000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 41418300,
+                  "cpu_ns": 314762000,
+                  "rss_kb": 5620,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 42392163,
+                  "cpu_ns": 312154000,
+                  "rss_kb": 5624,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 42392163,
+                "mad": 530657,
+                "min": 41418300,
+                "max": 43662199
+              },
+              "cpu": {
+                "n": 5,
+                "median": 314944000,
+                "mad": 2790000,
+                "min": 312154000,
+                "max": 327854000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5624,
+                "mad": 0,
+                "min": 5620,
+                "max": 5624
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "ops 16000000",
+              "samples": [
+                {
+                  "wall_ns": 54022173,
+                  "cpu_ns": 757607000,
+                  "rss_kb": 9772,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 53472799,
+                  "cpu_ns": 769443000,
+                  "rss_kb": 9780,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 59440899,
+                  "cpu_ns": 819159000,
+                  "rss_kb": 9776,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 62931209,
+                  "cpu_ns": 821344000,
+                  "rss_kb": 9768,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 51860007,
+                  "cpu_ns": 716152000,
+                  "rss_kb": 9780,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 54022173,
+                "mad": 2162166,
+                "min": 51860007,
+                "max": 62931209
+              },
+              "cpu": {
+                "n": 5,
+                "median": 769443000,
+                "mad": 49716000,
+                "min": 716152000,
+                "max": 821344000
+              },
+              "rss": {
+                "n": 5,
+                "median": 9776,
+                "mad": 4,
+                "min": 9768,
+                "max": 9780
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "ops 32000000",
+              "samples": [
+                {
+                  "wall_ns": 55986994,
+                  "cpu_ns": 1537369000,
+                  "rss_kb": 16624,
+                  "rusage_rss_kb": 16624,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 55480254,
+                  "cpu_ns": 1522993000,
+                  "rss_kb": 18664,
+                  "rusage_rss_kb": 18664,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 49878263,
+                  "cpu_ns": 1364147000,
+                  "rss_kb": 16612,
+                  "rusage_rss_kb": 16612,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 52872579,
+                  "cpu_ns": 1435862000,
+                  "rss_kb": 16612,
+                  "rusage_rss_kb": 16612,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 58219277,
+                  "cpu_ns": 1602744000,
+                  "rss_kb": 16624,
+                  "rusage_rss_kb": 16624,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 55480254,
+                "mad": 2607675,
+                "min": 49878263,
+                "max": 58219277
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1522993000,
+                "mad": 79751000,
+                "min": 1364147000,
+                "max": 1602744000
+              },
+              "rss": {
+                "n": 5,
+                "median": 16624,
+                "mad": 12,
+                "min": 16612,
+                "max": 18664
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "ops 64000000",
+              "samples": [
+                {
+                  "wall_ns": 61658091,
+                  "cpu_ns": 3046341000,
+                  "rss_kb": 33068,
+                  "rusage_rss_kb": 33068,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 65978418,
+                  "cpu_ns": 3266395000,
+                  "rss_kb": 33072,
+                  "rusage_rss_kb": 33072,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 68581547,
+                  "cpu_ns": 3646656000,
+                  "rss_kb": 35256,
+                  "rusage_rss_kb": 35256,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 65950958,
+                  "cpu_ns": 3398563000,
+                  "rss_kb": 33064,
+                  "rusage_rss_kb": 33064,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 58995816,
+                  "cpu_ns": 3019434000,
+                  "rss_kb": 33064,
+                  "rusage_rss_kb": 33064,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 65950958,
+                "mad": 2630589,
+                "min": 58995816,
+                "max": 68581547
+              },
+              "cpu": {
+                "n": 5,
+                "median": 3266395000,
+                "mad": 220054000,
+                "min": 3019434000,
+                "max": 3646656000
+              },
+              "rss": {
+                "n": 5,
+                "median": 33068,
+                "mad": 4,
+                "min": 33064,
+                "max": 35256
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "arc",
+          "status": "ok",
+          "build_command": "gocpp build -o prog .",
+          "build_ms": 2333,
+          "bin_size": 28320104,
+          "runs": [
+            {
+              "threads": 1,
+              "status": "ok",
+              "output": "ops 1000000",
+              "samples": [
+                {
+                  "wall_ns": 151848924,
+                  "cpu_ns": 150127000,
+                  "rss_kb": 5648,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 144982025,
+                  "cpu_ns": 143940000,
+                  "rss_kb": 5656,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 154124220,
+                  "cpu_ns": 152985000,
+                  "rss_kb": 5664,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 147752504,
+                  "cpu_ns": 146728000,
+                  "rss_kb": 5648,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 153963348,
+                  "cpu_ns": 152924000,
+                  "rss_kb": 5628,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 151848924,
+                "mad": 2275296,
+                "min": 144982025,
+                "max": 154124220
+              },
+              "cpu": {
+                "n": 5,
+                "median": 150127000,
+                "mad": 2858000,
+                "min": 143940000,
+                "max": 152985000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5648,
+                "mad": 8,
+                "min": 5628,
+                "max": 5664
+              }
+            },
+            {
+              "threads": 2,
+              "status": "ok",
+              "output": "ops 2000000",
+              "samples": [
+                {
+                  "wall_ns": 187079584,
+                  "cpu_ns": 348063000,
+                  "rss_kb": 5800,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 291717844,
+                  "cpu_ns": 573037000,
+                  "rss_kb": 5860,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 291726527,
+                  "cpu_ns": 570788000,
+                  "rss_kb": 5816,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 290324533,
+                  "cpu_ns": 571534000,
+                  "rss_kb": 5824,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 282150021,
+                  "cpu_ns": 556380000,
+                  "rss_kb": 5812,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 290324533,
+                "mad": 1401994,
+                "min": 187079584,
+                "max": 291726527
+              },
+              "cpu": {
+                "n": 5,
+                "median": 570788000,
+                "mad": 2249000,
+                "min": 348063000,
+                "max": 573037000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5816,
+                "mad": 8,
+                "min": 5800,
+                "max": 5860
+              }
+            },
+            {
+              "threads": 4,
+              "status": "ok",
+              "output": "ops 4000000",
+              "samples": [
+                {
+                  "wall_ns": 426109582,
+                  "cpu_ns": 1671405000,
+                  "rss_kb": 5924,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 434611277,
+                  "cpu_ns": 1688507000,
+                  "rss_kb": 5868,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 313648700,
+                  "cpu_ns": 1230368000,
+                  "rss_kb": 5852,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 416146026,
+                  "cpu_ns": 1622328000,
+                  "rss_kb": 5928,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 539806104,
+                  "cpu_ns": 2123705000,
+                  "rss_kb": 5932,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 426109582,
+                "mad": 9963556,
+                "min": 313648700,
+                "max": 539806104
+              },
+              "cpu": {
+                "n": 5,
+                "median": 1671405000,
+                "mad": 49077000,
+                "min": 1230368000,
+                "max": 2123705000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5924,
+                "mad": 8,
+                "min": 5852,
+                "max": 5932
+              }
+            },
+            {
+              "threads": 8,
+              "status": "ok",
+              "output": "ops 8000000",
+              "samples": [
+                {
+                  "wall_ns": 782971523,
+                  "cpu_ns": 6025493000,
+                  "rss_kb": 5996,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 737049554,
+                  "cpu_ns": 5677737000,
+                  "rss_kb": 5972,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 888617010,
+                  "cpu_ns": 6926537000,
+                  "rss_kb": 6008,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 743790817,
+                  "cpu_ns": 5753243000,
+                  "rss_kb": 5936,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 633813913,
+                  "cpu_ns": 4924582000,
+                  "rss_kb": 6000,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 743790817,
+                "mad": 39180706,
+                "min": 633813913,
+                "max": 888617010
+              },
+              "cpu": {
+                "n": 5,
+                "median": 5753243000,
+                "mad": 272250000,
+                "min": 4924582000,
+                "max": 6926537000
+              },
+              "rss": {
+                "n": 5,
+                "median": 5996,
+                "mad": 12,
+                "min": 5936,
+                "max": 6008
+              }
+            },
+            {
+              "threads": 16,
+              "status": "ok",
+              "output": "ops 16000000",
+              "samples": [
+                {
+                  "wall_ns": 1797372355,
+                  "cpu_ns": 26950441000,
+                  "rss_kb": 6120,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2070568121,
+                  "cpu_ns": 30988036000,
+                  "rss_kb": 6080,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1901695914,
+                  "cpu_ns": 28166485000,
+                  "rss_kb": 6076,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1664897267,
+                  "cpu_ns": 24911856000,
+                  "rss_kb": 6144,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 1419043922,
+                  "cpu_ns": 21459996000,
+                  "rss_kb": 6140,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 1797372355,
+                "mad": 132475088,
+                "min": 1419043922,
+                "max": 2070568121
+              },
+              "cpu": {
+                "n": 5,
+                "median": 26950441000,
+                "mad": 2038585000,
+                "min": 21459996000,
+                "max": 30988036000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6120,
+                "mad": 24,
+                "min": 6076,
+                "max": 6144
+              }
+            },
+            {
+              "threads": 32,
+              "status": "ok",
+              "output": "ops 32000000",
+              "samples": [
+                {
+                  "wall_ns": 2314704920,
+                  "cpu_ns": 70586748000,
+                  "rss_kb": 6404,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2224097132,
+                  "cpu_ns": 67427854000,
+                  "rss_kb": 6384,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2363372594,
+                  "cpu_ns": 71526311000,
+                  "rss_kb": 6404,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2365697669,
+                  "cpu_ns": 71961653000,
+                  "rss_kb": 6404,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 2252619975,
+                  "cpu_ns": 68275934000,
+                  "rss_kb": 6396,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 2314704920,
+                "mad": 50992749,
+                "min": 2224097132,
+                "max": 2365697669
+              },
+              "cpu": {
+                "n": 5,
+                "median": 70586748000,
+                "mad": 1374905000,
+                "min": 67427854000,
+                "max": 71961653000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6404,
+                "mad": 0,
+                "min": 6384,
+                "max": 6404
+              }
+            },
+            {
+              "threads": 64,
+              "status": "ok",
+              "output": "ops 64000000",
+              "samples": [
+                {
+                  "wall_ns": 3448721018,
+                  "cpu_ns": 208816036000,
+                  "rss_kb": 6892,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3946270405,
+                  "cpu_ns": 230257288000,
+                  "rss_kb": 6920,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3725825331,
+                  "cpu_ns": 220633622000,
+                  "rss_kb": 6892,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3442089307,
+                  "cpu_ns": 205322333000,
+                  "rss_kb": 6884,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                },
+                {
+                  "wall_ns": 3372666405,
+                  "cpu_ns": 205231802000,
+                  "rss_kb": 6956,
+                  "rusage_rss_kb": 10084,
+                  "exit": 0
+                }
+              ],
+              "wall": {
+                "n": 5,
+                "median": 3448721018,
+                "mad": 76054613,
+                "min": 3372666405,
+                "max": 3946270405
+              },
+              "cpu": {
+                "n": 5,
+                "median": 208816036000,
+                "mad": 3584234000,
+                "min": 205231802000,
+                "max": 230257288000
+              },
+              "rss": {
+                "n": 5,
+                "median": 6892,
+                "mad": 8,
+                "min": 6884,
+                "max": 6956
+              }
+            }
+          ]
+        },
+        {
+          "flavor": "gc",
+          "status": "not-available",
+          "note": "not available yet (16.1d/16.1f): flag provided but not defined: -gc-engine",
+          "build_command": "gocpp build -gc-engine -o prog .",
+          "build_ms": 0,
+          "bin_size": 0
+        }
+      ]
+    }
+  ]
+}

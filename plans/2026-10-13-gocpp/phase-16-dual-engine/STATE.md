@@ -13,7 +13,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
   - [~] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer (job 16.1a: Linux GCC/Clang + ASan/TSan and the vendored Windows sources are merged; the Windows build and smoke test on the real PC are job 16.1a-win)
   - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c starts the walking skeleton)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
-  - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base builds the harness and the Go/ARC baselines; the GC rows are 16.1h)
+  - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base merged: the harness is `tools/gcbench`, the programs `bench/gc`, the Go/ARC baselines `docs/benchmarks/gc-engine-spike.md`; the GC rows, the goroutine pause/memory rows, the boundary shapes, compile time/size and the Windows runs are 16.1h)
   - [ ] Windows: the same measurements, plus thread starts and the scan of static roots in each collection
   - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b, clean after 3 rounds; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`)
 - [ ] 16.2 ADR: the design (1–2 weeks)
@@ -269,6 +269,10 @@ package.
 
 ## Log
 
+- 2026-10-24: job 16.1h-base merged into `p16` after a clean review (2 rounds): the measurement
+  harness (`tools/gcbench`), the three Go/gp programs (`bench/gc`) and the Go/ARC baselines
+  (`docs/benchmarks/gc-engine-spike.md`). The machine was loaded (1-minute load 44–77 against a
+  quiet limit of 24), which the document records; the numbers are a baseline, not a budget.
 - 2026-10-24: job 16.1a merged into `p16` after a clean review (3 rounds): bdwgc 8.2.12 is
   vendored with its notice, built opt-in into the cache with the §2.4 flags plus
   `-DGC_DISABLE_INCREMENTAL` and `GC_NO_THREAD_REDIRECTS`, and covered by a threads/roots/
