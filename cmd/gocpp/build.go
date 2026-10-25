@@ -386,6 +386,12 @@ type buildFlags struct {
 	cross crossFlags // -os and -arch (cross.go)
 
 	interop interopFlag // -interop (interop.go)
+
+	// gcEngine says that the hidden -gc-engine switch was given (gcmode.go, job 16.1c): the
+	// command takes the GC engine's walking-skeleton path instead of the ARC engine's. The flag
+	// is not registered with the FlagSet, so gocpp help does not show it; gcEngineSwitch
+	// removes it from the arguments before flag.Parse.
+	gcEngine bool
 }
 
 func (f *buildFlags) register(flags *flag.FlagSet, withOutput bool) {
@@ -440,6 +446,7 @@ func runBuild(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 	var f buildFlags
 	flags := flag.NewFlagSet("gocpp build", flag.ContinueOnError)
 	f.register(flags, true)
+	args, f.gcEngine = gcEngineSwitch(args, flags) // the hidden -gc-engine (gcmode.go)
 	if code, done := parseFlags("build", buildUsage, flags, args, stderr); done {
 		return code
 	}
@@ -448,6 +455,9 @@ func runBuild(args []string, _ io.Reader, stdout, stderr io.Writer) int {
 		return code
 	}
 	defer d.stopSignals()
+	if f.gcEngine {
+		return d.gcBuild(flags.Args())
+	}
 	return d.build(flags.Args())
 }
 
@@ -457,8 +467,27 @@ func runRun(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("gocpp run", flag.ContinueOnError)
 	f.register(flags, false)
 	f.extra.registerCompdb(flags)
+	args, f.gcEngine = gcEngineSwitch(args, flags) // the hidden -gc-engine (gcmode.go)
 	if code, done := parseFlags("run", runUsage, flags, args, stderr); done {
 		return code
+	}
+	if f.gcEngine {
+		// gocpp run -gc-engine [folder] [arguments]: the folder is the program (the current
+		// folder without one), and everything after it goes to the program.
+		args = flags.Args()
+		var patterns, progArgs []string
+		if len(args) == 0 {
+			patterns = []string{"."}
+		} else {
+			patterns, progArgs = args[:1], args[1:]
+		}
+		d, code := newDriver("run", &f, stdout, stderr)
+		if d == nil {
+			return code
+		}
+		defer d.stopSignals()
+		d.stdin = stdin
+		return d.gcRun(patterns, progArgs)
 	}
 	// Like go run: the .gp files at the start are the program, else the
 	// first argument is the package. The rest goes to the program.

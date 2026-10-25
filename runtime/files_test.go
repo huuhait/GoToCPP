@@ -106,6 +106,34 @@ func TestSources(t *testing.T) {
 	}
 }
 
+// TestGCSources checks the GC engine's sources (job 16.1c): they are the .cpp files under
+// src/gc/, they are in FS, they are sorted, and they are in no program that the ARC engine
+// builds (Sources), because a .gp program must link no gp::gc symbol.
+func TestGCSources(t *testing.T) {
+	for _, goos := range []string{"linux", "windows"} {
+		srcs := rtfiles.GCSources(goos)
+		for _, want := range []string{"src/gc/arith.cpp", "src/gc/heap_malloc.cpp", "src/gc/print.cpp", "src/gc/string.cpp"} {
+			if !slices.Contains(srcs, want) {
+				t.Errorf("GCSources(%s) = %q lacks %s", goos, srcs, want)
+			}
+		}
+		if !slices.IsSorted(srcs) {
+			t.Errorf("GCSources(%s) = %q is not sorted", goos, srcs)
+		}
+		for _, p := range srcs {
+			if !strings.HasPrefix(p, "src/gc/") {
+				t.Errorf("GCSources(%s) has %s, which is not under src/gc/", goos, p)
+			}
+			if _, err := fs.Stat(rtfiles.FS(), p); err != nil {
+				t.Errorf("GCSources(%s) has %s, which is not in FS: %v", goos, p, err)
+			}
+			if slices.Contains(rtfiles.Sources(goos), p) {
+				t.Errorf("Sources(%s) has %s: a .gp program would link the GC engine's runtime", goos, p)
+			}
+		}
+	}
+}
+
 // TestTestingSources checks the two lists: the files of package testing are not among the sources of
 // a program, and they are the sources of the programs that import testing.
 func TestTestingSources(t *testing.T) {

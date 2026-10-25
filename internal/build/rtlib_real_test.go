@@ -356,7 +356,8 @@ func TestPrecompiledHeaderKeyedByFlags(t *testing.T) {
 // read it, and the object is taken by those functions only). A new initializer elsewhere fails
 // here.
 // A global with a destructor counts: its registration is an initializer too. The checks cover the
-// natives of package testing (rtfiles.TestingSources) as well. The ELF objects of Linux and the
+// natives of package testing (rtfiles.TestingSources) and the GC engine's runtime
+// (rtfiles.GCSources, job 16.1c) as well. The ELF objects of Linux and the
 // COFF objects of the MinGW-w64 compilers (when they are installed) are read.
 var ownDataOnly = map[string]bool{"src_math.o": true, "src_timer.o": true, "src_testing.o": true}
 
@@ -431,7 +432,7 @@ func checkNoStaticInit(t *testing.T, cxx CXX, goos string, sections func(path st
 	if err != nil {
 		t.Fatal(err)
 	}
-	srcs := slices.Concat(rtfiles.Sources(goos), rtfiles.TestingSources(goos))
+	srcs := slices.Concat(rtfiles.Sources(goos), rtfiles.TestingSources(goos), rtfiles.GCSources(goos))
 	objs, err := b.cachedObjects(context.Background(), dir, srcs, b.compileFlags())
 	if err != nil {
 		t.Fatal(err)

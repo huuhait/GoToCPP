@@ -75,6 +75,28 @@ func TestingSources(goos string) []string {
 	return sources(goos, true)
 }
 
+// GCSources returns the paths in FS of the .cpp files of the GC engine's runtime (src/gc/*.cpp
+// and src/gc/os/<goos>/*.cpp, when that folder exists), sorted. Only a program that the GC
+// engine builds (a .go package) compiles and links them: a .gp program links no gp::gc symbol
+// (phase-16 README §2.3 rule 7; job 16.1c's test checks it). They are not in Sources, so the
+// reference-counting engine's programs never see them.
+func GCSources(goos string) []string {
+	var srcs []string
+	for _, dir := range []string{path.Join("src", "gc"), path.Join("src", "gc", "os", goos)} {
+		entries, err := fs.ReadDir(files, dir)
+		if err != nil {
+			continue // no such folder (src/gc/os/<goos> exists from job 16.1d on)
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".cpp") {
+				srcs = append(srcs, path.Join(dir, e.Name()))
+			}
+		}
+	}
+	slices.Sort(srcs)
+	return srcs
+}
+
 func sources(goos string, testing bool) []string {
 	var srcs []string
 	for _, dir := range []string{"src", path.Join("src", "os", goos)} {

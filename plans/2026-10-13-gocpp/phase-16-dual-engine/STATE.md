@@ -11,7 +11,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
 ### Part A: decide (4–6 weeks)
 - [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
   - [x] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows MinGW-w64 on the real PC), once per sanitizer (jobs 16.1a + 16.1a-win, both clean and merged: Linux GCC/Clang + ASan/TSan; Windows MinGW-w64 with bdwgc's CMake pthreads+WIN32 branch, 25 sources, smoke test on the real PC. Not tested: llvm-mingw (the PC has no clang) and ASan/TSan on Windows; the ADR of 16.2 records both.)
-  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c starts the walking skeleton)
+  - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c merged the walking skeleton: hidden `-gc-engine`, stock-`go/parser` loading of `.go` files, `go/types`, a minimal GC-mode emitter with Go's layout/arithmetic/evaluation order and `#line`, and `gp::gc` string/print/heap with a malloc test backend; the four packages and the stubs are 16.1f, the bdwgc backend is 16.1d, the values are 16.1e)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base merged: the harness is `tools/gcbench`, the programs `bench/gc`, the Go/ARC baselines `docs/benchmarks/gc-engine-spike.md`; the GC rows, the goroutine pause/memory rows, the boundary shapes, compile time/size and the Windows runs are 16.1h)
   - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
@@ -269,6 +269,17 @@ package.
 
 ## Log
 
+- 2026-10-24: job 16.1c merged into `p16` after a clean review (4 rounds): the GC engine's
+  walking skeleton. A hidden `-gc-engine` takes a separate load/check/emit path: stock
+  `go/parser` for `.go` files (a `.gp`+`.go` folder is an error, §2.3 rule 1), `go/types` with
+  Go's sizes, and a minimal emitter (`gopkg_main`, Go layout, int/string/bool, functions, calls,
+  if/for, Go's shift/division semantics, Go's left-to-right evaluation order through preludes,
+  string ordering/`+=`, `#line`, a plain `int main()`). `gp::gc` has `string` (16 B),
+  `print`/`println`, and the `heap` interface with a malloc test backend. Differential tests
+  against `go run` pass with both compilers; a `.gp` program's C++ is unchanged and links no
+  `gp::gc` symbol. The reviews forced: `func init` rejected, the arithmetic helpers, the
+  evaluation order, string ordering, the flag-aware switch, pure `len`, and positioned errors
+  for integer literals that do not fit int64.
 - 2026-10-24: job 16.1a-win merged into `p16` after a clean review (3 rounds): bdwgc builds
   for windows/amd64 and the smoke test runs on the real PC and under Wine. CMake on the PC
   showed that MinGW-w64 (winpthreads) takes bdwgc's pthreads+WIN32 branch (25 sources), not the

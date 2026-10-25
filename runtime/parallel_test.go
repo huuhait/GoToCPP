@@ -228,6 +228,7 @@ type prog struct {
 	weight  int  // about how many seconds its compile takes: the order of the compiles (gate)
 	testing bool // also link the natives of package testing (rtfiles.TestingSources)
 	bdwgc   bool // also link the vendored bdwgc, built for the mode's sanitizer
+	gc      bool // also link the GC engine's runtime sources (rtfiles.GCSources)
 }
 
 // builds is the programs of one mode, built at the same time (startBuilds).
@@ -304,7 +305,7 @@ func (c cxx) startBuilds(t *testing.T, rt, dir string, flags []string, progs []p
 		abs[p.src] = sourcePath(t, p.src)
 	}
 	return startBuilds(t, progs, func(p prog) buildResult {
-		return c.buildWith(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight, p.testing, p.bdwgc)
+		return c.buildWith(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight, p.testing, p.bdwgc, p.gc)
 	})
 }
 
@@ -325,13 +326,15 @@ func (b *builds) bin(t *testing.T, src string) string {
 // must print nothing. It compiles src while the runtime's objects are built. It may run in any
 // goroutine.
 func (c cxx) build(rt, src, outDir string, flags []string, weight int) buildResult {
-	return c.buildWith(rt, src, outDir, flags, weight, false, false)
+	return c.buildWith(rt, src, outDir, flags, weight, false, false, false)
 }
 
 // buildWith is build; with testing it also compiles and links the natives of package testing
 // (src/testing*.cpp and src/os/<os>/testing*.cpp), which no other program links. With bdwgc it
-// also builds the vendored collector for the mode's sanitizer (bdwgcLibrary) and links it.
-func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testing, bdwgc bool) buildResult {
+// also builds the vendored collector for the mode's sanitizer (bdwgcLibrary) and links it; with
+// gc it also compiles and links the GC engine's runtime sources (rtfiles.GCSources), which only
+// the GC engine's own tests need.
+func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testing, bdwgc, gc bool) buildResult {
 	var objs []string
 	var objsErr error
 	done := make(chan struct{})
@@ -371,6 +374,20 @@ func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testi
 			return buildResult{own: err}
 		}
 		objs = append(slices.Clone(objs), tobjs...)
+	}
+	if gc {
+		gsrcs := rtfiles.GCSources(c.targetOS())
+		gobjs := make([]string, len(gsrcs))
+		err = parallel(len(gsrcs), func(i int) error {
+			gobjs[i] = filepath.Join(outDir, fmt.Sprintf("%s-gc%d.o", name, i))
+			args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c",
+				filepath.Join(rt, filepath.FromSlash(gsrcs[i])), "-o", gobjs[i])
+			return c.compileCmd(prioRT, outDir, nil, args)
+		})
+		if err != nil {
+			return buildResult{own: err}
+		}
+		objs = append(slices.Clone(objs), gobjs...)
 	}
 	bin := filepath.Join(outDir, name+c.exe())
 	args = append(c.flags(flags), obj)
