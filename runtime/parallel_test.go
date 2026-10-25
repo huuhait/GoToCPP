@@ -1,6 +1,7 @@
 package rtfiles_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -226,6 +227,7 @@ type prog struct {
 	flags   []string
 	weight  int  // about how many seconds its compile takes: the order of the compiles (gate)
 	testing bool // also link the natives of package testing (rtfiles.TestingSources)
+	bdwgc   bool // also link the vendored bdwgc, built for the mode's sanitizer
 }
 
 // builds is the programs of one mode, built at the same time (startBuilds).
@@ -302,7 +304,7 @@ func (c cxx) startBuilds(t *testing.T, rt, dir string, flags []string, progs []p
 		abs[p.src] = sourcePath(t, p.src)
 	}
 	return startBuilds(t, progs, func(p prog) buildResult {
-		return c.buildWith(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight, p.testing)
+		return c.buildWith(rt, abs[p.src], dir, slices.Concat(flags, p.flags), p.weight, p.testing, p.bdwgc)
 	})
 }
 
@@ -323,12 +325,13 @@ func (b *builds) bin(t *testing.T, src string) string {
 // must print nothing. It compiles src while the runtime's objects are built. It may run in any
 // goroutine.
 func (c cxx) build(rt, src, outDir string, flags []string, weight int) buildResult {
-	return c.buildWith(rt, src, outDir, flags, weight, false)
+	return c.buildWith(rt, src, outDir, flags, weight, false, false)
 }
 
 // buildWith is build; with testing it also compiles and links the natives of package testing
-// (src/testing*.cpp and src/os/<os>/testing*.cpp), which no other program links.
-func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testing bool) buildResult {
+// (src/testing*.cpp and src/os/<os>/testing*.cpp), which no other program links. With bdwgc it
+// also builds the vendored collector for the mode's sanitizer (bdwgcLibrary) and links it.
+func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testing, bdwgc bool) buildResult {
 	var objs []string
 	var objsErr error
 	done := make(chan struct{})
@@ -336,11 +339,22 @@ func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testi
 		defer close(done)
 		objs, objsErr = c.runtimeObjects(rt, flags)
 	}()
+	var lib *build.BdwgcLib
+	var libErr error
+	if bdwgc {
+		lib, libErr = c.bdwgcLibrary(rt, flags)
+	}
 	name := strings.TrimSuffix(filepath.Base(src), ".cpp")
 	obj := filepath.Join(outDir, name+".o")
 	args := append(c.flags(flags), "-I", filepath.Join(rt, "include"), "-c", src, "-o", obj)
+	if lib != nil {
+		args = append(args, lib.CompileFlags...)
+	}
 	err := c.compileCmd(weight, outDir, nil, args)
 	<-done
+	if libErr != nil {
+		return buildResult{own: libErr}
+	}
 	if err != nil || objsErr != nil {
 		return buildResult{own: err, shared: objsErr}
 	}
@@ -361,6 +375,66 @@ func (c cxx) buildWith(rt, src, outDir string, flags []string, weight int, testi
 	bin := filepath.Join(outDir, name+c.exe())
 	args = append(c.flags(flags), obj)
 	args = append(args, objs...)
+	if lib != nil {
+		args = append(args, lib.Archive)
+		args = append(args, lib.LinkFlags...)
+	}
 	args = append(args, "-o", bin)
 	return buildResult{bin: bin, own: c.compileCmd(prioRun, outDir, nil, args)}
+}
+
+// bdwgcLibrary builds (once per compiler, target and flag set in this test binary) the vendored
+// bdwgc for the sanitizer of flags, through internal/build's API, as the driver will build it.
+// bdwgc's build runs its compiles itself (internal/build's executor, Builder.Jobs), which the
+// gate of the tests does not see: one library at a time is built, one source at a time.
+var (
+	bdwgcMu     sync.Mutex
+	bdwgcBuilds sync.Map // compiler + target + flags -> *bdwgcBuild
+)
+
+type bdwgcBuild struct {
+	once sync.Once
+	lib  *build.BdwgcLib
+	err  error
+}
+
+func (c cxx) bdwgcLibrary(rt string, flags []string) (*build.BdwgcLib, error) {
+	key := c.cc.Path + "\x00" + c.targetOS() + "\x00" + strings.Join(flags, "\x00")
+	v, _ := bdwgcBuilds.LoadOrStore(key, new(bdwgcBuild))
+	r := v.(*bdwgcBuild)
+	r.once.Do(func() {
+		bdwgcMu.Lock()
+		defer bdwgcMu.Unlock()
+		san := build.BdwgcNoSanitizer
+		switch {
+		case slices.Contains(flags, "-fsanitize=thread"):
+			san = build.BdwgcTSan
+		case slices.ContainsFunc(flags, func(f string) bool { return strings.HasPrefix(f, "-fsanitize=address") }):
+			san = build.BdwgcASan
+		}
+		var cflags []string
+		for _, f := range flags {
+			switch f {
+			case "-O0", "-O1", "-O2", "-O3", "-g", "-g0":
+				cflags = append(cflags, f)
+			}
+		}
+		work, err := os.MkdirTemp(rt, "bdwgc-work-")
+		if err != nil {
+			r.err = err
+			return
+		}
+		b := &build.Builder{
+			CXX:   c.cc,
+			GOOS:  c.targetOS(),
+			Cache: filepath.Join(rt, "bdwgc-cache"),
+			Work:  work,
+			// The gate of the tests bounds the compiles they start themselves, not the ones of
+			// internal/build's executor: bdwgc builds one source at a time here, so that the whole
+			// test binary stays within its CPU share. (The driver builds it with its own -p.)
+			Jobs: 1,
+		}
+		r.lib, r.err = b.Bdwgc(context.Background(), build.BdwgcConfig{Sanitizer: san, CFlags: cflags})
+	})
+	return r.lib, r.err
 }

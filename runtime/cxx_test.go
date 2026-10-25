@@ -307,7 +307,7 @@ func TestCXX(t *testing.T) {
 					// All the programs are built at the same time, from the runtime's objects, which
 					// are built once for the mode (parallel_test.go). The checks run at the same time
 					// too, each one as soon as its program is built; each runs its own processes.
-					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, []prog{
+					progs := []prog{
 						{src: "test/map_test.cpp", weight: 24},
 						{src: "test/map_swiss_test.cpp", weight: 30},
 						{src: "test/map_portable_test.cpp", weight: 30},
@@ -348,11 +348,23 @@ func TestCXX(t *testing.T) {
 						{src: "test/deadlock_test.cpp", weight: 4},
 						{src: "test/syscall_test.cpp", weight: 4},
 						{src: "test/nochecks_test.cpp", flags: []string{"-DGOCPP_NOCHECKS"}, weight: 3},
-					})
+					}
+					// bdwgc is vendored for Linux only (phase 16 README §2.4, M10 adds Windows).
+					if runtime.GOOS == "linux" {
+						progs = append(progs, prog{src: "test/bdwgc_test.cpp", weight: 4, bdwgc: true})
+					}
+					bins := c.startBuilds(t, rt, t.TempDir(), m.flags, progs)
 
 					t.Run("unit", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/unit.cpp"))
+					})
+					t.Run("bdwgc", func(t *testing.T) {
+						if runtime.GOOS != "linux" {
+							t.Skip("bdwgc is vendored for linux")
+						}
+						t.Parallel()
+						runBdwgc(t, bins.bin(t, "test/bdwgc_test.cpp"))
 					})
 					t.Run("concepts", func(t *testing.T) {
 						t.Parallel()

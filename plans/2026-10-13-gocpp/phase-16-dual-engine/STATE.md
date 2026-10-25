@@ -10,10 +10,10 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
 
 ### Part A: decide (4–6 weeks)
 - [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
-  - [~] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer (job 16.1a)
+  - [~] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer (job 16.1a: Linux GCC/Clang + ASan/TSan and the vendored Windows sources are merged; the Windows build and smoke test on the real PC are job 16.1a-win)
   - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c starts the walking skeleton)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
-  - [ ] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds
+  - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base builds the harness and the Go/ARC baselines; the GC rows are 16.1h)
   - [ ] Windows: the same measurements, plus thread starts and the scan of static roots in each collection
   - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b, clean after 3 rounds; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`)
 - [ ] 16.2 ADR: the design (1–2 weeks)
@@ -156,6 +156,13 @@ package.
   `internal/poll`, 7 `time`. The plan's §2.7/§7.1 counts (166/149/17, 178 packages, 19 maps
   pushes, 154/187, 37/18/15/12/7) did not reproduce under any recorded definition; the README
   now carries the measured numbers and says so.
+- 2026-10-24 (16.1a, Windows backend): the vendored tree is complete for both of bdwgc's
+  Windows thread backends: Win32 threads (23 files, the current `BdwgcSources("windows")`) and
+  winpthreads (`CMAKE_USE_PTHREADS_INIT + WIN32`, 25 files, adding `gc_dlopen.c` and
+  `specific.c`). MinGW-w64 and llvm-mingw both ship winpthreads, so a CMake configure would take
+  the second; M10 records which backend it builds. The cache lives in
+  `<cache>/bdwgc/<version>-<hash>/lib/<key>/`, next to `<cache>/rt/`, so a runtime change does
+  not invalidate bdwgc; 16.2 decides whether that is the intended "runtime cache".
 - 2026-10-24 (16.1a, round 1 review): the build did **not** actually disable bdwgc's
   incremental mode — `gcconfig.h` defines `MPROTECT_VDB`/`SOFT_VDB` itself, and
   `GC_ENABLE_INCREMENTAL=1` turned it on, so bdwgc could take `SIGSEGV`/`SIGBUS` from gocpp's
@@ -163,10 +170,15 @@ package.
   0 with `GC_ENABLE_INCREMENTAL=1`), keeps the Windows sources in the vendored tree
   (`win32_threads.c`, a goos-aware source list; the MinGW build itself stays M10 work), and
   leaves bdwgc's `SIGSYS` default under TSan instead of overriding the signal.
-- 2026-10-24 (environment): this machine has no `GOCPP_WINDOWS_SSH` and no llvm-mingw, so the
-  Windows items of 16.1 (the bdwgc build with llvm-mingw, the Windows measurements) are open
-  until the real PC or a cross toolchain is available. The dry run of Go's standard library for
-  `windows/amd64` does not need the PC (it reads Go's source), so 16.1b covers it.
+- 2026-10-24 (environment, updated): the real Windows PC is reachable (`GOCPP_WINDOWS_SSH`,
+  key auth; the address is not written into the repository). It runs Windows 11 Pro on an
+  Intel i5-14400 (10 cores / 16 logical CPUs, 32 GB), with WinLibs MinGW-w64 GCC/G++ 16.1.0,
+  Go 1.27.1, cmake 4.4.3 and ninja 1.13.2; it has no clang/llvm-mingw, so MinGW-w64 is the
+  Windows toolchain (the plan's primary one). The Linux dev shell also has
+  `x86_64-w64-mingw32-gcc` 15.3 and wine 11 for cross-checks. Job 16.1a-win builds bdwgc for
+  windows/amd64, runs the smoke test on the PC, and measures thread starts and the static-root
+  scan; the full Windows measurements are 16.1h. The dry run for `windows/amd64` (16.1b) needs
+  no PC.
 - 2026-10-21: phase created from your idea ("a non-GC engine for gp and C/C++, another GC
   engine for Go; then we can import any Go package in the world"). The first draft recorded
   options B1–B4 and eight questions.
@@ -257,6 +269,11 @@ package.
 
 ## Log
 
+- 2026-10-24: job 16.1a merged into `p16` after a clean review (3 rounds): bdwgc 8.2.12 is
+  vendored with its notice, built opt-in into the cache with the §2.4 flags plus
+  `-DGC_DISABLE_INCREMENTAL` and `GC_NO_THREAD_REDIRECTS`, and covered by a threads/roots/
+  finalizer/weak-link smoke test at O0/O2/ASan+TSan with both compilers. The Windows sources
+  are in the tree; job 16.1a-win builds and runs them on the real PC.
 - 2026-10-24: job 16.1b merged into `p16` after a clean review (3 rounds): the dry run and its
   data are in `gostd/dryrun/go1.25.14`, the tool in `tools/gostddryrun`; the plan's §2.7/§7.1
   counts were corrected to the measured ones (see "Decisions / notes").

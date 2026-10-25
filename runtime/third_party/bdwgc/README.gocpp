@@ -1,0 +1,91 @@
+bdwgc in gocpp
+==============
+
+This folder is the vendored source of the Boehm-Demers-Weiser conservative
+garbage collector (bdwgc), the collector of gocpp's GC engine (phase 16
+README section 2.4). It is embedded in the gocpp binary (runtime/bdwgc.go,
+package rtfiles) and built by internal/build (internal/build/bdwgc.go) into
+the object/archive cache, once per C compiler, compiler version, sanitizer,
+target and flag set. Nothing links it unless a program asks for it.
+
+Upstream
+--------
+  URL:    https://github.com/bdwgc/bdwgc
+  tag:    v8.2.12
+  commit: 4fab5386df64466b2b61fc7209bef033cad1e6cc
+  release: 2026-02-05
+  archive: https://github.com/bdwgc/bdwgc/archive/refs/tags/v8.2.12.tar.gz
+  sha256: d09001f45dabf1c29a5df3e63020a4bab5ad4aad69137bb07100c717e2ecba0b
+  vendored: 2026-10-24
+
+The upstream release has no LICENSE file. LICENSE is the "Copyright &
+Warranty" section of README.md, reproduced verbatim (README.md itself is
+upstream's, unchanged).
+
+What is here
+------------
+  src/       the C sources of the Linux build (27 files; the list is the one
+             of bdwgc's CMakeLists.txt for Linux with threads, parallel
+             marking, thread-local allocation, gcj support and the disclaim
+             interface), and src/windows/win32_threads.c, the Windows thread
+             layer (byte-identical upstream). The MinGW build itself (its
+             defines, OS layer and link flags) is M10 work; rtfiles.BdwgcSources
+             already returns its source list for "windows" (23 files, the CMake
+             Win32-threads branch). M10 must record the thread backend: MinGW-w64
+             and llvm-mingw ship winpthreads, so a CMake configure would take the
+             CMAKE_USE_PTHREADS_INIT + WIN32 branch and add gc_dlopen.c and
+             specific.c (25 files). Both files are vendored, so the tree is
+             complete for either backend.
+  include/   the public and private headers (upstream's include/, without
+             include/include.am and include/extra/)
+  LICENSE    see above
+  README.md  upstream's README, unchanged
+  VERSION    gocpp's file (upstream has none): the version of the tree
+
+What was pruned
+---------------
+Everything outside the collector's C library:
+  - the build systems (CMakeLists.txt, configure.ac, Makefile.am, the MSVC,
+    Watcom, OS/2 and Amiga makefiles, autogen.sh, m4/, build/);
+  - the tests (tests/), the documentation (doc/), the C++ interface and cord
+    libraries (gc_cpp.cc, gc_cpp.cpp, gc_badalc.cc, gc_badalc.cpp, cord/,
+    tools/), and the top-level extra/ (extra/gc.c, the single-object build, and
+    extra/msvc_dbg.c, MSVC only);
+  - the platform sources that neither build compiles (darwin_stop_world.c, the
+    ia64 and sparc assembly);
+  - include/include.am (build metadata) and include/extra/ (the deprecated
+    wrapper headers).
+Nothing that either build compiles or includes is missing; a file whose name
+starts with "." or "_" would be skipped by //go:embed, and the tree has none
+(runtime/bdwgc_test.go checks it).
+
+Configuration
+-------------
+bdwgc is configured with -D flags, not with configure or CMake (no config.h:
+HAVE_CONFIG_H is not defined). The fixed defines of phase 16 section 2.4 are
+GC_THREADS, PARALLEL_MARK, THREAD_LOCAL_ALLOC, GC_BUILTIN_ATOMIC,
+LARGE_CONFIG, USE_MMAP, USE_MUNMAP, ALL_INTERIOR_POINTERS and
+GC_DISABLE_INCREMENTAL (gocpp's runtime owns SIGSEGV; the write-fault handler
+of MPROTECT_VDB/SOFT_VDB must not exist, and GC_enable_incremental is a
+no-op), and DONT_ADD_BYTE_AT_END is not defined. The build adds what bdwgc's
+own CMakeLists.txt adds on Linux: NO_EXECUTE_PERMISSION, _REENTRANT,
+GC_GCJ_SUPPORT, GC_ENABLE_SUSPEND_THREAD, ENABLE_DISCLAIM,
+JAVA_FINALIZATION, GC_ATOMIC_UNCOLLECTABLE, HANDLE_FORK, the platform probes
+HAVE_DL_ITERATE_PHDR, HAVE_DLADDR and HAVE_PTHREAD_SETNAME_NP_WITH_TID, and
+GC_NO_THREAD_REDIRECTS (phase 16 section 2.5: registration is explicit, so
+gc.h must not turn pthread_create into GC_pthread_create). See bdwgcDefines
+in internal/build/bdwgc.go for the exact list; it is part of the cache key.
+
+Update procedure
+----------------
+1. Download https://github.com/bdwgc/bdwgc/archive/refs/tags/vX.Y.Z.tar.gz,
+   check the tag's commit with the GitHub API, and record the archive's
+   sha256.
+2. Replace src/ and include/ from the new tree, with the same pruning (check
+   the source list against the new CMakeLists.txt: a new source file must be
+   added, and a removed one taken out).
+3. Update VERSION and this file (URL, tag, commit, release date, sha256,
+   date, and what changed).
+4. Run `go test ./runtime -run 'TestBdwgc'` and the focused tests of
+   internal/build; the smoke test (runtime/test/bdwgc_test.cpp) must print
+   OK with g++ and clang++, at -O0 and -O2, and under ASan and TSan.
