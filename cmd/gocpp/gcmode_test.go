@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/huuhait/gocpp/internal/winssh"
 )
 
 // The tests of the GC engine's walking skeleton (phase-16 README §2.3 rules 1-2 and 7, §2.7;
@@ -175,6 +179,255 @@ func goRun(t *testing.T, dir string) (result, bool) {
 	return result{code, out.String(), errOut.String()}, true
 }
 
+// needMingw skips a test of the GC engine's windows/amd64 build when this machine has no
+// MinGW-w64 cross compiler, and the reason names the missing program (a skip, never a pass).
+func needMingw(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return // the compiler of the host is the Windows one
+	}
+	if _, err := exec.LookPath("x86_64-w64-mingw32-g++"); err != nil {
+		t.Skip("no MinGW-w64 cross compiler (x86_64-w64-mingw32-g++): the GC engine's windows/amd64 build needs it")
+	}
+}
+
+// gcWindowsBuild builds the folder dir's GC program for windows/amd64 with gocpp build -gc-engine
+// and returns the path of the .exe, failing the test with the driver's output when it does not
+// build.
+func gcWindowsBuild(t *testing.T, dir string) string {
+	t.Helper()
+	exe := filepath.Join(t.TempDir(), "prog.exe")
+	r := gocppRun("", false, "build", "-gc-engine", "-os", "windows", "-arch", "amd64", "-o", exe, dir)
+	if r.code != 0 || r.stderr != "" {
+		t.Fatalf("gocpp build -gc-engine -os windows -arch amd64 = exit %d\nstdout:\n%s\nstderr:\n%s", r.code, r.stdout, r.stderr)
+	}
+	return exe
+}
+
+// peNM returns a program that reads the symbols of a PE file, and whether one is installed: the
+// cross toolchain's nm first, then llvm-nm, then the system's nm (binutils with the PE targets).
+func peNM() (string, bool) {
+	for _, name := range []string{"x86_64-w64-mingw32-nm", "llvm-nm", "nm"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// TestGCWindowsCrossBuild is the cross build of job 16.1d-win, without the PC: gocpp build
+// -gc-engine -os windows -arch amd64 compiles the generated C++ and the GC engine's sources (with
+// GOCPP_GC_BDWGC and bdwgc's header flags), builds the vendored bdwgc for windows/amd64 through
+// internal/build.Builder.Bdwgc, and links an .exe with the Windows link flags (-static, the 1 GiB
+// stack, -pthread). The .exe is a PE file that contains the GC engine's and bdwgc's symbols; the
+// running of it is TestGCRunVsGoWindows (the real PC) and runtime.TestGCHeapWindows (Wine and the
+// PC). Skipped, with that reason, when the machine has no MinGW-w64 cross compiler.
+func TestGCWindowsCrossBuild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the cross build is from Linux to windows/amd64; a Windows host builds the GC engine natively")
+	}
+	needMingw(t)
+	// GOCPP_TOOLCHAIN=local never downloads a toolchain: the dev shell's MinGW-w64 is the
+	// compiler of this test (and the only one the build may use).
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	t.Setenv("GOCPP_CXX", "")
+	t.Setenv("CXX", "")
+	dir := gcDir(t, map[string]string{"main.go": gcMilestoneSrc})
+	exe := gcWindowsBuild(t, ".")
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "MZ": the linker wrote a PE file, not an ELF one. (Its PE magic at 0x3c is checked too.)
+	if len(data) < 0x40 || data[0] != 'M' || data[1] != 'Z' {
+		t.Fatalf("%s is not a PE file (%d bytes)", exe, len(data))
+	}
+	if off := int(uint32(data[0x3c]) | uint32(data[0x3d])<<8 | uint32(data[0x3e])<<16 | uint32(data[0x3f])<<24); off < 0 || off+4 > len(data) || string(data[off:off+4]) != "PE\x00\x00" {
+		t.Fatalf("%s has no PE header at 0x%x", exe, off)
+	}
+	// The GC engine's runtime and the collector are linked in: the program is not a stub that
+	// the cross compiler accepted. A PE symbol reader is the cross toolchain's nm, llvm-nm, or a
+	// binutils nm built with the PE targets; when none is there the check is skipped with a log
+	// line, not silently (only the PE header was then checked).
+	if nm, ok := peNM(); ok {
+		syms := nmSymbols(t, nm, exe)
+		for _, want := range []string{"_ZN2gp2gc", "GC_malloc", "GC_gcollect", "GC_register_my_thread"} {
+			if !bytes.Contains(syms, []byte(want)) {
+				t.Errorf("the windows/amd64 program has no %s symbol (the GC engine or the collector is not linked in)", want)
+			}
+		}
+	} else {
+		t.Logf("no x86_64-w64-mingw32-nm, llvm-nm or nm in PATH: the PE file's symbols are not checked (the PE header was)")
+	}
+
+	// The program's name is an .exe also when -o names a folder: outputPath joins the folder and
+	// the program's name, and the GC path adds the target's suffix (gcmode.go).
+	t.Run("output naming", func(t *testing.T) {
+		out := t.TempDir() // a folder: the program keeps its name and gets the target's .exe
+		r := gocppRun("", false, "build", "-gc-engine", "-os", "windows", "-arch", "amd64", "-o", out, dir)
+		if r.code != 0 || r.stderr != "" {
+			t.Fatalf("gocpp build -o <folder> = exit %d\n%s", r.code, r.stderr)
+		}
+		if want := filepath.Join(out, filepath.Base(dir)+".exe"); !isFile(want) {
+			t.Errorf("gocpp build -o <folder> wrote no %s", want)
+		}
+	})
+
+	// gocpp run of a cross build goes through GOCPP_EXEC, like the ARC engine's (a runner is
+	// needed: the .exe does not run on this system). Without it, the driver says so and builds
+	// nothing; with it, the runner starts the .exe.
+	t.Run("run needs a runner", func(t *testing.T) {
+		t.Setenv("GOCPP_EXEC", "")
+		r := gocppRun("", false, "run", "-gc-engine", "-os", "windows", "-arch", "amd64", dir)
+		if r.code != exitErrors || !strings.Contains(r.stderr, "GOCPP_EXEC") {
+			t.Errorf("gocpp run -gc-engine -os windows without GOCPP_EXEC = exit %d: %q, want the GOCPP_EXEC hint", r.code, r.stderr)
+		}
+	})
+	t.Run("run under a runner", func(t *testing.T) {
+		t.Setenv("GOCPP_EXEC", "true") // /bin/true: the runner, not the program, does the work
+		r := gocppRun("", false, "run", "-gc-engine", "-os", "windows", "-arch", "amd64", dir)
+		if r.code != 0 || r.stdout != "" || r.stderr != "" {
+			t.Errorf("gocpp run -gc-engine -os windows with GOCPP_EXEC=true = exit %d, stdout %q, stderr %q, want 0 and nothing", r.code, r.stdout, r.stderr)
+		}
+	})
+}
+
+// TestGCTargetErrors checks gocpp run -gc-engine's order: the target comes before GOCPP_EXEC, as
+// in the ARC engine's run, so a pair that the GC engine cannot build gets that error and not the
+// hint to set a runner (review of job 16.1d-win). No compiler is needed: both cases fail before
+// any build.
+func TestGCTargetErrors(t *testing.T) {
+	gcDir(t, map[string]string{"main.go": gcMilestoneSrc})
+	t.Setenv("GOCPP_EXEC", "")
+	for _, tc := range []struct {
+		goos, goarch, want string
+	}{
+		// Not a target that gocpp builds at all (build.Targets).
+		{"windows", "arm64", "building for windows/arm64 is not supported"},
+		// A target that gocpp builds, but not with the GC engine.
+		{"linux", "arm64", "cross-compiles for windows/amd64 only"},
+	} {
+		t.Run(tc.goos+"/"+tc.goarch, func(t *testing.T) {
+			if isHostTarget(tc.goos, tc.goarch) {
+				t.Skipf("%s/%s is this machine", tc.goos, tc.goarch)
+			}
+			r := gocppRun("", false, "run", "-gc-engine", "-os", tc.goos, "-arch", tc.goarch, ".")
+			if r.code != exitErrors || strings.Contains(r.stderr, "GOCPP_EXEC") || !strings.Contains(r.stderr, tc.want) {
+				t.Errorf("gocpp run -gc-engine -os %s -arch %s = exit %d: %q, want exit %d and %q, without the GOCPP_EXEC hint",
+					tc.goos, tc.goarch, r.code, r.stderr, exitErrors, tc.want)
+			}
+		})
+	}
+}
+
+// TestGCRunVsGoWindows is the differential test of job 16.1d-win on the real Windows PC: the GC
+// engine's programs are built for windows/amd64 (as TestGCWindowsCrossBuild does), uploaded to the
+// machine of GOCPP_WINDOWS_SSH=user@host, run there, and must print exactly what go run prints on
+// this machine, with the same exit code. Skipped without the variable, with that reason; with it,
+// an unreachable PC is a failure (never a silent pass).
+func TestGCRunVsGoWindows(t *testing.T) {
+	host := os.Getenv("GOCPP_WINDOWS_SSH")
+	if host == "" {
+		t.Skip("GOCPP_WINDOWS_SSH=user@host runs the GC engine's windows/amd64 programs on the real PC; the cross build alone is TestGCWindowsCrossBuild")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the cross build is from Linux to windows/amd64")
+	}
+	needMingw(t)
+	t.Setenv("GOCPP_TOOLCHAIN", "local")
+	t.Setenv("GOCPP_CXX", "")
+	t.Setenv("CXX", "")
+	remote, err := winssh.New(host)
+	if err != nil {
+		t.Fatalf("the Windows PC is unreachable: %v", err)
+	}
+	defer remote.Close()
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"milestone", gcMilestoneSrc},
+		{"loop", gcLoopSrc},
+		{"order", gcOrderSrc},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := gcDir(t, map[string]string{"main.go": tc.src})
+			want, ok := goRun(t, dir)
+			if !ok {
+				t.Skip("no go command, so the differential test cannot run")
+			}
+			res := gcRunOnPC(t, remote, gcWindowsBuild(t, "."))
+			if res.Code != want.code || string(res.Stdout) != want.stdout || string(res.Stderr) != want.stderr {
+				t.Errorf("on the PC: exit %d, stdout %q, stderr %q\nwant go run's: exit %d, stdout %q, stderr %q",
+					res.Code, res.Stdout, res.Stderr, want.code, want.stdout, want.stderr)
+			}
+		})
+	}
+	// The panic cases, as TestGCPanicVsGo compares them on this machine: the spike prints Go's
+	// panic line and exits with 2; the stack trace after the line is step 16.6, so the comparison
+	// stops at the panic line's newline. The Windows run must not add a "\r" (the panic line goes
+	// through the GC engine's write_stderr, which sets the binary mode), and it is the case a
+	// program that panics before its first println hits.
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"divzero", gcDivZeroSrc},
+		{"negshift", gcNegShiftSrc},
+	} {
+		t.Run(tc.name+" panic", func(t *testing.T) {
+			dir := gcDir(t, map[string]string{"main.go": tc.src})
+			want, prefix := goPanicWant(t, dir)
+			res := gcRunOnPC(t, remote, gcWindowsBuild(t, "."))
+			if res.Code != want.code || string(res.Stdout) != want.stdout || string(res.Stderr) != prefix {
+				t.Errorf("on the PC: exit %d, stdout %q, stderr %q\nwant exit %d, stdout %q and stderr %q (the panic line; the stack trace is step 16.6)",
+					res.Code, res.Stdout, res.Stderr, want.code, want.stdout, prefix)
+			}
+		})
+	}
+}
+
+// gcRunOnPC runs exe on the Windows machine and returns what it printed.
+func gcRunOnPC(t *testing.T, remote *winssh.Remote, exe string) winssh.Result {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	res, err := remote.Run(ctx, 2*time.Minute, exe, nil, nil, false)
+	if err != nil {
+		t.Fatalf("running on the PC: %v", err)
+	}
+	return res
+}
+
+// goPanicWant builds and runs the Go program of dir for this machine and returns its result and
+// the part of its stderr up to and including the newline of Go's panic line (Go's stack trace
+// after that line is step 16.6).
+func goPanicWant(t *testing.T, dir string) (result, string) {
+	t.Helper()
+	goCmd, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go command, so the differential test cannot run")
+	}
+	bin := filepath.Join(t.TempDir(), "go_prog")
+	build := exec.Command(goCmd, "build", "-o", bin, "main.go")
+	build.Dir = dir
+	var bout bytes.Buffer
+	build.Stdout, build.Stderr = &bout, &bout
+	if err := build.Run(); err != nil {
+		t.Fatalf("go build main.go: %v\n%s", err, bout.String())
+	}
+	want := runBinary(t, bin, dir)
+	at := strings.Index(want.stderr, "panic: runtime error:")
+	if at < 0 {
+		t.Fatalf("the Go program did not panic: %q", want.stderr)
+	}
+	end := strings.IndexByte(want.stderr[at:], '\n')
+	if end < 0 {
+		t.Fatalf("the Go program's panic line has no newline: %q", want.stderr)
+	}
+	return want, want.stderr[:at+end+1]
+}
+
 // TestGCEngineSwitchHidden checks that the switch is hidden: neither gocpp help nor gocpp
 // build -h names -gc-engine, while the commands still accept it (the other tests).
 func TestGCEngineSwitchHidden(t *testing.T) {
@@ -252,32 +505,11 @@ func TestGCPanicVsGo(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			forEachCXX(t, func(t *testing.T, _ testCXX) {
-				goCmd, err := exec.LookPath("go")
-				if err != nil {
-					t.Skip("no go command, so the differential test cannot run")
-				}
 				dir := gcDir(t, map[string]string{"main.go": tc.src})
-				bin := filepath.Join(t.TempDir(), "go_prog")
-				build := exec.Command(goCmd, "build", "-o", bin, "main.go")
-				build.Dir = dir
-				var bout bytes.Buffer
-				build.Stdout, build.Stderr = &bout, &bout
-				if err := build.Run(); err != nil {
-					t.Fatalf("go build main.go: %v\n%s", err, bout.String())
-				}
-				want := runBinary(t, bin, dir)
 				// Go's stderr is the output before the panic, the panic line, and then the stack
 				// trace (or nothing, with GOTRACEBACK=none). The spike prints the same bytes up to
-				// the panic line's newline.
-				at := strings.Index(want.stderr, "panic: runtime error:")
-				if at < 0 {
-					t.Fatalf("the Go program did not panic: %q", want.stderr)
-				}
-				end := strings.IndexByte(want.stderr[at:], '\n')
-				if end < 0 {
-					t.Fatalf("the Go program's panic line has no newline: %q", want.stderr)
-				}
-				wantPrefix := want.stderr[:at+end+1]
+				// the panic line's newline (goPanicWant is the oracle of the Windows test too).
+				want, wantPrefix := goPanicWant(t, dir)
 				got := gocppRun("", false, "run", "-gc-engine", ".")
 				if got.code != want.code || got.stdout != want.stdout || got.stderr != wantPrefix {
 					t.Errorf("gocpp run -gc-engine . = %+v, want exit %d, stdout %q and stderr %q (the panic line; the stack trace is step 16.6)",

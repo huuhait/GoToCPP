@@ -8,6 +8,11 @@
 #include <string>
 #include <string_view>
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace gp::gc::detail {
 
 #ifdef GOCPP_RUNTIME_TEST
@@ -37,6 +42,16 @@ void write_stderr(std::string_view s) {
         write_stderr_hook(s);
         return;
     }
+#endif
+#if defined(_WIN32)
+    // Windows' C library writes "\r\n" for "\n" on a text-mode stream; Go writes the bytes as
+    // they are, and so does the ARC engine (gp::os::start sets the same binary mode for its
+    // streams). Once, on the first write; every later write is then Go's byte for byte.
+    static const bool binary = [] {
+        _setmode(_fileno(stderr), _O_BINARY);
+        return true;
+    }();
+    (void)binary;
 #endif
     if (!s.empty()) {
         std::fwrite(s.data(), 1, s.size(), stderr);

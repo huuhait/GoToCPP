@@ -4,9 +4,9 @@
 #include <gocpp/nofortify.h>
 #include <gocpp/gc/checks.hpp>
 #include <gocpp/gc/panic.hpp>
+#include <gocpp/gc/print.hpp>
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -65,8 +65,9 @@ void panic(std::string message, const char* type) {
         detail::panic_hook(p); // step 16.6's exception path, or the tests
     }
     // Job 16.1c's behavior: Go's panic line and exit status 2 (the stack trace is step 16.6).
-    std::fprintf(stderr, "panic: %s\n", p.gp_message.c_str());
-    std::fflush(stderr);
+    // The line goes through detail::write_stderr, the one place that puts standard error in
+    // binary mode on Windows, so a panic before the first println still ends with one "\n".
+    detail::write_stderr(std::string("panic: ") + p.gp_message + "\n");
     std::_Exit(2);
 }
 

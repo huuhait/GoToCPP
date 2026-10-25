@@ -21,7 +21,8 @@
 //     uncaught panic reaches std::terminate, and the runtime's tests catch panic_error.
 #pragma once
 
-#include <cstdio>
+#include <gocpp/gc/print.hpp>
+
 #include <exception>
 #include <string>
 #include <utility>
@@ -65,8 +66,7 @@ int run_main(F&& f) {
         std::forward<F>(f)();
         return 0;
     } catch (const panic_error& p) {
-        std::fprintf(stderr, "panic: %s\n", p.gp_message.c_str());
-        std::fflush(stderr);
+        detail::write_stderr(std::string("panic: ") + p.gp_message + "\n");
         return 2;
     }
 }

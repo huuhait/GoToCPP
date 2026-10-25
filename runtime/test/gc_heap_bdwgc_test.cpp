@@ -10,7 +10,10 @@
 // runtime/cxx_test.go builds it with the runtime's objects, the GC engine's sources and the
 // vendored bdwgc, with heap_bdwgc.cpp selected (GOCPP_GC_BDWGC), with g++ and clang++, at -O0,
 // at -O2 and with ASan + UBSan; runtime/bdwgc_test.go builds it with ThreadSanitizer. It prints
-// "ok: N checks" and exits 0, or prints each failed check and exits 1.
+// "ok: N checks" and exits 0, or prints each failed check and exits 1. runtime/bdwgcwin_test.go
+// builds it for windows/amd64 with MinGW-w64 and runs it under Wine or on the real Windows PC
+// (job 16.1d-win); the one POSIX-only case (exit_thread's forced unwind) does not run there,
+// see its comment.
 //
 // Why the objects of the liveness tests are made in threads that exit: bdwgc scans stacks and
 // registers conservatively, so a dead pointer left in a register or on the main stack (at -O2,
@@ -72,6 +75,20 @@ void trace(const char* what) {
 }
 
 using namespace std::chrono_literals;
+
+// collect_bound is the bound of the collection timing checks below. They are hang detectors,
+// not budgets: the real budget is measured by job 16.1h on the real PC.
+//
+// On Windows the collector stops the world with SuspendThread. Wine cannot suspend a thread that
+// is inside a Wine server call until that call returns, so a collection while another thread
+// runs or waits takes about 4.5 s there (Wine 11, measured with this suite; the same program on
+// the real PC takes 0.7-7 ms). That is Wine's emulation, not Windows's behavior, so the checks
+// keep the strict 2 s on Windows and Linux and use a wide bound under Wine, where they only say
+// that the collection finishes at all. runtime/bdwgcwin_test.go sets GOCPP_WINE=1 for a Wine run
+// (never for the real PC, and never on Linux).
+std::chrono::milliseconds collect_bound() {
+    return std::getenv("GOCPP_WINE") != nullptr ? 60s : 2s;
+}
 
 // wait_until polls pred until it is true, for at most 2 minutes (a hang is a failure, a slow
 // machine is not), and says whether it got true.
@@ -278,7 +295,7 @@ void test_many_threads_then_collect() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
     gp::detail::set_idle_limit(old_limit);
 }
 
@@ -311,7 +328,7 @@ void test_collect_during_blocking() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
     {
         std::lock_guard<std::mutex> lk(state.mu);
         state.release.store(true, std::memory_order_release);
@@ -341,7 +358,7 @@ void test_waiter_park_is_blocking() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
     w.gp_unpark();
     waiter.join();
     CHECK(resumed.load(std::memory_order_acquire));
@@ -364,7 +381,7 @@ void test_timed_wait_is_blocking() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
     sleeper.join();
     CHECK(finished.load(std::memory_order_acquire)); // the wait timed out, and did not hang
 }
@@ -372,6 +389,13 @@ void test_timed_wait_is_blocking() {
 // os::exit_thread ends a thread with pthread_exit, a forced unwind: the thread guard's
 // destructor runs and unregisters the thread (README §2.5: every exit path). Without it, the
 // next collection would abort ("Signals delivery fails constantly").
+//
+// POSIX only, and compiled out on Windows: os::exit_thread there is ExitThread(0), which runs no
+// destructors, so the guard would not unregister the thread and the next collection would find
+// a registered thread that no longer exists. The Windows path is a thread-exit callback instead
+// (FLS, README §2.5, step 16.4) or an explicit leave before ExitThread; until 16.4 builds it,
+// this check has no honest Windows form, so it does not run there (job 16.1d-win).
+#ifndef _WIN32
 struct exit_thread_state {
     std::atomic<bool> started{false};
 };
@@ -398,8 +422,9 @@ void test_exit_thread_unregisters() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
 }
+#endif // !_WIN32
 
 // The timer thread's lifetime does not disturb the collector (README §2.5): a collection
 // completes while it runs, and one after timers_shutdown (which waits for it to end) does not
@@ -416,13 +441,13 @@ void test_timer_thread_registers() {
     auto begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     auto elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
     CHECK(wait_until([&] { return ran.load(std::memory_order_acquire); }));
     gp::detail::timers_shutdown(); // the timer thread unregisters before h.running becomes false
     begin = std::chrono::steady_clock::now();
     gp::gc::process_heap().collect();
     elapsed = std::chrono::steady_clock::now() - begin;
-    CHECK(elapsed < 2s);
+    CHECK(elapsed < collect_bound());
 }
 
 // An exception from a blocking section's callback does not cross bdwgc's C frames: the backend
@@ -480,8 +505,10 @@ int main() {
     test_waiter_park_is_blocking();
     trace("timed wait");
     test_timed_wait_is_blocking();
-    trace("exit_thread");
+#ifndef _WIN32
+    trace("exit_thread"); // POSIX only: see test_exit_thread_unregisters
     test_exit_thread_unregisters();
+#endif
     trace("blocking exception");
     test_blocking_exception();
     trace("timer thread");

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -121,7 +122,9 @@ func (d *driver) gcBuild(patterns []string) int {
 	if err != nil {
 		return d.gcError(err)
 	}
-	out := d.outputPath(filepath.Base(dir))
+	// out is what outputPath makes; a Windows program is an .exe also when -o is absent or names
+	// the folder (withExeSuffix changes nothing on Linux).
+	out := withExeSuffix(d.outputPath(filepath.Base(dir)), d.check.goos)
 	exe, work, code := d.gcCompileDir(dir, out)
 	if exe == "" {
 		return code
@@ -132,6 +135,17 @@ func (d *driver) gcBuild(patterns []string) int {
 
 // gcRun is gocpp run -gc-engine: it builds the folder's package main and runs it with args.
 func (d *driver) gcRun(patterns, args []string) int {
+	// The target first, like the ARC engine's gocpp run (build.go): a pair that the GC engine
+	// cannot build gets that error, not a hint to set GOCPP_EXEC. Then the runner: a program for
+	// another target runs under GOCPP_EXEC (wine), crossRunner is nil for this system, and its
+	// error comes before the build.
+	if err := gcTarget(d.check.goos, d.check.goarch); err != nil {
+		return d.gcError(err)
+	}
+	runner, err := crossRunner(d.check.goos, d.check.goarch)
+	if err != nil {
+		return d.gcError(err)
+	}
 	dir, err := gcPatternDir(patterns)
 	if err != nil {
 		return d.gcError(err)
@@ -142,13 +156,15 @@ func (d *driver) gcRun(patterns, args []string) int {
 	}
 	defer d.gcRemoveWork(work)
 	if d.flags.x {
-		words := []string{build.ShellQuoteWork(exe, work)}
+		words := slices.Clone(runner)
+		words = append(words, build.ShellQuoteWork(exe, work))
 		for _, a := range args {
 			words = append(words, build.ShellQuoteWork(a, ""))
 		}
 		fmt.Fprintln(d.stderr, strings.Join(words, " "))
 	}
-	cmd := exec.CommandContext(d.ctx, exe, args...)
+	argv := append(append(slices.Clone(runner), exe), args...)
+	cmd := exec.CommandContext(d.ctx, argv[0], argv[1:]...)
 	cmd.Dir = d.check.dir
 	cmd.Env = runProgramEnv(cmd.Dir, runtime.GOOS) // the user's TEMP and LOCALAPPDATA, not the compilers' (envpaths.go)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = d.stdin, d.stdout, d.stderr
@@ -176,13 +192,27 @@ func (d *driver) gcRun(patterns, args []string) int {
 	return 0
 }
 
+// gcTarget checks that the GC engine builds for goos/goarch: this system, and windows/amd64 from
+// another one (job 16.1d-win: internal/build.Bdwgc builds the Windows archive, the MinGW-w64
+// compiler the rest). Another pair is an error, not a silent host build. Both gcBuild's and
+// gcRun's paths go through it, and gcRun asks before it looks for a runner.
+func gcTarget(goos, goarch string) error {
+	if err := buildTarget(goos, goarch); err != nil {
+		return err
+	}
+	if !isHostTarget(goos, goarch) && goos != "windows" {
+		return fmt.Errorf("the GC engine cross-compiles for windows/amd64 only (job 16.1d-win): %s/%s, but gocpp runs on %s/%s",
+			goos, goarch, runtime.GOOS, runtime.GOARCH)
+	}
+	return nil
+}
+
 // gcCompileDir loads, checks and emits the folder dir's package main and compiles it with the
 // GC engine's runtime sources. out is the program's path, or "" to put it in the work folder
 // (gocpp run). It returns the program's path and the work folder, or "" and the exit status.
 func (d *driver) gcCompileDir(dir, out string) (exe, work string, code int) {
-	if !isHostTarget(d.check.goos, d.check.goarch) {
-		return "", "", d.gcError(fmt.Errorf("the GC engine does not cross-compile yet (job 16.1c): %s/%s, but gocpp runs on %s/%s",
-			d.check.goos, d.check.goarch, runtime.GOOS, runtime.GOARCH))
+	if err := gcTarget(d.check.goos, d.check.goarch); err != nil {
+		return "", "", d.gcError(err)
 	}
 	gpkg, err := load.LoadGoDir(dir)
 	if err != nil {
@@ -271,10 +301,14 @@ func (d *driver) gcCompileDir(dir, out string) (exe, work string, code int) {
 		args = append(args, filepath.Join(rt, filepath.FromSlash(src)))
 	}
 	// The archive comes after every object file, and its link flags (the C library's threads
-	// and dl, and the sanitizer's runtime) after it.
+	// and dl, and the sanitizer's runtime) after it. The target's own link flags follow: for
+	// windows/amd64 they are -static (an .exe that needs no DLL), the 1 GiB stack and, for a
+	// GCC, -pthread (internal/build.LinkFlags, the ARC engine's link); they are empty for the
+	// host, so the Linux link is unchanged.
 	args = append(args, "-o", out)
 	args = append(args, lib.Archive)
 	args = append(args, lib.LinkFlags...)
+	args = append(args, build.LinkFlags(cxx)...)
 	if d.flags.x {
 		words := []string{cxx.Name()}
 		for _, a := range args {

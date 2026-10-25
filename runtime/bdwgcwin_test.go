@@ -3,7 +3,9 @@
 package rtfiles_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +95,46 @@ func TestBdwgcWindowsSmoke(t *testing.T) {
 			t.Logf("%s", strings.Join(lines, "\n"))
 		})
 	}
+}
+
+// gcHeapWindowsChecks is the number of checks that test/gc_heap_bdwgc_test.cpp runs on Windows.
+// It is 41 on Linux; the three that are absent are the POSIX-only os::exit_thread case, which is
+// compiled out under _WIN32 (the test says why). The test asserts the number so that a guard
+// added later cannot quietly take a core check (zeroed alloc, roots, cycle, atomic, threads,
+// blocking, stats) out of the Windows run.
+const gcHeapWindowsChecks = 38
+
+// TestGCHeapWindows builds the GC engine's bdwgc test suite (test/gc_heap_bdwgc_test.cpp) for
+// windows/amd64 with the MinGW-w64 cross compiler — the runtime's Windows objects, the GC
+// engine's sources with heap_bdwgc.cpp selected (GOCPP_GC_BDWGC), and the vendored bdwgc built
+// for windows/amd64 through internal/build.Builder.Bdwgc — and runs it under Wine, or on the
+// real PC when GOCPP_WINDOWS_SSH is set. It is the same suite the Linux matrix runs (job 16.1d):
+// zeroed allocation, roots, a collected cycle, a pointer-free object, 1,000 goroutine threads,
+// blocking sections, the timer thread and the statistics. Only os::exit_thread's forced-unwind
+// case is compiled out on Windows (it is POSIX-only; the test says why).
+func TestGCHeapWindows(t *testing.T) {
+	t.Parallel()
+	c := mingw(t)     // skips without the MinGW-w64 cross compiler
+	e := wineSetup(t) // Wine, or the real PC with GOCPP_WINDOWS_SSH
+	rt := extractRuntime(t)
+	bins := c.startBuilds(t, rt, t.TempDir(), winExtraFlags, []prog{
+		{src: "test/gc_heap_bdwgc_test.cpp", bdwgc: true, gc: true, weight: 4},
+	})
+	t.Run("gc_heap_bdwgc", func(t *testing.T) {
+		// GOCPP_WINE tells the suite's collection timing checks that Wine's SuspendThread cannot
+		// stop a thread inside a Wine server call until it returns (~4.5 s per collection there;
+		// on the PC, 0.7-7 ms), so they use a hang-detector bound under Wine and the strict 2 s on
+		// Windows (the test file says why). The real PC gets no variable.
+		var env []string
+		if e.remote == nil {
+			env = []string{"GOCPP_WINE=1"}
+		}
+		r := e.runLong(t, bins.bin(t, "test/gc_heap_bdwgc_test.cpp"), env, "arg1", "arg two")
+		if want := fmt.Sprintf("ok: %d checks", gcHeapWindowsChecks); r.code != 0 || len(r.stderr) != 0 || string(bytes.TrimSpace(r.stdout)) != want {
+			t.Fatalf("gc_heap_bdwgc_test: exit code %d\nstdout:\n%s\nstderr:\n%s\nwant exit 0, nothing on stderr and %q", r.code, r.stdout, r.stderr, want)
+		}
+		t.Logf("%s", bytes.TrimSpace(r.stdout))
+	})
 }
 
 // The probe runs of TestBdwgcWindowsProbes. The counts are the ticket's: 1,000 and 10,000 thread

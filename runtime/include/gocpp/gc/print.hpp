@@ -32,9 +32,12 @@ void print_int(std::string& out, int64_t v);
 void write_stderr(std::string_view s);
 
 #ifdef GOCPP_RUNTIME_TEST
-// write_stderr_hook, when it is not null, receives the bytes of print and println instead of
-// standard error: the runtime's C++ tests (runtime/test/gc_print_test.cpp) check a call's exact
-// output with it. Only a GOCPP_RUNTIME_TEST build has it (the runtime's tests, not a program).
+// write_stderr_hook, when it is not null, receives every byte that write_stderr would put on
+// standard error — print's and println's output, and the panic line (src/gc/panic.cpp and the
+// run_main fallback in panic.hpp) — instead of writing it: the runtime's C++ tests
+// (runtime/test/gc_print_test.cpp) check a call's
+// exact output with it. Only a GOCPP_RUNTIME_TEST build has it (the runtime's tests, not a
+// program).
 extern void (*write_stderr_hook)(std::string_view);
 #endif
 
