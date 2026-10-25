@@ -32,7 +32,8 @@ namespace gp {
 struct HResultError {
     int32_t gp_code;
     friend bool operator==(const HResultError&, const HResultError&) = default;
-    // (the error is a map key, map[error]int: the hash of the code, as the struct of one field would)
+    // (the error is a map key, map[error]int: the hash of the code, as the struct of one field
+    // would)
     std::size_t gp_hash() const { return gp::hash_fields(gp_code); }
 };
 

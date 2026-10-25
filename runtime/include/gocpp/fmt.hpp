@@ -1036,7 +1036,8 @@ constexpr bool printable() {
 }
 
 // keys_ordered<T>(): whether every map in a T has keys that fmt can sort (fmtsort, fmt.cpp:
-// compare): Go types, C++ strings, and C++ classes with operator< (key_ordered). The walk of printable.
+// compare): Go types, C++ strings, and C++ classes with operator< (key_ordered). The walk of
+// printable.
 template <typename T, typename... Seen>
 constexpr bool keys_ordered() {
     if constexpr ((std::is_same_v<T, Seen> || ...)) {
@@ -1047,8 +1048,8 @@ constexpr bool keys_ordered() {
         return keys_ordered<typename array_of<T>::elem, Seen...>();
     } else if constexpr (map_of<T>::value) {
         using K = typename map_of<T>::key;
-        return (!cxx_text_type<K> || cxx_string<K> || key_ordered<K>) && keys_ordered<K, Seen...>() &&
-               keys_ordered<typename map_of<T>::mapped, Seen...>();
+        return (!cxx_text_type<K> || cxx_string<K> || key_ordered<K>) &&
+               keys_ordered<K, Seen...>() && keys_ordered<typename map_of<T>::mapped, Seen...>();
     } else if constexpr (std::is_same_v<T, gp::ptr<void>>) {
         return true;
     } else if constexpr (ptr_of<T>::value) {

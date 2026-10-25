@@ -31,6 +31,8 @@
 // with the bdwgc backend, when they can be implemented honestly.
 #pragma once
 
+#include <gocpp/gc/golayout.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -104,11 +106,14 @@ heap& process_heap();
 // malloc backend's init does nothing.
 void init();
 
-// new_ allocates a T in the GC heap and constructs it there from args. The allocation is
-// scanned, so T may hold pointers (README §2.1: gp::gc::new_<node>(node{...})).
+// new_ allocates a T in the GC heap and constructs it there from args (README §2.1:
+// gp::gc::new_<node>(node{...})). A T that holds no pointer (go_layout<T>().ptrs is false) is
+// allocated pointer-free, which the collector never scans (README §2.4 stage 1); one that holds
+// a pointer is scanned. The heap zeroes the allocation, so new_<T>() gives Go's zero value.
 template <typename T, typename... Args>
 T* new_(Args&&... args) {
-    void* p = process_heap().alloc(sizeof(T));
+    void* p = go_layout<T>().ptrs ? process_heap().alloc(sizeof(T))
+                                  : process_heap().alloc_atomic(sizeof(T));
     return ::new (p) T(std::forward<Args>(args)...);
 }
 

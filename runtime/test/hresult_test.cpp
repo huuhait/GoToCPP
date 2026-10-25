@@ -87,8 +87,8 @@ void test_code_through_an_interface() {
     CHECK(!(e == gp::hresult_error(0x80004005L)));
 }
 
-// The error is a map key (map[error]int): hashing it must not panic as an unhashable type, and equal
-// codes hash alike.
+// The error is a map key (map[error]int): hashing it must not panic as an unhashable type, and
+// equal codes hash alike.
 void test_hash() {
     gp::error a = gp::hresult_error(0x887A0005L);
     gp::error b = gp::hresult_error(0x887A0005L);

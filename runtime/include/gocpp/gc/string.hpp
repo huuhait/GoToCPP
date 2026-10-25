@@ -17,6 +17,8 @@
 // everything else is a free function such as gp::gc::len(s).
 #pragma once
 
+#include <gocpp/gc/checks.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -113,6 +115,25 @@ inline bool operator>(string a, string b) noexcept {
 }
 inline bool operator>=(string a, string b) noexcept {
     return compare(a, b) >= 0;
+}
+
+// sub(s, lo, hi): s[lo:hi], Go's string slicing, with Go's checks (0 <= lo <= hi <= len(s)).
+// The result points into the same bytes, and an empty result keeps s's pointer (Go's gc does,
+// so it never forms a pointer past the string). sub(s, lo) is s[lo:].
+template <go_int L, go_int H>
+string sub(string s, L lo, H hi) {
+    check_slice(lo, hi, s.gp_len(), bounds::slice_alen);
+    auto l = static_cast<int64_t>(lo);
+    auto h = static_cast<int64_t>(hi);
+    if (h == l) {
+        return string(bytes, s.gp_data(), 0);
+    }
+    return string(bytes, s.gp_data() + l, h - l);
+}
+
+template <go_int L>
+string sub(string s, L lo) {
+    return sub(s, lo, s.gp_len());
 }
 
 // concat returns a + b: the bytes are copied into a new pointer-free GC allocation, which the

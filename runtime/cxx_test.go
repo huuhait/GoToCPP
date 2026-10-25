@@ -25,8 +25,9 @@ import (
 // test/thread_test.cpp, test/goroutine_test.cpp, test/chan_test.cpp, test/select_test.cpp, test/sync_test.cpp, test/deadlock_test.cpp, test/time_test.cpp, test/lib_test.cpp, test/syscall_test.cpp and test/interop_test.cpp, test/cxxvalue_test.cpp, test/unsafe_test.cpp, test/concepts_test.cpp,
 // test/type_test.cpp, test/iface_test.cpp, test/bytealg_test.cpp and test/reflect_test.cpp (unit tests), test/nochecks_test.cpp
 // (the unit tests of a -nochecks build, compiled with the runtime with -DGOCPP_NOCHECKS),
-// test/gc_string_test.cpp and test/gc_print_test.cpp (the GC engine's gp::gc::string, gp::gc::heap
-// and print, linked with the GC engine's sources, rtfiles.GCSources; job 16.1c),
+// test/gc_string_test.cpp, test/gc_print_test.cpp and test/gc_values_test.cpp (the GC engine's
+// gp::gc::string, gp::gc::heap, print, and its Go-layout values, linked with the GC engine's
+// sources, rtfiles.GCSources; jobs 16.1c and 16.1e),
 // and test/diff.cpp (the C++ side of a differential test against testdata/diff/main.go, run with
 // real Go). (fmt is compared with real Go by the test programs tests/run/fmt_*.gp.)
 // Each is compiled with the embedded runtime (rtfiles.FS, extracted to a temporary folder, as
@@ -318,6 +319,7 @@ func TestCXX(t *testing.T) {
 						{src: "test/fmt_test.cpp", weight: 14},
 						{src: "test/gc_string_test.cpp", gc: true, weight: 2},
 						{src: "test/gc_print_test.cpp", gc: true, weight: 2},
+						{src: "test/gc_values_test.cpp", gc: true, weight: 4},
 						{src: "test/interop_test.cpp", weight: 15},
 						{src: "test/array_test.cpp", weight: 7},
 						{src: "test/slice_test.cpp", weight: 7},
@@ -539,6 +541,10 @@ func TestCXX(t *testing.T) {
 					t.Run("gc_print", func(t *testing.T) {
 						t.Parallel()
 						runUnit(t, bins.bin(t, "test/gc_print_test.cpp"))
+					})
+					t.Run("gc_values", func(t *testing.T) {
+						t.Parallel()
+						runUnit(t, bins.bin(t, "test/gc_values_test.cpp"))
 					})
 					t.Run("unsafe", func(t *testing.T) {
 						t.Parallel()

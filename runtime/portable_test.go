@@ -91,6 +91,11 @@ func TestClangFormat(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// The vendored bdwgc (job 16.1a) is upstream code, not gocpp's: it is not gocpp's
+		// style and is not edited here, so the format check leaves it out.
+		if d.IsDir() && p == "third_party" {
+			return fs.SkipDir
+		}
 		if skipEntry(disk, p, d) {
 			return skipped(d)
 		}

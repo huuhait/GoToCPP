@@ -1,29 +1,15 @@
 // gocpp/gc/arith.cpp: Go's shifts and division/remainder (phase-16 README §2.2; job 16.1c).
 #include <gocpp/nofortify.h>
 #include <gocpp/gc/arith.hpp>
+#include <gocpp/gc/checks.hpp>
 
-#include <cstdio>
-#include <cstdlib>
+#include <cstdint>
 
 namespace gp::gc {
 
-namespace {
-
-// spike_panic is job 16.1c's placeholder for a Go runtime panic: it prints the first line of
-// Go's message and exits with status 2, which is what a Go program that panics prints before its
-// stack trace. It is not the panic mechanism: the shared exception type, defers, recover and the
-// stack trace are step 16.6, which replaces this function (job 16.1c's report says so).
-[[noreturn]] void spike_panic(const char* msg) {
-    std::fprintf(stderr, "panic: runtime error: %s\n", msg);
-    std::fflush(stderr);
-    std::_Exit(2);
-}
-
-} // namespace
-
 int64_t shl(int64_t x, int64_t n) {
     if (n < 0) {
-        spike_panic("negative shift amount");
+        panic_shift();
     }
     if (n >= 64) {
         return 0;
@@ -33,7 +19,7 @@ int64_t shl(int64_t x, int64_t n) {
 
 int64_t shr(int64_t x, int64_t n) {
     if (n < 0) {
-        spike_panic("negative shift amount");
+        panic_shift();
     }
     if (n >= 64) {
         return x < 0 ? -1 : 0;
@@ -44,7 +30,7 @@ int64_t shr(int64_t x, int64_t n) {
 
 int64_t div(int64_t x, int64_t y) {
     if (y == 0) {
-        spike_panic("integer divide by zero");
+        panic_divide();
     }
     if (y == -1) {
         // INT64_MIN / -1 is INT64_MIN in Go, and undefined in C++: the negation in uint64_t
@@ -56,7 +42,7 @@ int64_t div(int64_t x, int64_t y) {
 
 int64_t rem(int64_t x, int64_t y) {
     if (y == 0) {
-        spike_panic("integer divide by zero");
+        panic_divide();
     }
     if (y == -1) {
         return 0; // INT64_MIN % -1 is 0 in Go, and undefined in C++

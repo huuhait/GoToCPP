@@ -260,7 +260,7 @@ void gc_init_once() {
     }
     // From here on, the shared runtime's threads register and unregister and put their waits in
     // blocking sections (gocpp/gc/hooks.hpp).
-    detail::gc_install_hooks(&bdwgc_enter_hook, &bdwgc_leave_hook, &bdwgc_blocking_hook);
+    ::gp::detail::gc_install_hooks(&bdwgc_enter_hook, &bdwgc_leave_hook, &bdwgc_blocking_hook);
 }
 
 // The hooks the shared runtime calls. They run on a thread that the collector may not know

@@ -861,15 +861,16 @@ struct map_literal {
 template <typename T>
 using map_t = typename map_literal<T>::gp_type;
 
-// value_eq(a, b) is Go's a == b of a gocpp struct or array with C/C++ parts: the struct's operator==
-// (or gp::array's), which compares the C/C++ parts with C++'s ==; a C/C++ part without one is an error
-// at the comparison's line.
+// value_eq(a, b) is Go's a == b of a gocpp struct or array with C/C++ parts: the struct's
+// operator== (or gp::array's), which compares the C/C++ parts with C++'s ==; a C/C++ part without
+// one is an error at the comparison's line.
 template <typename T>
 bool value_eq(const T& a, const T& b) {
-    static_assert(std::equality_comparable<T>,
-                  "gocpp: == compares the C/C++ parts of this value with C++'s ==, which a C/C++ type "
-                  "in it doesn't have (compare the other parts yourself, or declare an operator== "
-                  "for that type)");
+    static_assert(
+        std::equality_comparable<T>,
+        "gocpp: == compares the C/C++ parts of this value with C++'s ==, which a C/C++ type "
+        "in it doesn't have (compare the other parts yourself, or declare an operator== "
+        "for that type)");
     if constexpr (std::equality_comparable<T>) {
         return a == b;
     } else {
@@ -885,15 +886,17 @@ bool value_eq(const T& a, const T& b) {
 template <typename K>
 struct key_ok
     : std::bool_constant<std::equality_comparable<K> &&
-                         (requires(const K& a) { std::hash<K>{}(a); } || requires(const K& a) { a.gp_hash(); })> {};
+                         (requires(const K& a) {
+    std::hash<K>{}(a); } || requires(const K& a) {
+    a.gp_hash(); })> {};
 template <typename T, int64_t N>
 struct key_ok<gp::array<T, N>> : key_ok<T> {};
 
 // map_key<K> is the C/C++ key type K of a gocpp map (map[std.string]int, gp::map<map_key<K>, V>,
 // which is gp::map<K, V>): gp::map hashes a key that has no hash of gocpp's with std::hash and
-// compares it with ==, so a type that lacks them (std.vector[int]) is a clear error at the map's line,
-// not one deep in gocpp/hash.hpp. (After the error the key is bad_map_key, which the map can hash, so
-// that the error is the only one.)
+// compares it with ==, so a type that lacks them (std.vector[int]) is a clear error at the map's
+// line, not one deep in gocpp/hash.hpp. (After the error the key is bad_map_key, which the map can
+// hash, so that the error is the only one.)
 struct bad_map_key {
     bool operator==(const bad_map_key&) const = default;
     std::size_t gp_hash() const { return 0; }
@@ -901,10 +904,10 @@ struct bad_map_key {
 template <typename K>
 struct map_key_check {
     static constexpr bool gp_ok = key_ok<K>::value;
-    static_assert(gp_ok,
-                  "gocpp: this C/C++ type can't be the key of a gocpp map: the map hashes it with "
-                  "std::hash and compares it with ==, which it doesn't have (use a Go key, or a C++ "
-                  "map such as std.map[K, V])");
+    static_assert(
+        gp_ok, "gocpp: this C/C++ type can't be the key of a gocpp map: the map hashes it with "
+               "std::hash and compares it with ==, which it doesn't have (use a Go key, or a C++ "
+               "map such as std.map[K, V])");
     using gp_type = std::conditional_t<gp_ok, K, bad_map_key>;
 };
 template <typename K>
