@@ -72,20 +72,24 @@ func TestBdwgcFS(t *testing.T) {
 	if slices.Contains(linux, "src/windows/win32_threads.c") || !slices.Contains(linux, "src/pthread_support.c") {
 		t.Errorf(`BdwgcSources("linux") = %q, want the POSIX thread layer and not the Windows source`, linux)
 	}
-	// The Windows list is bdwgc's CMake Win32-threads branch (M10), 23 files: the Linux list
-	// without the five POSIX-thread sources (gc_dlopen.c, pthread_start.c, pthread_stop_world.c,
-	// pthread_support.c, specific.c), plus src/windows/win32_threads.c. Pin it exactly: a
+	// The Windows list is bdwgc's CMake Win32 branch with pthreads found (bdwgcwin_test.go builds
+	// and runs it), 25 files: the Linux list without the three POSIX-thread sources
+	// (pthread_start.c, pthread_stop_world.c, pthread_support.c), plus src/windows/win32_threads.c,
+	// with gc_dlopen.c and specific.c kept (CMake's CMAKE_USE_PTHREADS_INIT + WIN32 branch, which
+	// is what a CMake configure of the tree takes with MinGW-w64's winpthreads). Pin it exactly: a
 	// regression that kept one of the pthread sources would otherwise pass.
 	wantWindows := []string{
-		"src/allchblk.c", "src/alloc.c", "src/blacklst.c", "src/dbg_mlc.c", "src/dyn_load.c",
-		"src/finalize.c", "src/fnlz_mlc.c", "src/gcj_mlc.c", "src/headers.c", "src/mach_dep.c",
-		"src/malloc.c", "src/mallocx.c", "src/mark.c", "src/mark_rts.c", "src/misc.c",
-		"src/new_hblk.c", "src/obj_map.c", "src/os_dep.c", "src/ptr_chck.c", "src/reclaim.c",
-		"src/thread_local_alloc.c", "src/typd_mlc.c", "src/windows/win32_threads.c",
+		"src/allchblk.c", "src/alloc.c", "src/blacklst.c", "src/dbg_mlc.c",
+		"src/dyn_load.c", "src/finalize.c", "src/fnlz_mlc.c", "src/gc_dlopen.c",
+		"src/gcj_mlc.c", "src/headers.c", "src/mach_dep.c", "src/malloc.c",
+		"src/mallocx.c", "src/mark.c", "src/mark_rts.c", "src/misc.c",
+		"src/new_hblk.c", "src/obj_map.c", "src/os_dep.c", "src/ptr_chck.c",
+		"src/reclaim.c", "src/specific.c", "src/thread_local_alloc.c", "src/typd_mlc.c",
+		"src/windows/win32_threads.c",
 	}
 	windows := rtfiles.BdwgcSources("windows")
 	if !slices.Equal(windows, wantWindows) {
-		t.Errorf(`BdwgcSources("windows") = %q, want bdwgc's Win32-threads branch %q`, windows, wantWindows)
+		t.Errorf(`BdwgcSources("windows") = %q, want bdwgc's CMake Win32 branch with pthreads %q`, windows, wantWindows)
 	}
 	for _, s := range windows {
 		if _, err := fs.Stat(rtfiles.BdwgcFS(), s); err != nil {
@@ -120,7 +124,7 @@ var bdwgcModes = []struct {
 func TestBdwgcSmoke(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {
-		t.Skip("bdwgc is vendored for linux (phase 16 M10 adds Windows)")
+		t.Skip("the host is not Linux; bdwgcwin_test.go builds bdwgc for Windows")
 	}
 	rt := extractRuntime(t)
 	for _, c := range compilers(t) {
@@ -163,7 +167,7 @@ func runBdwgc(t *testing.T, bin string) {
 func TestBdwgcOptIn(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {
-		t.Skip("bdwgc is vendored for linux (phase 16 M10 adds Windows)")
+		t.Skip("the host is not Linux; bdwgcwin_test.go builds bdwgc for Windows")
 	}
 	rt := extractRuntime(t)
 	for _, c := range compilers(t) {
@@ -212,7 +216,7 @@ func TestBdwgcOptIn(t *testing.T) {
 func TestBdwgcConfig(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" {
-		t.Skip("bdwgc is vendored for linux")
+		t.Skip("the host is not Linux; bdwgcwin_test.go builds bdwgc for Windows")
 	}
 	c := cxx{name: "host"}
 	cc, err := build.LookCXX(context.Background(), "g++")

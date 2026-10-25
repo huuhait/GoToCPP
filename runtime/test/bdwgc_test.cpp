@@ -8,6 +8,10 @@
 // runtime/bdwgc_test.go with ThreadSanitizer. The library is built for the same sanitizer as the
 // program: bdwgc adapts to a sanitizer only when it is compiled with it.
 //
+// runtime/bdwgcwin_test.go builds it for windows/amd64 with the MinGW-w64 cross compiler and runs
+// it under Wine or on the real Windows PC. There the collector stops the world with SuspendThread,
+// not with signals: the two signal setters are skipped (gc.h: no effect on non-POSIX systems).
+//
 // The facts of the plan that this test keeps (a comment where a check cannot be exact):
 //   - GC_malloc_atomic does not clear memory: the test writes every byte of the object before it
 //     reads it, and a zero byte is never assumed;
@@ -186,14 +190,16 @@ int main() {
     // Under ThreadSanitizer, bdwgc's TSan build chooses its own synchronous suspend signal
     // (SIGSYS): TSan holds an asynchronous signal back while a thread waits in
     // pthread_mutex_lock, so overriding it with a real-time signal would break the stop there.
-#ifndef GOCPP_BDWGC_TSAN
+#if !defined(GOCPP_BDWGC_TSAN) && !defined(_WIN32)
     // The signals of the collector are chosen before GC_INIT (phase 16 §2.5): two real-time
-    // signals that gocpp's runtime does not use. bdwgc's defaults are SIGPWR and SIGXCPU.
+    // signals that gocpp's runtime does not use. bdwgc's defaults are SIGPWR and SIGXCPU. A
+    // Windows build stops the world with SuspendThread, not signals: it has no SIGRTMIN, and
+    // gc.h says that the two setters have no effect on non-POSIX systems.
     GC_set_suspend_signal(SIGRTMIN + 6);
     GC_set_thr_restart_signal(SIGRTMIN + 7);
 #endif
     GC_INIT();
-#ifdef GOCPP_BDWGC_TSAN
+#if defined(GOCPP_BDWGC_TSAN) && !defined(_WIN32)
     // bdwgc's TSan build chose its synchronous signal itself (gc_priv.h); this test must not
     // override it (see the comment above).
     report(GC_get_suspend_signal() == SIGSYS, "tsan: bdwgc keeps its own SIGSYS suspend signal");

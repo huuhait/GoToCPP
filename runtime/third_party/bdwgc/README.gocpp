@@ -25,17 +25,17 @@ upstream's, unchanged).
 What is here
 ------------
   src/       the C sources of the Linux build (27 files; the list is the one
-             of bdwgc's CMakeLists.txt for Linux with threads, parallel
+             of bdwgc's CMakeLists.txt for Linux with pthreads, parallel
              marking, thread-local allocation, gcj support and the disclaim
              interface), and src/windows/win32_threads.c, the Windows thread
-             layer (byte-identical upstream). The MinGW build itself (its
-             defines, OS layer and link flags) is M10 work; rtfiles.BdwgcSources
-             already returns its source list for "windows" (23 files, the CMake
-             Win32-threads branch). M10 must record the thread backend: MinGW-w64
-             and llvm-mingw ship winpthreads, so a CMake configure would take the
-             CMAKE_USE_PTHREADS_INIT + WIN32 branch and add gc_dlopen.c and
-             specific.c (25 files). Both files are vendored, so the tree is
-             complete for either backend.
+             layer (byte-identical upstream). rtfiles.BdwgcSources returns the
+             Linux list and the Win32 list (25 files: the same without the three
+             POSIX thread sources pthread_start.c, pthread_stop_world.c and
+             pthread_support.c, plus win32_threads.c; gc_dlopen.c and
+             specific.c stay), and internal/build builds both. The backend is
+             recorded: a CMake configure with MinGW-w64 or llvm-mingw (both ship
+             winpthreads) takes the CMAKE_USE_PTHREADS_INIT + WIN32 branch, which
+             is what gocpp builds.
   include/   the public and private headers (upstream's include/, without
              include/include.am and include/extra/)
   LICENSE    see above
@@ -68,13 +68,33 @@ LARGE_CONFIG, USE_MMAP, USE_MUNMAP, ALL_INTERIOR_POINTERS and
 GC_DISABLE_INCREMENTAL (gocpp's runtime owns SIGSEGV; the write-fault handler
 of MPROTECT_VDB/SOFT_VDB must not exist, and GC_enable_incremental is a
 no-op), and DONT_ADD_BYTE_AT_END is not defined. The build adds what bdwgc's
-own CMakeLists.txt adds on Linux: NO_EXECUTE_PERMISSION, _REENTRANT,
-GC_GCJ_SUPPORT, GC_ENABLE_SUSPEND_THREAD, ENABLE_DISCLAIM,
-JAVA_FINALIZATION, GC_ATOMIC_UNCOLLECTABLE, HANDLE_FORK, the platform probes
-HAVE_DL_ITERATE_PHDR, HAVE_DLADDR and HAVE_PTHREAD_SETNAME_NP_WITH_TID, and
-GC_NO_THREAD_REDIRECTS (phase 16 section 2.5: registration is explicit, so
-gc.h must not turn pthread_create into GC_pthread_create). See bdwgcDefines
-in internal/build/bdwgc.go for the exact list; it is part of the cache key.
+own CMakeLists.txt adds: NO_EXECUTE_PERMISSION, GC_GCJ_SUPPORT,
+GC_ENABLE_SUSPEND_THREAD, ENABLE_DISCLAIM, JAVA_FINALIZATION and
+GC_ATOMIC_UNCOLLECTABLE on both systems, and GC_NO_THREAD_REDIRECTS (phase 16
+section 2.5: registration is explicit, so gc.h must not turn pthread_create
+into GC_pthread_create). The thread layer's branch adds the rest. It is
+CMake's pthreads branch on both systems (CMAKE_USE_PTHREADS_INIT: glibc, and
+MinGW-w64 and llvm-mingw, which ship winpthreads), and on Windows that branch
+still compiles win32_threads.c (CreateThread/SuspendThread) because
+CMakeLists.txt picks it for WIN32. On Linux it adds _REENTRANT, HANDLE_FORK
+and the probes HAVE_DL_ITERATE_PHDR, HAVE_DLADDR and
+HAVE_PTHREAD_SETNAME_NP_WITH_TID. On Windows it adds _REENTRANT, no
+HANDLE_FORK (CMake: "Does not provide process fork functionality"), the WIN32
+and static-library options _CRT_SECURE_NO_DEPRECATE, GC_NOT_DLL and
+DONT_USE_USER32_DLL, and the probes of a CMake configure of this tree with
+the PC's WinLibs MinGW-w64 (posix thread model): HAVE_PTHREAD_SETNAME_NP_WITH_TID
+exists (winpthreads), while GC_NO_SIGSETJMP, GC_MISSING_EXECINFO_H and
+NO_GETCONTEXT are needed. HAVE_DL_ITERATE_PHDR is defined because CMake's
+check_function_exists runs with CMAKE_REQUIRED_FLAGS=-c (compile only) and
+"finds" a self-declared symbol without linking; MinGW-w64 has no
+dl_iterate_phdr, and the define is inert on WIN32 (dyn_load.c uses it only in
+the ELF branch). The Win32-threads-only
+branch (CMAKE_USE_WIN32_THREADS_INIT: MSVC, an mcf MinGW) would add
+EMPTY_GETENV_RESULTS and 23 files instead; gocpp does not build it. The link
+needs -lpthread -ldl on Linux and no library of its own on Windows
+(CreateThread and SuspendThread come from kernel32; the archive has no
+pthread symbol). See bdwgcDefines in internal/build/bdwgc.go for the exact
+list; it is part of the cache key.
 
 Update procedure
 ----------------

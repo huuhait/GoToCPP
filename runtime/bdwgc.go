@@ -59,31 +59,32 @@ var bdwgcLinuxSources = sync.OnceValue(func() []string {
 	return srcs
 })
 
-// bdwgcPthreadSources are the sources that only a POSIX-threads build has: a Windows build
-// replaces them with win32_threads.c (CMakeLists.txt).
-var bdwgcPthreadSources = []string{
-	"src/gc_dlopen.c",
+// bdwgcPosixThreadSources are the sources that only the POSIX thread layer has: a Windows build
+// replaces them with src/windows/win32_threads.c. gc_dlopen.c and specific.c stay: bdwgc's CMake
+// Win32 branch with pthreads found (CMAKE_USE_PTHREADS_INIT, which is what FindThreads reports
+// for MinGW-w64 and llvm-mingw: both ship winpthreads) adds them (CMakeLists.txt). The
+// Win32-threads-only branch (CMAKE_USE_WIN32_THREADS_INIT, a compiler without pthreads, such as
+// MSVC or an mcf MinGW) has 23 files and adds EMPTY_GETENV_RESULTS instead; gocpp's Windows
+// compilers are the pthreads ones, and the driver links -pthread.
+var bdwgcPosixThreadSources = []string{
 	"src/pthread_start.c",
 	"src/pthread_stop_world.c",
 	"src/pthread_support.c",
-	"src/specific.c",
 }
 
 // BdwgcSources returns the paths in BdwgcFS of the C files that make bdwgc for goos, sorted.
-// "linux" is the POSIX-threads build (27 files). "windows" is the list of bdwgc's
-// CMakeLists.txt for a Win32-threads build: the same sources without the POSIX thread layer,
-// plus src/windows/win32_threads.c (23 files). The MinGW build itself (its defines, the Windows
-// OS layer, the link flags) is M10 work and is not wired in internal/build yet. M10 must also
-// record which thread backend it picks: MinGW-w64 and llvm-mingw ship winpthreads, so a CMake
-// configure would take the CMAKE_USE_PTHREADS_INIT + WIN32 branch and add gc_dlopen.c and
-// specific.c (25 files). Both are vendored, so the tree is complete for either backend. Any
+// "linux" is the POSIX-threads build (27 files). "windows" is bdwgc's CMake Win32 branch with
+// pthreads (25 files): the Linux list without the three POSIX thread sources, plus
+// src/windows/win32_threads.c, with gc_dlopen.c and specific.c kept. That is the branch a CMake
+// configure takes with MinGW-w64 and llvm-mingw, which ship winpthreads (determined on the PC's
+// WinLibs MinGW-w64; internal/build has the defines). internal/build builds both lists. Any
 // other goos gets the Linux list; the build refuses it.
 func BdwgcSources(goos string) []string {
 	srcs := slices.Clone(bdwgcLinuxSources())
 	if goos != "windows" {
 		return srcs
 	}
-	srcs = slices.DeleteFunc(srcs, func(p string) bool { return slices.Contains(bdwgcPthreadSources, p) })
+	srcs = slices.DeleteFunc(srcs, func(p string) bool { return slices.Contains(bdwgcPosixThreadSources, p) })
 	srcs = append(srcs, "src/windows/win32_threads.c")
 	slices.Sort(srcs)
 	return srcs

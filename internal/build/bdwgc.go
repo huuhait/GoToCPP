@@ -35,9 +35,10 @@ import (
 // time, and the finished library is renamed into place.
 //
 // Configuration: bdwgc is configured with -D flags and no config.h (HAVE_CONFIG_H is not
-// defined), which is what its CMake build does on Linux. The fixed defines are the ones of
-// phase 16 §2.4; the rest is what bdwgc's own CMakeLists.txt adds for a Linux build with
-// threads. See bdwgcDefines. The build does not run configure or CMake.
+// defined), which is what its CMake build does. The fixed defines are the ones of phase 16
+// §2.4; the rest is what bdwgc's own CMakeLists.txt adds for its pthreads branch on Linux and on
+// Windows (where the same branch compiles the Win32 thread layer). See bdwgcDefines. The build
+// does not run configure or CMake.
 //
 // Sanitizers: bdwgc adapts to a sanitizer only when it is compiled with it. The ASan variant is
 // -fsanitize=address,undefined (like the runtime's asan mode); bdwgc finds it with
@@ -92,11 +93,12 @@ type BdwgcLib struct {
 
 	// CompileFlags are the flags of a compile of code that uses bdwgc: -I<dir>/include,
 	// -DGC_THREADS (gc.h declares the thread API only with it) and -DGC_NO_THREAD_REDIRECTS
-	// (registration is explicit: gc.h must not turn pthread_create into GC_pthread_create).
+	// (registration is explicit: gc.h must not turn pthread_create into GC_pthread_create), plus
+	// -DGC_NOT_DLL on Windows (the library is static).
 	CompileFlags []string
 
-	// LinkFlags are the flags after the archive on a link: -lpthread and -ldl, and the
-	// sanitizer's flag.
+	// LinkFlags are the flags after the archive on a link: -lpthread and -ldl on Linux, nothing
+	// on Windows, and the sanitizer's flag.
 	LinkFlags []string
 }
 
@@ -109,12 +111,23 @@ func (b *Builder) Bdwgc(ctx context.Context, cfg BdwgcConfig) (*BdwgcLib, error)
 	}
 	goos := b.GOOS
 	if goos == "" {
+		goos = b.CXX.GOOS // a compiler found for a target names it, even when the builder does not
+	}
+	if goos == "" {
 		goos = runtime.GOOS
 	}
-	if goos != "linux" {
-		// The Windows source is vendored (src/windows/win32_threads.c) and BdwgcSources("windows")
-		// lists the Win32 build, but its defines, OS layer and link flags are M10 work.
-		return nil, fmt.Errorf("build: the bdwgc build is wired for linux only (the Windows source is vendored, but the MinGW build is M10 work); this build is for %s", goos)
+	if b.CXX.GOOS != "" && b.CXX.GOOS != goos {
+		return nil, fmt.Errorf("build: the builder is for %s, but its compiler targets %s", goos, b.CXX.GOOS)
+	}
+	if goos != "linux" && goos != "windows" {
+		return nil, fmt.Errorf("build: the bdwgc build supports linux and windows/amd64, not %s", goos)
+	}
+	arch := b.CXX.GOARCH
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
+	if goos == "windows" && arch != "amd64" {
+		return nil, fmt.Errorf("build: the bdwgc build supports windows/amd64, not windows/%s", arch)
 	}
 	cc := b.CC
 	if cc.Path == "" {
@@ -122,6 +135,13 @@ func (b *Builder) Bdwgc(ctx context.Context, cfg BdwgcConfig) (*BdwgcLib, error)
 		if cc, err = FindCC(ctx, b.CXX); err != nil {
 			return nil, err
 		}
+	}
+	// FindCC returns the C compiler of the C++ compiler's toolchain without a target (its GOOS
+	// and GOARCH are empty). A cross build's compiler builds for the target that goos names
+	// (b.GOOS or the compiler's own), not the host, so the target is recorded here: it is part of
+	// the cache key (bdwgcKey), and a future target flag reads it.
+	if cc.GOOS == "" && goos != runtime.GOOS {
+		cc.GOOS, cc.GOARCH = goos, arch
 	}
 	dir, err := extractBdwgc(b.Cache, b.Work)
 	if err != nil {
@@ -142,10 +162,16 @@ func (b *Builder) Bdwgc(ctx context.Context, cfg BdwgcConfig) (*BdwgcLib, error)
 	if err != nil {
 		return nil, err
 	}
+	compileFlags := []string{"-I", filepath.Join(dir, "include"), "-DGC_THREADS", "-DGC_NO_THREAD_REDIRECTS"}
+	if goos == "windows" {
+		// The library is a static one (bdwgcDefines has GC_NOT_DLL): the header must agree, or a
+		// MinGW consumer that defines _DLL would read GC_API as dllimport.
+		compileFlags = append(compileFlags, "-DGC_NOT_DLL")
+	}
 	return &BdwgcLib{
 		Archive:      lib,
-		CompileFlags: []string{"-I", filepath.Join(dir, "include"), "-DGC_THREADS", "-DGC_NO_THREAD_REDIRECTS"},
-		LinkFlags:    bdwgcLinkFlags(cfg.Sanitizer),
+		CompileFlags: compileFlags,
+		LinkFlags:    bdwgcLinkFlags(cfg.Sanitizer, goos),
 	}, nil
 }
 
@@ -191,10 +217,15 @@ func (b *Builder) bdwgcFlags(cc CXX, goos string, cfg BdwgcConfig) []string {
 }
 
 // bdwgcDefines returns the -D flags of bdwgc's build: the fixed ones of phase 16 §2.4 (including
-// GC_DISABLE_INCREMENTAL: gocpp owns SIGSEGV), and what bdwgc's CMakeLists.txt adds for a Linux
-// build with threads, parallel marking, thread-local allocation, gcj support and the disclaim
-// interface. DONT_ADD_BYTE_AT_END is not among them (the extra byte at the end of an object
-// stays; §2.4).
+// GC_DISABLE_INCREMENTAL: gocpp owns SIGSEGV), the options that bdwgc's CMakeLists.txt turns on
+// for every platform (parallel marking, thread-local allocation, gcj support, the disclaim
+// interface, java finalization, atomic uncollectable objects, the mmap/munmap heap), and the
+// thread layer's: on both systems it is CMake's pthreads branch (CMAKE_USE_PTHREADS_INIT, which
+// FindThreads reports for glibc and for MinGW-w64 and llvm-mingw, which ship winpthreads); on
+// Windows that branch still compiles src/windows/win32_threads.c (CreateThread/SuspendThread),
+// because CMakeLists.txt picks it for WIN32 inside the pthreads branch. The Win32-threads-only
+// branch (a compiler without pthreads: MSVC, an mcf MinGW) is not built. DONT_ADD_BYTE_AT_END is
+// not among them (the extra byte at the end of an object stays; §2.4).
 func bdwgcDefines(goos string) []string {
 	defs := []string{
 		// §2.4, fixed.
@@ -211,31 +242,61 @@ func bdwgcDefines(goos string) []string {
 		// x86_64 Linux, so only GC_DISABLE_INCREMENTAL turns the mode (and its handler) off;
 		// GC_enable_incremental becomes a no-op. TinyGo does the same.
 		"-DGC_DISABLE_INCREMENTAL",
-		// bdwgc's own Linux defaults (CMakeLists.txt).
+		// bdwgc's own CMake defaults that apply to both builds.
 		"-DNO_EXECUTE_PERMISSION",
+		// CMake's pthreads branch adds it on every system, Windows included.
 		"-D_REENTRANT",
 		"-DGC_GCJ_SUPPORT",
 		"-DGC_ENABLE_SUSPEND_THREAD",
 		"-DENABLE_DISCLAIM",
 		"-DJAVA_FINALIZATION",
 		"-DGC_ATOMIC_UNCOLLECTABLE",
-		"-DHANDLE_FORK",
-		// §2.5: registration is explicit, not bdwgc's macros that redirect pthread_create. The
-		// define also reaches the code that includes gc.h (BdwgcLib.CompileFlags).
-		"-DGC_NO_THREAD_REDIRECTS",
 	}
 	if goos == "linux" {
+		// CMake skips the fork handler on Windows: "Does not provide process fork
+		// functionality". Keep it here, in the position it had before the Windows port: the
+		// flags are hashed in order, and the Linux libraries stay the same.
+		defs = append(defs, "-DHANDLE_FORK")
+	}
+	// §2.5: registration is explicit, not bdwgc's macros that redirect pthread_create. The
+	// define also reaches the code that includes gc.h (BdwgcLib.CompileFlags).
+	defs = append(defs, "-DGC_NO_THREAD_REDIRECTS")
+	switch goos {
+	case "linux":
 		// What configure or CMake finds on glibc: dl_iterate_phdr for the data roots of shared
 		// libraries, dladdr for names in reports, and pthread_setname_np(pthread_t, const char*).
 		defs = append(defs, "-DHAVE_DL_ITERATE_PHDR", "-DHAVE_DLADDR", "-DHAVE_PTHREAD_SETNAME_NP_WITH_TID")
+	case "windows":
+		// CMake's pthreads branch on WIN32, as a CMake configure of the vendored tree found it on
+		// the PC's MinGW-w64 (WinLibs, posix thread model) and on the dev shell's: _REENTRANT is
+		// in the common list above, and not EMPTY_GETENV_RESULTS, which only the
+		// Win32-threads-only branch adds; no HANDLE_FORK (CMake skips the fork handler on
+		// Windows: "Does not provide process fork functionality"); and the WIN32 and
+		// static-library options _CRT_SECURE_NO_DEPRECATE, GC_NOT_DLL and DONT_USE_USER32_DLL (no
+		// link against user32). The probes of that configure are explicit:
+		// pthread_setname_np(pthread_t, const char*) exists (winpthreads), and sigsetjmp,
+		// execinfo.h and getcontext do not. HAVE_DL_ITERATE_PHDR is there because CMake's
+		// check_function_exists runs with CMAKE_REQUIRED_FLAGS=-c (compile only), so it "finds" a
+		// self-declared symbol without linking; MinGW has no dl_iterate_phdr, and the define is
+		// inert on WIN32 anyway (dyn_load.c uses it only in the ELF branch).
+		defs = append(defs, "-D_CRT_SECURE_NO_DEPRECATE",
+			"-DGC_NOT_DLL", "-DDONT_USE_USER32_DLL",
+			"-DGC_NO_SIGSETJMP", "-DGC_MISSING_EXECINFO_H", "-DNO_GETCONTEXT",
+			"-DHAVE_DL_ITERATE_PHDR", "-DHAVE_PTHREAD_SETNAME_NP_WITH_TID")
 	}
 	return defs
 }
 
 // bdwgcLinkFlags returns the flags after the archive on a link: the C library's threads and
-// dynamic loading, and the sanitizer's runtime.
-func bdwgcLinkFlags(san BdwgcSanitizer) []string {
-	flags := []string{"-lpthread", "-ldl"}
+// dynamic loading on Linux, and the sanitizer's runtime. Windows needs no library of its own:
+// bdwgc's Win32 thread layer is CreateThread/SuspendThread from kernel32, which the linker always
+// links, and DONT_USE_USER32_DLL keeps user32 out. (The program's own link flags, such as
+// -pthread for std::thread and -static, are the driver's, not the library's.)
+func bdwgcLinkFlags(san BdwgcSanitizer, goos string) []string {
+	var flags []string
+	if goos == "linux" {
+		flags = []string{"-lpthread", "-ldl"}
+	}
 	switch san {
 	case BdwgcASan:
 		flags = append([]string{"-fsanitize=address,undefined"}, flags...)

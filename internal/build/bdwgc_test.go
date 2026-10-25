@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -34,9 +35,86 @@ func TestBdwgcDefines(t *testing.T) {
 			t.Errorf("bdwgcDefines(\"linux\") has %s, which §2.4 turns off", unwanted)
 		}
 	}
-	// A target that is not Linux does not get the glibc probes.
-	if slices.Contains(bdwgcDefines("windows"), "-DHAVE_DL_ITERATE_PHDR") {
-		t.Errorf("bdwgcDefines(\"windows\") has the glibc probe -DHAVE_DL_ITERATE_PHDR")
+	// The flags are hashed in order (bdwgcKey): keep the Linux list exactly as it was before the
+	// Windows port, so that no Linux library is rebuilt for a reordering.
+	wantLinux := []string{
+		"-DGC_THREADS", "-DPARALLEL_MARK", "-DTHREAD_LOCAL_ALLOC", "-DGC_BUILTIN_ATOMIC",
+		"-DLARGE_CONFIG", "-DUSE_MMAP", "-DUSE_MUNMAP", "-DALL_INTERIOR_POINTERS",
+		"-DGC_DISABLE_INCREMENTAL", "-DNO_EXECUTE_PERMISSION", "-D_REENTRANT",
+		"-DGC_GCJ_SUPPORT", "-DGC_ENABLE_SUSPEND_THREAD", "-DENABLE_DISCLAIM",
+		"-DJAVA_FINALIZATION", "-DGC_ATOMIC_UNCOLLECTABLE", "-DHANDLE_FORK",
+		"-DGC_NO_THREAD_REDIRECTS", "-DHAVE_DL_ITERATE_PHDR", "-DHAVE_DLADDR",
+		"-DHAVE_PTHREAD_SETNAME_NP_WITH_TID",
+	}
+	if !slices.Equal(defs, wantLinux) {
+		t.Errorf("bdwgcDefines(\"linux\") = %q, want the list and order %q", defs, wantLinux)
+	}
+	// The Windows build is CMake's pthreads branch on WIN32, as a CMake configure of the vendored
+	// tree found it with MinGW-w64: the common defines, _REENTRANT, and the probes that the
+	// toolchain has or lacks.
+	// Exact: one _REENTRANT (the common list's), no duplicate of any define.
+	wantWindows := []string{
+		"-DGC_THREADS", "-DPARALLEL_MARK", "-DTHREAD_LOCAL_ALLOC", "-DGC_BUILTIN_ATOMIC",
+		"-DLARGE_CONFIG", "-DUSE_MMAP", "-DUSE_MUNMAP", "-DALL_INTERIOR_POINTERS",
+		"-DGC_DISABLE_INCREMENTAL", "-DNO_EXECUTE_PERMISSION", "-D_REENTRANT",
+		"-DGC_GCJ_SUPPORT", "-DGC_ENABLE_SUSPEND_THREAD", "-DENABLE_DISCLAIM",
+		"-DJAVA_FINALIZATION", "-DGC_ATOMIC_UNCOLLECTABLE", "-DGC_NO_THREAD_REDIRECTS",
+		// The WIN32 and static-library options, and the probes of the PC's MinGW-w64.
+		"-D_CRT_SECURE_NO_DEPRECATE", "-DGC_NOT_DLL", "-DDONT_USE_USER32_DLL",
+		"-DGC_NO_SIGSETJMP", "-DGC_MISSING_EXECINFO_H", "-DNO_GETCONTEXT",
+		"-DHAVE_DL_ITERATE_PHDR", "-DHAVE_PTHREAD_SETNAME_NP_WITH_TID",
+	}
+	win := bdwgcDefines("windows")
+	if !slices.Equal(win, wantWindows) {
+		t.Errorf("bdwgcDefines(\"windows\") = %q, want the list and order %q", win, wantWindows)
+	}
+	for _, unwanted := range []string{
+		"-DEMPTY_GETENV_RESULTS", // the Win32-threads-only branch
+		"-DHANDLE_FORK",          // CMake skips the fork handler on Windows
+		"-DHAVE_DLADDR",          // MinGW-w64 has no dladdr
+		// CMake found only pthread_setname_np(pthread_t, const char*).
+		"-DHAVE_PTHREAD_SETNAME_NP_WITHOUT_TID", "-DHAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG",
+		"-DDONT_ADD_BYTE_AT_END", "-DGC_ASSERTIONS",
+	} {
+		if slices.Contains(win, unwanted) {
+			t.Errorf("bdwgcDefines(\"windows\") has %s, which its Win32 build does not", unwanted)
+		}
+	}
+}
+
+// TestBdwgcTargets checks the targets that Bdwgc refuses, and the builder/compiler disagreement:
+// all of these fail before a compiler runs.
+func TestBdwgcTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		b    *Builder
+		want string
+	}{
+		{"unsupported system", &Builder{CXX: CXX{Path: "/fake/gcc"}, GOOS: "darwin"},
+			"supports linux and windows/amd64"},
+		{"windows/arm64", &Builder{CXX: CXX{Path: "/fake/gcc", GOARCH: "arm64"}, GOOS: "windows"},
+			"supports windows/amd64, not windows/arm64"},
+		{"builder and compiler disagree", &Builder{CXX: CXX{Path: "/fake/gcc", GOOS: "linux"}, GOOS: "windows"},
+			"the builder is for windows, but its compiler targets linux"},
+	} {
+		if _, err := tc.b.Bdwgc(context.Background(), BdwgcConfig{}); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Bdwgc = %v, want an error with %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+// TestBdwgcLinkFlags checks the link flags after the archive: the C library's threads and dynamic
+// loading on Linux, nothing on Windows, and the sanitizer's runtime first.
+func TestBdwgcLinkFlags(t *testing.T) {
+	if got := bdwgcLinkFlags(BdwgcNoSanitizer, "linux"); !slices.Equal(got, []string{"-lpthread", "-ldl"}) {
+		t.Errorf("linux: %q", got)
+	}
+	if got := bdwgcLinkFlags(BdwgcNoSanitizer, "windows"); len(got) != 0 {
+		t.Errorf("windows: %q, want no library of its own", got)
+	}
+	asan := bdwgcLinkFlags(BdwgcASan, "windows")
+	if len(asan) != 1 || asan[0] != "-fsanitize=address,undefined" {
+		t.Errorf("windows asan: %q", asan)
 	}
 }
 
@@ -132,6 +210,14 @@ func TestBdwgcKey(t *testing.T) {
 		if c.key == base {
 			t.Errorf("%s: the key did not change (%s)", c.name, base)
 		}
+	}
+	// The arch is part of the key on its own: same target and everything else, only GOARCH
+	// differs. (The "another target" case above changes GOOS only.)
+	amd := CXX{Path: "/fake/gcc", Family: GCC, Version: "gcc 15", GOARCH: "amd64"}
+	arm := amd
+	arm.GOARCH = "arm64"
+	if b.bdwgcKey(amd, "windows", srcs, flags, a) == b.bdwgcKey(arm, "windows", srcs, flags, a) {
+		t.Errorf("GOARCH did not change the key")
 	}
 	// The sanitizer is part of the flags, so it is part of the key.
 	asan := b.bdwgcKey(cc, "linux", srcs, append(slices.Clone(flags), "-fsanitize=address"), a)

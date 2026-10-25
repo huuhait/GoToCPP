@@ -10,11 +10,11 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
 
 ### Part A: decide (4–6 weeks)
 - [~] 16.1 Spike: one Go package on bdwgc, called from gp (3–4 weeks)
-  - [~] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows llvm-mingw on the real PC), once per sanitizer (job 16.1a: Linux GCC/Clang + ASan/TSan and the vendored Windows sources are merged; the Windows build and smoke test on the real PC are job 16.1a-win)
+  - [x] bdwgc 8.2.12 built with the flags of README §2.4 (Linux GCC + Clang, Windows MinGW-w64 on the real PC), once per sanitizer (jobs 16.1a + 16.1a-win, both clean and merged: Linux GCC/Clang + ASan/TSan; Windows MinGW-w64 with bdwgc's CMake pthreads+WIN32 branch, 25 sources, smoke test on the real PC. Not tested: llvm-mingw (the PC has no clang) and ASan/TSan on Windows; the ADR of 16.2 records both.)
   - [~] throwaway GC mode: `container/list`, `strings`, `strconv`, `sort`, binarytrees with `println`; stubs for `runtime`, `internal/bytealg`, `internal/reflectlite` (job 16.1c starts the walking skeleton)
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base merged: the harness is `tools/gcbench`, the programs `bench/gc`, the Go/ARC baselines `docs/benchmarks/gc-engine-spike.md`; the GC rows, the goroutine pause/memory rows, the boundary shapes, compile time/size and the Windows runs are 16.1h)
-  - [ ] Windows: the same measurements, plus thread starts and the scan of static roots in each collection
+  - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
   - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b, clean after 3 rounds; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`)
 - [ ] 16.2 ADR: the design (1–2 weeks)
   - [ ] names; descriptors and the scheme for offsets, `typelinks` and unnamed types; the heap scan stages and the extra byte; misaligned access
@@ -269,6 +269,13 @@ package.
 
 ## Log
 
+- 2026-10-24: job 16.1a-win merged into `p16` after a clean review (3 rounds): bdwgc builds
+  for windows/amd64 and the smoke test runs on the real PC and under Wine. CMake on the PC
+  showed that MinGW-w64 (winpthreads) takes bdwgc's pthreads+WIN32 branch (25 sources), not the
+  23-file Win32-threads list; the Windows defines are pinned. Probes: thread starts ~61–65 µs
+  registered at 1,000 (~115 µs at 10,000), static-root scan ~0.53 ms/collection by default and
+  ~0.36 ms with `GC_set_no_dls(1)`, which alone also drops the executable's own static roots —
+  the executable's writable image must be added with `GC_add_roots`.
 - 2026-10-24: job 16.1h-base merged into `p16` after a clean review (2 rounds): the measurement
   harness (`tools/gcbench`), the three Go/gp programs (`bench/gc`) and the Go/ARC baselines
   (`docs/benchmarks/gc-engine-spike.md`). The machine was loaded (1-minute load 44–77 against a
