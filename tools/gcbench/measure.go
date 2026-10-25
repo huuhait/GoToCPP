@@ -11,10 +11,11 @@ import (
 
 // runResult is one program run at one thread count in one flavor.
 type runResult struct {
-	Threads int      `json:"threads"`
-	Status  string   `json:"status"` // ok, mismatch, run-failed
+	Threads int      `json:"threads"`        // a goroutine count for the goroutines program
+	Mode    string   `json:"mode,omitempty"` // blocked, running, ... (empty: the program has no modes)
+	Status  string   `json:"status"`         // ok, mismatch, run-failed
 	Note    string   `json:"note,omitempty"`
-	Output  string   `json:"output,omitempty"`  // the deterministic output (the checksum), identical in every flavor
+	Output  string   `json:"output,omitempty"`  // the deterministic output lines, identical in every flavor
 	Samples []sample `json:"samples,omitempty"` // the measured runs, warm-up runs dropped
 	Wall    stat     `json:"wall"`              // ns
 	CPU     stat     `json:"cpu"`               // ns
@@ -23,36 +24,44 @@ type runResult struct {
 
 // programResult is one program, built for every flavor and run.
 type programResult struct {
-	Name    string         `json:"name"`
-	About   string         `json:"about"`
-	Path    string         `json:"path"`
-	Flavors []flavorResult `json:"flavors"`
+	Name  string `json:"name"`
+	About string `json:"about"`
+	Path  string `json:"path"`
+	// Goroutines is true when the Threads of this program's runs are goroutine
+	// counts and its runs have modes.
+	Goroutines bool           `json:"goroutines,omitempty"`
+	Flavors    []flavorResult `json:"flavors"`
 }
 
-// report is the JSON file of a run (schema 1).
+// report is the JSON file of a run (schema 2).
 type report struct {
-	Schema    int             `json:"schema"`
-	Tool      string          `json:"tool"`
-	Generated string          `json:"generated"`
-	Smoke     bool            `json:"smoke"`
-	Reps      int             `json:"reps"`
-	Warmup    int             `json:"warmup"`
-	Depth     int             `json:"depth"`
-	Threads   []int           `json:"threads"`
-	Command   string          `json:"command"`
-	Commit    string          `json:"commit,omitempty"`
-	Dirty     bool            `json:"dirty,omitempty"`
-	CXX       string          `json:"cxx,omitempty"`      // GOCPP_CXX of the ARC/GC builds ("" = gocpp's choice)
-	CXXFlags  string          `json:"cxxflags,omitempty"` // GOCPP_CXXFLAGS of the ARC/GC builds ("" = gocpp's default)
-	GatePhase string          `json:"gate_phase"`         // the GOCPP_GATE_PHASE the gocpp builds ran with
-	TimeoutMS int64           `json:"timeout_ms"`         // the limit of one run
-	Machine   machine         `json:"machine"`
-	Programs  []programResult `json:"programs"`
+	Schema           int             `json:"schema"`
+	Tool             string          `json:"tool"`
+	Generated        string          `json:"generated"`
+	Smoke            bool            `json:"smoke"`
+	Reps             int             `json:"reps"`
+	Warmup           int             `json:"warmup"`
+	Depth            int             `json:"depth"`                       // binarytrees depth
+	Threads          []int           `json:"threads"`                     // the scaling programs' thread counts
+	GoroutineThreads []int           `json:"goroutine_threads,omitempty"` // the goroutines program's goroutine counts
+	GoroutineDepth   int             `json:"goroutine_depth,omitempty"`   // the goroutines program's recursion depth
+	Command          string          `json:"command"`
+	Commit           string          `json:"commit,omitempty"`
+	Dirty            bool            `json:"dirty,omitempty"`
+	CXX              string          `json:"cxx,omitempty"`      // GOCPP_CXX of the ARC/GC builds ("" = gocpp's choice)
+	CXXFlags         string          `json:"cxxflags,omitempty"` // GOCPP_CXXFLAGS of the ARC/GC builds ("" = gocpp's default)
+	GatePhase        string          `json:"gate_phase"`         // the GOCPP_GATE_PHASE the gocpp builds ran with
+	TimeoutMS        int64           `json:"timeout_ms"`         // the limit of one run
+	Machine          machine         `json:"machine"`
+	Programs         []programResult `json:"programs"`
 }
 
 // schemaVersion is the version of the JSON file. It changes when a field
 // changes its meaning.
-const schemaVersion = 1
+//
+// 2 added the goroutines program: a run's Threads can be a goroutine count,
+// runs have a Mode, and the report records the goroutine settings.
+const schemaVersion = 2
 
 // measure builds every program for every selected flavor and measures it at
 // every thread count.
@@ -79,9 +88,16 @@ func measure(c *config) (*report, error) {
 	m.MaxLoad = c.maxLoad
 	logMachine(c.log, m)
 
+	// The goroutine settings are recorded only when the program is measured, so
+	// that a report of another subset does not claim a goroutines run.
+	goroutineThreads, goroutineDepth := []int(nil), 0
+	if hasBenchProgram(c.bench, "goroutines") {
+		goroutineThreads, goroutineDepth = c.goroutineThreads, c.goroutineDepth
+	}
 	rep := &report{
 		Schema: schemaVersion, Tool: "gcbench", Generated: time.Now().UTC().Format(time.RFC3339),
 		Smoke: c.smoke, Reps: c.reps, Warmup: c.warmup, Depth: c.depth, Threads: c.threads,
+		GoroutineThreads: goroutineThreads, GoroutineDepth: goroutineDepth,
 		Command: c.command, Machine: m, CXX: c.cxx, CXXFlags: c.cxxflags,
 		GatePhase: c.gatePhase(), TimeoutMS: c.timeout.Milliseconds(),
 	}
@@ -110,7 +126,8 @@ func measure(c *config) (*report, error) {
 	}
 
 	for _, b := range all {
-		pr := programResult{Name: b.program.name, About: b.program.about, Path: filepath.Join("bench", "gc", b.program.name), Flavors: b.flavors}
+		pr := programResult{Name: b.program.name, About: b.program.about, Path: filepath.Join("bench", "gc", b.program.name),
+			Goroutines: b.program.goroutines, Flavors: b.flavors}
 		c.runProgram(b.program, &pr)
 		compareOutputs(&pr, b.program.sameAcrossThreads, c.log)
 		rep.Programs = append(rep.Programs, pr)
@@ -133,36 +150,38 @@ type pendingRun struct {
 	env    []string
 }
 
-// runProgram measures one program at every thread count. Within a thread
-// count the flavors alternate in every round (Go, ARC, GC, then Go, ARC, GC,
-// ...), as tools/gobench does, so that a change of the machine's load during
-// the runs hits all flavors alike; the thread counts themselves follow one
-// after the other.
+// runProgram measures one program at every thread count, in each of its modes.
+// Within a cell the flavors alternate in every round (Go, ARC, GC, then Go,
+// ARC, GC, ...), as tools/gobench does, so that a change of the machine's load
+// during the runs hits all flavors alike; the thread counts themselves follow
+// one after the other.
 func (c *config) runProgram(p program, pr *programResult) {
 	rounds := c.warmup + c.reps
-	for _, threads := range c.threads {
-		var cells []*pendingRun
-		for fi := range pr.Flavors {
-			fr := &pr.Flavors[fi]
-			if fr.Status != statusOK {
-				continue
+	for _, mode := range modesOf(p) {
+		for _, threads := range c.threadsFor(p) {
+			var cells []*pendingRun
+			for fi := range pr.Flavors {
+				fr := &pr.Flavors[fi]
+				if fr.Status != statusOK {
+					continue
+				}
+				bin := filepath.Join(c.work, "build", p.name, fr.Flavor, "prog")
+				cells = append(cells, &pendingRun{
+					flavor: fr,
+					result: runResult{Threads: threads, Mode: mode},
+					argv:   append([]string{bin}, c.programArgs(p, mode, threads)...),
+					env:    c.runEnv(p, fr.Flavor, threads),
+				})
 			}
-			bin := filepath.Join(c.work, "build", p.name, fr.Flavor, "prog")
-			cells = append(cells, &pendingRun{
-				flavor: fr,
-				result: runResult{Threads: threads},
-				argv:   append([]string{bin}, c.programArgs(p, threads)...),
-				env:    c.runEnv(fr.Flavor, threads),
-			})
-		}
-		for r := 0; r < rounds; r++ {
+			for r := 0; r < rounds; r++ {
+				for _, cell := range cells {
+					c.runOnce(p, cell, r < c.warmup)
+				}
+			}
 			for _, cell := range cells {
-				c.runOnce(p, cell, r < c.warmup)
+				c.finishRun(p, cell)
+				cell.flavor.Runs = append(cell.flavor.Runs, cell.result)
 			}
-		}
-		for _, cell := range cells {
-			c.finishRun(p, cell)
-			cell.flavor.Runs = append(cell.flavor.Runs, cell.result)
 		}
 	}
 }
@@ -170,11 +189,17 @@ func (c *config) runProgram(p program, pr *programResult) {
 // runEnv is the environment of one measured run: the shell's without the
 // variables that would change the program, with GOMAXPROCS set to the thread
 // count for Go (so its scheduler sees the processors the row names) and the
-// gocpp variables removed for the native programs.
-func (c *config) runEnv(flavor string, threads int) []string {
+// gocpp variables removed for the native programs. The goroutines program's
+// "thread" count is a goroutine count, not a processor count: its Go runs keep
+// GOMAXPROCS at 16, the harness's thread cap, at every count.
+func (c *config) runEnv(p program, flavor string, threads int) []string {
 	env := cleanEnv(os.Environ())
 	if flavor == "go" {
-		env = envOver(env, fmt.Sprintf("GOMAXPROCS=%d", threads))
+		procs := threads
+		if p.goroutines {
+			procs = 16
+		}
+		env = envOver(env, fmt.Sprintf("GOMAXPROCS=%d", procs))
 	}
 	return env
 }
@@ -214,7 +239,11 @@ func (c *config) finishRun(p program, cell *pendingRun) {
 		cell.result.Status = runOK
 	}
 	cell.result.Wall, cell.result.CPU, cell.result.RSS = statOf(cell.result.Samples)
-	c.log("ran %-12s t=%-2d %-3s %s", p.name, cell.result.Threads, cell.flavor.Flavor, runCell(&cell.result))
+	mode := ""
+	if cell.result.Mode != "" {
+		mode = cell.result.Mode + " "
+	}
+	c.log("ran %-12s t=%-5d %s%-3s %s", p.name, cell.result.Threads, mode, cell.flavor.Flavor, runCell(&cell.result))
 }
 
 // statOf computes the wall, CPU and resident-set stats of samples.
@@ -230,13 +259,13 @@ func statOf(samples []sample) (wall, cpu, rss stat) {
 	return summarize(w), summarize(c), summarize(r)
 }
 
-// compareOutputs checks the correctness rules: every flavor that ran a thread
-// count must have printed the same deterministic output there, and a program
-// whose output must not depend on the thread count (binarytrees' checksum)
-// must have printed the same output at every thread count. A difference marks
-// the rows as a mismatch and names the outputs.
+// compareOutputs checks the correctness rules: every flavor that ran a cell
+// (a mode and thread count) must have printed the same deterministic output
+// there, and a program whose output must not depend on the thread count
+// (binarytrees' checksum) must have printed the same output at every thread
+// count. A difference marks the rows as a mismatch and names the outputs.
 func compareOutputs(pr *programResult, sameAcross bool, log func(string, ...any)) {
-	for _, threads := range threadCounts(pr) {
+	for _, key := range cellKeys(pr) {
 		var ok []*flavorResult
 		var outputs []string
 		for fi := range pr.Flavors {
@@ -244,7 +273,7 @@ func compareOutputs(pr *programResult, sameAcross bool, log func(string, ...any)
 			if fr.Status != statusOK {
 				continue
 			}
-			rr := findRun(fr, threads)
+			rr := findRun(fr, key.mode, key.threads)
 			if rr == nil || rr.Status != runOK {
 				continue
 			}
@@ -259,11 +288,11 @@ func compareOutputs(pr *programResult, sameAcross bool, log func(string, ...any)
 			detail[i] = fr.Flavor + " " + firstLine(outputs[i])
 		}
 		for _, fr := range ok {
-			rr := findRun(fr, threads)
+			rr := findRun(fr, key.mode, key.threads)
 			rr.Status = runMismatch
 			rr.Note = "the flavors printed different output: " + strings.Join(detail, ", ")
 		}
-		log("MISMATCH %s t=%d: %s", pr.Name, threads, strings.Join(detail, ", "))
+		log("MISMATCH %s %s: %s", pr.Name, key.label(), strings.Join(detail, ", "))
 	}
 	if !sameAcross {
 		return
@@ -306,13 +335,69 @@ func outputsOf(runs []*runResult) []string {
 	return out
 }
 
-// threadCounts lists the thread counts of a program's runs, ascending.
-func threadCounts(pr *programResult) []int {
+// cellKey names one measured cell: a mode (empty when the program has none)
+// and a thread count (a goroutine count for the goroutines program).
+type cellKey struct {
+	mode    string
+	threads int
+}
+
+// label formats a cell for a log line.
+func (k cellKey) label() string {
+	if k.mode == "" {
+		return fmt.Sprintf("t=%d", k.threads)
+	}
+	return fmt.Sprintf("%s t=%d", k.mode, k.threads)
+}
+
+// cellKeys lists the cells of a program's runs: every mode in run order, and
+// the thread counts ascending within it.
+func cellKeys(pr *programResult) []cellKey {
+	var modes []string
+	seenMode := map[string]bool{}
+	for _, fr := range pr.Flavors {
+		for _, rr := range fr.Runs {
+			if !seenMode[rr.Mode] {
+				seenMode[rr.Mode] = true
+				modes = append(modes, rr.Mode)
+			}
+		}
+	}
+	var out []cellKey
+	for _, mode := range modes {
+		for _, threads := range threadCounts(pr, mode) {
+			out = append(out, cellKey{mode, threads})
+		}
+	}
+	return out
+}
+
+// modeList lists the modes of a program's runs, in run order. A program with
+// one unnamed run has the single empty mode.
+func modeList(pr *programResult) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, fr := range pr.Flavors {
+		for _, rr := range fr.Runs {
+			if !seen[rr.Mode] {
+				seen[rr.Mode] = true
+				out = append(out, rr.Mode)
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = []string{""}
+	}
+	return out
+}
+
+// threadCounts lists the thread counts of a program's runs in mode, ascending.
+func threadCounts(pr *programResult, mode string) []int {
 	seen := map[int]bool{}
 	var out []int
 	for _, fr := range pr.Flavors {
 		for _, rr := range fr.Runs {
-			if !seen[rr.Threads] {
+			if rr.Mode == mode && !seen[rr.Threads] {
 				seen[rr.Threads] = true
 				out = append(out, rr.Threads)
 			}
@@ -322,10 +407,10 @@ func threadCounts(pr *programResult) []int {
 	return out
 }
 
-// findRun returns the run of fr at threads, or nil.
-func findRun(fr *flavorResult, threads int) *runResult {
+// findRun returns the run of fr at (mode, threads), or nil.
+func findRun(fr *flavorResult, mode string, threads int) *runResult {
 	for i := range fr.Runs {
-		if fr.Runs[i].Threads == threads {
+		if fr.Runs[i].Mode == mode && fr.Runs[i].Threads == threads {
 			return &fr.Runs[i]
 		}
 	}

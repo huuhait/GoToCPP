@@ -5,8 +5,9 @@
 // deterministic output of the flavors (the checksum) and writes stable JSON and
 // a markdown table.
 //
-//	gcbench [run] -bench binarytrees|parks|syscalls|all \
+//	gcbench [run] -bench binarytrees|parks|syscalls|goroutines|all \
 //	    -flavor go|arc|gc|all -threads 1,2,4,8,16,32,64 \
+//	    -goroutine-threads 1,1000,10000 -goroutine-depth 32 \
 //	    -out FILE -md FILE [-smoke] [-reps 5] [-warmup 1]
 //	gcbench report -in FILE [-md FILE]   write the markdown of a run's JSON
 //
@@ -15,9 +16,14 @@
 // same algorithm. The deterministic output ("checksum N" or "ops N") must be
 // identical in every flavor; a difference is a MISMATCH and fails the run.
 //
-// The GC flavor runs `gocpp build -gc-engine`, which does not exist yet: the
-// tool records it as "not available yet (16.1d/16.1f)" and writes that into the
-// GC rows instead of numbers. See docs/benchmarks/gc-engine-spike.md.
+// goroutines is measured per mode (blocked, running) and its "thread" counts
+// are goroutine counts: it starts N goroutines, so -goroutine-threads and
+// -goroutine-depth give its separate settings.
+//
+// The GC flavor runs `gocpp build -gc-engine` on the Go form of the program.
+// The walking skeleton (16.1c) does not accept imports yet, so the tool records
+// the build's own message as "not available yet (16.1d/16.1f)" and writes that
+// into the GC rows instead of numbers. See docs/benchmarks/gc-engine-spike.md.
 package main
 
 import (
@@ -87,25 +93,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 type config struct {
-	root     string
-	work     string
-	gocpp    string
-	bench    []program
-	flavors  []string
-	threads  []int
-	reps     int
-	warmup   int
-	depth    int
-	smoke    bool
-	keep     bool
-	tempWork bool // the work folder was made by the tool and is removed at the end unless -keep
-	cxx      string
-	cxxflags string
-	timeout  time.Duration
-	maxLoad  float64
-	out, md  string
-	command  string
-	log      func(format string, args ...any)
+	root    string
+	work    string
+	gocpp   string
+	bench   []program
+	flavors []string
+	threads []int
+	reps    int
+	warmup  int
+	depth   int
+	// goroutineThreads and goroutineDepth are the goroutines program's own
+	// settings: its "thread" counts are goroutine counts.
+	goroutineThreads []int
+	goroutineDepth   int
+	smoke            bool
+	keep             bool
+	tempWork         bool // the work folder was made by the tool and is removed at the end unless -keep
+	cxx              string
+	cxxflags         string
+	timeout          time.Duration
+	maxLoad          float64
+	out, md          string
+	command          string
+	log              func(format string, args ...any)
 }
 
 func parseFlags(args []string, stderr io.Writer) (*config, int) {
@@ -115,12 +125,14 @@ func parseFlags(args []string, stderr io.Writer) (*config, int) {
 	work := fs.String("work", "", "work folder for sources, binaries and caches (default: a new temporary folder, removed at the end)")
 	keep := fs.Bool("keep", false, "keep the work folder")
 	gocpp := fs.String("gocpp", "", "the gocpp binary (default: built from the repository)")
-	bench := fs.String("bench", "all", "the programs, comma separated: binarytrees, parks, syscalls, or all")
+	bench := fs.String("bench", "all", "the programs, comma separated: binarytrees, parks, syscalls, goroutines, or all")
 	flavor := fs.String("flavor", "all", "the flavors, comma separated: go, arc, gc, or all")
 	threads := fs.String("threads", "", "thread counts, comma separated (default: 1,2,4,8,16,32,64; -smoke: 1,8)")
+	goroutineThreads := fs.String("goroutine-threads", "", "goroutine counts of the goroutines program, comma separated (default: 1,1000,10000; -smoke: 1,10)")
 	reps := fs.Int("reps", 5, "measured runs per program, flavor and thread count (at least 5 for a baseline; -smoke: 1)")
 	warmup := fs.Int("warmup", 1, "warm-up runs before them, dropped (-smoke: 0)")
 	depth := fs.Int("depth", 0, "binarytrees depth (default: 18; -smoke: 10)")
+	goroutineDepth := fs.Int("goroutine-depth", 0, "goroutines recursion depth (default: 32)")
 	smoke := fs.Bool("smoke", false, "tiny sizes, one run: builds and runs, no timing meaning")
 	cxx := fs.String("cxx", "", "the C++ compiler of the gocpp build (GOCPP_CXX; default: gocpp's choice)")
 	cxxflags := fs.String("cxxflags", "", "GOCPP_CXXFLAGS of the gocpp build (default: gocpp's own, -O0 -g today)")
@@ -153,6 +165,19 @@ func parseFlags(args []string, stderr io.Writer) (*config, int) {
 	ths, err := parseThreads(*threads, *smoke)
 	if err != nil {
 		fmt.Fprintln(stderr, "gcbench:", err)
+		return nil, 2
+	}
+	gths, err := parseGoroutineThreads(*goroutineThreads, *smoke)
+	if err != nil {
+		fmt.Fprintln(stderr, "gcbench:", err)
+		return nil, 2
+	}
+	gdepth := *goroutineDepth
+	if gdepth == 0 {
+		gdepth = 32
+	}
+	if gdepth < 1 {
+		fmt.Fprintln(stderr, "gcbench: -goroutine-depth must be at least 1")
 		return nil, 2
 	}
 	r, w := *reps, *warmup
@@ -192,6 +217,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, int) {
 	}
 	return &config{
 		root: rootDir, work: workDir, gocpp: *gocpp, bench: ps, flavors: fl, threads: ths,
+		goroutineThreads: gths, goroutineDepth: gdepth,
 		reps: r, warmup: w, depth: d, smoke: *smoke, keep: *keep, tempWork: tempWork,
 		cxx: *cxx, cxxflags: *cxxflags,
 		timeout: *timeout, maxLoad: *maxLoad, out: *out, md: *md,

@@ -177,7 +177,13 @@ func (c *config) build(gocppBin string, p program, flavor string) flavorResult {
 		fr.BuildCommand = "go build -o prog ."
 		out, err = capture(dir, c.goEnv(), 10*time.Minute, "go", "build", "-o", bin, ".")
 	case "arc", "gc":
-		if err := copyFile(src, filepath.Join(dir, "main.gp")); err != nil {
+		// The ARC engine builds gp source, the GC engine builds Go source:
+		// the program file is valid as both, so each flavor gets its own name.
+		srcName := "main.gp"
+		if flavor == "gc" {
+			srcName = "main.go"
+		}
+		if err := copyFile(src, filepath.Join(dir, srcName)); err != nil {
 			return fail("%v", err)
 		}
 		args := []string{"build"}
@@ -213,11 +219,13 @@ func (c *config) build(gocppBin string, p program, flavor string) flavorResult {
 }
 
 // notAvailableNote returns the "not available yet" note of a GC build's output,
-// or "". Until steps 16.1d/16.1f, `gocpp build -gc-engine` does not exist: the
-// flag parser says so, and that is the same "not available yet" for this
-// harness. Once the flag exists, only a message that names the GC engine (or
-// the flag) counts: a gated feature of the program that the build reports as
-// "not available yet" is a real build failure, not the GC stub.
+// or "". The GC engine is a walking skeleton in step 16.1c: `gocpp build
+// -gc-engine` exists but does not accept imports yet ("imports are not
+// supported by the GC engine yet (job 16.1c)"), and steps 16.1d/16.1f give it
+// the backend and the standard-library stubs that these programs need. Only a
+// message that names the GC engine (or the flag) counts: a gated feature of
+// the program that the build reports as "not available yet" without naming the
+// GC engine is a real build failure, not the GC stub.
 func notAvailableNote(out string) string {
 	for _, l := range strings.Split(out, "\n") {
 		l = strings.TrimSpace(l)
@@ -228,7 +236,9 @@ func notAvailableNote(out string) string {
 			return "not available yet (16.1d/16.1f): " + firstLine(l)
 		}
 		low := strings.ToLower(l)
-		if (strings.Contains(low, "not available yet") || strings.Contains(low, "not supported yet")) && namesGCEngine(low) {
+		notYet := strings.Contains(low, "not available yet") || strings.Contains(low, "not supported yet") ||
+			(strings.Contains(low, "not supported") && strings.Contains(low, "yet"))
+		if notYet && namesGCEngine(low) {
 			return "not available yet (16.1d/16.1f): " + firstLine(l)
 		}
 	}

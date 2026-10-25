@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,8 +49,11 @@ func TestParseFlavors(t *testing.T) {
 
 func TestParsePrograms(t *testing.T) {
 	got, err := parsePrograms("all")
-	if err != nil || len(got) != 3 || got[0].name != "binarytrees" || got[2].name != "syscalls" {
+	if err != nil || len(got) != 4 || got[0].name != "binarytrees" || got[3].name != "goroutines" {
 		t.Errorf("all: %v %v", got, err)
+	}
+	if !got[3].goroutines || strings.Join(got[3].modes, ",") != "blocked,running" {
+		t.Errorf("goroutines registry: %+v", got[3])
 	}
 	got, err = parsePrograms("parks")
 	if err != nil || len(got) != 1 || got[0].name != "parks" {
@@ -106,6 +110,12 @@ func TestNotAvailableNote(t *testing.T) {
 	}
 	if got := notAvailableNote("gocpp build: the GC engine is not available yet (Phase 16)\n"); !strings.Contains(got, "not available yet (16.1d/16.1f)") {
 		t.Errorf("GC engine message: %q", got)
+	}
+	// The walking skeleton's own limit (16.1c) is the GC stub too: the steps
+	// that make the bench programs build are 16.1d/16.1f.
+	skeleton := "main.go:29:2: could not import os (package os: imports are not supported by the GC engine yet (job 16.1c: Go source without imports))\n"
+	if got := notAvailableNote(skeleton); !strings.Contains(got, "not available yet (16.1d/16.1f)") || !strings.Contains(got, "imports are not supported") {
+		t.Errorf("skeleton message: %q", got)
 	}
 	// A gated feature of the program is a real build failure, not the GC stub.
 	if got := notAvailableNote("main.gp:3:2: x is not available yet (Phase 09)\n"); got != "" {
@@ -213,14 +223,14 @@ func TestReportJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasSuffix(data, []byte("\n")) || !bytes.Contains(data, []byte("\n  \"schema\": 1,")) {
+	if !bytes.HasSuffix(data, []byte("\n")) || !bytes.Contains(data, []byte("\n  \"schema\": 2,")) {
 		t.Errorf("not indented JSON with a final newline:\n%s", data)
 	}
 	var got report
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Schema != 1 || got.Commit != "abc1234" || len(got.Programs) != 1 || len(got.Programs[0].Flavors) != 3 {
+	if got.Schema != 2 || got.Commit != "abc1234" || len(got.Programs) != 1 || len(got.Programs[0].Flavors) != 3 {
 		t.Fatalf("round trip: %+v", got)
 	}
 	if got.GatePhase != "15" || got.TimeoutMS != 300000 {
@@ -322,7 +332,7 @@ func TestOutputLineThreadDependent(t *testing.T) {
 	pr.Flavors[0].Runs[1].Output = "ops 400"
 	pr.Flavors[1].Runs[1].Output = "ops 400"
 	line := outputLine(*pr)
-	if !strings.Contains(line, "agree at every thread count") || strings.Contains(line, "MISMATCH") {
+	if !strings.Contains(line, "agree at every cell") || strings.Contains(line, "MISMATCH") {
 		t.Errorf("thread-dependent output: %q", line)
 	}
 	pr.Flavors[1].Runs[1].Output = "ops 401"
@@ -334,7 +344,7 @@ func TestOutputLineThreadDependent(t *testing.T) {
 	pr.Flavors[1].Runs[1].Output = "ops 400"
 	pr.Flavors[1].Runs[0].Status = runFailed
 	line = outputLine(*pr)
-	if strings.Contains(line, "agree at every thread count") {
+	if strings.Contains(line, "agree at every cell") {
 		t.Errorf("a missing run was called agreement: %q", line)
 	}
 }
@@ -379,5 +389,198 @@ func TestBusyNote(t *testing.T) {
 	m = machine{LoadBefore: [3]float64{1, 1, 1}, LoadAfter: [3]float64{1, 1, 1}, MaxLoad: 24}
 	if note := m.busyNote(); note != "" {
 		t.Errorf("quiet: %q", note)
+	}
+}
+
+func TestParseGoroutineThreads(t *testing.T) {
+	got, err := parseGoroutineThreads("", false)
+	if err != nil || len(got) != 3 || got[0] != 1 || got[1] != 1000 || got[2] != 10000 {
+		t.Errorf("default: %v %v", got, err)
+	}
+	got, err = parseGoroutineThreads("", true)
+	if err != nil || len(got) != 2 || got[0] != 1 || got[1] != 10 {
+		t.Errorf("smoke default: %v %v", got, err)
+	}
+	got, err = parseGoroutineThreads("10, 5", false)
+	if err != nil || len(got) != 2 || got[0] != 5 || got[1] != 10 {
+		t.Errorf("explicit: %v %v", got, err)
+	}
+	for _, bad := range []string{"0", "x", "-1"} {
+		if _, err := parseGoroutineThreads(bad, false); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+}
+
+func TestGoroutineProgramArgs(t *testing.T) {
+	c := &config{goroutineDepth: 32, threads: []int{1, 2}, goroutineThreads: []int{1, 1000, 10000}}
+	p := program{name: "goroutines", goroutines: true, modes: []string{"blocked", "running"}}
+	got := c.programArgs(p, "running", 10000)
+	want := "-n 10000 -mode running -depth 32 -quiet"
+	if strings.Join(got, " ") != want {
+		t.Errorf("args: %q, want %q", strings.Join(got, " "), want)
+	}
+	if counts := c.threadsFor(p); joinInts(counts) != "1, 1000, 10000" {
+		t.Errorf("goroutine thread counts: %v", counts)
+	}
+	binary := program{name: "binarytrees"}
+	if args := c.programArgs(binary, "", 8); strings.Join(args, " ") != "8 0 -quiet" {
+		t.Errorf("binarytrees args: %v", args)
+	}
+	// The goroutines program's Go runs keep GOMAXPROCS at the 16-thread cap:
+	// its "thread" count is a goroutine count, not a processor count.
+	if got := envMap(c.runEnv(p, "go", 10000))["GOMAXPROCS"]; got != "16" {
+		t.Errorf("goroutines Go GOMAXPROCS %q, want 16", got)
+	}
+	if got := envMap(c.runEnv(binary, "go", 8))["GOMAXPROCS"]; got != "8" {
+		t.Errorf("binarytrees Go GOMAXPROCS %q, want 8", got)
+	}
+}
+
+// fakeGoroutinesReport is a goroutines report with two modes and two goroutine
+// counts: the flavors agree, the resident set is 10 KiB per goroutine and the GC
+// flavor is not available.
+func fakeGoroutinesReport() *report {
+	makeRuns := func() []runResult {
+		var rs []runResult
+		for _, mode := range []string{"blocked", "running"} {
+			for _, n := range []int{1000, 10000} {
+				output := "checksum 7\ngoroutines " + fmt.Sprint(n)
+				if mode == "running" {
+					output = "checksum 9\ngoroutines " + fmt.Sprint(n)
+				}
+				rr := runResult{Threads: n, Mode: mode, Status: runOK, Output: output,
+					Samples: []sample{{WallNS: 200_000_000, CPUNS: 100_000_000, RSSKB: int64(n * 10), Exit: 0}}}
+				rr.Wall, rr.CPU, rr.RSS = statOf(rr.Samples)
+				rs = append(rs, rr)
+			}
+		}
+		return rs
+	}
+	return &report{
+		Schema: schemaVersion, Tool: "gcbench", Generated: "2026-10-24T00:00:00Z", Reps: 1, Warmup: 0,
+		GoroutineThreads: []int{1, 1000, 10000}, GoroutineDepth: 32,
+		Threads: []int{1, 2}, Command: "gcbench run -bench goroutines", GatePhase: "15", TimeoutMS: 300000,
+		Machine: machine{CPU: "test cpu", Cores: 8, MemGiB: 16, OS: "linux/amd64 test", Go: "go version test",
+			LoadBefore: [3]float64{1, 2, 3}, LoadAfter: [3]float64{1, 2, 3}, MaxLoad: 24},
+		Programs: []programResult{{
+			Name: "goroutines", About: "goroutines", Path: "bench/gc/goroutines", Goroutines: true,
+			Flavors: []flavorResult{
+				{Flavor: "go", Status: statusOK, BuildCommand: "go build -o prog .", Runs: makeRuns()},
+				{Flavor: "arc", Status: statusOK, BuildCommand: "gocpp build -o prog .", Runs: makeRuns()},
+				{Flavor: "gc", Status: statusNotAvailable, Note: "not available yet (16.1d/16.1f)"},
+			},
+		}},
+	}
+}
+
+func TestGoroutineCellsAndMarkdown(t *testing.T) {
+	r := fakeGoroutinesReport()
+	pr := &r.Programs[0]
+	keys := cellKeys(pr)
+	if len(keys) != 4 {
+		t.Fatalf("cells: %d %+v", len(keys), keys)
+	}
+	if keys[0].mode != "blocked" || keys[0].threads != 1000 || keys[3].mode != "running" || keys[3].threads != 10000 {
+		t.Errorf("cell order: %+v", keys)
+	}
+	compareOutputs(pr, sameAcrossThreads(pr.Name), func(string, ...any) {})
+	for _, fr := range pr.Flavors[:2] {
+		for _, rr := range fr.Runs {
+			if rr.Status != runOK {
+				t.Fatalf("%s %s t=%d: %s", fr.Flavor, rr.Mode, rr.Threads, rr.Status)
+			}
+		}
+	}
+	md := markdown(r)
+	for _, want := range []string{
+		"| mode | goroutines | go | arc | gc |",
+		"| blocked | 1000 | 200.0 ±0.0%",
+		"| running | 10000 |",
+		"Peak resident set per goroutine (KiB, median, RSS/N)",
+		"| blocked | 1000 | 10.0 |",
+		"blocked go `checksum 7 goroutines 10000`",
+		"running go `checksum 9 goroutines 10000`",
+		"the goroutines program at 1, 1000, 10000 goroutines, depth 32",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown does not contain %q:\n%s", want, md)
+		}
+	}
+	line := outputLine(*pr)
+	if !strings.Contains(line, "at 10000 goroutines") || !strings.Contains(line, "agree at every cell") {
+		t.Errorf("outputLine: %q", line)
+	}
+}
+
+func TestCompareOutputsModes(t *testing.T) {
+	// The same wrong output in two modes is not a mismatch, but a difference in
+	// one mode is.
+	r := fakeGoroutinesReport()
+	pr := &r.Programs[0]
+	arc := &pr.Flavors[1]
+	for i := range arc.Runs {
+		if arc.Runs[i].Mode == "running" && arc.Runs[i].Threads == 1000 {
+			arc.Runs[i].Output = "checksum 8\ngoroutines 1000"
+		}
+	}
+	compareOutputs(pr, sameAcrossThreads(pr.Name), func(string, ...any) {})
+	for _, fr := range pr.Flavors[:2] {
+		for _, rr := range fr.Runs {
+			want := runOK
+			if rr.Mode == "running" && rr.Threads == 1000 {
+				want = runMismatch
+			}
+			if rr.Status != want {
+				t.Errorf("%s %s t=%d: status %q, want %q", fr.Flavor, rr.Mode, rr.Threads, rr.Status, want)
+			}
+		}
+	}
+	if r.exitCode() != 1 {
+		t.Error("a mode mismatch must fail the run")
+	}
+}
+
+func TestFailuresSectionModes(t *testing.T) {
+	// A failed goroutines cell names its mode and the unit of its count, so
+	// the blocked and running cells at one count are told apart.
+	r := fakeGoroutinesReport()
+	arc := &r.Programs[0].Flavors[1]
+	for i := range arc.Runs {
+		if arc.Runs[i].Mode == "running" && arc.Runs[i].Threads == 1000 {
+			arc.Runs[i].Status, arc.Runs[i].Note = runMismatch, "the flavors printed different output"
+		}
+	}
+	got := failuresSection(r)
+	if !strings.Contains(got, "`goroutines` arc running at 1000 goroutines: mismatch:") {
+		t.Errorf("failures section: %q", got)
+	}
+	if strings.Contains(got, "at 1000 threads") {
+		t.Errorf("goroutines failure says threads: %q", got)
+	}
+	// A program without modes keeps the old "threads" wording.
+	r = fakeReport()
+	rr := &r.Programs[0].Flavors[0].Runs[0]
+	rr.Status, rr.Note = runFailed, "boom"
+	if got := failuresSection(r); !strings.Contains(got, "at 1 threads: run-failed: boom") {
+		t.Errorf("plain failures section: %q", got)
+	}
+}
+
+func TestSettingRowNeedsGoroutinesProgram(t *testing.T) {
+	// The goroutine settings are a property of the run: a report whose
+	// selected programs do not include goroutines must not claim it ran.
+	r := fakeReport() // binarytrees only
+	r.GoroutineThreads = []int{1, 1000, 10000}
+	r.GoroutineDepth = 32
+	md := markdown(r)
+	if strings.Contains(md, "the goroutines program at") {
+		t.Errorf("a report without goroutines claims the setting:\n%s", md)
+	}
+	if strings.Contains(md, "### goroutines") {
+		t.Errorf("a report without goroutines has a goroutines section:\n%s", md)
+	}
+	if !hasBenchProgram([]program{{name: "goroutines"}}, "goroutines") || hasBenchProgram(nil, "goroutines") {
+		t.Error("hasBenchProgram")
 	}
 }
