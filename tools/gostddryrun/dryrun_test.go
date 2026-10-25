@@ -77,7 +77,7 @@ func TestMarkdownPrefersTheFreshRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	var b strings.Builder
-	if err := writeMarkdown(&b, res, siblings); err != nil {
+	if err := writeMarkdown(&b, res, siblings, nil); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(b.String(), "999") {

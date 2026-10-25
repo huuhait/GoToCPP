@@ -15,8 +15,8 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
   - [ ] five boundary shapes by hand (rooted `gp::ptr`, string both ways, borrowed `[]byte`, copy-in/copy-out, gp closure as a Go func)
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base merged: the harness is `tools/gcbench`, the programs `bench/gc`, the Go/ARC baselines `docs/benchmarks/gc-engine-spike.md`; the GC rows, the goroutine pause/memory rows, the boundary shapes, compile time/size and the Windows runs are 16.1h)
   - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
-  - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (the input of 16.9–16.11; job 16.1b, clean after 3 rounds; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`)
-- [ ] 16.2 ADR: the design (1–2 weeks)
+  - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (jobs 16.1b + 16.1b-tc, both clean and merged; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`. The type check finds **0 real errors** in 177/178 selected packages under the gocpp tags, so the input of 16.9–16.11 is the syntax/translation work, not a type-system repair; `internal/goroot` and vendored `x/sys/cpu` need overlays only when named, and `x/sys/unix` is not vendored in GOROOT)
+- [~] 16.2 ADR: the design (1–2 weeks; draft job 16.2-draft running; the budgets wait for 16.1h)
   - [ ] names; descriptors and the scheme for offsets, `typelinks` and unnamed types; the heap scan stages and the extra byte; misaligned access
   - [ ] import rules and `"go:..."` imports; the gp view, the allowlist of twins, the boundary table, the call-only list and its directive, `gc.New[T]`, `gc.File`, which channels cross
   - [ ] Go's source delivery, the overlay and `//go:linkname` policies, sanitizers for the GC engine (or a WORKFLOW exception)
@@ -170,6 +170,12 @@ package.
   0 with `GC_ENABLE_INCREMENTAL=1`), keeps the Windows sources in the vendored tree
   (`win32_threads.c`, a goos-aware source list; the MinGW build itself stays M10 work), and
   leaves bdwgc's `SIGSYS` default under TSan instead of overriding the signal.
+- 2026-10-25 (host change): the Linux host was replaced (an AMD EPYC 7W83, 64
+  logical cores, about 103 GiB, instead of the 192-core Threadripper). Job 16.1h-prog
+  re-measured the whole `docs/benchmarks/gc-engine-spike.md` on the new host, so the
+  document is consistent within it; the earlier 16.1h-base numbers were from the old host
+  and are not comparable. The 16-thread cap still applies, and the budgets of 16.2 must be
+  set from the new host's numbers.
 - 2026-10-24 (environment, updated): the real Windows PC is reachable (`GOCPP_WINDOWS_SSH`,
   key auth; the address is not written into the repository). It runs Windows 11 Pro on an
   Intel i5-14400 (10 cores / 16 logical CPUs, 32 GB), with WinLibs MinGW-w64 GCC/G++ 16.1.0,
@@ -269,6 +275,15 @@ package.
 
 ## Log
 
+- 2026-10-25: job 16.1b-tc merged into `p16` after a clean review (2 rounds): the dry run's
+  type-check half. A source importer over the tool's own selection (GOROOT/src, `internal/...`,
+  per-importing-package `vendor/`, `unsafe` predeclared) type-checks the selected packages with
+  `go/types` under the explicit §2.7 tags. Result for go1.25.14: linux/amd64 177 packages
+  selected, 182 loaded and checked, **0 real type errors, 0 expected gaps, 0 import failures**;
+  windows/amd64 178/183, the same. The expected-gap classes (tag-dropped files, cgo files,
+  imports dropped by the tag, dependency failures) are proven by the fake GOROOT and by an
+  overlay run; the README states the coverage limits (`_test.go`, arm64, module overlays outside
+  GOROOT).
 - 2026-10-24: job 16.1c merged into `p16` after a clean review (4 rounds): the GC engine's
   walking skeleton. A hidden `-gc-engine` takes a separate load/check/emit path: stock
   `go/parser` for `.go` files (a `.gp`+`.go` folder is an error, §2.3 rule 1), `go/types` with

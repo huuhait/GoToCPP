@@ -8,7 +8,12 @@
 //
 //	go run ./tools/gostddryrun [-goroot DIR] [-goos linux|windows]
 //	    [-goarch amd64|arm64] [-tags t1,t2] [-packages p1,p2] [-closure]
-//	    [-out file.json] [-md README.md]
+//	    [-typecheck] [-out file.json] [-md README.md]
+//
+// With -typecheck the same selection is type-checked with go/types and a
+// source importer over the tool's own file selection (typecheck.go); the JSON
+// then holds the type-check result and splits real type errors from the gaps
+// the constraints themselves cause.
 //
 // The default GOROOT is GOCPP_GOROOT, else the GOROOT of the Go that built the
 // tool (runtime.GOROOT()). That path is the only thing taken from the running
@@ -73,14 +78,32 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "gostddryrun:", err)
 		return 1
 	}
+	var tc *TypeCheckResult
+	if opts.typecheck {
+		tc, err = typeCheck(opts.goroot, res)
+		if err != nil {
+			fmt.Fprintln(stderr, "gostddryrun:", err)
+			return 1
+		}
+	}
 	if opts.out != "" {
-		if err := writeJSON(opts.out, res); err != nil {
+		if tc != nil {
+			err = writeTypeCheckJSON(opts.out, tc)
+		} else {
+			err = writeJSON(opts.out, res)
+		}
+		if err != nil {
 			fmt.Fprintln(stderr, "gostddryrun:", err)
 			return 1
 		}
 	}
 	if opts.md != "" {
 		siblings, err := readSiblings(opts.md, res)
+		if err != nil {
+			fmt.Fprintln(stderr, "gostddryrun:", err)
+			return 1
+		}
+		tcs, err := readTypeCheckSiblings(opts.md, res, tc)
 		if err != nil {
 			fmt.Fprintln(stderr, "gostddryrun:", err)
 			return 1
@@ -94,7 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "gostddryrun:", err)
 			return 1
 		}
-		if err := writeMarkdown(f, res, siblings); err != nil {
+		if err := writeMarkdown(f, res, siblings, tcs); err != nil {
 			f.Close()
 			fmt.Fprintln(stderr, "gostddryrun:", err)
 			return 1
@@ -106,8 +129,56 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if opts.out == "" && opts.md == "" {
 		printSummary(stdout, res)
+		if tc != nil {
+			printTypeCheckSummary(stdout, tc)
+		}
 	}
 	return 0
+}
+
+// readTypeCheckSiblings reads the type-check JSON files next to the README,
+// so that the type-check section compares linux/amd64 and windows/amd64. As
+// readSiblings does, it ignores a file for another Go version; the fresh run,
+// when there is one, wins over a stale file for the same target.
+func readTypeCheckSiblings(md string, res *Result, fresh *TypeCheckResult) ([]*TypeCheckResult, error) {
+	dir := filepath.Dir(md)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var out []*TypeCheckResult
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "-typecheck.json") {
+			continue
+		}
+		tc, err := readTypeCheckJSON(filepath.Join(dir, e.Name()))
+		if err != nil || tc.GoVersion != res.GoVersion {
+			continue
+		}
+		if fresh != nil && sameTarget(tc.Tags, fresh.Tags) {
+			continue
+		}
+		out = append(out, tc)
+	}
+	if fresh != nil {
+		out = append(out, fresh)
+	}
+	return out, nil
+}
+
+// sameTarget reports whether two tag sets describe the same GOOS/GOARCH.
+func sameTarget(a, b *TagSet) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.GOOS == b.GOOS && a.GOARCH == b.GOARCH
+}
+
+// printTypeCheckSummary prints the counts when no output file was asked for.
+func printTypeCheckSummary(w io.Writer, tc *TypeCheckResult) {
+	s := tc.Summary
+	fmt.Fprintf(w, "type check: %d packages (%d in the set), %d checked, %d real errors in %d packages, %d expected gaps, %d import failures\n",
+		s.Packages, s.PackagesInSet, s.Checked, s.RealErrors, s.FailedPackages, s.ExpectedGaps, s.ImportFailures)
 }
 
 type options struct {
@@ -120,6 +191,7 @@ type options struct {
 	out         string
 	md          string
 	closure     bool
+	typecheck   bool
 }
 
 func parseFlags(args []string, stderr io.Writer) (*options, error) {
@@ -133,9 +205,10 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 	out := fs.String("out", "", "write the JSON result here")
 	md := fs.String("md", "", "write the markdown summary/README here")
 	closure := fs.Bool("closure", true, "walk the imports of the named packages (or of net/http and crypto/tls by default)")
+	typecheck := fs.Bool("typecheck", false, "type-check the selected packages with go/types and a source importer (writes a type-check JSON)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: gostddryrun [-goroot DIR] [-goos linux|windows] [-goarch amd64|arm64]")
-		fmt.Fprintln(stderr, "                   [-tags t1,t2] [-packages p1,p2] [-closure] [-out file.json] [-md README.md]")
+		fmt.Fprintln(stderr, "                   [-tags t1,t2] [-packages p1,p2] [-closure] [-typecheck] [-out file.json] [-md README.md]")
 	}
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -153,6 +226,7 @@ func parseFlags(args []string, stderr io.Writer) (*options, error) {
 		out:         *out,
 		md:          *md,
 		closure:     *closure,
+		typecheck:   *typecheck,
 	}
 	if o.goroot == "" {
 		o.goroot = os.Getenv("GOCPP_GOROOT")
