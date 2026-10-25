@@ -16,7 +16,7 @@ Every runtime step has a Windows item: it runs on the real Windows PC (`GOCPP_WI
   - [~] measurements: allocation and peak memory; stop-the-world pause and memory per thread with 1k/10k goroutines (blocked, running, realistic stacks); parks and system calls per second at 1–64 threads; boundary costs; compile time; collector size; ASan/TSan with per-sanitizer builds (job 16.1h-base merged: the harness is `tools/gcbench`, the programs `bench/gc`, the Go/ARC baselines `docs/benchmarks/gc-engine-spike.md`; the GC rows, the goroutine pause/memory rows, the boundary shapes, compile time/size and the Windows runs are 16.1h)
   - [~] Windows: the same measurements, plus thread starts and the scan of static roots in each collection (job 16.1a-win measured the thread starts and the static-root scan on the real PC: ~61–65 µs per registered thread start, ~0.53 ms per collection scanning the static data by default, ~0.36 ms with `GC_set_no_dls(1)`, which alone drops the executable's own roots, so it needs `GC_add_roots` of the executable's writable image; the binarytrees/pause/park rows are 16.1h)
   - [x] dry run of Go's standard library under the tags of README §2.7: bodyless functions, `//go:linkname` of each kind, unsupported constructs (jobs 16.1b + 16.1b-tc, both clean and merged; data in `gostd/dryrun/go1.25.14`, tool `tools/gostddryrun`. The type check finds **0 real errors** in 177/178 selected packages under the gocpp tags, so the input of 16.9–16.11 is the syntax/translation work, not a type-system repair; `internal/goroot` and vendored `x/sys/cpu` need overlays only when named, and `x/sys/unix` is not vendored in GOROOT)
-- [~] 16.2 ADR: the design (1–2 weeks; draft job 16.2-draft running; the budgets wait for 16.1h)
+- [~] 16.2 ADR: the design (1–2 weeks; the **proposed** ADR is merged as `docs/adr/143-dual-engine.md` after a clean review. It is accepted after 16.1h's budgets and before 16.3; the gin-against-Go and editor targets stay TBD in the accepted text and are recorded in `docs/benchmarks/gc-engine.md` or a dated amendment note, because an accepted ADR is not rewritten)
   - [ ] names; descriptors and the scheme for offsets, `typelinks` and unnamed types; the heap scan stages and the extra byte; misaligned access
   - [ ] import rules and `"go:..."` imports; the gp view, the allowlist of twins, the boundary table, the call-only list and its directive, `gc.New[T]`, `gc.File`, which channels cross
   - [ ] Go's source delivery, the overlay and `//go:linkname` policies, sanitizers for the GC engine (or a WORKFLOW exception)
@@ -275,6 +275,13 @@ package.
 
 ## Log
 
+- 2026-10-25: job 16.2-draft merged into `p16` after a clean review (3 rounds): the dual-engine
+  ADR is recorded as **proposed** in `docs/adr/143-dual-engine.md` with its row in
+  `docs/adr/README.md`. It decides every open point of step 16.2 with a recommendation and the
+  evidence, keeps the user's fixed decisions fixed, lists the ADR changes (004/007/035/103/106/
+  107/109/110, Phase 15 §2.8), and marks every budget TBD with the step that fills it. The
+  lifecycle is one: acceptance after 16.1h's budgets and before 16.3; gin/editor targets are
+  recorded later in `docs/benchmarks/gc-engine.md` or a dated amendment note.
 - 2026-10-25: job 16.1b-tc merged into `p16` after a clean review (2 rounds): the dry run's
   type-check half. A source importer over the tool's own selection (GOROOT/src, `internal/...`,
   per-importing-package `vendor/`, `unsafe` predeclared) type-checks the selected packages with
