@@ -215,7 +215,7 @@ candidate. `cmd/gocpp` (about 130-250 s) is serial because its tests use `t.Chdi
 
 ## Rules that still hold
 
-- Follow `WORKFLOW.md`: coder, then an independent reviewer, fixes until clean, manager
+- Follow `WORKFLOW.md` (v2, 2026-10-26): three coders, a PM merge plan, a fresh reviewer each round, fixes until the first clean review, manager
   re-runs the checks, then the completion markers. Green CI alone is not approval.
 - Outstanding design questions in TODO.md remain unanswered; resuming work is not approval for
   license changes, upstream reports, automatic C++ dependency recipes or moving module

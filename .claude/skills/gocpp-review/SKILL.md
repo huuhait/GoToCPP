@@ -1,6 +1,6 @@
 ---
 name: gocpp-review
-description: Independent review of a gocpp job branch - the short checklist of plans/2026-10-13-gocpp/WORKFLOW.md section 5 with the commands to run (diff, added-file hygiene, TODO claims, Go behavior via gp-repro, focused tests via gp-focused) and the review template. Use when you are the reviewer of a job.
+description: Independent review of a gocpp job branch - the short checklist of plans/2026-10-13-gocpp/WORKFLOW.md sections 5 and 8 with the commands to run (diff, added-file hygiene, TODO claims, Go behavior via gp-repro, focused tests via gp-focused) and the review template. Use when you are the reviewer of a job (WORKFLOW.md v2: you are a fresh instance each round; read-only; return FINDINGS or CLEAN, adjudicating open refutations/fixes first).
 ---
 
 # Reviewing a job
@@ -42,13 +42,13 @@ needs. Report what ran, with results. Never `make ci` or full sweeps.
 ## 4. Review (WORKFLOW.md 3.3)
 
 ```
-Review of job <name>, round N: changes requested | clean
+Review of job <name>, round N: FINDINGS | CLEAN   (severities BLOCKER|MAJOR|MINOR|NIT; a NIT counts)
 1. [blocker] file:line: what is wrong, why, suggested fix.
 2. [should-fix] ...
 3. [nit] ...
 Checked: <commands run and results>
 ```
-Clean = no blocker and no should-fix left. Every issue you find, in scope, an older one in the
+CLEAN = nothing in scope wrong at any severity, every open finding closed. Every issue you find, in scope, an older one in the
 same area ("also on dev"), or one unrelated to the ticket, is a numbered finding for the coder to
 fix fully in the next round, never a TODO.md claim (user, 2026-10-23). Mark a find "needs a
 multi-day redesign" only when it really does; the manager then makes it its own job.

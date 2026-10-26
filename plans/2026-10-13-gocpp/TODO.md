@@ -4,7 +4,7 @@
 **Last updated:** 2026-10-22 (every open line audited against dev 81c0d4e1; 06.lows merged: [AUDIT-2026-10-22.md](AUDIT-2026-10-22.md))
 
 Keep this list short: only what is next. The full step lists live in each phase's `STATE.md`.
-Every item is built through the manager → coder → reviewer loop in [WORKFLOW.md](WORKFLOW.md).
+Every item is built through the 3 coders → PM merge → review-until-clean loop in [WORKFLOW.md](WORKFLOW.md).
 Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engine/STATE.md).
 
 ---

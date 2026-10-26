@@ -6,29 +6,29 @@ If this page and the plan disagree, follow the plan and tell the manager, so thi
 
 ## 1. How work is done
 
-Every step of the plan is built by three roles: a **manager**, a **coder** and a **reviewer**.
-They are separate agents or people, and nobody reviews their own code. The full process, with
-templates for tickets, reports and reviews, is in
-[WORKFLOW.md](../plans/2026-10-13-gocpp/WORKFLOW.md).
+Every step of the plan is built by the loop **3 coders → PM merge → review until clean**: a
+**manager** (the orchestrator), three **coders**, one **PM** and one fresh **reviewer** per
+round. Nobody reviews their own code. The full process, with templates, is in
+[WORKFLOW.md](../plans/2026-10-13-gocpp/WORKFLOW.md) (version 2).
 
-1. The **manager** picks the next step, writes a job ticket and marks the step `[~]`.
-2. The **coder** builds exactly what the ticket asks, with tests, and runs `make ci`. Then the
-   coder hands over the change with a short report: *Changed*, *Tested*, *Unsure*,
-   *Plan issues*.
-3. The **reviewer** reads the ticket, the plan sections and the whole change, and runs the
-   tests. The review starts with the verdict, **changes requested** or **clean**
-   (`Review of job 01-1.2, round 1: changes requested`). Then it lists the findings, each with
-   a severity (`blocker`, `should-fix` or `nit`), a place, a reason and a fix. It ends with
-   `Checked:` and what the reviewer read and ran.
-4. **Changes requested:** the coder answers every finding (`1 fixed: <how>` or
-   `2 disagree: <why>`) and hands over the next round. The reviewer reviews the whole change
-   again, not only the fixes.
-5. **Clean:** the manager re-runs the tests, marks the step `[x]` and assigns the next job.
+1. The **manager** picks the next step, writes one job ticket and marks the step `[~]`.
+2. Three **coders** build the same job independently, each in its own worktree, with tests, and
+   run the focused tests (`scripts/gp-focused -x`, never `make ci`). Each hands over a factual
+   report: files changed, commands run, decisions, limits, TODO.md claims.
+3. The **PM** (read-only) compares the three versions and writes a merge plan; the **merging
+   coder** it names builds the merged result on the job branch.
+4. A **fresh reviewer** reviews the merged result against the ticket and the plan, and returns
+   `FINDINGS` (each with severity `BLOCKER`, `MAJOR`, `MINOR` or `NIT`, a place, a scenario) or
+   `CLEAN`. A NIT counts as a finding.
+5. **Findings:** the merging coder answers each with `FIX` (patch plus a test that fails without
+   it) or `REFUTE` (a runnable reproduction). The next reviewer is a new instance: it adjudicates
+   first, then reviews the whole change again.
+6. **Clean:** the manager re-runs the focused tests, squash-merges into `dev`, marks the step `[x]`
+   and assigns the next job.
 
 A step is **done** only when both are true:
-- the last review is clean: no blocker and no should-fix finding is left (nits may stay);
-- the tests are green: `make ci` on GCC and Clang, plus the sanitizer jobs that apply
-  (ASan and UBSan for runtime code, TSan for concurrency).
+- the first fresh review is CLEAN, with every finding closed;
+- the manager's own focused tests are green on that commit.
 
 The full list is in [WORKFLOW.md](../plans/2026-10-13-gocpp/WORKFLOW.md) §4.
 
@@ -320,7 +320,7 @@ releases (`v0.8.x`) need Go 1.26.
 ## 7. Commit messages
 
 - **One commit per clean job.** The manager makes it, once the user has said that commits are
-  OK. Until then, nothing is committed. Coders and reviewers don't commit.
+  OK. Until then, nothing is committed. Coders commit only on their own `job/*` branches; reviewers don't commit.
 - The message is `phase NN, step N.M: <title>`, for example
   `phase 01, step 1.2: parser patch 1 (keywords after .)`. A job split from a step uses the
   job name: `phase 01, step 1.8a: <title>`

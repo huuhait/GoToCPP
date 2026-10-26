@@ -5,7 +5,7 @@
 | Plan created | 2026-10-13 |
 | Progress | [STATE.md](STATE.md) |
 | What to do next | [TODO.md](TODO.md) |
-| How work is done | [WORKFLOW.md](WORKFLOW.md): manager → coder → reviewer, looping until the review is clean |
+| How work is done | [WORKFLOW.md](WORKFLOW.md): 3 coders → PM merge → fresh reviewer, looping until the first clean review |
 | Phase docs | `phase-XX-*/README.md` (idea, how it works, steps) and `phase-XX-*/STATE.md` (checklist) |
 
 ---
@@ -389,8 +389,8 @@ uses the one before it). VS Code syntax highlighting needs nothing and can be wr
 - Read a phase's **README.md** before starting it. It explains the idea, how the mechanism
   works (with `.gp` → C++ examples), the ordered steps, the exit criteria and the risks.
 - Build every step with the loop in [WORKFLOW.md](WORKFLOW.md): the **manager** assigns a job,
-  the **coder** builds it, the **reviewer** reviews it and gives it back, and the coder fixes it,
-  until the review is clean.
+  three **coders** build it independently, a **PM** writes the merge plan, a fresh **reviewer**
+  reviews every round, and the merging coder fixes until the first clean review.
 - Track work in the phase's **STATE.md**: `[ ]` = not started, `[~]` = in progress,
   `[x]` = done (only after a clean review and green tests). Update the phase line in the root
   [STATE.md](STATE.md) at the same time.

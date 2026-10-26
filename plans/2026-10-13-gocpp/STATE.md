@@ -85,7 +85,7 @@ with the same rule (the sizes of its parts A–E for M10, A–F for M11, plus 15
 
 ## Rules for updating
 
-1. Steps are built with the manager → coder → reviewer loop in [WORKFLOW.md](WORKFLOW.md).
+1. Steps are built with the 3 coders → PM merge → review-until-clean loop in [WORKFLOW.md](WORKFLOW.md).
    The manager marks a step `[~]` when its job starts, and `[x]` only when the review is clean
    and the step's tests pass.
 2. A phase is `[~]` as soon as one step is `[~]`, and `[x]` only when **all exit criteria** are `[x]`.

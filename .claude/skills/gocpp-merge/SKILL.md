@@ -7,7 +7,7 @@ description: Manager-only checklist to integrate a gocpp job after a clean revie
 
 Workers never merge, push or remove worktrees. Worktrees live at `~/worktrees/GoToCPP/<job>`.
 
-1. **Clean review in hand** (no blocker, no should-fix) for the job's latest commit.
+1. **CLEAN review in hand** (fresh reviewer, WORKFLOW.md v2) for the job's latest commit, every finding `CLOSED-*`; the canonical branch is `job/<job>` (the retired coder worktrees are already removed).
 2. **Re-run the focused checks yourself** in the job worktree: `scripts/gp-focused -x` (and
    `-cxx clang++` for runtime/emitter changes). Read the passed/skipped counts.
 3. **File hygiene**: `git diff --name-status --diff-filter=A dev...job/<job>` and
