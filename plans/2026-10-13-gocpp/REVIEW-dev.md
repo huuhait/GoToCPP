@@ -25,6 +25,18 @@ default (§`scripts/gp-focused:12-14` — unbounded parallel builds push the loa
 out other jobs' tests). Their PM and review rounds are sequenced, not parallel, so the count drops
 back under the limit before any of them merge.
 
+**Worktree cleanup (manager, 2026-10-26, after the merges).** The three build-phase coders' worktrees
+are no longer needed once each job's merge commit exists and its version hashes are in this file, so
+they were removed to reclaim the disk and keep `git worktree list` readable. Before removing anything
+the manager checked each tree held no work that only it had (`git status --short` showed only
+`?? .scratch/` in all five) and **tagged every version commit** so none can be lost:
+`probecached-v2`=`acb587d0`, `probecached-v3`=`62de3d7b`, `stalehints-v1`=`c676f80c`,
+`stalehints-v2`=`4ff62002`, `stalehints-v3`=`d3423e13` (plus the existing `whynotes-v1/v2/v3/merged`
+and `evalorder-v1/v2/v3`). Removed: `dev.probecached-c2`, `dev.probecached-c3`, `dev.stalehints-c2`,
+`dev.stalehints-c3`, `dev.whynotes-c2`; branches `job/dev.{probecached,stalehints,whynotes}-c{2,3}`
+and the dead `job/dev.evalorder-c{1,3}`. What remains is exactly the four canonical job worktrees,
+one branch each, which are what the in-flight review rounds are reviewing.
+
 **Manager error: worktree collisions, and how it was repaired (2026-10-26).** The first attempt to
 spawn the four jobs' first coders failed on an unavailable model override (three dead agents, one
 silent). The manager respawned them **without** noticing that it then created a second batch of
