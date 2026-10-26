@@ -786,6 +786,25 @@ such literals, so the fix changed two goldens. Everything else followed the plan
   share the captured state" was vacuous for that case.
 - Per-variable notes unchanged: the golden diff has no changed `captures … by …` line.
 
+**Manager §7.3 correction (same miss as staleflag).** The §7.3 rename was again not done before the
+merge, so `d940d4b4` lives in `~/worktrees/GoToCPP/dev.whynotes-c3` on `job/dev.whynotes-c3`,
+while the canonical path `~/worktrees/GoToCPP/dev.whynotes` still holds **v1** `3a0d06bf`. The R1
+reviewer had been pointed at the job without the hash, so the manager messaged it to name its
+worktree and `git rev-parse HEAD`, and to base every finding on `d940d4b4`. The worktree move and
+branch rename are **deferred until that round reports**, so the reviewer's cwd is not yanked
+mid-round. All four states are tagged so nothing can be lost:
+`whynotes-v1` = `3a0d06bf`, `whynotes-v2` = `424c78df`, `whynotes-v3` = `2576f0e1` (coder 3's build),
+`whynotes-merged` = `d940d4b4`.
+
+**Manager re-verified the merge on `d940d4b4`** (in the c3 worktree, tree clean):
+`TestLocalClosureHeadline` + `TestAnnotateGolden` + `TestExplainTopicsGolden` green
+(`internal/lower` 0.026s, `cmd/gocpp` 1.234s). Negative check reproduced by disabling only the
+`case len(caps) == 0` arm: `TestLocalClosureHeadline` FAILS, printing
+`… (no gp::func, no allocation) that captures by reference` for a literal with an empty capture list
+— the exact false sentence the ticket is about. The non-local branch has its own correct
+`len(caps) == 0` case ("it captures nothing, and … is wrapped in gp::func"). Eight files changed vs
+base, all in the plan's scope.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
