@@ -55,9 +55,14 @@
      against real Go with `scripts/gp-repro`. Add the neighbouring forms in the same program —
      `int + int`, `uint32 + uint32`, `float64 + float64`. (Only the string `+` is a bug today, but
      the test must pin the whole rule so a later edit cannot re-open it.) Keep the file
-     gofmt-clean, `// phase: 03`, and end with the `// Output:` block, as the folder does.
-  2. Whatever the correct answer turns out to be in each case, the program's `// Output:` block
-     must equal `go run` on this machine (got with `scripts/gp-repro`, which diffs them for you).
+     gofmt-clean and `// phase: 03`.
+     **Correction (coder 3, verified by the manager):** a `tests/diff` program must **not** have a
+     `// Output:` block — `diffFormat` (`tests/format.go:117`) allows only
+     `diffLine|lsanLine|pendingLine|goBuildLine`, and `tests/format.go:179` requires `// Output:`
+     only where it is allowed. The harness compares against real Go itself. An earlier version of
+     this ticket asked for one; that was wrong.
+  2. Whatever the correct answer turns out to be in each case must equal `go run` on this machine
+     (get it with `scripts/gp-repro`, which diffs the two for you).
   3. `scripts/gp-focused -x` green, and green again with `-cxx clang++` if you touched anything
      the runtime sees (you should not need to).
   4. Prove the new test fails before the patch: put the pre-fix commit hash and the failing
@@ -91,7 +96,35 @@ Not a performance job. This is a Go-conformance (evaluation order) bug; no techl
 |---|---|---|---|---|
 | v1 | coder 1 | ~/worktrees/GoToCPP/dev.evalorder-c1 · `job/dev.evalorder-c1` | – | – |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.evalorder-c2 · `job/dev.evalorder-c2` | – | – |
-| v3 | coder 3 | ~/worktrees/GoToCPP/dev.evalorder-c3 · `job/dev.evalorder-c3` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.evalorder-c3 · `job/dev.evalorder-c3` | `scripts/gp-focused -x` green: gofmt clean · vet OK · internal/lower 405 passed 0 skipped · TestGolden 41 passed 1 skipped · TestDiff/maps_append_key_add 3 passed | `87d12c919c42` |
+
+#### Manager ground truth (`.scratch/mgr/table_rigorous.gp`, `scripts/gp-repro`, each row
+resetting its variable immediately before the statement)
+
+| Row | shape | dev 19646648 | v3 87d12c91 | Go | state |
+|---|---|---|---|---|---|
+| r1 | `m[s+"x"] = append(m[s+"x"], f())` | BEFORE | AFTER | AFTER | fixed |
+| r2 | `m[string(s)] = append(m[string(s)], f())` | AFTER | BEFORE | BEFORE | fixed |
+| r3 | `m[string(s)] = append(m[s], f())` | AFTER | BEFORE | BEFORE | fixed |
+| r4 | `m[s] = append(m[s], f())` | AFTER | AFTER | AFTER | ok |
+| r5 | `m[i] = append(m[i], f())`, `map[any]`, int key | AFTER | AFTER | BEFORE | **open** |
+| r6 | `m[i+1] = append(m[i+1], f())`, `map[int]` | BEFORE | BEFORE | BEFORE | ok |
+| r7 | `m[u]`, `map[uint32]` | AFTER | AFTER | AFTER | ok |
+| r8 | `m[f]`, `map[float64]` | AFTER | AFTER | AFTER | ok |
+
+Note for whoever repeats this: an earlier manager table reported r5 as "same" because it reset
+the variables inside `f` instead of before the statement, so `f` set them to the value they
+already had. Coder 3 caught the discrepancy. Every row must reset first.
+
+**Scope decision (manager, 2026-10-26).** r5 is a divergence from gc, not a spec violation: the
+Go spec leaves key-vs-value order unspecified ("evaluation order between the key and the value
+is not specified"), but `docs/spec/cpp-mapping.md:350` promises gc's order where the spec is
+open. Its fix is not in `sameSafe`: coder 3 implemented a `keyNop` gate (accept the fast path
+when `AssignConv` inserts no node), measured it, and reverted it — the emitted C++ then built the
+interface twice and it flipped `m[*p]` / `m[arr[i]]` on `map[any]` from correct to wrong. r5
+belongs to the general map-store order machinery in `internal/lower/order.go`, which this ticket
+puts out of scope, so **r5 becomes its own job** and gets a TODO.md line rather than being
+claimed here.
 
 ### PM merge plan
 
