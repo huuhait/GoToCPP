@@ -45,6 +45,28 @@ No worktree was shared at any point (all twelve are separate paths); the collisi
 per *worktree*, not per repo. Lesson for the next job: count the worktrees against the agents in the
 same step, and when a spawn fails, resume the dead agent rather than adding new ones.
 
+**Correction: `signal: killed` under load is the 6G scope cap, not the machine (2026-10-26).** The
+manager first attributed the stalehints c2 `TestCXX/g++/O2/unit` `signal: killed` to machine load.
+`journalctl --user -u run-p1461356-i5655052.scope` shows what actually happened: the scope was
+**OOM-killed**, "Consumed 31min 7.181s CPU time over 5min 30.507s wall clock, **6G memory peak**,
+5G memory swap peak". `scripts/gp-focused` runs each command under `systemd-run -p MemoryMax=$mem`,
+so `-mem 6G` is a hard cap on a test whose C++ compile legitimately needs more, and the kernel
+kills it. A second runtime `TestCXX` scope (`run-p1097039-i5290735.scope`) died the same way at 28s.
+This is a **recurring artifact of running `./runtime`'s `TestCXX` under `-mem 6G`**, not a property
+of any diff: no job in this batch may be marked FAILED on a killed `TestCXX`/`./runtime` test without
+re-running that one test at `-mem 16G` on a quiet machine, or comparing against the same commit's
+result on `dev`. Every `signal: killed` in this file must be read that way.
+
+**Second correction: two processes ran bare `go test` outside any scope (2026-10-26).** While
+checking the load, the manager found both read-only PMs running unthrottled suites
+(`go test -count=1 -parallel 4 ./internal/typedinterop/probe` and `go test -count=1 -run '^TestDiff$' ./tests`)
+as direct children of the session, with no `systemd-run` wrapper: 52 of the 324 live `cc1plus`
+processes were theirs, and load reached 246 on 64 cores. Both were messaged to stop and to settle
+questions with `scripts/gp-focused -x -cpus 6 -mem 6G` instead. Lesson: a worker's "read-only" does
+not mean "no load" — a PM told to investigate a test failure will run it, so the ticket has to say
+where its budget is. The four tickets tell coders the `-cpus 6 -mem 6G` rule but the PM briefs did
+not.
+
 ---
 
 ## Job dev.evalorder: `m[s+"x"] = append(m[s+"x"], f())` reads the key before `f` (Go: after)
@@ -309,7 +331,7 @@ line have drifted (the ticket carries the real ones). All four claims verified s
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
 | v1 | coder 1 | ~/worktrees/GoToCPP/dev.stalehints · `job/dev.stalehints` | – | – |
-| v2 | coder 2 | ~/worktrees/GoToCPP/dev.stalehints-c2 · `job/dev.stalehints-c2` | manager re-ran: `go build` OK · vet clean · `TestTestingNativesDefined`/`TestTestingNatives` ok 34.283s · `go test -count=1 ./internal/lower` ok 11.766s · manager verified every added line is a comment and `build.go:1035`'s statement is byte-identical · coder reported one `TestCXX/g++/O2/unit` `signal: killed` under load 41, which the manager attributes to the machine (see note) | `4ff62002` |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.stalehints-c2 · `job/dev.stalehints-c2` | manager re-ran: `go build` OK · vet clean · `TestTestingNativesDefined`/`TestTestingNatives` ok 34.283s · `go test -count=1 ./internal/lower` ok 11.766s · manager verified every added line is a comment and `build.go:1035`'s statement is byte-identical · coder reported one `TestCXX/g++/O2/unit` `signal: killed`; the manager re-examined it and it is the 6G `MemoryMax` scope cap, not the diff (see the OOM note above) · manager checked every factual claim the new prose makes: `T.Setenv` does call `os.Setenv` (`stdlib/testing/testing.gp:884`), `lookup_env` has no Go caller but is used by `runtime/test/testing_natives_test.cpp:110`, and `stdlib/testing/PORT.md:13` does carry the native table the comment points at | `4ff62002` |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | – | – |
 
 ### Rounds
