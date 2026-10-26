@@ -20,12 +20,15 @@ plus earlier `dev.genericstd`, `dev.toolinglows`, `dev.stackdepth`, `dev.makesli
 
 First v2 jobs, in order:
 
+- [~] `dev.evalorder` (first full 3-coder v2 job): the `m[s+"x"] = append(m[s+"x"], f())`
+      evaluation order below — gocpp reads the key before `f()`, Go reads it after. Started
+      2026-10-26; record in [REVIEW-dev.md](REVIEW-dev.md).
 - [ ] `11.lspbench` (spike/evidence job, one coder): one quiet `make lsp-bench` re-run; it
       regenerates `docs/benchmarks/lsp.md`. Closes the 11.14 / 12.13 "revalidate on a quiet
       machine" line and confirms ≤2× gopls p95 per row. Needs a quiet machine.
-- [ ] First full 3-coder job: a real user-hittable bug from "Runtime" below. The smallest with a
-      clean repro is the `m[s+"x"] = append(m[s+"x"], f())` evaluation order (reads the key
-      before `f()`; Go reads it after). Then `time.NewTimer`+`Stop` (668-771 ns vs Go 129 ns).
+      `gopls` is not on this box's PATH yet, so it has to be installed first.
+- [ ] `time.NewTimer`+`Stop` (668-771 ns vs Go 129 ns) — performance-shaped, so it runs the
+      three-techlead stage first.
 - [ ] User-gated, unchanged: final manual checks, releases and approvals — see "Needs your
       decision (user-gated)".
 
@@ -91,7 +94,7 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] Types that are zero-size in Go but hold a byte in C++ (`[3]struct{}`, `struct{ z [0]int }`) still allocate in `make`: `make([][3]struct{}, math.MaxInt)` ends in `fatal error: runtime: out of memory` (Go: len MaxInt); needs an empty C++ representation or index-free element access (dev.makeslice review).
 - [ ] `*(*[N]struct{})(s)` with N > 64 copies N bytes from the 64-byte `detail::zerobase` (to_array_ptr deref; `[N]struct{}(s)` is guarded since dev.makeslice); ASan has not reported it.
 - [ ] reflect zero-size and huge slices: `reflect.MakeSlice(reflect.TypeOf([]struct{}{}), math.MaxInt, math.MaxInt)` and `Value.Grow(math.MaxInt)` say `reflect: array too large` (Go succeeds); `reflect.MakeSlice([]int, MaxInt/4, MaxInt/4)` says the same (Go: `runtime: allocation size out of range`) (runtime/src/reflect.cpp:234).
-- [ ] Order: `m[s+"x"] = append(m[s+"x"], f())` reads the key before f (Go after): gocpp's `sameSafe` accepts a string `+`, gc's SameSafeExpr has no OADDSTR, so gc does not use mapAppend there (dev.makeslice review, also on dev).
+- [~] Order: `m[s+"x"] = append(m[s+"x"], f())` reads the key before f (Go after): gocpp's `sameSafe` accepts a string `+`, gc's SameSafeExpr has no OADDSTR, so gc does not use mapAppend there (dev.makeslice review, also on dev).
 - [ ] `runtime.Callers(1, pcs)` returns 1 (Go: 3), no `runtime.main`/`runtime.goexit` frames; `ReadMemStats` leaves `Mallocs`, `Frees` and the pause fields at 0 (`TotalAlloc`, `NumGC`, `NumForcedGC` are done, 08.synclows) (was L244).
 - [ ] `time`: `NewTimer`+`Stop` costs 668-771 ns against Go's 129 ns (about 5x, pinned to one CPU, load about 37, 08.synclows); `time.Now` 51 against 38 ns (intrusive timer heap not done; needs timed_wait.* and the Windows timer code) (was L239).
 - [ ] `RLock`/`RUnlock` through an embedded or field mutex build an aliasing counted pointer (`gp::ptr<RWMutex>(m, &m->mu)`) per call: an atomic refcount increment and decrement on the owner; about 2.5x on `Load` with 8 goroutines for any struct with an embedded mutex, and the speed depends on the object address mod 64 (08.synclows).
