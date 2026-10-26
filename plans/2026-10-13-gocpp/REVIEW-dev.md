@@ -633,17 +633,77 @@ comment. `go build` + `go vet` on `./cmd/gocpp ./internal/lower` clean, gofmt cl
 | `testing.hpp` | v3's reframing, with the causal clause scoped and three exceptions named: `libCPUName` (no `internal/sysinfo`), `libAllocCounting`/`libAllocs` (no allocator counters), `libFrames` (no Go frame names) | **all three verified**: `stdlib/internal/sysinfo` is absent; `PORT.md:23` says "the runtime has no allocator counters"; `PORT.md:17` scopes `libFrames` |
 | `testing.hpp` bullets | the `time`/`sync` bullet now gives the cheaper-clock/one-lock reasons; `lookup_env` says "`T.Setenv` has used os itself since step 9.10, so no Go code calls them, only their tests" | matches `native.gp:11-12` |
 
+**Manager's own comment-only proof, independent of the coder's.** For each of the four files, the
+worktree file and `git show dev:<file>` were both stripped of `//` comments and of blank lines, then
+hashed:
+
+| File | stripped hash `dev` | stripped hash `ac9fe281` | |
+|---|---|---|---|
+| `internal/lower/ops.go` | `38675331e1eb` | `38675331e1eb` | same |
+| `internal/lower/expr.go` | `27d72d550c59` | `27d72d550c59` | same |
+| `cmd/gocpp/build.go` | `a363baf33a8c` | `a363baf33a8c` | same |
+| `runtime/include/gocpp/testing.hpp` | `054a7b4c8c69` | `054a7b4c8c69` | same |
+
+Four identical hashes is a stronger statement than "one non-comment line": **no executable line differs
+in any file**. The trailing comment on `d.attachTyped(in, pkg)` was deleted, not duplicated.
+
+**The two gaps the merging coder left, settled by the manager:**
+
+1. **`-cxx clang++` focused half never run.** Unnecessary here and shown so rather than assumed: a
+   header whose comments changed cannot alter what either compiler parses, so the manager compiled
+   `runtime/include/gocpp/testing.hpp` standalone under **both** compilers
+   (`clang++ -std=c++20 -fsyntax-only -Iruntime/include` and the same with `g++`) — both `OK`. A full
+   clang++ matrix for a comment-only diff would have cost 30 minutes of a shared box for no
+   information.
+2. **The `TestCXX/g++/(O0|O2)` `signal: killed`.** Three compiles (`unit.cpp`, `interop_test.cpp`,
+   `map_test.cpp`) killed inside a `MemoryMax=6G` scope on a box at load 12-15. That is the cap and
+   the load, not the diff — and the diff cannot reach a compile at all (hashes above). Recorded as
+   **excused, not green**: if this job is ever asked for a runtime matrix it must be re-run at
+   `-mem 16G` on a quiet box.
+
+**Manager intervened twice on scope.** The merging coder restarted the full `./runtime` `TestCXX`
+O0/O2 sweep (16G, 30 min) after the 6G run was killed, and again after the manager killed the first
+restart. Both processes were stopped. A comments-only job does not get a runtime sweep, both because
+it cannot show anything and because WORKFLOW forbids worker-run full phase/runtime sweeps. The
+manager's instruction and the coder's compliance ("I stopped them, confirmed no process of mine
+remains") are on the record so a later reader does not read the missing matrix as an omission.
+
+**Departures from the plan the manager accepted, all evidence-backed:**
+
+1. `build.go` needed more than "correct one clause": the honest sentence is "when the mode *resolves*
+   to typed", which is only true if the `auto` default is named. Backed by `mode.go:52`
+   (`DefaultMode = Auto`), `mode.go:187` (`Decision{On: true}` on the clang++-usable path) and
+   `cmd/gocpp/env.go:160`.
+2. `testing.hpp` replaced the plan's "a native is not there because a package is missing" with the
+   capability statement, naming three natives and their missing capability. Manager re-checked all
+   three in the rows above.
+3. The package list is v3's (`sync, time, os, runtime, strconv, io, ...`), which describes the packages
+   the *natives replace* and so avoids `flag` (real, `tools/stubgen/main.go:138`), `fmt` (not ported,
+   `stdlib/fmt/PORT.md:3`) and `runtime/trace` (no `stdlib` copy) all at once. This is the correction
+   the manager got wrong the first time — v1's blanket "are real packages now" is what it blessed.
+
+**Out-of-scope, filed not fixed:** `stdlib/testing/native.gp:7-8` still carries the same stale
+"declaration stubs until later steps of Phase 09" phrasing this job removed from `testing.hpp`. Same
+defect, different file, outside the ticket — recorded below in Out of scope.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | – | `ac9fe281` | – | – |
 
 ### Findings
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
 | – | – | – | – | – | – | – | – | – |
+
+### Out of scope
+
+| Round | Note | Filed in |
+|---|---|---|
+| manager | `stdlib/testing/native.gp:7-8` repeats the stale "declaration stubs until later steps of Phase 09" wording that this job removed from `testing.hpp` | **already filed** — TODO.md:171-176 ("two stale stdlib prose sites"), recorded by the stalehints coders before the merge |
+| manager | `internal/lower/expr.go:673`'s trailing comment and `cname`'s qualifier comment (`expr.go:267`) read redundantly beside the new block but are accurate | nothing — no defect |
 
 ---
 
