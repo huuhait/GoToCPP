@@ -593,7 +593,7 @@ such literals, so the fix changed two goldens. Everything else followed the plan
 
 ## Job dev.rtbugs: nine Runtime claims, one batch
 
-**Status:** `[~]` PM merge plan · **Merging coder:** – · **Canonical worktree:** – (machine: the user's
+**Status:** `[~]` merging · **Merging coder:** 1 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.rtbugs · `job/dev.rtbugs` (machine: the user's
 local box; the five jobs above run on another machine and arrive here by `git pull`)
 
 ### Brief
@@ -624,6 +624,159 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 | v1 | coder 1 | ~/worktrees/GoToCPP/dev.rtbugs-c1 · `job/dev.rtbugs-c1` | manager re-ran `scripts/gp-focused -x -cpus 16 -mem 16G` (g++) and `-cxx clang++`: **both green**, 43 commands each. v1 also brings `gates.go` back in line with `docs/spec/feature-matrix.md`, so `TestFeatureMatrix` passes | `0742c552b610` |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.rtbugs-c2 · `job/dev.rtbugs-c2` | manager re-ran both: g++ 56 commands passed, 1 failed (`TestFeatureMatrix`, **also fails on clean dev 451d4f28**, manager-checked); clang++ 56 passed, 2 failed: `TestFeatureMatrix` (dev's) and `TestCXX/clang++/O0/deadlock` — `test_dump_churn` timed out after 269 s (`deadlock_test.cpp:127: the wait timed out`, exit 97, thousands of goroutines parked in `chan receive` at :572). Manager re-ran that test alone 3× on v2 (ok 49.5 / 60.0 / 132.2 s) and 3× on clean dev (ok 75.3 / 103.5 / 90.5 s): **not reproduced**; v1 and v3 passed it in their runs. Open question for the PM/reviewers, in the area v2 changed (stack budget, `stack_release`) | `98cf2f111d9e` |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.rtbugs-c3 · `job/dev.rtbugs-c3` | manager re-ran both: g++ 34 passed and clang++ 34 passed, each with 1 failure, `TestFeatureMatrix`, **which also fails on clean dev** (manager-checked) | `beac4b6f` |
+
+### PM merge plan
+
+> Copied unchanged from the PM (fresh read-only agent, 2026-10-26). Merging coder: 1 (base v1).
+
+> PM MERGE PLAN — dev.rtbugs
+>
+> Recommended base: v1   (reason: v1 has the best runtime OS layer: claim 3 stacks, claim 4 RLIMIT_STACK, and the Callers frames. It is the only version green on both compilers. Everything that moves into it is compiler-side or a small runtime piece, and most of that can be taken as whole files. On a v3 base, v3's growing-stack machinery would have to be pulled out by hand from thread.cpp, goroutine.cpp, os.hpp, rt.cpp, runtimepkg and windows/thread.cpp. Those hunks are tangled with v3's claim-8 hunks, which makes that merge riskier.)
+> Merging coder: 1
+>
+> ## What I checked myself and what I took from the handoffs
+>
+> I checked these myself. The binaries are under /home/huuhait/GoToCPP/.scratch/pm-rtbugs/: dev@70890fb3 was built from git archive, and v1, v2 and v3 were built from their worktrees. The comparison script is /home/huuhait/GoToCPP/.scratch/pm-rtbugs/cmp.sh. The probe programs are under .scratch/pm-rtbugs/p/.
+> - **Claim 3.** count(3000000) in a goroutine prints 3000000 on v1, v2 and v3, in debug and -release; dev overflows.
+> - **Claim 3 guardrails** (my numbers):
+>   - 10k blocked goroutines, VmPTE: dev 52 MB, v1 77 MB, v2 97 MB, v3 81 MB. RSS is the same everywhere (154 MB).
+>   - 100k blocked goroutines start on all versions. VmPTE: dev 472 MB, v1 675 MB, v2 733 MB, v3 733 MB.
+>   - Short-goroutine start cost is the same on all versions (O0 0.84-0.90 us, release 0.57-0.59 us).
+>   - 38,000 sequential goroutines that each recurse 0.2-4 MiB deep take dev 2.3-3.9 s, v1 2.5-2.7 s, v2 2.3-2.4 s and **v3 6.8-7.0 s, with 4.1 s of system time**. v3's tripwire costs about 110 us per goroutine on a reused thread.
+>   - v1 under -race starts 10,000 blocked goroutines (1.0 s); under -asan, 5,000.
+>   - After the deep goroutine ends, RSS is v1 100 MB, v2 14 MB, v3 8 MB, and Go 121 MB (Go also keeps the stack until a GC runs).
+> - **Claim 4.** I read /proc/self/limits and called Getrlimit(RLIMIT_STACK) from a program. Go and v1 show soft 8388608; dev, v2 and v3 show 1073741824.
+> - **Claim 9.** I used v2's tests/diff/goroutine_panic_main_returns.gp (GOMAXPROCS(1), main busy 2 ms), 30 runs each:
+>
+>   | Version | taskset 1 CPU | taskset 4 CPUs |
+>   |---|---|---|
+>   | Go | exit 0 30/30 | exit 0 29/30 |
+>   | dev | exit 2 30/30 | exit 2 30/30 |
+>   | v1 | exit 0 30/30 | **exit 2 30/30** |
+>   | v2 | exit 0 30/30 | exit 0 30/30 |
+>   | v3 | exit 2 30/30 | exit 2 30/30 |
+>
+>   So the claim is not stale (v3 is wrong), and v1's cpu_count()==1 test misses GOMAXPROCS=1 on a multi-CPU machine. With the bare `go func(){panic()}()` and nothing else, every version and Go exit 0.
+> - **Claims 5/6/7, cross-runs.** I ran each version's tests on every version against Go:
+>   - **v1 crashes with SIGSEGV** on v3's reflect_makeslice_zerosize.gp. The cause is `reflect.Swapper` / `sort.Slice` on `[][3]struct{}`: ASan shows a memcpy into the read-only zerobase at reflect.cpp:1814. dev, v2 and v3 are fine. This is a v1 regression.
+>   - **v2 OOMs** on v1's slices_make_zerosize_empty.gp (`make([]W, MaxInt)`, where W mixes [3]struct{}, [2][0]string, struct{} and Z).
+>   - v1 and v3 pass all three versions' zero-size tests, and give identical unsafe.Sizeof values (1 1 1 2 12/8).
+>   - Claim 6: v3's tests/interop/zerosize_array_copy.gp segfaults on dev with clang++ and passes on v1, v2 and v3.
+> - **Claim 8.**
+>   - Callers: v1 and v2 match Go on all three versions' Callers tests. **v3 does not**: its runtime.main/goexit frames have no file/line, and runtime.Caller(n) returns none for them.
+>   - MemStats: all three versions pass v2's and v3's tests.
+>   - Allocation cost on a binary-trees-like program, 40×depth 16, pinned to one CPU: at -release all are about equal (94-102 ms). **At -O0, the default build, dev is 855-862 ms, v1 938 (+9.5%), v2 961 (+12.5%), v3 857-863 (±0).**
+> - **Claim 1.** I ran each version's cvar_addr_calls with -asan on every version:
+>   - **v2 has a heap-use-after-free** on the slice-element case (`gelem = &sl[1].n`, `gi = &sl[1].in.a`).
+>   - v1 and v3 give identical results on each other's tests, apart from the raw-member policy.
+>   - **v1's raw-member build error has a false positive:** `t := cac.Tracked{}; var h cac.Holder; h.p = &t; fmt.Println(h.p.inc())` is a valid program that dev compiles and runs, and v1 rejects it with "cannot keep the object alive". v3 compiles it and keeps nothing (alive 0).
+>   - v3's keep_forever on `h.p = &t; gheld = h`, called 1000 times, leaves 1000 objects alive (Go keeps 1); v2 gets stack-use-after-return there.
+>   - Extra keeping calls (a keeping helper, an interface method over `any`, a channel send, a generic, a closure): dev has a UAF; v1, v2 and v3 are all correct.
+>
+> Taken from the handoffs without checking:
+> - Windows and Wine runs.
+> - The overcommit=2 path (nobody has root).
+> - The TSan unit tests.
+> - The coders' own failing-on-dev lists, except the ones listed above.
+> - v1's statement that its focused runs were green. The manager's runs confirm it.
+>
+> ## Per item / file
+>
+> | Item or file | Take | Reason (one line) |
+> |---|---|---|
+> | Claim 1 (&cvar call-keeps, &sl[1].a, raw member) | v3 | Same results as v1 on every cross-test; its keep_forever closes the raw-member case without v1's false-positive build error; v2 has a UAF on &sl[1].a and leaves the raw member open. |
+> | internal/lower/argkeep.go (new), cbox.go, cunsafe.go, cvalues.go, expr.go, file.go, generics.go, tinfo.go, interop_test.go | v3 (whole files) | v1's changes in these files are all claims 1/2, so whole-file takes replace them cleanly; this includes the escTop/top==nil removal. |
+> | runtime/include/gocpp/interop.hpp | v3, only the keep_forever hunk | The rest of v3's diff in this file is clang-format churn on unrelated lines. |
+> | Claim 2 (cpplocal, mayHoldPointers pin, escTop) | v1 (internal/vet/cinterop.go, cpplocal.txtar) + v3 (lowering, comes with claim 1) | All three are equivalent here. |
+> | internal/vet/corpus_test.go, phase10_test.go | v2 | knownFindings keyed "file:line analyzer" with a stale-entry check: the "per-line expectation" the claim asks for. |
+> | Claim 3 (goroutine stacks, option 2b) | v1 | 512 MiB is exactly the largest stack a Go goroutine reaches; least extra page-table memory (+25 MB per 10k vs +45 for v2); simplest (glibc stacks + a size/16 fallback ladder in os::thread_start on Linux and Windows); caps to 8 MiB where reservations are charged. |
+> | runtime/src/os/linux/thread.cpp, os.cpp, runtime/include/gocpp/os.hpp, runtime/src/os/windows/thread.cpp | v1 + v2's `stack_release` | v1 for the stacks and claim 4; add v2's `os::stack_release` (Linux madvise below the top 8 MiB, Windows no-op) so a reused idle thread does not keep up to 512 MiB that it touched once. |
+> | runtime/src/goroutine.cpp, include/gocpp/goroutine.hpp | combine: v1, plus v2's stack_release hook in worker_main (≥1 ms, w->stack > 8 MiB), plus v2's `let_main_return` instead of v1's `yield_to_main` | Claim 9 measured above; drop v2's big_stack_bytes budget and its 1 GiB default. |
+> | Claim 4 (children's RLIMIT_STACK) | v1 | Grows the main stack once at start, then restores the original soft limit, so every child (C system/popen/posix_spawn, any future os/exec) and Getrlimit see the shell's value, as in Go (verified). v2 and v3 only add hooks that no built path calls. |
+> | runtime/src/runtimepkg.cpp/.hpp, rt.cpp, trace.cpp, frames.cpp | v1 | SetMaxStack, overflow report, GC pause natives, Callers frames (match Go; v3's lack file/line). |
+> | Claim 5/6 (empty C++ classes) | v3 | Same sizes and test results as v1, but v1's reflect side crashes in Swapper/sort.Slice; v2 misses mixed empty structs (W). |
+> | internal/check/emptyclass.go (new), sizes.go, sizes_test.go, internal/lower/typedecl.go, runtime/include/gocpp/array.hpp, typeops.hpp | v3 (whole files) | They must stay consistent with each other and with v3's reflect gp_empty flag. |
+> | internal/check/gates.go, docs/spec/feature-matrix.md | v1 | v1 syncs the matrix with gates.go, which fixes TestFeatureMatrix (red on dev and on v2/v3). |
+> | Claim 7 (reflect) | v3 | type_ops::gp_empty gates alloc_array, assign, copy_elems and Swapper in about 30 lines; v1's larger rewrite has the Swapper crash. |
+> | runtime/src/reflect.cpp | v3 (whole file) | v1's changes there are all claim 7. |
+> | runtime/include/gocpp/slice.hpp | v1's hunk only if clang++ needs it with v3's array | It was for v1's own specialization (-Wdivision-by-zero). |
+> | Claim 8 Callers | v1 (frames.cpp, trace.cpp) | Matches Go on all three tests. |
+> | Claim 8 ReadMemStats counting | combine: v1's runtime/src/alloc.cpp + testing_alloc.cpp, with v3's -O0 technique | Keep v1's sanitizer branch (malloc hooks, sanitizer operator new left alone), its new-handler loop and the TSan fix; port v3's plain words + `__atomic` builtins + `[[gnu::always_inline]]` bump path to remove v1's +9.5% at -O0. |
+> | stdlib/runtime/runtime.gp, stdlib/runtime/PORT.md | v1 | Mallocs/Frees/HeapObjects/pause fields are already done on the base. |
+> | Claim 9 | v2 | `let_main_return` keyed on gomaxprocs(0)==1 matches Go on 1 and 4 CPUs; main's return path is unchanged and no thread is added. |
+> | tests/diff/goroutine_panic_main_returns.gp, goroutine_panic_main_blocks.gp | v2 | Fail on dev (30/30 exit 2), pass on v2. |
+> | tests/run/stack_goroutine_deep.gp, runtime_callers_bottom.gp, slices_make_zerosize_empty.gp | v1 | Fail on dev; pass on the parts kept. |
+> | tests/run/release_stack_goroutine_deep.gp | v2 | Pins "-release prints 3000000" (Done when); passes on v1, fails on dev; fix its comment from "1 GiB" to 512 MiB. |
+> | tests/run/reflect_makeslice_zerosize.gp | combine: v3's file + v1's cases it lacks (Value.Grow past limit, Set into element) | Same file name; v3's has the Swapper case. |
+> | tests/run/slices_make_zerosize_fields.gp, runtime_memstats_counts.gp | v3 | Fail on dev. |
+> | tests/interop/zerosize_array_copy.gp/.hpp | v3 | The only real failing-without test for claim 6 (clang++ SIGSEGV on dev). |
+> | tests/interop/cvar_addr_calls.gp/.hpp | combine: v3's file + v1's `look` read-only and maps/slices cases, with a merged .hpp | Tracked needs both inc() and peek/Rec. |
+> | New regression test (merging coder writes it) | — | `h.p = &t; fmt.Println(h.p.inc())` compiles and leaves 0 alive: guards keep_forever's trigger. |
+> | runtime/test/* and runtime/*_test.go | v1, plus v2's test_stack_release from 98cf2f11 (the fixed version) | Drop v1's go-panic-main-returns case (it tests v1's cpu_count behaviour). |
+> | runtime/README.md, runtime/files.go, json/filepath tests calling SetMaxStack(8<<20), stack_* test comment edits | v1 | — |
+> | tools/portstd/gotests/std/io__fs.py, tests/stdgo/manifest/io__fs.json, tools/portstd/patches/*.rules, json/filepath PORT.md | v1 | Manifest and generator stay consistent. |
+> | docs ADR-104 | v1 + one line for stack_release | — |
+> | docs ADR-139, interop.md | v3 | They describe the claim-1 policy that is taken (keep_forever; C-function keeps stay cgo's rule). |
+> | language.md D7, D24 | v1 | — |
+> | language.md D15 | v3 | v1 and v3 give the same Sizeof values. |
+> | cpp-mapping.md | combine: v1 runtime/Callers text + v3 empty-class text | — |
+> | guides (cpp-developers, stdlib, stdlib-tests, release-candidate, windows-testing, vet) and ADR README | v1 | Adjust vet.md if v2's per-line keys change its wording. |
+>
+> ## Conflicts and resolution
+>
+> - **Goroutine stack design.** v1 (512 MiB glibc reservation + fallback ladder) wins over v2 (1 GiB + address-space budget) and v3 (own mmap that grows via a MADV_GUARD tripwire or a SIGSEGV + mprotect, with joinable threads reaped). v1 has fewer page tables than v2, and is far simpler and ~2.6× faster than v3 on repeated mid-depth goroutines. Take only v2's stack_release on top.
+> - **Default size, 512 MiB vs 1 GiB.** 512 MiB (v1). It is the largest power of two under Go's 1e9 limit and costs half the page-table overhead of 1 GiB.
+> - **SetMaxStack semantics.** v1 (applies to goroutines that start after the call). v3's "applies to running goroutines too" exists only because of its growing stacks, which are dropped.
+> - **Claim 4 approach.** v1 (grow, then restore the soft limit) wins over v2 (new syscall.Exec + exec_stack_limit hook) and v3 (exec_limits hook used only by a test shell). v1 alone covers every child path and Getrlimit.
+> - **Raw C member that leaves.** v3's keep_forever wins over v1's build error and v2's "left open". v1's predicate rejects valid code that dev ran correctly; v2 still dangles. Document the per-call leak (Go keeps one) in ADR-139/interop.md.
+> - **Call-keeps analysis.** v3 (argkeep.go) is behaviourally equal to v1 on every test, and keep_forever needs v3's escapedAddr-based trigger. v2's fixpoint is dropped because of the &sl[1].a UAF.
+> - **Claim 9, fix vs stale.** Fixed, with v2's gomaxprocs-based let_main_return. v3's "stale" is refuted by my 30-run table; v1's cpu_count check fails under GOMAXPROCS(1) on more than one CPU.
+> - **Zero-size representation.** v3 (emptyclass.go + gp_empty) wins over v1 (ZeroEmpty + reflect rewrite with the Swapper crash) and v2 (coarse identity keys that OOM on W).
+> - **alloc.cpp.** v1's structure plus v3's -O0 fast path. v3's file as-is defines operator new under ASan/TSan as well (ASan's own operator new and its new/delete-mismatch checks are lost) and throws bad_alloc without calling the new handler. v2's is +12.5% at -O0.
+> - **Callers frames.** v1. v2 is equivalent; v3 is incomplete.
+> - **knownFindings.** v2's per-line keys with the stale check, rather than v1/v3's plain removal of the three whole-file entries.
+> - **Same-name test files** (cvar_addr_calls, reflect_makeslice_zerosize). Combine the cases into one file each, as in the table.
+>
+> ## Dropped and why
+>
+> - **v3 runtime growing stacks** (thread.cpp "growing stacks", stack_trim, set_stack_limit, the thread_start max_stack parameter, use_protect_stacks, the related goroutine.cpp/rt.cpp/os.hpp/windows changes, tests/overflow/deep_goroutine*.gp, the overflow_goroutine.gp edit). Measured 2.6-3× slower with 4 s of system time on repeated 0.2-4 MiB goroutines, plus large complexity. A kernel write into the unprobed tripwire page or a not-yet-committed page would return EFAULT, not grow the stack; my 38k-depth os.Stat sweep did not reproduce this, but the hazard exists by design.
+> - **v2's 1 GiB default and big_stack_bytes/stack_budget.** More page tables; v1's ladder already handles an exhausted address space.
+> - **v2's syscall.Exec** (posix_file.cpp sys_exec, syscall.hpp, syscall_linux.gp, tests/diff/syscall_exec_stack_limit*.gp, exec_stack_limit/exec_failed_stack_limit). A new API is not needed once v1 restores the limit for every child.
+> - **v3's exec_limits/forget_start_limits.** No built caller.
+> - **v1's yield_to_main** and the goroutine_test case go-panic-main-returns. Replaced by v2's let_main_return.
+> - **v3's claim 9 "stale" report.** Refuted.
+> - **v1's raw-member error** (the cunsafe.go noteStores leavingAddr/heldBeyond branch) and tests/interop/cvar_addr_error_raw_member.gp. False positive on valid code.
+> - **v1's claim-1 analysis** in cbox.go (callArgs/keptParams/calleeFunc/heldBeyond). Superseded by v3's equivalent analysis.
+> - **v1's internal/check ZeroEmpty, typedecl.go, array.hpp and reflect.cpp changes.** Superseded by v3's; Swapper crash.
+> - **v2's alloc.cpp/alloc.hpp/alloc_new.cpp, its ifaceconv_test changes, and v2's frames/trace changes.** The v1 equivalents are kept.
+> - **v3's alloc.cpp as a file** (only its technique is ported) and **v3's frames.cpp** (incomplete Callers).
+> - **v3's interop.hpp clang-format churn** on value_eq, key_ok and map_key_check.
+> - **v2's ckeep.go** and its cbox.go/expr.go changes. UAF on &sl[1].a.
+>
+> ## Risks the merging coder must check
+>
+> - **Lowering whole-file takes from v3 into the v1 base.** Re-run, with both compilers: TestExternLowering (v1 needed a fix there, 467d174c), TestCUnsafe and TestGolden/interop_unsafe (v2 tripped these with a keeps rule), TestTypedRun/TestTypedTwin (v3's typed-mode handling), TestCAddrOwnership and TestInterop cvar_* / unsafe_*. Check that funcGen fields such as `keptForever` come with v3's expr.go/file.go.
+> - **Claims 5-7 from v3 on the v1 base.** Run v1's slices_make_zerosize_empty.gp and v1's reflect cases on the merge; they passed on v3 in my runs. Also check that v1's earlier fix ("reflect Set into a zero-size element wrote to zerobase") is covered by v3's assign no_data gate. Drop v1's slice.hpp hunk unless clang++ needs it.
+> - **alloc.cpp -O0 port.** Re-measure /home/huuhait/GoToCPP/.scratch/pm-rtbugs/p/alloc/main.gp (`taskset -c 9`, -O0 and -release) against dev's 855-862 ms; the goal is within about 2%. The +9.5% is most likely v1's std::atomic member calls in operator new at -O0; I could not profile (no perf), so confirm the cause. Keep the sanitizer hooks, the new-handler loop and the TSan fix (0742c552).
+> - **v1's main-stack growth (claim 4).**
+>   - Under overcommit 0 it adds 1 GiB to Committed_AS per process.
+>   - mlockall(MCL_CURRENT) would populate the grown 1 GiB; nobody measured this.
+>   - Under overcommit=2, a finite RLIMIT_AS or valgrind, growth is refused, the raised limit stays and children inherit 1 GiB. D7 must say so.
+>   - overcommit=2 is untested by every coder.
+> - **keep_forever.** It leaks one object per execution of `h.p = &x; g = h` (1000 calls → 1000 alive). Document this. Check that LeakSanitizer does not report the kept list in sanitizer runs of tests/interop.
+> - **stack_release.**
+>   - Use v2's version from 98cf2f11 (the clang -O2 / TSan flake fixed by touching every page).
+>   - It must never run on the main thread.
+>   - The ≥1 ms clock reads happen on every goroutine end; re-check the short-goroutine cost against v1 using .scratch/pm-rtbugs/p/spawn.
+> - **let_main_return.** It reads gomaxprocs(0) on the panic path only. Re-run the deadlock TestCXX under clang++; the manager saw a test_dump_churn timeout on v2 that it could not reproduce.
+> - **Release test comment.** Fix release_stack_goroutine_deep.gp's comment (1 GiB → 512 MiB); deep goroutine tests in tests/run fail under -race, as dev's existing stack_main_deep does. Follow whatever handles stack_main_deep in the sanitizer sweeps.
+> - **Per-line knownFindings keys** (v2) must match the merged corpus lines; the stale-key check makes this fail loudly if they don't.
+> - **Windows.** Cross-build and run the goroutine/thread/winos/array unit tests under Wine (v1's ladder with 512 MiB, v2's stack_release no-op).
+> - **gp-focused.** Run `scripts/gp-focused -x` and `-cxx clang++`, adding -run targets for TestFeatureMatrix, TestOpaqueCorpus/TestMustCorpus, TestDiff (the two new files), TestStackOverflow and TestWindowsRuntime.
+>
+> ## Versions I could not use
+>
+> - None was unusable as a whole. v2 is red only on TestFeatureMatrix (also red on dev) plus a clang++ deadlock timeout the manager could not reproduce; parts of v2 are taken. v3's runtime stack layer and its claim-9 "stale" verdict are not used, for the reasons above.
 
 ### Rounds
 
