@@ -444,7 +444,7 @@ it is harmless there; it stays out of this job.
 
 ## Job dev.whynotes: `emit -annotate` headline says "captures by reference" for a boxed capture
 
-**Status:** `[~]` in_progress · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.whynotes
+**Status:** `[~]` merged, in review · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.whynotes
 
 ### Brief
 
@@ -514,6 +514,27 @@ contradiction is real. Two goldens exist and may be affected:
   is at `cmd/gocpp/annotate_test.go:469`, as quoted.
 - v3's `TestLocalClosureHeadline` (`internal/lower/whynotes_test.go:84`) pins the boxed and unboxed
   branches and the unchanged per-variable notes, as described.
+
+**Merge result:** coder 3 (`whynotes-v3` tagged at `2576f0e1`) · **Commit (state hash):** `d940d4b4` ·
+**Departures from the plan:** one, and an extension rather than a departure — the PM asked the coder
+to *decide* whether the non-local branch has the same zero-capture wrongness. It does, and the coder
+fixed it: `noteClosure`'s non-local headline said "what it captures is copied into the lambda (a box
+is shared)" for a literal with no captures. `internal/explain/examples/generics.gp:27-28` carry two
+such literals, so the fix changed two goldens. Everything else followed the plan: v3 base, v2's
+`case len(caps) == 0` grafted, v2's four-way switch dropped, `topics.go` kept.
+
+**Manager verification of the merge (independent of the coder's handoff):**
+- `TestLocalClosureHeadline` ok 0.029s; `TestAnnotateGolden|TestExplainTopicsGolden` ok 1.298s.
+- **Negative check reproduced by the manager**: disabling only the `case len(caps) == 0` arm makes the
+  test FAIL, printing exactly the false sentence —
+  `func literal #2 is a local closure: … (no gp::func, no allocation) that captures by reference`
+  — for a literal whose capture list is empty.
+- The non-local fix is correct, checked against `dev` **before** the patch: `gocpp emit` on a
+  package-level `var g = func(x int) int { return x + 1 }` writes
+  `gp::func<int64_t(int64_t)>([]<int = 1>(…) …)` — an empty capture list wrapped in `gp::func`, so
+  "it captures nothing, and … is wrapped in gp::func" is true and the dropped clause "whose copies
+  share the captured state" was vacuous for that case.
+- Per-variable notes unchanged: the golden diff has no changed `captures … by …` line.
 
 ### Rounds
 
