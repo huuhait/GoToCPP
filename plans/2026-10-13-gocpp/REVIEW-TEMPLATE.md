@@ -4,6 +4,7 @@
 > Legend: `[ ]` not_started · `[~]` in_progress · `[x]` completed.
 > Finding lifecycle: `OPEN` → `FIXED-PENDING` / `REFUTED-PENDING` → `CLOSED-FIXED` / `CLOSED-REFUTED` / `REOPENED`.
 > Every review covers correctness + spec parity, tests + edge cases + determinism, and simplicity + safety, scoped to the job.
+> Performance-shaped jobs run three techleads before the coders (§3 step 0); their briefs are recorded under "Techlead research".
 
 ## Jobs
 
@@ -29,6 +30,21 @@ Copy the block below once per job, under "## Job <ID>". Delete nothing; leave "�
 - **Reference / plan:**
 - **Acceptance tests:**
 - **Test commands the manager re-runs:**
+
+### Techlead research (performance-shaped jobs only)
+
+> Three techleads (`.claude/agents/techlead.md`) research the same target independently before the
+> coders. Paste the three briefs here unchanged, then the merged version that went into the ticket
+> above. For a non-performance job write "not a performance job" and leave the table empty.
+
+| Techlead | Baseline command + numbers | Layer | Root cause (or `HYPOTHESIS`) | Proposed change | Expected recovery |
+|---|---|---|---|---|---|
+| T1 | | | | | |
+| T2 | | | | | |
+| T3 | | | | | |
+
+**Merged into the ticket:** (which findings the three agreed on, which single claims are labelled
+`HYPOTHESIS`, and the experiment the coder must run first to confirm them)
 
 ### Versions
 
@@ -60,11 +76,13 @@ Verdicts: `FINDINGS (n)` · `CLEAN` · `VOID (reason)`. Every reviewer number is
 |---|---|---|---|---|---|---|---|---|
 | F1 | | | | | | | | `OPEN` |
 
-- **Coder response:** `FIX` (patch + failing-without test, named) · `REFUTE` (evidence: file:line + reproduction) · `RETRY` (2nd refutation; new evidence only).
-- **Adjudication:** `CONFIRM-REFUTED` / `REJECT-REFUTED` / `FIX-VERIFIED (test fails pre-fix: yes)` / `FIX-REJECTED`, with the reviewer # and evidence.
-- **State:** never set to `CLOSED-*` by the manager alone. `CLOSED-REFUTED` needs a coder refutation **and** a reviewer `CONFIRM-REFUTED`.
+- **Coder response:** `FIX` (the default: patch + failing-without test, named) · `REFUTE` (exception, **once per finding only**: evidence `file:line` + reproduction). The coder exists to shrink TODO.md, so refusing is rare.
+- **Adjudication:** `CONFIRM-REFUTED` / `REJECT-REFUTED` / `FIX-VERIFIED (test fails pre-fix: yes)` / `FIX-REJECTED`, with the reviewer # and evidence. **Single pass: the reviewer's verdict is final in both directions; the manager closes a confirmed refutation without re-checking.**
+- **State:** never set to `CLOSED-*` by the manager alone. `CLOSED-REFUTED` needs a coder refutation **and** a reviewer `CONFIRM-REFUTED`; `CLOSED-FIXED` needs a reviewer `FIX-VERIFIED`.
 
 ### Disputes
+
+> None by design: `REFUTE` is single-shot and the reviewer adjudicates it once (WORKFLOW.md §6). This table exists only for a claim neither side could demonstrate, which goes to the user.
 
 | Finding | Refutations rejected | Reproduction | Result | User decision |
 |---|---|---|---|---|

@@ -1,8 +1,8 @@
 # Phase 13: Developer Tooling · STATE
 
-**Status:** `[~]` in progress (13.1-13.5 and 13.3b are merged and every step is ticked; the debugger exit criterion is met again since job 13.gdbprinters: `TestGDBPrinters` passes with 0 failing lines at phase 15 and 10 on g++ and clang++; the phase stays open for the panic-perf lows exit line below)
+**Status:** `[x]` done (13.1-13.5 and 13.3b merged and every step is ticked; all four exit criteria are `[x]`; the debugger criterion is met again since job 13.gdbprinters: `TestGDBPrinters` passes with 0 failing lines at phase 15 and 10 on g++ and clang++. The panic-perf lows it used to stay open for were never an exit line here: they are TODO.md "Runtime" lines tracked by the `perf.unwind` job)
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-26
 
 ## Steps
 

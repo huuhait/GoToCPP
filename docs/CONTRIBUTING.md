@@ -8,22 +8,28 @@ If this page and the plan disagree, follow the plan and tell the manager, so thi
 
 Every step of the plan is built by the loop **3 coders → PM merge → review until clean**: a
 **manager** (the orchestrator), three **coders**, one **PM** and one fresh **reviewer** per
-round. Nobody reviews their own code. The full process, with templates, is in
-[WORKFLOW.md](../plans/2026-10-13-gocpp/WORKFLOW.md) (version 2).
+round. Nobody reviews their own code. For a job whose point is speed, memory or size, three
+**techleads** first research the bottleneck independently and the manager merges their evidence
+into the ticket. The full process, with templates, is in
+[WORKFLOW.md](../plans/2026-10-13-gocpp/WORKFLOW.md) (version 2); each role is defined in
+`.claude/agents/` (`techlead`, `coder`, `pm`, `reviewer`).
 
 1. The **manager** picks the next step, writes one job ticket and marks the step `[~]`.
-2. Three **coders** build the same job independently, each in its own worktree, with tests, and
+2. For a performance job, three **techleads** each find and measure the bottleneck and return a
+   brief (baseline numbers, where the cost is, root cause or `HYPOTHESIS`, the smallest change,
+   the ceiling, the guardrails); the manager merges them into the ticket.
+3. Three **coders** build the same job independently, each in its own worktree, with tests, and
    run the focused tests (`scripts/gp-focused -x`, never `make ci`). Each hands over a factual
    report: files changed, commands run, decisions, limits, TODO.md claims.
-3. The **PM** (read-only) compares the three versions and writes a merge plan; the **merging
+4. The **PM** (read-only) compares the three versions and writes a merge plan; the **merging
    coder** it names builds the merged result on the job branch.
-4. A **fresh reviewer** reviews the merged result against the ticket and the plan, and returns
+5. A **fresh reviewer** reviews the merged result against the ticket and the plan, and returns
    `FINDINGS` (each with severity `BLOCKER`, `MAJOR`, `MINOR` or `NIT`, a place, a scenario) or
    `CLEAN`. A NIT counts as a finding.
-5. **Findings:** the merging coder answers each with `FIX` (patch plus a test that fails without
+6. **Findings:** the merging coder answers each with `FIX` (patch plus a test that fails without
    it) or `REFUTE` (a runnable reproduction). The next reviewer is a new instance: it adjudicates
    first, then reviews the whole change again.
-6. **Clean:** the manager re-runs the focused tests, squash-merges into `dev`, marks the step `[x]`
+7. **Clean:** the manager re-runs the focused tests, squash-merges into `dev`, marks the step `[x]`
    and assigns the next job.
 
 A step is **done** only when both are true:

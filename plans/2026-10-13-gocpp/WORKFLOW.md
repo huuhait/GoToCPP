@@ -5,6 +5,7 @@
 > worktrees, `dev` squash merges and TODO.md claims.
 > **Applies to:** every job and every step of every phase (the `[ ]` lines in `phase-XX-*/STATE.md`).
 > **Skill:** [`.claude/skills/manager-coder-reviewer/SKILL.md`](../../.claude/skills/manager-coder-reviewer/SKILL.md) runs the loop.
+> **Techlead:** [`.claude/agents/techlead.md`](../../.claude/agents/techlead.md) is the performance researcher; three run before a performance-shaped job (§1, step 0).
 > **Records:** one `REVIEW.md` per phase folder (and `plans/2026-10-13-gocpp/REVIEW-dev.md` for `dev.*` jobs), made from [REVIEW-TEMPLATE.md](REVIEW-TEMPLATE.md).
 > Legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 
@@ -12,7 +13,7 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
 
 | | |
 |---|---|
-| Roles | manager (the orchestrator), 3 coders, 1 PM, 1 fresh reviewer per round |
+| Roles | manager (the orchestrator), 3 techleads for performance-shaped jobs, 3 coders, 1 PM, 1 fresh reviewer per round |
 | Done means | the **first CLEAN** review from a fresh reviewer on a commit the manager tested green (§4) |
 
 ---
@@ -22,9 +23,10 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
 | Role | Who | Does | Never |
 |---|---|---|---|
 | **Manager** | the main agent | picks the job, writes the brief, spawns the coders, the PM and the reviewers, routes findings, **re-runs the focused tests itself**, keeps STATE.md / TODO.md / REVIEW.md, merges (gocpp-merge skill), asks the user when a decision is theirs | writes feature code · merges versions · judges which version is better · closes a finding on its own authority · downgrades a severity · declares anything CLEAN |
+| **Techlead** | **3 per performance-shaped job** (`.claude/agents/techlead.md`), read-only, spawned in one message | each finds the bottleneck **independently**, measures it, and returns a **techlead brief** (§3 step 0): baseline command + numbers, where the cost is, root cause or `HYPOTHESIS`, the smallest optimization, the ceiling, the guardrails | writes product code or plan files · edits the job branch · guesses without labelling it · broadens past the one target |
 | **Coders** | exactly **3** subagents per job, same brief | each builds the whole job independently in its own worktree, with tests, runs `scripts/gp-focused -x`, returns a **factual** handoff (files changed, commands + results, decisions, limits, TODO.md claims: `fixed` / `already done (commit)` / `skipped (reason)`) | looks at another coder's worktree · says "this is correct / clean" · edits plan files · merges or pushes |
 | **PM** | **1** fresh read-only subagent per job | compares the 3 versions with the brief, writes the **merge plan** and names the **merging coder** | writes code · edits any file · reviews the merged result |
-| **Merging coder** | the coder the PM names (continued, not respawned) | builds the merged result on the job branch, then answers every finding with FIX or REFUTE | departs from the merge plan without saying so |
+| **Merging coder** | the coder the PM names (continued, not respawned) | builds the merged result on the job branch, then answers every finding: **FIX by default**, or one `REFUTE` with evidence | departs from the merge plan without saying so · refutes a finding twice · refuses a finding it could fix |
 | **Reviewer** | exactly **1** per round, **always a fresh spawn**, read-only | reviews the merged result, adjudicates refutations, verifies fixes, returns `FINDINGS` or `CLEAN` | edits the subject (then the round is void, §5.3) · is resumed · is told earlier verdicts or the coders' / PM's conclusions |
 
 - The two coders the PM does not name are retired after the merge; their worktrees and branches are
@@ -35,6 +37,14 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
 - Jobs that do not depend on each other may run in parallel. **Worker limit:** the user's limit is
   five active workers total (HANDOFF.md); a job's three build-phase coders count as three. Keep the
   machine load near the core count (HANDOFF.md, load warning): when load is high, run fewer jobs at once.
+- **Techlead stage (performance-shaped jobs only).** When the job's point is to make something
+  faster, cheaper in memory or smaller (a TODO.md performance line, a benchmark row over budget, a
+  `15.x` optimization, the perf stage of a Runtime line, a "why is this slow" question), the manager
+  runs step 0 **before** the coders: three **techleads** research the same target independently,
+  and the manager merges their briefs into the one ticket the three coders get. The techleads count
+  as three workers while they run, so the coders start when they release the slots. This is the same
+  independence principle as the three coders: three separate localizations of one bottleneck.
+  A single-measurement or spike job still uses the one-coder spike rule (§6).
 
 ## 2. Terms
 
@@ -44,13 +54,17 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
 | **Version** | One coder's complete result: branch `job/<job>-c1`, `-c2`, `-c3`, each in `~/worktrees/GoToCPP/<job>-cN`. Coders commit on their branch (uncommitted work does not count). |
 | **Canonical branch** | `job/<job>` at `~/worktrees/GoToCPP/<job>`: the merged result; it is what gets reviewed and squash-merged into `dev`. |
 | **Round** | One reviewer spawn and its verdict: R1, R2, … |
+| **Techlead brief** | One techlead's performance finding: baseline command and numbers, the layer that owns the cost, the share, root cause or `HYPOTHESIS`, the smallest optimization, the ceiling and the guardrails (`.claude/agents/techlead.md` §4). Three are merged into the ticket before the coders. |
 | **State hash** | `git rev-parse --short=12 HEAD` of the canonical branch, with `git status --short` empty. Equal hash = unchanged. (This replaces the rsync snapshots of the GoLLVMCmake loop: commits are the snapshots.) |
 | **Scope** | What a reviewer judges: the job's acceptance list, the diff `dev...job/<job>`, the plan lines that state its results, and the TODO.md claims the brief names. |
 
 ## 3. The loop
 
 ```text
- ┌─ 1 BRIEF ───────── manager: pick job, mark [~], one brief (ticket) for all three coders
+ ┌─ 0 RESEARCH ────── (performance-shaped jobs) manager: 3 techleads on one target, independent
+ │                    → 3 briefs → manager merges the evidence into the ticket
+ │
+ ├─ 1 BRIEF ───────── manager: pick job, mark [~], one brief (ticket) for all three coders
  │
  ├─ 2 BUILD ×3 ────── coders 1-3 in parallel, own worktree each → 3 factual handoffs
  │                    manager: re-run each version's focused tests; record results
@@ -62,12 +76,30 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
  │
  ├─ 5 REVIEW ──────── fresh reviewer: FINDINGS or CLEAN (scoped to the job)
  │
- ├─ 6 FIX ─────────── any finding → merging coder: FIX (+ test) or REFUTE (+ reproduction)
+ ├─ 6 FIX ─────────── any finding → merging coder: FIX by default (+ test), or one REFUTE (+ repro)
  │                    manager: tests, hash; back to 5 with a NEW fresh reviewer, which
- │                    adjudicates the open findings first, then reviews everything in scope
+ │                    adjudicates each refutation ONCE (final) — the manager closes on that
+ │                    verdict — then reviews everything in scope
  │
  └─ 7 DONE ────────── first CLEAN on a hash tested green → gocpp-merge, mark [x]
 ```
+
+### Step 0: Research (performance-shaped jobs)
+1. Decide the job is performance-shaped by §1's test, mark the step `[~]`, and spawn **three
+   techleads in one message** (`.claude/agents/techlead.md`) on the same target at the same baseline
+   commit. They read the shared checkout read-only and write only under their own
+   `.scratch/techlead-<n>/`; each gets its own build cache (`GOCPP_*_CACHE`, `CCACHE_DIR`) so three
+   concurrent measurements do not perturb each other. None is told about the others.
+2. Each returns a **techlead brief** (baseline command + numbers, layer, share, root cause or
+   `HYPOTHESIS`, proposed change, expected recovery, ceiling, guardrails, risks).
+3. **The manager merges the three briefs into the ticket.** Agreement between two or three
+   independent localizations is what justifies acting; a claim made by only one and not proven is
+   labelled `HYPOTHESIS` in the ticket and the ticket says what the coder must measure to confirm it
+   before optimizing. The manager never picks a winner by preference, only by evidence.
+4. Record the three briefs and the merged version in the job block of REVIEW.md. The manager
+   re-runs the baseline command itself before the coders start; a baseline it cannot reproduce is
+   reported to the techleads, not passed on.
+5. Non-performance jobs skip step 0 and go straight to step 1.
 
 ### Step 1: Brief
 1. Pick one job in dependency order (README §8); split big steps into small jobs.
@@ -114,18 +146,24 @@ If the skill and this file disagree, the stricter rule wins and the mismatch is 
 5. The manager checks the hash after the round; a changed hash voids it (§5.3).
 
 ### Step 6: Fix
-1. Record every finding `OPEN`; send the list to the merging coder (§7.5). It re-checks each, then:
+1. Record every finding `OPEN`; send the list to the merging coder (§7.5). Its standing bias is
+   **FIX**: the coder's job is to close TODO.md `[ ]` lines, so a finding is treated as more TODO
+   work, not as an argument to win. It re-checks each, then:
 
 | Response | Requires | Finding moves to |
 |---|---|---|
-| `FIX` | the patch **and** a test that **fails without the patch** | `FIXED-PENDING` |
-| `REFUTE` | `file:line` plus a runnable reproduction (`scripts/gp-repro` against real Go where it applies) | `REFUTED-PENDING` |
+| `FIX` (default) | the patch **and** a test that **fails without the patch** | `FIXED-PENDING` |
+| `REFUTE` (exception, single-shot) | `file:line` plus a runnable reproduction (`scripts/gp-repro` against real Go where it applies); never refuted twice | `REFUTED-PENDING` |
 
-   "I disagree" without proof is no response. For non-behavioural findings (a comment, a doc line) the
-   coder says in one line that no test can fail; the adjudicating reviewer must agree.
+   "I disagree" without proof is no response, and the default is still to fix it. For
+   non-behavioural findings (a comment, a doc line) the coder says in one line that no test can fail;
+   the adjudicating reviewer must agree.
 2. The manager re-runs the tests, records the hash, spawns a **new fresh reviewer**, who works in order:
-   refutations → `CONFIRM-REFUTED` / `REJECT-REFUTED`; fixes → `FIX-VERIFIED` (new test fails on the
-   pre-fix commit) / `FIX-REJECTED`; then a full review in scope.
+   refutations → `CONFIRM-REFUTED` / `REJECT-REFUTED` (one decision, final); fixes → `FIX-VERIFIED`
+   (new test fails on the pre-fix commit) / `FIX-REJECTED`; then a full review in scope.
+3. **The manager closes on the reviewer's word alone.** `CONFIRM-REFUTED` → `CLOSED-REFUTED`; no
+   re-check, no second reviewer, no judgement call. That is the whole point of keeping refutations
+   single-shot: a rejection costs one adjudication and then disappears.
 
 | Before | Reviewer says | After |
 |---|---|---|
@@ -182,19 +220,22 @@ Reviewers may run commands and make copies under their own `.scratch/` or the sc
   variable, `rm -rf ~...` or `/...` outside the worktree. Never `git clean`, `git reset --hard`,
   `git checkout -- .` (the one exception is the manager's void-round reset, §5.3). When in doubt, don't
   delete: leave it and say so in the report. Only the manager removes worktrees and branches.
-- **Disputes.** A rejected refutation may be retried **once**, only with **new** evidence. Rejected
-  twice = deadlock: the manager does not vote; it orders a deterministic reproduction (fixed input,
-  expected output, in the scratchpad). Coder proven right → the next fresh reviewer adjudicates with it
-  attached and may reject only by showing it does not test the claim. Reviewer proven right → the coder
-  fixes it. No deterministic reproduction possible → the finding stays `OPEN`; the coder fixes it, or the
-  manager asks the user with both evidence packs and records the decision verbatim. **The loop never exits
-  with an `OPEN` finding.**
+- **Disputes (single pass, user 2026-10-26).** A coder's job is to **close TODO.md `[ ]` lines**, so
+  the default answer to every finding is `FIX`; refusing is the exception. A `REFUTE` is
+  **single-shot**: it never loops back to the coder. The next fresh reviewer adjudicates it — one
+  reviewer, one decision. `CONFIRM-REFUTED` → the manager marks it `CLOSED-REFUTED` and moves on,
+  with no second opinion, no escalation and no debate. `REJECT-REFUTED` → the finding is `REOPENED`,
+  the coder fixes it in that round, and may not refute it again. There is no retry-with-new-evidence
+  and no deadlock path: the reviewer's adjudication is final in both directions. Only a claim neither
+  side can demonstrate at all goes to the user, with both evidence packs. **The loop never exits with
+  an `OPEN` finding.**
 - **Review finds are fixed in the job (user, 2026-10-23):** every issue a review finds, in the ticket's
   scope, an older one in the same area, or one unrelated, goes back to the merging coder as a finding of
   the next round and is fixed fully (no workaround, no "document it" when a real fix is possible).
-  Reviews add nothing to TODO.md. Only a find that needs a multi-day redesign becomes its own job, chosen
-  by the manager; a job merges only when it closes more TODO.md lines than it adds. Cosmetic notes go in
-  the merge commit message.
+  **The coder exists to shrink TODO.md** (user, 2026-10-26): its default is to fix, not to refuse, so a
+  finding is one more `[ ]` line closed. Reviews add nothing to TODO.md. Only a find that needs a
+  multi-day redesign becomes its own job, chosen by the manager; a job merges only when it closes more
+  TODO.md lines than it adds. Cosmetic notes go in the merge commit message.
 - **Too many rounds:** after 5 rounds without CLEAN, the manager steps in: split the job, clarify the
   ticket, or take the question to the user.
 - **When the plan is wrong:** coders, PM and reviewers report it; the manager updates the phase README
@@ -207,6 +248,9 @@ Reviewers may run commands and make copies under their own `.scratch/` or the sc
   `cmd/`, `internal/`, `runtime/`, `stdlib/`, `tests/` always takes the full loop.
 
 ## 7. Prompt templates (fill the brackets; keep the rest)
+
+### 7.0 Techlead brief (same text for all three, performance-shaped jobs only)
+> You are TECHLEAD [1|2|3] of three in a build/merge/review loop (see `plans/2026-10-13-gocpp/WORKFLOW.md` §3 step 0). Two other techleads research the same target independently; do not look at their work. Follow `.claude/agents/techlead.md`. Target: [the benchmark row / TODO line / function / regression]. Baseline commit: [hash]. Worktree: [path]; copy what you need under your own `.scratch/` (a literal path inside it). Read-only otherwise: do not edit product code, plan files or the job branch; never `make ci`, `verify.sh`, full sweeps or sanitizer campaigns. Measure on a quiet machine and record the load. Keep workload, build flavor, binary identity and run order identical when comparing. Return the TECHLEAD BRIEF of `.claude/agents/techlead.md` §4, filled in, with the exact command behind every number; label anything unproven `HYPOTHESIS` and say the experiment that would confirm it. Do not write the fix.
 
 ### 7.1 Ticket / coder brief (same text for all three)
 > You are CODER [1|2|3] of three in a build/merge/review loop (see `plans/2026-10-13-gocpp/WORKFLOW.md`). Two other coders do the same job independently; do not look at their worktrees. Your worktree: [~/worktrees/GoToCPP/<job>-cN] on branch [job/<job>-cN]. Job: [name + title]. Plan: [phase README section]. Goal: [...]. Done when: [tests]. Scope: [dirs]. TODO.md claims to fix: [quoted lines]. Check each claim is still open on dev before coding it. Implement the whole job, add tests, run `scripts/gp-focused -x` (and `-cxx clang++` for runtime/emitter changes), commit on your branch, and return a factual handoff: files changed, commands + results, decisions, limits, claim by claim `fixed` / `already done (commit)` / `skipped (reason)`. Do not claim the work is correct or clean. Do not edit plan/STATE/TODO files. Delete only a literal path under your own `.scratch/`; never merge, push or remove worktrees.
@@ -221,7 +265,7 @@ Reviewers may run commands and make copies under their own `.scratch/` or the sc
 > You are a FRESH-EYES REVIEWER (new instance). Read-only: edit nothing in [worktree]; run things under the scratchpad or `.scratch/` only. Review job [name] (`git diff dev...job/<job>` in [worktree]) against [ticket + plan sections]. Cover Go behavior (prove edge cases with `scripts/gp-repro`), tests + edge cases + determinism, simplicity + safety, added-file hygiene, and the TODO.md claims (each claimed fix is really fixed; none forgotten). Scope: the acceptance list, the diff, the plan lines that state its results, and older issues in the same area; list anything else under OUT OF SCOPE. Assume bugs exist; be adversarial. Run `scripts/gp-focused -x`. Return FINDINGS (numbered; severity BLOCKER|MAJOR|MINOR|NIT; file:line; failure scenario; violated rule) or the single word CLEAN only if nothing in scope is wrong. [If adjudicating:] first adjudicate the attached refutations (CONFIRM-REFUTED / REJECT-REFUTED with evidence) and verify the fixes (FIX-VERIFIED / FIX-REJECTED), including whether new tests fail on the pre-fix commit [hash].
 
 ### 7.5 Coder response brief
-> You are the MERGING CODER. These are reviewer findings: [list]. Do NOT trust them by default: re-check each against the code and the plan first. Per finding: FIX (patch + a test that fails without it) or REFUTE (file:line + a reproduction that settles it). Commit, run the focused tests, return the handoff. A fresh reviewer will adjudicate and re-review.
+> You are the MERGING CODER. These are reviewer findings: [list]. Your job is to **close TODO.md `[ ]` lines**, so the default answer to every finding is `FIX`, even one you think is minor: treat it as more TODO work, not as an argument to win. Re-check each against the code and the plan first. Per finding: `FIX` (patch + a test that fails without it) — the default — or `REFUTE` **once**, with `file:line` and a reproduction that settles it, and never a second refutation of the same finding. Commit, run the focused tests, return the handoff. A fresh reviewer adjudicates each refutation in a single pass and a full review follows; the manager closes a confirmed refutation without a second look, so a refutation is your only cost-of-refusal decision.
 
 ## 8. What the reviewer checks (gocpp checklist)
 
@@ -236,6 +280,9 @@ Reviewers may run commands and make copies under their own `.scratch/` or the sc
 - **Front-end**: no new false errors in the interop corpus; messages read like Go's.
 - **Plan conformance**: the code does what the phase README says; differences are reported, never hidden.
 - **Speed**: language server budgets (Phase 11) and build times (Phase 06) do not get worse.
+  For a performance job, the ticket's threshold must actually be met, measured with the command
+  the techlead brief named, on the same flavor and workload; an "expected" recovery that did not
+  materialize is a finding, and the coder's numbers are re-measured by the reviewer.
 - **TODO.md**: claims the job fixes are listed in the report and closed at the merge (§9.1); a fixed
   claim the report forgets, or marked fixed but still reproducible, is a finding.
 - **Scope and quality**: only the ticket's change; Go code gofmt- and vet-clean; C++ follows
@@ -245,6 +292,7 @@ Reviewers may run commands and make copies under their own `.scratch/` or the sc
 
 | When | The manager updates |
 |---|---|
+| a performance job starts | run step 0 first: three techlead briefs and the merged ticket in REVIEW.md, before the coders |
 | a job starts | the step to `[~]` in the phase STATE.md (and the root STATE.md phase line on the phase's first job); a job block in REVIEW.md |
 | each phase of the loop | REVIEW.md: versions, merge plan, rounds, findings (the manager is the only writer) |
 | a CLEAN review | the step to `[x]`, plus a one-line note ("1.2 clean after 2 rounds") |

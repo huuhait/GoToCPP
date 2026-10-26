@@ -1,5 +1,42 @@
 # Handoff: where the work is
 
+## Current — 2026-10-26 (idle, WORKFLOW v2)
+
+`dev` is `b55c1628` "feat: upgrade harness workflow", working tree clean, no job worktrees and
+no `job/*` branches. That commit replaced the single-coder manager → coder → reviewer loop with
+**WORKFLOW.md v2**: three coders build the same job independently in their own worktrees, a
+read-only PM writes the merge plan and names the merging coder, and a **fresh reviewer every
+round** reviews until the first CLEAN. Records are one `REVIEW.md` per phase (from
+`REVIEW-TEMPLATE.md`) and `REVIEW-dev.md` for `dev.*` jobs; the loop is run by the
+`manager-coder-reviewer` skill. **No v2 job has started**, so no `REVIEW.md` exists yet.
+
+The five-worker limit interacts with v2: three coders count as three, so **one job runs at a
+time** (coders, then PM, then the merging coder, then one reviewer). Only necessary focused
+checks; the user owns final broad verification.
+
+Phases 00–08 and 13 are `[x]`. Phases 09, 10, 11, 12, 14 and 15 are `[~]` with only acceptance
+or release lines left, each needing the user's manual run or the real Windows PC:
+
+| Phase | Open |
+|---|---|
+| 09 | 9.13 final acceptance + archives + release approval; the user's "tier 1 complete" call (numbers met) |
+| 10 | 10.7 optional error return traces (four answers pending from the user) |
+| 11 | quiet `make lsp-bench` revalidation, ≤2× gopls p95 per row, VS Code checklist; optional tree-sitter |
+| 12 | Phase 04 suite + header zoo in typed and opaque modes (user's manual sweep) |
+| 14 | native suites and editor budgets on the real Windows PC |
+| 15 | the five v1.0 exit criteria (benchmarks, clang++/asan conformance, 24 h fuzz, CI on three targets, installable release) |
+
+First planned v2 jobs (TODO.md "Now"): the `11.lspbench` spike/evidence job (one coder) for the
+quiet LSP revalidation, then a full 3-coder job on a real user-hittable Runtime bug (smallest
+clean repro: the map-key evaluation order, then `time.NewTimer`).
+
+Merged since the 2026-10-22 checkpoint (each after review, under v1): `dev.genericstd`,
+`dev.toolinglows`, `dev.checkagree`, `dev.stackdepth`, `dev.makeslice`, `dev.deferbig`,
+`dev.walltests`, `dev.probecache`, `dev.syscalldiffs`, `dev.flakybuild`, `dev.debugtests`,
+`dev.ccache`, `dev.skills`, `13.hangs`, `13.gdbprinters`, `08.synclows`, `06.lows`,
+`12.hresult`, `03.lowfix`, `09.reflectlows`, `11.lspgap5`, `11.lspgeneric`, `dev.releasetrace`,
+`perf.panic`, `dev.shimsinit`.
+
 ## Recovery — 2026-10-22 evening
 
 An agent wiped the home folder; the checkout was cloned again from `origin/dev` (`fa9e70f8`) and
@@ -224,7 +261,8 @@ candidate. `cmd/gocpp` (about 130-250 s) is serial because its tests use `t.Chdi
 
 ## Next plan jobs
 
-4.8, 4.10, 4.11 and 4.16, then the Phase 04 tests/docs closeout (4.18/4.19).
+Superseded by the "Current — 2026-10-26" section above and TODO.md "Now". The old list here
+(4.8, 4.10, 4.11, 4.16, then 4.18/4.19) is historical: Phase 04 is done.
 
 ## Validation
 

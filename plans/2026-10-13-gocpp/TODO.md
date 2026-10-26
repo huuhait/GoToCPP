@@ -1,7 +1,7 @@
 # gocpp · TODO
 
 **Legend:** `[ ]` todo · `[~]` doing · `[x]` done
-**Last updated:** 2026-10-22 (every open line audited against dev 81c0d4e1; 06.lows merged: [AUDIT-2026-10-22.md](AUDIT-2026-10-22.md))
+**Last updated:** 2026-10-26 ("Now" refreshed at `b55c1628`; the claim lines below were last audited 2026-10-22 against dev 81c0d4e1: [AUDIT-2026-10-22.md](AUDIT-2026-10-22.md))
 
 Keep this list short: only what is next. The full step lists live in each phase's `STATE.md`.
 Every item is built through the 3 coders → PM merge → review-until-clean loop in [WORKFLOW.md](WORKFLOW.md).
@@ -9,12 +9,25 @@ Phase 16 has its own list in [phase-16-dual-engine/STATE.md](phase-16-dual-engin
 
 ---
 
-## Now: jobs in progress (2026-10-22)
+## Now: jobs in progress (2026-10-26)
 
-- [~] 11.14: guarded-check implementation integrated after clean review and manager focused checks; measure the final build and continue the remaining typing gaps. Every-row gopls acceptance remains open.
-- [~] 12.14: safe PCH/prefetch implementation integrated after clean review and manager checks. 12.14b (ADR-121) merged 2026-10-21: cold typed overhead 0.47-1.56 s; the < 0.5 s criterion was reworded (user accepted ADR-121 2026-10-21). Smaller preambles were withdrawn; cold first-run performance stays separate from a run that retains a precompiled header.
-- [~] 15.12: CI/release workflows integrated after clean review (`.github/workflows/`); static checks only, never run on GitHub (exit criterion open).
-- [ ] Next: remaining 12.13 editor features and real external-cache measurements (ccache/sccache are not installed here).
+`dev` is idle at `b55c1628`; the harness is WORKFLOW v2 and no v2 job has started. Recently
+merged and closed on `dev`: `dev.releasetrace`, `perf.panic`, `dev.shimsinit` (2026-10-24/25),
+plus earlier `dev.genericstd`, `dev.toolinglows`, `dev.stackdepth`, `dev.makeslice`,
+`dev.deferbig`, `dev.probecache`, `dev.syscalldiffs`, `dev.walltests`, `11.lspgap5`,
+`11.lspgeneric`, `08.synclows`, `12.hresult`, `13.gdbprinters`, `dev.checkagree`,
+`dev.flakybuild`, `dev.debugtests`, `dev.ccache`, `dev.skills`, `03.lowfix`, `09.reflectlows`.
+
+First v2 jobs, in order:
+
+- [ ] `11.lspbench` (spike/evidence job, one coder): one quiet `make lsp-bench` re-run; it
+      regenerates `docs/benchmarks/lsp.md`. Closes the 11.14 / 12.13 "revalidate on a quiet
+      machine" line and confirms ≤2× gopls p95 per row. Needs a quiet machine.
+- [ ] First full 3-coder job: a real user-hittable bug from "Runtime" below. The smallest with a
+      clean repro is the `m[s+"x"] = append(m[s+"x"], f())` evaluation order (reads the key
+      before `f()`; Go reads it after). Then `time.NewTimer`+`Stop` (668-771 ns vs Go 129 ns).
+- [ ] User-gated, unchanged: final manual checks, releases and approvals — see "Needs your
+      decision (user-gated)".
 
 Recently closed (kept for the record, details in each STATE.md):
 

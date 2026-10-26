@@ -1,8 +1,8 @@
 # gocpp plan · STATE
 
 **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done
-**Current focus:** 12.13a opt-in background header/namespace completion is integrated after clean revision-5 review and focused manager checks. The bounded 12.13b1 receiver-member primitive is integrated after clean review and manager checks, with explicit partial results for unprovable candidate groups. The bounded 12.13b2 background member integration is also merged after clean review and manager checks. Next is 12.13c1 proven foreign-variable type hover; broader header navigation stays separate. Coordinated parallel jobs cover release-platform workflows, derive acceptance, matched LSP measurements and focused Windows test portability, with at most five active workers total. Default opaque mode and full latency/platform acceptance remain unchanged. The bounded 15.4 ownership experiment is integrated after clean review and manager checks; retain the isolated prototype but defer production adoption. The bounded 15.7c header-unit evaluation is integrated after clean review and manager checks: warm reuse improves, but construction plus one replay is slower, so production keeps its existing PCH. Step 15.6b documents and regression-tests existing range-bound help after clean review and integrated checks; no additional compiler/runtime optimization was needed. Step 15.7b generic body placement is integrated as a structural improvement; whole-build speed benefit remains inconclusive. Step 15.6a concrete-interface optimization is integrated after clean review and focused source/integration checks; bounds-check work remains separate. The 11.14b current-implementation LSP measurements are reviewed: eight consistent wins and four inconclusive small typing rows; no qualifying slowdown or source change. The guarded-check portion of 11.14, safe PCH portion of 12.14, 15.2 escape analysis, 15.7a compiler-cache documentation/tests and 9.13a release preparation are integrated after clean reviews and focused manager checks. Every-row gopls and cold-probing performance targets remain open. Step 9.12 documentation is integrated; full 9.13/M6, including tier-1/JSON, final platform/archive validation and explicit release approval, remain open. Phases 00-05 and 07 are done. Nearly done: 06 (manual clangd acceptance) and 08 (TSan exit criterion). Other open work: 9.13; 10 remaining edge-case/overhead/derive acceptance and optional error traces; 11 final performance vs gopls and editor acceptance; 12.13; 13 vet acceptance; 14 stdlib/platform/editor acceptance; 15.7, 15.12 and 15.16; production ownership compatibility and global performance acceptance. Steps 9.10, 12.12 and 14.6 are merged. No full verification is claimed; broad final checks remain the user's manual work. See [HANDOFF.md](HANDOFF.md).
-**Last updated:** 2026-10-22
+**Current focus:** The checkout is idle at `b55c1628` (2026-10-26). The harness moved to **WORKFLOW v2** (3 coders → PM merge → review until clean, a fresh reviewer every round; `REVIEW.md` per phase) and no v2 job has started yet; under v2 one job runs at a time inside the five-worker cap. All implementation phases are closed: 00–08 and 13 are done. Phases 09, 10, 11, 12, 14 and 15 keep only acceptance and release lines, and each needs either the user's manual run or the real Windows PC: 9.13 release approval and "tier 1 complete"; 10.7 optional error traces (four answers pending); 11 quiet `make lsp-bench` revalidation, ≤2× gopls per row, VS Code checklist; 12 the typed/opaque Phase 04 sweep; 14 the native Windows suites; 15 the five v1.0 exit criteria (benchmarks, clang++/asan conformance, 24 h fuzz, CI on three targets, installable release). The remaining product work is the TODO.md tail (about 87 claim lines): about 16 real user-hittable bugs first, then about 9 failing or never-run tests, then the "lows" bundles; performance and cosmetic lines last. Nothing in the plan needs a new compiler or runtime feature to close a phase. See [HANDOFF.md](HANDOFF.md).
+**Last updated:** 2026-10-26
 **Migration:** done; the project runs on the larger server (128 cores, about 200 GB RAM). [HANDOFF.md](HANDOFF.md) says what is where.
 
 ---
@@ -49,7 +49,7 @@
 - [~] **Phase 10:** Beyond Go: `!` (must) & macros → [STATE](phase-10-must-and-macros/STATE.md)
 - [~] **Phase 11:** Fast language server (gopls speed) → [STATE](phase-11-language-server/STATE.md) · v0 starts after Phase 01 · ends with **M7**
 - [~] **Phase 12:** Typed C++ interop via clang → [STATE](phase-12-typed-interop/STATE.md)
-- [~] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
+- [x] **Phase 13:** Developer tooling (diagnostics, debugging, vet, doc) → [STATE](phase-13-tooling/STATE.md)
 - [~] **Phase 14:** Windows → [STATE](phase-14-windows/STATE.md) · ends with **M8**
 - [~] **Phase 15:** Optimization, hardening & release → [STATE](phase-15-hardening-release/STATE.md) · ends with **M9 (v1.0)**
 - [ ] **Phase 16:** Dual engine: Go packages on a garbage collector (planned, starts when you decide) → [STATE](phase-16-dual-engine/STATE.md) · ends with **M10** and **M11**
@@ -128,3 +128,20 @@ with the same rule (the sizes of its parts A–E for M10, A–F for M11, plus 15
   and 52–77 weeks; M10 ~47 weeks after Phase 16 starts (38–64), M11 ~59 (48–80). Your answers:
   Windows stays in M10, and standard imports use gp's library first, with the engine move that
   a later port causes documented.
+- 2026-10-26: Plan hygiene pass at `b55c1628`, with work idle. Phase 13 ticked `[x]`: every step
+  and all four exit criteria were already `[x]`, and the "panic-perf lows exit line" its status
+  line waited for was never in the checklist (those are TODO.md Runtime lines tracked by
+  `perf.unwind`). "Current focus", TODO.md "Now" and HANDOFF.md refreshed to today: the harness is
+  WORKFLOW v2, no v2 job has started, one job runs at a time under the five-worker cap, and the
+  remaining phase lines are acceptance/release work that needs the user or the Windows PC. The
+  first planned jobs are the `11.lspbench` spike (quiet LSP revalidation) and then a real Runtime
+  bug. Phase 16 is untouched and still unscheduled.
+- 2026-10-26: Harness change (user). Every role now has an agent definition in `.claude/agents/`
+  (`techlead`, `coder`, `pm`, `reviewer`); before this only prompts named the roles. A new
+  **Step 0: Research** runs for performance-shaped jobs: three **techleads** find the bottleneck
+  independently, the manager merges their briefs into the coders' ticket (a lone unproven claim
+  stays labelled `HYPOTHESIS`). The coder's stated purpose is to **shrink TODO.md**, so a reviewer
+  finding defaults to `FIX`; `REFUTE` is single-shot, the fresh reviewer adjudicates it once, and
+  the manager closes a `CONFIRM-REFUTED` without re-checking. The old retry-then-deadlock dispute
+  path is gone, so no finding can stall a round. `REVIEW-TEMPLATE.md`, `docs/CONTRIBUTING.md` and
+  the `manager-coder-reviewer` skill carry the same rule.
