@@ -344,11 +344,39 @@ are reverted.
 default timeout at 606s while the machine was at load ~246. That is the load, not a red version —
 the manager's own v2 runs above finished in 2.8s.
 
+### Merge result
+
+**Commit `2154f0e2`** on `job/dev.probecached`, in the canonical worktree (parent `ab5a563e`, v1).
+One file, 38 insertions / 20 deletions: `internal/typedinterop/probe/decls_more_test.go`, byte-for-byte
+identical to v2's file in the c2 worktree (`diff` empty). No line of v1's comment or body survives.
+The branch changes **only** that file since its base (`git diff $(git merge-base HEAD dev) HEAD
+--name-only`); the `plans/` entries visible in `git diff dev` remain the stale-base artifact.
+
+**Manager re-ran and extended the negative check.** The coder's check (restore `dev`'s body, run with
+a cache folder, observe the two JSON lines differ) is right, but the manager wanted to know *which
+half* is load-bearing, since the merged test has both an assertion and a zeroing. Three runs:
+
+| Change from the merged file | Result |
+|---|---|
+| delete the whole `if want := tc.cached && i == 1; …` block | **passes** (2.6s) |
+| keep everything, drop only `tab.Cached` from the zeroing line | **fails in `TestDeclsDeterministic/cache`**, `two runs differ` |
+| restore merged | passes (2.6s) |
+
+So the **zeroing** is what fixes the defect; the assertion does not by itself catch it. The
+assertion's value is different and still real: it is what makes the failure land in the `cache`
+subtest rather than in a cold-vs-cold comparison — and the second row above shows the `cache`
+subtest genuinely turns the cache on (it is the subtest that fails). With v1's shape — no subtests,
+no folder — the same revert cannot fail at all under `make ci`, which is exactly the PM's argument
+for v2 and is now measured rather than argued.
+
+Also reproduced: exactly **one** `"cached":true` in the subtest's output, so it is the second run
+only — the TODO 137 defect precisely.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | fresh reviewer | `2154f0e2` | manager: merged file with cache `ok 2.585s`, no env `ok 2.547s`; three-way revert matrix above (assertion-only removal passes; zeroing removal fails in the `cache` subtest); gofmt clean | – |
 
 ### Findings
 
