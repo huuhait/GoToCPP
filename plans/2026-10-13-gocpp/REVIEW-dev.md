@@ -1011,10 +1011,36 @@ base, all in the plan's scope.
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | fresh reviewer | `d940d4b4` | manager: `TestLocalClosureHeadline`, goldens, negative check (recorded above) — all green | **FINDINGS (1 MAJOR, 2 MINOR, 2 NIT)** |
+
+**§7.3 now done.** The reviewer confirmed it reviewed `d940d4b4` in `dev.whynotes-c3` and never
+`dev.whynotes` (v1), so the round stands. The deferred move was then performed: the v1 worktree and
+`job/dev.whynotes` were removed (v1 preserved as tag `whynotes-v1`; it is **not** an ancestor of the
+merge, so the tag is what keeps it), and `dev.whynotes-c3` was moved to `~/worktrees/GoToCPP/dev.whynotes`
+with `job/dev.whynotes` as the branch. `git worktree list` now shows the job at the canonical path.
 
 ### Findings
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| – | – | – | – | – | – | – | – | – |
+| W1 | R1 | MAJOR | `internal/lower/whynotes.go:158-161` | The new zero-capture **non-local** headline says "a lambda that is used as a func value is wrapped in gp::func", but four shapes emit no `gp::func`: `defer func(){...}()` and `go func(){...}()` (→ `gp_df.gp_push_call([…])` / `gp::go_call`), a macro closure parameter (`rawLits`, `closures.go:177`, → raw lambda), and an immediately-called literal that calls `recover` (→ `gp::aware`). | WORKFLOW §8 "a reason is about the C++ of its own chunk" — on a line this job authored | TBD | **CONFIRMED — manager reproduced.** `defer func() { fmt.Println("bye") }()` in a `main` with a defer emits `gp_df.gp_push_call([]<int = 2>() mutable GP_TRACE_FRAME -> void {…})` under the headline claiming `gp::func`. The by-value `func()` parameter case **is** wrapped, so the clause is true for the common shape and false for the four above — which is why this is MAJOR, not BLOCKER. FIX: make the clause say what is true for each, or state the rule without the unconditional wrapper claim. | OPEN |
+| W2 | R1 | MINOR | `internal/lower/whynotes.go:163-171` | Per-variable note says "by copy into the lambda" for a variable the emitted lambda captures by reference: a literal passed to a macro's **ref-style** closure parameter is `[&n]` (`closures.go:296` `byRef := fg.refLits[fl] \|\| local`, `refLits` set at `closures.go:213`), but the loop only branches on `inBox`/`local`, so `local` false prints "by copy". | WORKFLOW §8; the job's own `topics.go:102` now says "the annotation says which one happened for each captured name" | TBD | **CONFIRMED — manager reproduced**, and it is **pre-existing** (`1a1224be` too, per the reviewer). `#Later(fmt.Sprint("n = ", n))` with `macro Later(msg lazy string)` prints `captures n by copy into the lambda` directly above `[&n]`. The ticket said these notes were already correct and must not change; the reviewer shows the ticket was wrong on this one shape. FIX (in scope: same function, same feature, and the job's prose now advertises it). | OPEN |
+| W3 | R1 | MINOR | `internal/lower/whynotes.go:149-151` | "how it captures each variable is noted where the variable is used" is absolute; the note lands at the **ident's** position inside the lambda body, which for a multi-line literal is a different chunk from the headline, and for a capture used only in the header lands below the use. | ticket's "prefer the option that cannot go stale" | TBD | **PARTLY CONFIRMED — manager reproduced the displacement but not the ticket's rule.** `boxmulti.gp` puts the note at the `arr` ident in the body (line 9) while the headline is at line 8; that is exactly what "at the ident" means, and it is what makes the note findable. The absolute "where the variable is used" is looser than the truth. FIX as wording only — do not move the note. | OPEN |
+| W4 | R1 | NIT | `internal/explain/examples/closures.gp:27` | The example exercises only the boxed case, never boxed + by-reference in one literal, so the neutral headline's "each variable" is not covered by a golden. | test-coverage gap | TBD | **CONFIRMED as a coverage gap, but the PM forbade exactly this shape** ("never put a by-reference and a boxed capture in one example literal — the `[&` truth rule"). Adding it requires a `TestAnnotateTruth` rule for a mixed literal; that is more than a NIT and does not belong in this round. Fold into W1's fix only if the coder keeps it small, else file it. | OPEN (deferred) |
+| W5 | R1 | NIT | `internal/explain/topics.go:102` | "Such a closure captures by reference a variable that stays on the C++ stack" — "Such" refers to the local literal of the previous sentence, but a **non-local** literal (macro ref parameter) also captures by reference. | prose accuracy | TBD | **CONFIRMED — same evidence as W2** (`[&n]` on a non-local `gp_inst_…_Later` argument). Fold into W2's fix, since both are the same wrong assumption that by-reference implies local. | OPEN |
+
+### Out of scope
+
+| Round | Note | Filed in |
+|---|---|---|
+| R1 | `TestGuideExamples` fails on `dev` (`docs/guides/explain.md` predates `mutable GP_TRACE_FRAME`) | already TODO.md, pre-existing |
+| R1 | `docs/guides/explain.md:214-215` embeds the old long non-local headline; regenerating it is blocked by the same `TestGuideExamples` failure, and the new short sentence will appear when that is fixed | nothing — follows from the line above |
+| R1 | `internal/explain/examples/macros/main.gp:113` prints two contradictory notes for one name on one line (`captures b by copy` and `captures b by reference`); pre-existing on `1a1224be`, a different mechanism (two literals' notes colocated) | TODO.md, new line |
+| R1 | the reviewer's own `.scratch/` shows as untracked because `.scratch/` is in no `.gitignore` in this worktree; the coder scratch is expected, the reviewer left it in place | nothing — `.scratch/` is never committed |
+
+### Fix round 1
+
+Dispatched to the merging coder 3 in the canonical worktree on `job/dev.whynotes` (`d940d4b4`).
+Scope: **W1, W2, W3, W5** as code/wording, **W4 deferred** (it needs a new `TestAnnotateTruth` rule
+and the PM forbade the mixed-capture example without one).
+
