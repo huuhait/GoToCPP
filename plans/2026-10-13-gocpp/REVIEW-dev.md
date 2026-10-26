@@ -11,10 +11,10 @@
 | Status | Job | Steps | Rounds | Clean | Completed |
 |---|---|---|---|---|---|
 | `[~]` | `dev.evalorder` — map key read before the appended value's argument | – | 0 / 1 | 0 | – |
-| `[~]` | `dev.probecached` — `TestDeclsDeterministic` fails when the probe cache is on (TODO 137) | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.probecached` — `TestDeclsDeterministic` fails when the probe cache is on (TODO 137) | – | 2 / 3 | 0 | – |
 | `[~]` | `dev.stalehints` — four stale comments in the compiler (TODO 145) | – | 0 / 1 | 0 | – |
-| `[~]` | `dev.staleflag` — two LSP completion nits (TODO 184) | – | 0 / 1 | 0 | – |
-| `[~]` | `dev.whynotes` — `emit -annotate` headline "captures by reference" for a boxed capture (TODO 144) | – | 0 / 1 | 0 | – |
+| `[x]` | `dev.staleflag` — two LSP completion nits (TODO 184) | – | 3 / 3 | 1 (R3) | `57f3fa45` |
+| `[~]` | `dev.whynotes` — `emit -annotate` headline "captures by reference" for a boxed capture (TODO 144) | – | 1 / 3 | 0 | – |
 
 **Worker-limit note (manager, 2026-10-26).** WORKFLOW.md §1 sets the limit at five active workers,
 and a job's three build-phase coders count as three. The four jobs above were started together at
