@@ -593,7 +593,7 @@ such literals, so the fix changed two goldens. Everything else followed the plan
 
 ## Job dev.rtbugs: nine Runtime claims, one batch
 
-**Status:** `[~]` build ×3 · **Merging coder:** – · **Canonical worktree:** – (machine: the user's
+**Status:** `[~]` PM merge plan · **Merging coder:** – · **Canonical worktree:** – (machine: the user's
 local box; the five jobs above run on another machine and arrive here by `git pull`)
 
 ### Brief
@@ -621,9 +621,9 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 | ~/worktrees/GoToCPP/dev.rtbugs-c1 · `job/dev.rtbugs-c1` | – | – |
-| v2 | coder 2 | ~/worktrees/GoToCPP/dev.rtbugs-c2 · `job/dev.rtbugs-c2` | – | – |
-| v3 | coder 3 | ~/worktrees/GoToCPP/dev.rtbugs-c3 · `job/dev.rtbugs-c3` | – | – |
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.rtbugs-c1 · `job/dev.rtbugs-c1` | manager re-ran `scripts/gp-focused -x -cpus 16 -mem 16G` (g++) and `-cxx clang++`: **both green**, 43 commands each. v1 also brings `gates.go` back in line with `docs/spec/feature-matrix.md`, so `TestFeatureMatrix` passes | `0742c552b610` |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.rtbugs-c2 · `job/dev.rtbugs-c2` | manager re-ran both: g++ 56 commands passed, 1 failed (`TestFeatureMatrix`, **also fails on clean dev 451d4f28**, manager-checked); clang++ 56 passed, 2 failed: `TestFeatureMatrix` (dev's) and `TestCXX/clang++/O0/deadlock` — `test_dump_churn` timed out after 269 s (`deadlock_test.cpp:127: the wait timed out`, exit 97, thousands of goroutines parked in `chan receive` at :572). Manager re-ran that test alone 3× on v2 (ok 49.5 / 60.0 / 132.2 s) and 3× on clean dev (ok 75.3 / 103.5 / 90.5 s): **not reproduced**; v1 and v3 passed it in their runs. Open question for the PM/reviewers, in the area v2 changed (stack budget, `stack_release`) | `98cf2f111d9e` |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.rtbugs-c3 · `job/dev.rtbugs-c3` | manager re-ran both: g++ 34 passed and clang++ 34 passed, each with 1 failure, `TestFeatureMatrix`, **which also fails on clean dev** (manager-checked) | `beac4b6f` |
 
 ### Rounds
 
