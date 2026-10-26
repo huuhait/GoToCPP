@@ -25,8 +25,11 @@ First v2 jobs, in order:
       2026-10-26; record in [REVIEW-dev.md](REVIEW-dev.md).
 - [ ] `11.lspbench` (spike/evidence job, one coder): one quiet `make lsp-bench` re-run; it
       regenerates `docs/benchmarks/lsp.md`. Closes the 11.14 / 12.13 "revalidate on a quiet
-      machine" line and confirms ≤2× gopls p95 per row. Needs a quiet machine.
-      `gopls` is not on this box's PATH yet, so it has to be installed first.
+      machine" line and confirms ≤2× gopls p95 per row. Needs a quiet machine (it refuses at
+      load > 30) and must run alone, so no other job may be in flight.
+      `gopls` is not on PATH; use the v0.21.1 in the store (the same version as the current
+      table) through the tool's own flag:
+      `LSP_BENCH_FLAGS="-gopls /nix/store/fcbrgrlz50d0sk82dai9ybkv9jk3afjq-gopls-0.21.1/bin/gopls"`.
 - [ ] `time.NewTimer`+`Stop` (668-771 ns vs Go 129 ns) — performance-shaped, so it runs the
       three-techlead stage first.
 - [ ] User-gated, unchanged: final manual checks, releases and approvals — see "Needs your
