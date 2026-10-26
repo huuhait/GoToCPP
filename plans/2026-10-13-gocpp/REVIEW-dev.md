@@ -25,6 +25,26 @@ default (§`scripts/gp-focused:12-14` — unbounded parallel builds push the loa
 out other jobs' tests). Their PM and review rounds are sequenced, not parallel, so the count drops
 back under the limit before any of them merge.
 
+**Manager error: worktree collisions, and how it was repaired (2026-10-26).** The first attempt to
+spawn the four jobs' first coders failed on an unavailable model override (three dead agents, one
+silent). The manager respawned them **without** noticing that it then created a second batch of
+twelve worktrees on top, so three jobs ended up with **two live agents in one worktree**:
+`dev.probecached` c1, `dev.stalehints` c1 and `dev.staleflag` c1. `dev.whynotes` did not collide
+(its second agent died on the model error before touching the tree).
+
+Damage and repair:
+
+| Slot | What happened | Repair |
+|---|---|---|
+| `dev.probecached` c1 | Committed `bd1c5f2e`, which the surviving agent described as adopting "the existing uncommitted draft" left by the other agent — **not an independent version** | Worktree reset to `dev`, coder respawned clean. `bd1c5f2e` was manager-verified (green in both cache modes) but is not used as a v2 version |
+| `dev.stalehints` c1 | Two agents edited the same four files; uncommitted work only. One agent noticed the collision itself ("a second process is concurrently editing and testing in this same worktree") | Worktree reset, coder respawned clean |
+| `dev.staleflag` c1 | Committed `9a36a05c`; lost the race against the other agent and both edited the same two files | Worktree reset; `9a36a05c` kept as tag `contaminated-staleflag-c1`. Work was manager-verified (incl. a reproduced negative check) but is **not** counted as an independent version; coder respawned clean |
+| `dev.staleflag` c3 | Stopped by mistake while cleaning up (it was in its own clean worktree, not a duplicate); it had uncommitted work | Worktree reset, coder respawned clean |
+
+No worktree was shared at any point (all twelve are separate paths); the collision was two agents
+per *worktree*, not per repo. Lesson for the next job: count the worktrees against the agents in the
+same step, and when a spawn fails, resume the dead agent rather than adding new ones.
+
 ---
 
 ## Job dev.evalorder: `m[s+"x"] = append(m[s+"x"], f())` reads the key before `f` (Go: after)
@@ -241,7 +261,7 @@ Reviewer notes about things outside this job. They do not block; each is filed w
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 | ~/worktrees/GoToCPP/dev.probecached · `job/dev.probecached` | – | – |
+| v1 | coder 1 (respawned after a worktree collision) | ~/worktrees/GoToCPP/dev.probecached · `job/dev.probecached` | – | – |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.probecached-c2 · `job/dev.probecached-c2` | – | – |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.probecached-c3 · `job/dev.probecached-c3` | – | – |
 
@@ -332,9 +352,17 @@ cosmetic is deliberately left to the coders to establish.
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 | ~/worktrees/GoToCPP/dev.staleflag · `job/dev.staleflag` | – | – |
-| v2 | coder 2 | ~/worktrees/GoToCPP/dev.staleflag-c2 · `job/dev.staleflag-c2` | – | – |
-| v3 | coder 3 | ~/worktrees/GoToCPP/dev.staleflag-c3 · `job/dev.staleflag-c3` | – | – |
+| v1 | coder 1 (respawned after a worktree collision) | ~/worktrees/GoToCPP/dev.staleflag · `job/dev.staleflag` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.staleflag-c2 · `job/dev.staleflag-c2` | `TestFixDangling` green; negative check reproduced by the coder on the `#M(1)` and `#M(a)` cases; manager re-run pending | `ad28e422` |
+| v3 | coder 3 (respawned after being stopped by mistake) | ~/worktrees/GoToCPP/dev.staleflag-c3 · `job/dev.staleflag-c3` | – | – |
+
+> **Discarded version.** The collided `dev.staleflag` c1 produced `9a36a05c`. It was manager-verified
+> — `TestFixDangling` green, and the manager independently reproduced the negative check (dropping
+> `Mode` from the fixture makes the new `F!(g)` case fail, printing the un-repaired second `p.`) —
+> but it shares a worktree with another agent's work, so it is **not** an independent v2 version and
+> is not used. It is kept as tag `contaminated-staleflag-c1` for reference. Its finding is
+> independently corroborated by v2 (`ad28e422`), which reached the same root cause through different
+> test cases (`#M(...)` Phase 10 syntax rather than `F!(g)`).
 
 ### Rounds
 
