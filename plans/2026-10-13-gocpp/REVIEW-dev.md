@@ -374,9 +374,30 @@ cosmetic is deliberately left to the coders to establish.
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 (respawned after a worktree collision) | ~/worktrees/GoToCPP/dev.staleflag · `job/dev.staleflag` | – | – |
+| v1 | coder 1 (respawned after a worktree collision) | ~/worktrees/GoToCPP/dev.staleflag · `job/dev.staleflag` | manager re-ran `TestFixDangling` ok 0.032s; manager verified the commit touches only the two scoped files; coder proved item 1 is protocol-invisible by marshalling six completion queries with and without the patch (identical output) · coder's `./internal/lsp/server` 499.778s and focused 667.977s both green | `c65e0044` |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.staleflag-c2 · `job/dev.staleflag-c2` | `TestFixDangling` green; negative check reproduced by the coder on the `#M(1)` and `#M(a)` cases; manager re-run pending | `ad28e422` |
-| v3 | coder 3 (respawned after being stopped by mistake) | ~/worktrees/GoToCPP/dev.staleflag-c3 · `job/dev.staleflag-c3` | – | – |
+| v3 | coder 3 (respawned after being stopped by mistake) | ~/worktrees/GoToCPP/dev.staleflag-c3 · `job/dev.staleflag-c3` | **manager verified independently**: reverted only `Mode: cache.ParseFull` → `TestFixDangling` FAILS on the `macro` row (`macro m(){\n\tp._\nvar y = 1\n\tp.\n...` — the second `p.` is lost), restored → ok 0.032s. Commit touches only the two scoped files. Coder's `./internal/lsp/server` 654.678s (1215 passed) and focused green | `8129beef` |
+
+**Both versions agree on what the two nits are, and the manager agrees with them:**
+- The blank line is **cosmetic** — a struct-literal layout nit that breaks gofmt's field alignment
+  and never reaches the protocol (`AdditionalTextEdits` is `json:"additionalTextEdits,omitempty"`,
+  `internal/lsp/protocol/tsprotocol.go:912`; no value changes). No test can fail on it, which v1
+  demonstrated by diffing marshalled completion output with and without the patch.
+- The missing `Mode` is **behavioural**. `fixDangling` re-parses with `pf.Mode`
+  (`internal/lsp/server/completion.go:253`); with mode 0 Phase 10 syntax is an error whose recovery
+  swallows the second dangling selector. The right value is `cache.ParseFull`, which is what the
+  feature-facing parse uses (`internal/lsp/cache/parse.go:31`, `completion.go:179`).
+
+**Refuted out-of-scope lead (c3).** c3 flagged `internal/lsp/server/autoimport.go:593`
+(`parser.ImportsOnly|parser.ParseComments`, no `Phase10Syntax`) as possibly mis-parsing a Phase 10
+header. The manager tested it: `ImportsOnly` stops at the import header and never parses a body, so
+Phase 10 syntax in the body cannot reach that parse. A probe on a file with both `F!(1)` in a body
+and a `macro` declaration parses with `err=<nil>` under `ImportsOnly|ParseComments`, and identically
+under `+Phase10Syntax`, while `ParseFull` errors on the body as expected. No TODO line filed.
+
+**Out-of-scope note to carry to the merge:** `internal/lsp/server/repair_test.go:14-18` has the same
+missing-`Mode` fixture shape. Both coders checked `repair.go` and found it never reads `pf.Mode`, so
+it is harmless there; it stays out of this job.
 
 > **Discarded version.** The collided `dev.staleflag` c1 produced `9a36a05c`. It was manager-verified
 > — `TestFixDangling` green, and the manager independently reproduced the negative check (dropping
@@ -402,7 +423,7 @@ cosmetic is deliberately left to the coders to establish.
 
 ## Job dev.whynotes: `emit -annotate` headline says "captures by reference" for a boxed capture
 
-**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.whynotes
+**Status:** `[~]` in_progress · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.whynotes
 
 ### Brief
 
@@ -431,6 +452,47 @@ contradiction is real. Two goldens exist and may be affected:
 | v1 | coder 1 | ~/worktrees/GoToCPP/dev.whynotes · `job/dev.whynotes` | manager re-ran: `TestClosureHeadline` ok · `TestAnnotate`/`TestExplain` goldens ok · `internal/explain` ok · negative check reproduced (old whynotes.go fails both new tests and both goldens) | `3a0d06bf` |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.whynotes-c2 · `job/dev.whynotes-c2` | manager re-ran: `TestClosureHeadline` ok · named goldens ok · negative check reproduced (old whynotes.go fails `byBox` and `mixed`) · reports a pre-existing `TestGuideExamples` failure, **confirmed by the manager on clean dev** | `424c78df` |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.whynotes-c3 · `job/dev.whynotes-c3` | manager re-ran: `TestLocalClosureHeadline` ok · named goldens ok 31.015s · `internal/explain` ok · negative check reproduced (old code fails the new test and both closures goldens) · **also edits `internal/explain/topics.go`**, which v1 and v2 declined | `2576f0e1` |
+
+**PM merge plan (fresh read-only PM, copied unchanged):**
+
+> **Recommended base: v3**, merging coder **3**. Fewest parts move: v3 already carries the neutral
+> headline, the `topics.go` prose fix, the smallest example and the matching goldens; only the
+> zero-capture branch and one test case are added.
+>
+> | Item or file | Take | Reason |
+> |---|---|---|
+> | `internal/lower/whynotes.go` | v3 + v2's zero-capture branch | v3's single-pass neutral headline on any boxed capture cannot go stale; graft v2's `case len(caps) == 0: " that captures nothing"` instead of the false "captures by reference" |
+> | `internal/lower/whynotes_test.go` | v3 (`TestLocalClosureHeadline`) + two folds | v3 pins both branches and the unchanged per-variable notes; add v2's zero-capture shape and v2's exact-text assertions |
+> | `internal/explain/topics.go` | v3 | The only version that fixed the topic text; without it `gocpp explain closures` contradicts its own example |
+> | `internal/explain/examples/closures.gp` | v3 | Shortest idiomatic case, gofmt-clean, cannot trip the `[&` truth rule |
+> | both `closures.golden` | v3, regenerated | v3's already match its example; regenerate with `-update-annotate` after the `whynotes.go` edit |
+> | TODO line 160 | close in the merge commit | The line's claim is exactly what the JSON/test now pins |
+>
+> Conflicts: neutral headline over v2's four-way summary (the latter duplicates the per-variable
+> text and would need rewriting for a new capture kind — the staleness the ticket warns against);
+> v3's "noted where the variable is used" over v1's "noted below" (the note is at the ident's
+> position, so v3's text is true in `-annotate` and `-json` alike); v3's `topics.go` edit kept as a
+> deliberate scope call (WORKFLOW §5 puts an older issue in the same area in scope, and the job's
+> own example turns the topic page into a self-contradiction); v2's zero-capture discovery kept,
+> its headline strings dropped.
+>
+> Risks the merging coder must check: regenerate **both** goldens with the repo's mechanism; add the
+> zero-capture case (`add := func(x int) int { return x + 1 }`) and assert "that captures nothing";
+> check whether the non-local branch has the same zero-capture wrongness; never put a by-reference
+> and a boxed capture in one example literal (the `[&` truth rule); per-variable notes must stay
+> byte-identical; keep the `.gp` example gofmt-clean; `TestGuideExamples` fails on `dev`
+> independently (TODO 153-156) and must not read as this job's regression.
+
+**Manager check of the plan.** Every load-bearing claim re-verified before accepting:
+- The zero-capture bug is real and v3 does **not** cover it: `gocpp emit -annotate` on
+  `add := func(x int) int { return x + 1 }` prints "…no allocation) **that captures by reference**"
+  while `gocpp emit` writes `auto add = []<int = 1>(int64_t x) …` — an empty capture list. v3's
+  neutral branch fires only when `boxed` is true, so this case still hits the false by-reference
+  wording. The PM's graft is necessary, not a nicety.
+- `TestAnnotateTruth`'s rule `{msg: "~by reference: it stays on the C++ stack", need: []string{"[&"}}`
+  is at `cmd/gocpp/annotate_test.go:469`, as quoted.
+- v3's `TestLocalClosureHeadline` (`internal/lower/whynotes_test.go:84`) pins the boxed and unboxed
+  branches and the unchanged per-variable notes, as described.
 
 ### Rounds
 
