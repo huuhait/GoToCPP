@@ -94,7 +94,7 @@ Not a performance job. This is a Go-conformance (evaluation order) bug; no techl
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 | ~/worktrees/GoToCPP/dev.evalorder-c1 · `job/dev.evalorder-c1` | – | – |
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.evalorder-c1 · `job/dev.evalorder-c1` | `scripts/gp-focused -x` green: gofmt clean · vet OK · internal/lower 407 passed 0 skipped · TestGolden 41 passed 1 skipped · TestDiff/maps_append_key_op 3 passed | `e1717e08` (3 commits: `0e3185cb`, `de44b3df`, `e1717e08`) |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.evalorder-c2 · `job/dev.evalorder-c2` | – | – |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.evalorder-c3 · `job/dev.evalorder-c3` | `scripts/gp-focused -x` green: gofmt clean · vet OK · internal/lower 405 passed 0 skipped · TestGolden 41 passed 1 skipped · TestDiff/maps_append_key_add 3 passed | `87d12c919c42` |
 
@@ -115,6 +115,28 @@ resetting its variable immediately before the statement)
 Note for whoever repeats this: an earlier manager table reported r5 as "same" because it reset
 the variables inside `f` instead of before the statement, so `f` set them to the value they
 already had. Coder 3 caught the discrepancy. Every row must reset first.
+
+**Both versions reach the same four-row result.** The manager re-ran the table on v1
+(`e1717e08`) and v3 (`87d12c91`): both fix r1, r2, r3 and both leave r5. Two independent
+coders, two different implementations, same measured outcome — that agreement is the evidence
+that r1–r3 are the real boundary and r5 is genuinely a different mechanism.
+
+**v1's own regression, caught and fixed inside the job (verified by the manager).** Commit
+`0e3185cb` tested "identical types" before the float guard, so it stripped `float64(f)` of a
+`float64`. gc's `tcConv` promotes a same-kind float or complex conversion back to `OCONV` even
+from the identical type, so gocpp then took the fast path where gc does not. Repro
+(`hold := map[float64][]int{1: {1}, 5: {99}}; hold[float64(kf)] = append(hold[kf], setkf())`):
+
+| tree | output | Go |
+|---|---|---|
+| dev `19646648` | `[99 7] [99]` | `[99 7] [99]` — correct |
+| `0e3185cb` | `[1 7] [99]` | **regression** |
+| `e1717e08` | `[99 7] [99]` | correct |
+
+Confirmed by the manager on all three trees. `e1717e08` must be read with `0e3185cb` — the
+intermediate commit is known-wrong on this one shape. Note the regression only shows when both
+keys already exist in the map; a map with no prior entry hides it, which is why the diff test
+seeds `hold` with entries for both keys.
 
 **Scope decision (manager, 2026-10-26).** r5 is a divergence from gc, not a spec violation: the
 Go spec leaves key-vs-value order unspecified ("evaluation order between the key and the value
