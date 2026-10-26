@@ -15,6 +15,7 @@
 | `[~]` | `dev.stalehints` — four stale comments in the compiler (TODO 145) | – | 0 / 1 | 0 | – |
 | `[~]` | `dev.staleflag` — two LSP completion nits (TODO 184) | – | 0 / 1 | 0 | – |
 | `[~]` | `dev.whynotes` — `emit -annotate` headline "captures by reference" for a boxed capture (TODO 144) | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.rtbugs` — nine Runtime claims in one batch (TODO 103-109, 120, 126 first sub-claim) | – | 0 / 1 | 0 | – |
 
 **Worker-limit note (manager, 2026-10-26).** WORKFLOW.md §1 sets the limit at five active workers,
 and a job's three build-phase coders count as three. The four jobs above were started together at
@@ -577,6 +578,52 @@ such literals, so the fix changed two goldens. Everything else followed the plan
   "it captures nothing, and … is wrapped in gp::func" is true and the dropped clause "whose copies
   share the captured state" was vacuous for that case.
 - Per-variable notes unchanged: the golden diff has no changed `captures … by …` line.
+
+### Rounds
+
+| Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
+|---|---|---|---|---|
+| R1 | – | – | – | – |
+
+### Findings
+
+| # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
+|---|---|---|---|---|---|---|---|---|
+| – | – | – | – | – | – | – | – | – |
+
+## Job dev.rtbugs: nine Runtime claims, one batch
+
+**Status:** `[~]` build ×3 · **Merging coder:** – · **Canonical worktree:** – (machine: the user's
+local box; the five jobs above run on another machine and arrive here by `git pull`)
+
+### Brief
+
+> The ticket is `.scratch/mgr/tickets/dev.rtbugs.md` (main checkout); it was given to the three
+> coders unchanged. User's instruction 2026-10-26: one batch job with the same three coders, not split.
+
+- **Goal:** the nine TODO.md Runtime claims below behave like Go (`scripts/gp-repro`), or are shown
+  stale with evidence; per claim a test that fails on `dev` @ `70890fb3`.
+- **Claims (TODO.md line on `70890fb3`):** 103 `&cvar` dangles where the address is kept (ADR-139);
+  104 ADR-139 follow-ups (`cpplocal` informational, `mayHoldPointers` unpinned, dead `escTop`/`top == nil`);
+  105 goroutine stacks 8 MiB (ADR-104 option 2b); 106 children inherit the 1 GiB RLIMIT_STACK;
+  107 `make([][3]struct{}, MaxInt)` out of memory; 108 `*(*[N]struct{})(s)` N > 64 reads past
+  `zerobase`; 109 reflect `MakeSlice`/`Grow` on zero-size and huge slices; 120 `runtime.Callers`
+  1 vs 3 and `ReadMemStats` `Mallocs`/`Frees`/pause fields; 126 (first sub-claim only) goroutine
+  panic while `main` returns exits 2 (Go 0).
+- **Constraints:** no thread before `main.main` (ADR-104 2026-10-23); goroutine-start, 10k/100k
+  goroutine and overcommit guardrails measured for claim 3; ASan/TSan/Windows kept; default `-O0`.
+- **Done when:** per-claim failing-on-dev tests; claim 3's `count(3000000, 0)` in a goroutine prints
+  3000000 in debug and `-release`, g++ and clang++; `scripts/gp-focused -x` and `-cxx clang++` green;
+  ADR-104, ADR-139, D7, D24 and guides updated.
+- **Not performance-shaped** (bugs; claim 3's costs are guardrails), so no techlead stage.
+
+### Versions
+
+| Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
+|---|---|---|---|---|
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.rtbugs-c1 · `job/dev.rtbugs-c1` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.rtbugs-c2 · `job/dev.rtbugs-c2` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.rtbugs-c3 · `job/dev.rtbugs-c3` | – | – |
 
 ### Rounds
 
