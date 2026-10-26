@@ -332,18 +332,28 @@ line have drifted (the ticket carries the real ones). All four claims verified s
 |---|---|---|---|---|
 | v1 | coder 1 | ~/worktrees/GoToCPP/dev.stalehints · `job/dev.stalehints` | manager re-ran: `go build` + `go vet` on `./cmd/gocpp ./internal/lower` clean · every added line is a `//` comment (the only code-line change is the trailing comment on `attachTyped`) · manager checked v1's cross-references: `methodCall` is `internal/lower/methods.go:447`, `cname` is `internal/lower/expr.go:251`, `callValue` is `internal/lower/closures.go:423`, and `typedinterop.ResolveMode` is the function that orders `-interop` → `GOCPP_INTEROP` → `GOCPP_TYPED_INTEROP` (`internal/typedinterop/mode.go:25,112`) | `c676f80c` |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.stalehints-c2 · `job/dev.stalehints-c2` | manager re-ran: `go build` OK · vet clean · `TestTestingNativesDefined`/`TestTestingNatives` ok 34.283s · `go test -count=1 ./internal/lower` ok 11.766s · manager verified every added line is a comment and `build.go:1035`'s statement is byte-identical · coder reported one `TestCXX/g++/O2/unit` `signal: killed`; the manager re-examined it and it is the 6G `MemoryMax` scope cap, not the diff (see the OOM note above) · manager checked every factual claim the new prose makes: `T.Setenv` does call `os.Setenv` (`stdlib/testing/testing.gp:884`), `lookup_env` has no Go caller but is used by `runtime/test/testing_natives_test.cpp:110`, and `stdlib/testing/PORT.md:13` does carry the native table the comment points at | `4ff62002` |
-| v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | manager re-ran: `go build` + `go vet` clean · comments only (same one trailing-comment code-line change as v1) · **v3 reframes the `testing.hpp` list instead of editing it**: it names the packages whose functions the natives *replace* ("sync, time, os, runtime, strconv, io, …") rather than the packages `testing` *imports*. That is the accurate framing: `gocpp`'s `stdlib/testing` imports `errors, flag, fmt, os, runtime/debug, time` (not sync or strings), and `stdlib/testing/PORT.md:11-22` lists natives replacing `sync`, `time`, `os`, `runtime`, `strconv`, `regexp` — so v3's sentence is true where a literal edit of the old list can always drift again | `d3423e13` |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | manager re-ran: `go build` + `go vet` clean · comments only (same one trailing-comment code-line change as v1) · **v3 reframes the `testing.hpp` list instead of editing it**: it names the packages whose functions the natives *replace* ("sync, time, os, runtime, strconv, io, …") rather than the packages `testing` *imports*. Both framings are true of the new text — `stdlib/testing/PORT.md:11-22` lists natives replacing `sync`, `time`, `os`, `runtime`, `strconv`, `regexp`, `io` — so v3's sentence is accurate, though it changes the comment's subject | `d3423e13` |
 
 **Where the three versions disagree (for the PM):** all three agree the four sites are stale and fix
 them, but on `runtime/include/gocpp/testing.hpp` they take three different routes to a true sentence.
-v1 keeps the original "the packages that Go's testing imports" framing and edits the list in place to
-"sync, time, os, runtime, flag, strings, … are real packages now". v2 drops `flag` from that list and
-keeps the rest. v3 abandons the imports framing and names the **replaced** packages instead. The
-manager's reading: v1's list is not the list of imports either — `stdlib/testing/*.gp` imports only
-`errors, flag, fmt, os, runtime/debug, time`, so "sync" and "strings" are in v1's list because they
-are *replaced*, not imported, which is the category error v3 removes. v2's removal of `flag` is
-right about `flag` but leaves the same wrong category. v3 is the only one whose claim is
-checkable against `PORT.md` without re-deriving it. This is a PM decision, not the manager's.
+v1 keeps the original "the packages that Go's testing imports" framing and edits the claim in place
+to "…are real packages now". v2 does the same but **drops `flag` from the list**. v3 keeps the list's
+subject out entirely and names the packages the natives **replace** instead.
+
+**Manager correction (2026-10-26).** The manager first wrote here that v1's list was a category error
+because gocpp's `stdlib/testing` imports only `errors, flag, fmt, os, runtime/debug, time`. **That was
+the manager's mistake**: the comment's subject is *Go's* `testing` package, not gocpp's. Go's own
+`testing/testing.go` imports — among others — `sync`, `sync/atomic`, `time`, `os`, `runtime`,
+`runtime/debug`, `flag`, `strings`, `strconv`, `io`, `bytes`, `context` (checked against the dev
+shell's `$(go env GOROOT)/src/testing/testing.go`). So the original list "sync, time, os, runtime,
+flag, strings, …" is **correct as a list of Go's testing imports**, and the only stale part of the
+sentence is the claim that they "are declaration stubs until the later steps of Phase 09" — all six
+are `Real: true` in `tools/stubgen/main.go` today.
+
+Consequences for the PM: **v2's removal of `flag` is factually wrong** — Go's `testing` imports
+`flag`. v1's minimal edit is correct. v3's reframing is also true (PORT.md backs it) but changes what
+the comment is about; it is a legitimate style choice, not a correctness fix. The PM should decide
+between v1 and v3 on style, and must not take v2's list.
 
 ### Rounds
 
