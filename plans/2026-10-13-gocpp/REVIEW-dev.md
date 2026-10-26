@@ -251,11 +251,57 @@ reached the same conclusion from a different direction, which is good corroborat
 so r2 and r3 would be unpinned if v2's file were taken as is. The PM's added rows are necessary, not
 padding.
 
+**§7.3 process note — done right this time.** Unlike staleflag and whynotes, the rename was performed
+*before* dispatching the merging coder: `~/worktrees/GoToCPP/dev.evalorder` is on `job/dev.evalorder`,
+one worktree for the job, no `-c2`/`-c3` paths left behind. Recorded because the same omission cost
+two jobs a fix-up round.
+
+### Merge result
+
+**Merging coder 2 · `job/dev.evalorder` · three commits on base `c764cdfb`:** `60e56f38` (the merge),
+`f817313d` (a comment naming a file that does not exist), `023cea66` (the named-int row).
+
+| Item | Outcome | Manager check |
+|---|---|---|
+| `internal/lower/maps.go` | **v2 taken whole**, unchanged | `git diff --quiet c764cdfb HEAD -- internal/lower/maps.go` → identical. v1's `keyNop`/`sameKey` layer is not in it. |
+| `internal/lower/maps_test.go` | v3's `TestMapAppendShape` + `lowerSrc` verbatim | Passes here (0.012s); `TestMapAppendShape` FAILs on four cases when `maps.go` is `dev`'s (`string add`, `string add right`, `conversion both sides`, `conversion one side`) — the two directions of the same rule |
+| `tests/diff/maps_append_key_expr.gp` | v2's 11 rows + 12 added = **23 rows** | 16 of 23 differ from real Go when `maps.go` is reverted to `dev`; the 7 that still pass are exactly the rows the ticket says were already right |
+| v1's `maps_append_key_op.gp`, v3's `maps_append_key_add.gp` | dropped as files, rows folded in | The plan's call; the merged file carries `constant + int` from v3 and the one-side `string(s)` and float-split rows from v1 |
+
+**The plan's named-int row was vacuous and the coder caught it — manager confirmed.** The plan said
+"`int(MyInt)`". Written as `mi[int(myi)] = append(mi[int(myi)], change())` both sides are one source
+node, so gc strips both conversions, sees one ONAME twice and takes the fast path **on dev too**: the
+row passed pre-fix and pinned nothing. The committed shape is
+`mm[MyInt(myi)] = append(mm[myi], change())` — a conversion compared against a plain name. The
+manager reproduced the negative check by reverting only `internal/lower/maps.go` to `dev`; both named
+rows print `0 1` against Go's `1 0`. `maps.go` restored, `git diff --quiet c764cdfb HEAD` → identical
+again, `TestMapAppendShape` green.
+
+**Rows the plan asked for, and what covers them** — no gap left, and nothing added speculatively:
+
+| Plan row | In the merged file as | Fails on `dev`? |
+|---|---|---|
+| `m[string(s)] = append(m[string(s)], f())` | `string conversion on both sides` | yes |
+| `m[string(s)] = append(m[s], f())` | `string conversion on the left` | yes |
+| float-split, both keys pre-seeded | `float conversion split`: `hold := map[float64][]int{1: {1}, 5: {99}}` | yes |
+| `int(MyInt)` | `named int conversion`, reshaped (above) | yes |
+| `S(s)` | `named string conversion` | yes |
+| `1+si` | `constant + int` | yes |
+| `(*int)(p)` | `pointer to the same pointer type`, `pp` reassigned in the argument | yes |
+
+**Gofmt note.** The merging coder ran `gofmt -w` on the existing var block (`x, y int` / `kp = &x`).
+That realignment is unrelated to the ticket but the file was already un-gofmt'd on `c764cdfb`, so the
+harness rule (gofmt clean) requires it; recorded so a reviewer does not read it as scope creep.
+
+**Out-of-scope divergences (unchanged by this merge, both recorded earlier):** (a) `map[any]` with a
+non-interface key prints `map[5:[7]]` where Go prints `map[1:[7]]`; (b) the local-stack slow-key copy
+order. r5 (`internal/lower/order.go`) is excluded by the ticket and untouched.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | – | `023cea66` | – | – |
 
 Verdicts: `FINDINGS (n)` · `CLEAN` · `VOID (reason)`. Every reviewer number is a new instance.
 
