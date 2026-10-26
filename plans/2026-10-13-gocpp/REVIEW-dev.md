@@ -722,13 +722,26 @@ commit supersedes it.
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | fresh reviewer | `143bf165` | manager re-ran `^TestFixDangling$` ok 0.036s in the canonical worktree after the §7.3 rename; manager re-measured both revert rows (see the merge result above) | – |
+| R1 | fresh reviewer | `143bf165` | manager re-ran `^TestFixDangling$` ok 0.036s in the canonical worktree after the §7.3 rename; manager re-measured both revert rows (see the merge result above) | `FINDINGS (1)` — 1 NIT |
 
 ### Findings
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| – | – | – | – | – | – | – | – | – |
+| S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `OPEN` | – | `OPEN` |
+
+**Manager note on the R1 finding.** The reviewer reached it adversarially and its own evidence
+confirms the merge is behaviourally correct: it reproduced all three reverts independently
+(Mode-only → both rows fail; fixture-parse-only → macro row fails; the deleted `F!(y)` row re-added
+on a Mode-reverted copy still **passes**, confirming it was vacuous), and it verified `cache.ParseFull`
+is exactly what the loader stores (`internal/lsp/cache/parse.go:31,73`) and what `completer` passes
+(`completion.go:178`). So this is a comment-wording NIT and nothing else. Default is `FIX`; the
+merging coder repairs the wording and no behaviour changes.
+
+**Reviewer's OUT OF SCOPE, for the record (does not block):** `internal/lsp/server/repair_test.go:14-18`
+has the same missing-`Mode` fixture shape. It hides nothing today (`repairText` reparses with a
+literal `cache.ParseFull`, `repair.go:297,326`, never `pf.Mode`), so it is a latent trap worth its own
+TODO line, not a patch here.
 
 ---
 
