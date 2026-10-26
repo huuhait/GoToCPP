@@ -215,7 +215,7 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] 11.11: references/rename on never-opened packages have no budget row (cold 0.6-1.1 s); the 11.8 numbers in docs/guides/editors.md were taken under load (was L218).
 - [ ] 14.5 lows carried: no server-side file watcher (client `didChangeWatchedFiles` only), dead UNC share stalls the first request 5 s (was L293).
 - [ ] Unexplained, seen once: `TestRandomEdits` seed 77 under `ulimit -n` 28-48 kept `package .../mid is not in module` (was L231).
-- [ ] Completion nits: a stray blank line before `AdditionalTextEdits` (internal/lsp/server/completion.go:158); `TestFixDangling` builds `cache.ParsedFile` without `Mode` (was L182). *In progress: `dev.staleflag`.*
+- [x] Completion nits: a stray blank line before `AdditionalTextEdits` (internal/lsp/server/completion.go:158); `TestFixDangling` builds `cache.ParsedFile` without `Mode` (was L182). — done in `57f3fa45` (job dev.staleflag, CLEAN in review round 3): the blank line is gone (cosmetic, byte-identical JSON either way) and the fixture carries `Mode: cache.ParseFull` with two Phase 10 rows that fail without it.
 - [ ] Re-measure the formatting and organize-imports benchmarks on a quiet machine in 11.11's harness (was L183).
 
 ### Tooling (debugger, vet, test runner, fuzz, tests infrastructure)

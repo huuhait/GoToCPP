@@ -719,7 +719,7 @@ defect, different file, outside the ticket — recorded below in Out of scope.
 
 ## Job dev.staleflag: two LSP completion nits
 
-**Status:** `[~]` in progress · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.staleflag
+**Status:** `[x]` done — CLEAN in R3, squash-merged as `57f3fa45` · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.staleflag (removed after the merge)
 
 ### Brief
 
@@ -865,7 +865,31 @@ commit supersedes it.
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
 | S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `FIX` (`1b891f68`) | **FIX-VERIFIED by the R2 reviewer**: it re-derived the full revert matrix in disposable copies — (a) `Mode` only removed → both rows fail; (b) fixture parse reverted → macro row only; (c) both → both — matching the comment and the merge commit exactly, and it confirmed neither surviving row is vacuous. The original defect (a reader could not reproduce the described failure) is closed; the residual wording error is tracked separately as S2. | `CLOSED-FIXED` |
-| S2 | R2 | NIT | `internal/lsp/server/completion_test.go:926-930` | The rewritten comment says the macro file is "a syntax error **from its first line**". It is not: with `parser.ParseComments\|parser.AllErrors` (mode 36) the first error is `p.gp:3:1: expected declaration, found macro` — line 3, at the `macro` keyword. `"package p\n"` alone parses with `err=<nil>`. Only the "got `\"\"`" half is right. | §8 "comments explain what is not obvious" — the round-1 NIT's own substance: a reader at this line must be able to check the claim | `FIX` (`ce9c582d`) | **Manager verified the fix** (comment-only hunk; the new claim re-checked against `go/parser`, whose mode-36 error for the macro fixture is `a:3:1: expected declaration, found macro`; the coder also measured it through the tree's forked parser and confirmed `got ""` by calling `fixDangling`). Per the rule in this table, `CLOSED-FIXED` needs a **fresh reviewer's** `FIX-VERIFIED`, so the state stays `FIXED-PENDING` until R3 reports. | `FIXED-PENDING` |
+| S2 | R2 | NIT | `internal/lsp/server/completion_test.go:926-930` | The rewritten comment says the macro file is "a syntax error **from its first line**". It is not: with `parser.ParseComments\|parser.AllErrors` (mode 36) the first error is `p.gp:3:1: expected declaration, found macro` — line 3, at the `macro` keyword. `"package p\n"` alone parses with `err=<nil>`. Only the "got `\"\"`" half is right. | §8 "comments explain what is not obvious" — the round-1 NIT's own substance: a reader at this line must be able to check the claim | `FIX` (`ce9c582d`) | **Manager verified the fix** (comment-only hunk; the new claim re-checked against `go/parser`, whose mode-36 error for the macro fixture is `a:3:1: expected declaration, found macro`; the coder also measured it through the tree's forked parser and confirmed `got ""` by calling `fixDangling`). Per the rule in this table, `CLOSED-FIXED` needs a **fresh reviewer's** `FIX-VERIFIED`, so the state stays `FIXED-PENDING` until R3 reports. | `CLOSED-FIXED` |
+
+**R3 CLEAN.** The fresh reviewer confirmed S2 `FIX-VERIFIED` — `git diff 1b891f68 ce9c582d` is seven
+lines and none is free of `//`; the tree's own forked parser reports `p.gp:3:1: expected declaration,
+found macro` for the macro fixture under `parser.ParseComments|parser.AllErrors`, and line 3 of the
+fixture is `macro m() {` at column 1, so the new clause is checkable where it sits. It re-derived the
+revert matrix independently in four `go test -overlay` variants and got the same four outcomes the
+comment and earlier rounds record, and it independently closed item 1 again (marshalling a
+`protocol.CompletionItem` in both layouts gives byte-identical JSON — `additionalTextEdits` is
+`omitempty`). `go test -timeout 40m -count=1 ./internal/lsp/server` → ok 302.745s; `gp-focused -x
+-cpus 6 -mem 6G` green, 1214 passed, 0 skipped. Worktree left at `ce9c582d` with only `?? .scratch/`.
+
+### Completion
+
+- [x] CLEAN round: **R3**, fresh reviewer (`ce9c582d`)
+- [x] Commit (state hash) of that round: `ce9c582d`
+- [x] Final manager test run on that hash: `go vet ./internal/lsp/server` clean; `gofmt -l` empty;
+      `^TestFixDangling$` ok 0.030s — run on `dev` **after** applying the squash, not on the branch
+- [x] Every finding `CLOSED-FIXED` / `CLOSED-REFUTED`: S1 `CLOSED-FIXED` (R2 FIX-VERIFIED),
+      S2 `CLOSED-FIXED` (R3 FIX-VERIFIED)
+- [x] Out-of-scope notes filed: `repair_test.go:14-17`'s missing-`Mode` fixture is a latent trap
+      (harmless today: `fixDangling`, `completion.go:253`, is the only `pf.Mode` reader) — filed as a
+      TODO line
+- [x] Squash-merged into dev (`57f3fa45`), TODO.md claims closed, step marked `[x]`
+- Re-entered by: –
 
 **Fix round 1.** Merging coder 3 answered S1 with `FIX` in **`1b891f68`** (on top of `143bf165`, not
 amended). The comment now names both reverts and which row each fails:
