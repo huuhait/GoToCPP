@@ -371,7 +371,7 @@ between v1 and v3 on style, and must not take v2's list.
 
 ## Job dev.staleflag: two LSP completion nits
 
-**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.staleflag
+**Status:** `[~]` in progress · **Merging coder:** 3 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.staleflag
 
 ### Brief
 
@@ -419,6 +419,48 @@ under `+Phase10Syntax`, while `ParseFull` errors on the body as expected. No TOD
 **Out-of-scope note to carry to the merge:** `internal/lsp/server/repair_test.go:14-18` has the same
 missing-`Mode` fixture shape. Both coders checked `repair.go` and found it never reads `pf.Mode`, so
 it is harmless there; it stays out of this job.
+
+### PM merge plan
+
+**PM:** fresh read-only PM · **Merging coder:** 3
+
+> Base: **v3**, merging coder **3**. v1 and v3 have **byte-identical** `completion.go`
+> (blob `6dec15da`) and differ only in the test; v3's `macro` row is the load-bearing
+> declaration-level row and the one the manager reproduced. One row swaps in from v1 and the test
+> comment is trimmed.
+>
+> | Item or file | Take | Reason |
+> |---|---|---|
+> | item 1, blank line (`completion.go:155-160`) | v1 = v3 (identical) | Deleting it puts all five fields in one gofmt alignment run; v2's comment keeps the two-run split it was meant to remove |
+> | item 1 evidence (cosmetic claim) | v1 | The only version that demonstrated protocol-invisibility by diffing marshalled output |
+> | fixture parse + `Mode` field | v3 (same bytes as v1) + v1's one-line rationale | All three agree on the code; v1's "a file as `cache/parse.go:70-74` builds it" is the only version that explains why the fixture changed |
+> | row, re-parse half | **v1's `F!(1)` row** | The only shape that fails when just `pf.Mode` is reverted; v3's `F!(y)` passes under exactly that revert |
+> | row, declaration half | v3's `macro m()` row | Fails (`got=""`) if either half is reverted; pins both |
+> | test comment | v3, trimmed | v3's names both constructs; trim it to describe the `F!(1)` row too |
+> | `repair_test.go` | no change | Out of scope; `repair.go` never reads `pf.Mode` |
+>
+> Dropped: v2's replacement comment (keeps the two-run split), v2's three-line fixture reflow,
+> v1's `#Name()` and v2's `#M(1)` rows (same half as `F!(1)`), v2's top-level `#M(a)` (same half as
+> the macro row), and **v3's `F!(y)` row — it cannot fail without the patch on its own**.
+
+**Manager verification of the PM's row analysis.** The PM's table is the sharpest technical claim in
+this plan, so the manager re-measured it directly on v3 + the `F!(1)` row, changing one thing at a time:
+
+| Revert | `F!(1)` row | `macro m()` row | `F!(y)` row |
+|---|---|---|---|
+| nothing (all patched) | pass | pass | pass |
+| only `Mode: cache.ParseFull` in the struct | **FAIL** (second `p.` unfixed) | **FAIL** (`got=""`) | **passes — vacuous** |
+| only the fixture's own `parser.ParseFile` mode | passes | **FAIL** (`got=""`) | – |
+
+So the PM is right on both counts: `F!(1)` is needed to pin the struct half, and v3's own `F!(y)` row
+pins nothing by itself.
+
+**Manager correction to its own earlier note.** The manager wrote above that the blank line "breaks
+gofmt's field alignment" as if the file were not gofmt-clean. The PM checked and the manager
+confirmed: `gofmt -l internal/lsp/server/completion.go` is **empty on `dev`**, before and after all
+three patches. The blank line is legal gofmt; it only splits the literal into two alignment runs.
+The nit is readability, which strengthens the "cosmetic, no test can fail" conclusion rather than
+weakening it.
 
 > **Discarded version.** The collided `dev.staleflag` c1 produced `9a36a05c`. It was manager-verified
 > — `TestFixDangling` green, and the manager independently reproduced the negative check (dropping
