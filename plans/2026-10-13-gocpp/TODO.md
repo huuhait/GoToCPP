@@ -107,7 +107,7 @@ Items inside a running job (see "Now") are not repeated here.
 - [ ] Types that are zero-size in Go but hold a byte in C++ (`[3]struct{}`, `struct{ z [0]int }`) still allocate in `make`: `make([][3]struct{}, math.MaxInt)` ends in `fatal error: runtime: out of memory` (Go: len MaxInt); needs an empty C++ representation or index-free element access (dev.makeslice review).
 - [ ] `*(*[N]struct{})(s)` with N > 64 copies N bytes from the 64-byte `detail::zerobase` (to_array_ptr deref; `[N]struct{}(s)` is guarded since dev.makeslice); ASan has not reported it.
 - [ ] reflect zero-size and huge slices: `reflect.MakeSlice(reflect.TypeOf([]struct{}{}), math.MaxInt, math.MaxInt)` and `Value.Grow(math.MaxInt)` say `reflect: array too large` (Go succeeds); `reflect.MakeSlice([]int, MaxInt/4, MaxInt/4)` says the same (Go: `runtime: allocation size out of range`) (runtime/src/reflect.cpp:234).
-- [~] Order: `m[s+"x"] = append(m[s+"x"], f())` reads the key before f (Go after): gocpp's `sameSafe` accepts a string `+`, gc's SameSafeExpr has no OADDSTR, so gc does not use mapAppend there (dev.makeslice review, also on dev). *In progress: `dev.evalorder` — merged on `023cea66` (v2's `sameSafe` plus 23 diff rows, 16 of which fail on `dev`); manager-reproduced. Closes when its review round is CLEAN.*
+- [~] Order: `m[s+"x"] = append(m[s+"x"], f())` reads the key before f (Go after): gocpp's `sameSafe` accepts a string `+`, gc's SameSafeExpr has no OADDSTR, so gc does not use mapAppend there (dev.makeslice review, also on dev). *In progress: `dev.evalorder` — merged on `023cea66` (v2's `sameSafe` plus 23 diff rows, 16 of which fail on `dev`); manager-reproduced. R1 found three things in it: `stripConvNop`'s `for range 100` cap is a silent cliff (manager measured depth 100 `SAME`, 101 `DIFFERENT` — `map[5:[7]]` vs Go's `map[1:[7]]`), `convNopExpr` strips interface conversions gc gives `OCONVIFACE` (predicate proven, wrong output not demonstrated), and two diff rows were vacuous. Fix round 1 in flight. Closes when its review round is CLEAN.*
 - [ ] Same read order, two shapes `sameSafe` cannot reach (found by the dev.evalorder coder 2 while fixing the line above; both are also wrong on `dev` @ `19646648`, so they are pre-existing, not regressions):
       (a) `var i int; m[any]: m[i] = append(m[i], f())` — Go reads the key **after** `f` (the
       interface-key conversion is an `OCONVIFACE`, which `ir.SameSafeExpr` has no case for, so gc's
@@ -117,6 +117,15 @@ Items inside a running job (see "Now") are not repeated here.
       `complex64/128`): gc copies the key into a temporary *before* `f` (`mapKeyTemp` → `addrTemp`),
       gocpp's `mapPre`/`wrappedKey` reads it after. Both need `mapPre`/`mapSimple` or
       `internal/lower/order.go`, which is why they are separate from `sameSafe`.
+- [ ] `internal/lower/panicid.go:36` `staticConst` has the same `for range 100` cap that
+      `maps.go:798` `stripConvNop` had (found by the manager while fixing dev.evalorder's E1):
+      the chain stops being followed at N=99, not 100 — `a0 := 42; a1 := a0; ...; panic(aN)`
+      emits `gp::panic_constant(int64_t(42))` up to 98 and plain `gp::panic(aN)` from 99. The
+      off-by-one is the loop's per-iteration bookkeeping, so anyone widening this should drop
+      the cap (the chain is acyclic by construction) rather than raise the constant. Pre-existing
+      and **not observable** in the manager's repro: the `panic: -1 [recovered, repanicked]`
+      identity case prints the same on gocpp and Go at N=97/98/99, which is why it is filed here
+      instead of blocking that job.
 - [ ] `runtime.Callers(1, pcs)` returns 1 (Go: 3), no `runtime.main`/`runtime.goexit` frames; `ReadMemStats` leaves `Mallocs`, `Frees` and the pause fields at 0 (`TotalAlloc`, `NumGC`, `NumForcedGC` are done, 08.synclows) (was L244).
 - [ ] `time`: `NewTimer`+`Stop` costs 668-771 ns against Go's 129 ns (about 5x, pinned to one CPU, load about 37, 08.synclows); `time.Now` 51 against 38 ns (intrusive timer heap not done; needs timed_wait.* and the Windows timer code) (was L239).
 - [ ] `RLock`/`RUnlock` through an embedded or field mutex build an aliasing counted pointer (`gp::ptr<RWMutex>(m, &m->mu)`) per call: an atomic refcount increment and decrement on the owner; about 2.5x on `Load` with 8 goroutines for any struct with an embedded mutex, and the speed depends on the object address mod 64 (08.synclows).
