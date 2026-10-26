@@ -569,6 +569,24 @@ Recorded from the coders' own reports; the manager has not re-run them.
   `4ff62002`" and `.scratch/focused-final.log`, which belong to **c2**, not c1 — the manager mixed up
   the two coders. c1 reported its own commit and did not "reconcile", which is the right response.
 
+### Merge result
+
+**Commit `ac9fe281`** on `job/dev.stalehints` in the canonical worktree (on top of v1 `c676f80c`).
+Four files, exactly the plan's scope, and **comment-only**: the diff's one non-comment line is the
+`attachTyped` call with its trailing comment removed (`-d.attachTyped(in, pkg) // …` →
+`+d.attachTyped(in, pkg)`) — the same statement, per the plan's instruction not to duplicate the
+comment. `go build` + `go vet` on `./cmd/gocpp ./internal/lower` clean, gofmt clean, tree clean.
+
+**Manager read every merged comment and checked its claims:**
+
+| File | Merged text | Check |
+|---|---|---|
+| `ops.go` | present tense, keeps `step 3.5` and `sliceConversion` | matches plan |
+| `expr.go` | "This is for a direct call of a function of the package…" — v2's accurate quantifier | matches the measured `expr.go:549-553` bypass |
+| `build.go` | "resolves to typed: -interop, else GOCPP_INTEROP, else the legacy GOCPP_TYPED_INTEROP, else the default auto, which is typed when clang++ is usable" | **the clause correction landed** — names auto+clang++, cites `ResolveMode`/`DecideFor` |
+| `testing.hpp` | v3's reframing, with the causal clause scoped and three exceptions named: `libCPUName` (no `internal/sysinfo`), `libAllocCounting`/`libAllocs` (no allocator counters), `libFrames` (no Go frame names) | **all three verified**: `stdlib/internal/sysinfo` is absent; `PORT.md:23` says "the runtime has no allocator counters"; `PORT.md:17` scopes `libFrames` |
+| `testing.hpp` bullets | the `time`/`sync` bullet now gives the cheaper-clock/one-lock reasons; `lookup_env` says "`T.Setenv` has used os itself since step 9.10, so no Go code calls them, only their tests" | matches `native.gp:11-12` |
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
@@ -723,12 +741,28 @@ commit supersedes it.
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
 | R1 | fresh reviewer | `143bf165` | manager re-ran `^TestFixDangling$` ok 0.036s in the canonical worktree after the §7.3 rename; manager re-measured both revert rows (see the merge result above) | `FINDINGS (1)` — 1 NIT |
+| R2 | – | `1b891f68` | manager: comment-only diff, gofmt clean, `^TestFixDangling$` ok 0.041s | – |
 
 ### Findings
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `OPEN` | – | `OPEN` |
+| S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `FIX` (`1b891f68`) | – | `FIXED-PENDING` |
+
+**Fix round 1.** Merging coder 3 answered S1 with `FIX` in **`1b891f68`** (on top of `143bf165`, not
+amended). The comment now names both reverts and which row each fails:
+
+> These rows are a ParseFull file and fail when the fixture below is not. With Mode unset the passes
+> parse in mode 0, where `F!(1)` is a syntax error whose recovery swallows the second `x.`; with the
+> source parsed in `parser.ParseComments|parser.AllErrors` instead, a macro file is a syntax error
+> from its first line and nothing is fixed (`got ""`). The macro row fails under either revert, the
+> `F!(1)` row under the first only.
+
+**Manager verified the fix.** Comment-only (`git show -U0` has no non-`//` changed line), `gofmt -l`
+clean, `^TestFixDangling$` ok 0.041s, tree clean. The claim the comment makes is exactly the table the
+manager measured before the merge — macro row under either revert, `F!(1)` under the struct half only
+— so the prose and the behaviour now agree and the failure is reproducible at the line. No test can
+fail differently from a comment edit, which the coder stated.
 
 **Manager note on the R1 finding.** The reviewer reached it adversarially and its own evidence
 confirms the merge is behaviourally correct: it reproduced all three reverts independently
