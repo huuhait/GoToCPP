@@ -11,6 +11,19 @@
 | Status | Job | Steps | Rounds | Clean | Completed |
 |---|---|---|---|---|---|
 | `[~]` | `dev.evalorder` — map key read before the appended value's argument | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.probecached` — `TestDeclsDeterministic` fails when the probe cache is on (TODO 137) | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.stalehints` — four stale comments in the compiler (TODO 145) | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.staleflag` — two LSP completion nits (TODO 184) | – | 0 / 1 | 0 | – |
+| `[~]` | `dev.whynotes` — `emit -annotate` headline "captures by reference" for a boxed capture (TODO 144) | – | 0 / 1 | 0 | – |
+
+**Worker-limit note (manager, 2026-10-26).** WORKFLOW.md §1 sets the limit at five active workers,
+and a job's three build-phase coders count as three. The four jobs above were started together at
+the user's explicit instruction ("start all at once"), so while their coder rounds run, active
+workers are 13 (12 coders + `dev.evalorder`'s c2) — over the limit, knowingly, for this round only.
+To keep the machine usable every coder was given `-cpus 6 -mem 6G` instead of the `-cpus 24 -mem 16G`
+default (§`scripts/gp-focused:12-14` — unbounded parallel builds push the load past 1000 and time
+out other jobs' tests). Their PM and review rounds are sequenced, not parallel, so the count drops
+back under the limit before any of them merge.
 
 ---
 
@@ -201,3 +214,182 @@ Reviewer notes about things outside this job. They do not block; each is filed w
 - [ ] Out-of-scope notes filed: –
 - [ ] Squash-merged into dev (commit), TODO.md claims closed, step marked `[x]`: –
 - Re-entered by: –
+
+---
+
+## Job dev.probecached: `TestDeclsDeterministic` fails whenever `GOCPP_PROBE_CACHE` is set
+
+**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.probecached
+
+### Brief
+
+> The ticket is `.scratch/mgr/tickets/dev.probecached.md`; it was copied to the coders unchanged.
+
+- **Goal:** `TestDeclsDeterministic` (`internal/typedinterop/probe/decls_more_test.go:13`) zeroes
+  `Timing`, `Stats`, `Deps` and `Runs` at line 21 but not `Cached`, so with `GOCPP_PROBE_CACHE` set
+  the second run marshals `"cached":true` and the byte comparison fails. Make the test pass with and
+  without the cache, without weakening what it proves.
+- **Done when:** the ticket's repro passes, the no-cache form still passes, the package passes,
+  `scripts/gp-focused -x -cpus 6 -mem 6G` green, gofmt and vet clean, pre-fix output quoted.
+- **Scope:** `internal/typedinterop/probe/decls_more_test.go` only. A test bug, not a product bug.
+- **TODO.md claim to fix (quoted, line 137):**
+  > - [ ] `TestDeclsDeterministic` (internal/typedinterop/probe/decls_more_test.go:13) fails whenever `GOCPP_PROBE_CACHE` is set: the second run comes from the cache (`"cached":true`) and the comparison keeps that field. Repro: `GOCPP_PROBE_CACHE=$(mktemp -d) go test -count=1 -run '^TestDeclsDeterministic$' ./internal/typedinterop/probe` (found by the dev.probecache review).
+
+**Manager pre-check:** reproduced the failure on `dev` @ `1a1224be` before spawning; the claim is open.
+
+### Versions
+
+| Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
+|---|---|---|---|---|
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.probecached · `job/dev.probecached` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.probecached-c2 · `job/dev.probecached-c2` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.probecached-c3 · `job/dev.probecached-c3` | – | – |
+
+### Rounds
+
+| Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
+|---|---|---|---|---|
+| R1 | – | – | – | – |
+
+### Findings
+
+| # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
+|---|---|---|---|---|---|---|---|---|
+| – | – | – | – | – | – | – | – | – |
+
+---
+
+## Job dev.stalehints: four stale comments in the compiler
+
+**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.stalehints
+
+### Brief
+
+> The ticket is `.scratch/mgr/tickets/dev.stalehints.md`; it was copied to the coders unchanged.
+
+- **Goal:** make four stale comments true today. Comment accuracy only, no behaviour change.
+  - `internal/lower/ops.go:567` says "Phase 03 adds string(r)" — `string(r)` is implemented
+    (`internal/lower/ops.go:36`).
+  - `internal/lower/expr.go:669` says "from Phase 03 on" — Phase 03 is long done.
+  - `cmd/gocpp/build.go:1035` names only `GOCPP_TYPED_INTEROP=1`, now the legacy spelling;
+    `GOCPP_INTEROP` / `-interop` win (`internal/typedinterop/mode.go:25,45-47,112`).
+  - `runtime/include/gocpp/testing.hpp:7` lists `flag` among Phase 09 stubs; `stdlib/flag/flag.gp`
+    exists and `stdlib/testing/testing.gp` imports it.
+- **Done when:** each site reads correctly, old→new quoted with file:line evidence, gofmt/vet clean,
+  `scripts/gp-focused -x -cpus 6 -mem 6G` green.
+- **Scope:** those four files, comments only. No executable line changes.
+- **TODO.md claim to fix (quoted, line 145):**
+  > - [ ] Stale comments: internal/lower/ops.go:562 "Phase 03 adds string(r)", internal/lower/expr.go:644 "from Phase 03 on", cmd/gocpp/build.go:1016 "when GOCPP_TYPED_INTEROP=1", runtime/include/gocpp/testing.hpp:5-8 lists `flag` among stubs (was L199, L299, L292).
+
+**Manager pre-check:** located all four sites on `dev` @ `1a1224be`; the line numbers in the TODO
+line have drifted (the ticket carries the real ones). All four claims verified stale.
+
+### Versions
+
+| Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
+|---|---|---|---|---|
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.stalehints · `job/dev.stalehints` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.stalehints-c2 · `job/dev.stalehints-c2` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | – | – |
+
+### Rounds
+
+| Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
+|---|---|---|---|---|
+| R1 | – | – | – | – |
+
+### Findings
+
+| # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
+|---|---|---|---|---|---|---|---|---|
+| – | – | – | – | – | – | – | – | – |
+
+---
+
+## Job dev.staleflag: two LSP completion nits
+
+**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.staleflag
+
+### Brief
+
+> The ticket is `.scratch/mgr/tickets/dev.staleflag.md`; it was copied to the coders unchanged.
+
+- **Goal:** resolve the two completion nits of TODO 184.
+  - A stray blank line before `AdditionalTextEdits` (`internal/lsp/server/completion.go:155-159`).
+  - `TestFixDangling` builds `cache.ParsedFile` without `Mode` (`internal/lsp/server/completion_test.go:928`).
+  Both are reviewer shorthand: the coders must find the actual defect from the code, and may report
+  a claim as cosmetic or stale with evidence instead of inventing a fix.
+- **Done when:** each item fixed with a failing-without test (if behavioural) or refuted with
+  file:line evidence; `go test ./internal/lsp/server` passes; gofmt/vet clean; focused green.
+- **Scope:** `internal/lsp/server/completion.go`, `internal/lsp/server/completion_test.go`.
+- **TODO.md claim to fix (quoted, line 184):**
+  > - [ ] Completion nits: a stray blank line before `AdditionalTextEdits` (internal/lsp/server/completion.go:158); `TestFixDangling` builds `cache.ParsedFile` without `Mode` (was L182).
+
+**Manager pre-check:** both sites located on `dev` @ `1a1224be`. Whether either is behavioural or
+cosmetic is deliberately left to the coders to establish.
+
+### Versions
+
+| Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
+|---|---|---|---|---|
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.staleflag · `job/dev.staleflag` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.staleflag-c2 · `job/dev.staleflag-c2` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.staleflag-c3 · `job/dev.staleflag-c3` | – | – |
+
+### Rounds
+
+| Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
+|---|---|---|---|---|
+| R1 | – | – | – | – |
+
+### Findings
+
+| # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
+|---|---|---|---|---|---|---|---|---|
+| – | – | – | – | – | – | – | – | – |
+
+---
+
+## Job dev.whynotes: `emit -annotate` headline says "captures by reference" for a boxed capture
+
+**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.whynotes
+
+### Brief
+
+> The ticket is `.scratch/mgr/tickets/dev.whynotes.md`; it was copied to the coders unchanged.
+
+- **Goal:** the headline of a local closure in `internal/lower/whynotes.go` `noteClosure` (~line 115)
+  states unconditionally that the closure "captures by reference", while the per-variable notes
+  printed below it correctly say "captures X by sharing its box" for a boxed capture. Make the
+  headline accurate without duplicating box detection in a way that can drift.
+- **Done when:** a golden/unit test pins the new headline, the test fails without the patch (pre-fix
+  output quoted), `go test ./internal/lower ./cmd/gocpp` passes (or the named golden tests if
+  `cmd/gocpp` is too slow), gofmt/vet clean, focused green including TestGolden.
+- **Scope:** `internal/lower/whynotes.go` (+ test, + affected goldens under `cmd/gocpp/testdata/`).
+  Annotation text only — not an emission change.
+- **TODO.md claim to fix (quoted, line 144):**
+  > - [ ] The headline note of `emit -annotate` says "captures by reference" for a closure whose captured variable is a boxed `[n]` capture (internal/lower/whynotes.go:115) (was L32).
+
+**Manager pre-check:** read `noteClosure` on `dev` @ `1a1224be`; the headline/per-variable
+contradiction is real. Two goldens exist and may be affected:
+`cmd/gocpp/testdata/annotate/closures.golden`, `cmd/gocpp/testdata/explain/closures.golden`.
+
+### Versions
+
+| Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
+|---|---|---|---|---|
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.whynotes · `job/dev.whynotes` | – | – |
+| v2 | coder 2 | ~/worktrees/GoToCPP/dev.whynotes-c2 · `job/dev.whynotes-c2` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.whynotes-c3 · `job/dev.whynotes-c3` | – | – |
+
+### Rounds
+
+| Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
+|---|---|---|---|---|
+| R1 | – | – | – | – |
+
+### Findings
+
+| # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
+|---|---|---|---|---|---|---|---|---|
+| – | – | – | – | – | – | – | – | – |

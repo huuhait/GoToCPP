@@ -23,6 +23,16 @@ First v2 jobs, in order:
 - [~] `dev.evalorder` (first full 3-coder v2 job): the `m[s+"x"] = append(m[s+"x"], f())`
       evaluation order below — gocpp reads the key before `f()`, Go reads it after. Started
       2026-10-26; record in [REVIEW-dev.md](REVIEW-dev.md).
+- [~] Four small non-performance v2 jobs, started together 2026-10-26 at the user's instruction
+      ("start all at once"), each with its own 3 coders and its own block in
+      [REVIEW-dev.md](REVIEW-dev.md). All four are load-insensitive (pure Go tests, no benchmark
+      and no C++ sweep of their own):
+      `dev.probecached` → TODO line 137 (`TestDeclsDeterministic` under `GOCPP_PROBE_CACHE`);
+      `dev.stalehints` → line 145 (four stale comments);
+      `dev.staleflag` → line 184 (two LSP completion nits);
+      `dev.whynotes` → line 144 (`emit -annotate` boxed-capture headline).
+      The four count as 12 coders, over the five-worker limit in WORKFLOW.md §1; see the
+      worker-limit note in REVIEW-dev.md. Every coder runs `-cpus 6 -mem 6G`.
 - [ ] `11.lspbench` (spike/evidence job, one coder): one quiet `make lsp-bench` re-run; it
       regenerates `docs/benchmarks/lsp.md`. Closes the 11.14 / 12.13 "revalidate on a quiet
       machine" line and confirms ≤2× gopls p95 per row. Needs a quiet machine (it refuses at
