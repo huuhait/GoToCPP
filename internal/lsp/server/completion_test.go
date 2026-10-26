@@ -922,10 +922,24 @@ func TestFixDangling(t *testing.T) {
 		{"package p\n\nfunc f() {\n\tp.\n\tvar y = 1\n\tp.\n\tvar z = 2\n}\n",
 			"package p\n\nfunc f() {\n\tp._\nvar y = 1\n\tp._\nvar z = 2\n}\n"},
 		{"package p\n\nfunc f() {\n\tp.x\n}\n", ""}, // nothing wrong
+		// These rows are a ParseFull file and fail when the fixture
+		// below is not. With Mode unset the passes parse in mode 0,
+		// where F!(1) is a syntax error whose recovery swallows the
+		// second x.; with the source parsed in parser.ParseComments|
+		// parser.AllErrors instead, a macro file is a syntax error at
+		// the macro keyword (line 3 of the fixture below), and nothing
+		// is fixed (got ""). The macro row fails under either revert,
+		// the F!(1) row under the first only.
+		{"package p\n\nfunc f() {\n\tp.\n\tvar x = F!(1)\n\tp.\n\tvar z = 2\n}\n",
+			"package p\n\nfunc f() {\n\tp._\nvar x = F!(1)\n\tp._\nvar z = 2\n}\n"},
+		{"package p\n\nmacro m() {\n\tp.\n\tvar y = 1\n\tp.\n\tvar z = 2\n}\n",
+			"package p\n\nmacro m() {\n\tp._\nvar y = 1\n\tp._\nvar z = 2\n}\n"},
 	} {
+		// The fixture is a file as cache/parse.go:70-74 builds it: the
+		// first parse in the file's mode, and that mode on the file.
 		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "p.gp", tt.src, parser.ParseComments|parser.AllErrors)
-		pf := &cache.ParsedFile{Path: "p.gp", Src: []byte(tt.src), Fset: fset, Tok: fset.File(f.FileStart), File: f, Err: err}
+		f, err := parser.ParseFile(fset, "p.gp", tt.src, cache.ParseFull)
+		pf := &cache.ParsedFile{Path: "p.gp", Mode: cache.ParseFull, Src: []byte(tt.src), Fset: fset, Tok: fset.File(f.FileStart), File: f, Err: err}
 		got := string(fixDangling(pf))
 		if got != tt.want || got != "" && len(got) != len(tt.src) {
 			t.Errorf("fixDangling(%q) = %q, want %q", tt.src, got, tt.want)

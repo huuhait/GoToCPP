@@ -151,11 +151,10 @@ func (s *Server) completion(ctx context.Context, e env, params json.RawMessage) 
 			TextEdit:         &edit,
 			InsertTextFormat: &format,
 			// The client sorts by sortText: the order of the scores.
-			SortText:   fmt.Sprintf("%05d", i),
-			FilterText: cand.name,
-			Preselect:  i == 0,
-			Data:       dataOf(data, cand),
-
+			SortText:            fmt.Sprintf("%05d", i),
+			FilterText:          cand.name,
+			Preselect:           i == 0,
+			Data:                dataOf(data, cand),
 			AdditionalTextEdits: imports,
 		}
 		list.Items = append(list.Items, item)
