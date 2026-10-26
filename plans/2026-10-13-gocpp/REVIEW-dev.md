@@ -330,9 +330,20 @@ line have drifted (the ticket carries the real ones). All four claims verified s
 
 | Version | Coder | Worktree / branch | Manager test run | Commit (state hash) |
 |---|---|---|---|---|
-| v1 | coder 1 | ~/worktrees/GoToCPP/dev.stalehints · `job/dev.stalehints` | – | – |
+| v1 | coder 1 | ~/worktrees/GoToCPP/dev.stalehints · `job/dev.stalehints` | manager re-ran: `go build` + `go vet` on `./cmd/gocpp ./internal/lower` clean · every added line is a `//` comment (the only code-line change is the trailing comment on `attachTyped`) · manager checked v1's cross-references: `methodCall` is `internal/lower/methods.go:447`, `cname` is `internal/lower/expr.go:251`, `callValue` is `internal/lower/closures.go:423`, and `typedinterop.ResolveMode` is the function that orders `-interop` → `GOCPP_INTEROP` → `GOCPP_TYPED_INTEROP` (`internal/typedinterop/mode.go:25,112`) | `c676f80c` |
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.stalehints-c2 · `job/dev.stalehints-c2` | manager re-ran: `go build` OK · vet clean · `TestTestingNativesDefined`/`TestTestingNatives` ok 34.283s · `go test -count=1 ./internal/lower` ok 11.766s · manager verified every added line is a comment and `build.go:1035`'s statement is byte-identical · coder reported one `TestCXX/g++/O2/unit` `signal: killed`; the manager re-examined it and it is the 6G `MemoryMax` scope cap, not the diff (see the OOM note above) · manager checked every factual claim the new prose makes: `T.Setenv` does call `os.Setenv` (`stdlib/testing/testing.gp:884`), `lookup_env` has no Go caller but is used by `runtime/test/testing_natives_test.cpp:110`, and `stdlib/testing/PORT.md:13` does carry the native table the comment points at | `4ff62002` |
-| v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | – | – |
+| v3 | coder 3 | ~/worktrees/GoToCPP/dev.stalehints-c3 · `job/dev.stalehints-c3` | manager re-ran: `go build` + `go vet` clean · comments only (same one trailing-comment code-line change as v1) · **v3 reframes the `testing.hpp` list instead of editing it**: it names the packages whose functions the natives *replace* ("sync, time, os, runtime, strconv, io, …") rather than the packages `testing` *imports*. That is the accurate framing: `gocpp`'s `stdlib/testing` imports `errors, flag, fmt, os, runtime/debug, time` (not sync or strings), and `stdlib/testing/PORT.md:11-22` lists natives replacing `sync`, `time`, `os`, `runtime`, `strconv`, `regexp` — so v3's sentence is true where a literal edit of the old list can always drift again | `d3423e13` |
+
+**Where the three versions disagree (for the PM):** all three agree the four sites are stale and fix
+them, but on `runtime/include/gocpp/testing.hpp` they take three different routes to a true sentence.
+v1 keeps the original "the packages that Go's testing imports" framing and edits the list in place to
+"sync, time, os, runtime, flag, strings, … are real packages now". v2 drops `flag` from that list and
+keeps the rest. v3 abandons the imports framing and names the **replaced** packages instead. The
+manager's reading: v1's list is not the list of imports either — `stdlib/testing/*.gp` imports only
+`errors, flag, fmt, os, runtime/debug, time`, so "sync" and "strings" are in v1's list because they
+are *replaced*, not imported, which is the category error v3 removes. v2's removal of `flag` is
+right about `flag` but leaves the same wrong category. v3 is the only one whose claim is
+checkable against `PORT.md` without re-deriving it. This is a PM decision, not the manager's.
 
 ### Rounds
 
