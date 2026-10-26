@@ -261,7 +261,7 @@ Reviewer notes about things outside this job. They do not block; each is filed w
 
 ## Job dev.probecached: `TestDeclsDeterministic` fails whenever `GOCPP_PROBE_CACHE` is set
 
-**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.probecached
+**Status:** `[~]` in_progress · **Merging coder:** 2 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.probecached
 
 ### Brief
 
@@ -287,6 +287,63 @@ Reviewer notes about things outside this job. They do not block; each is filed w
 | v2 | coder 2 | ~/worktrees/GoToCPP/dev.probecached-c2 · `job/dev.probecached-c2` | manager re-ran: cache mode `ok 2.786s` · no cache `ok 2.790s` · subtests `no_cache` PASS, `cache` PASS · gofmt/vet clean | `acb587d0` |
 | v3 | coder 3 | ~/worktrees/GoToCPP/dev.probecached-c3 · `job/dev.probecached-c3` | manager re-ran: cache `ok 1.032s` · no cache `ok 2.195s` · `-run '^TestDecls'` with cache `ok 81.928s` · mutation check reported by the coder · **negative check reproduced by the manager**: reverting only `decls_more_test.go` to `dev` with `GOCPP_PROBE_CACHE` set fails, and the two marshalled tables differ in exactly one field — the second has `"cached":true` and the first does not — which is precisely the TODO claim | `62de3d7b` |
 
+### PM merge plan
+
+**PM:** fresh read-only PM · **Merging coder:** 2
+
+> Base: **v2**, merging coder **2**. v1 and v3 make the same one-line change (`tab.Cached = false`
+> at line 21) and leave the test exercised only by a human who sets `GOCPP_PROBE_CACHE`; v2
+> restructures the test into `no cache` / `cache` subtests that set the folder themselves and
+> **assert** which of the two runs is cached. The zeroing alone is not a regression test in the
+> default environment.
+>
+> Merge target is the canonical worktree `~/worktrees/GoToCPP/dev.probecached` on
+> `job/dev.probecached`, which currently holds **v1**. Adopt v2's `decls_more_test.go` wholesale:
+> no line of v1's version may survive beside it (v1's single combined comment and its
+> un-parameterised body are both replaced).
+>
+> | Item | Take | Reason |
+> |---|---|---|
+> | test structure | **v2** | Only version whose fix is a regression test in a default `go test ./...`; v1/v3's assertion is vacuous cold-vs-cold |
+> | `tab.Cached = false` | v2 (all three have it) | The TODO claim itself |
+> | `t.Setenv(EnvNoProbeCache, "")` | **v2** | Load-bearing: `tsupport.Main` (`tsupport.go:33-35`) sets `GOCPP_NOPROBECACHE=1` whenever `GOCPP_PROBE_CACHE` is empty, so without clearing it the `cache` subtest runs with the cache off and passes vacuously |
+> | `if want := tc.cached && i == 1; tab.Cached != want` | v2 | Fails without the fix; names which run must be cached |
+> | v3's comment | **dropped** | Its justification is at best ambiguous: it says "the folder is part of the key", and `run.go:53-55` states the **cache** folder (`cfg.CacheDir`) is not part of any key — only `cfg.Dir`, the package folder, is (`run.go:370-371`) |
+> | v1's comment | dropped | Folded into v2's per-subtest comments |
+>
+> Dropped: v1's and v3's combined rationale comments (v2's two short comments make the same
+> points where they apply), and v3's `TestDeclsMemo` cross-reference (already true in the file).
+
+**Manager verification of the PM's decisive claims.** All four were re-checked on `dev`:
+
+- `tsupport.go:33-35` does set `GOCPP_NOPROBECACHE=1` when `GOCPP_PROBE_CACHE` is empty — so
+  without v2's `t.Setenv(EnvNoProbeCache, "")` the `cache` subtest is vacuous. **Confirmed.**
+- No CI or build path sets either variable: `grep -rn 'GOCPP_PROBE_CACHE\|GOCPP_NOPROBECACHE'`
+  over `Makefile`, `.github/`, `scripts/`, `.envrc`, `flake.nix`, `devenv.nix` returns **nothing**.
+  So under `make ci` the cache is off and v1/v3's fix is never exercised. **Confirmed** — this is
+  what decides the base.
+- `EnvProbeCache` / `EnvNoProbeCache` are the names v2 uses (`cache.go:56,59`). **Confirmed.**
+- `t.Setenv` cannot race with the package's one `t.Parallel()` (`cache_includers_test.go:126`): it
+  is a subtest of a different, non-parallel top-level test. **Confirmed.**
+
+**Correction to the PM's wording.** The PM called v3's comment "factually wrong". It is not flatly
+wrong — read as `cfg.Dir` (the per-test package folder, `run.go:370-371`) its parenthetical is true.
+It is *misleading*, because the sentence's subject is the disk cache, whose folder `run.go:53-55`
+explicitly excludes from the key. That is still reason enough to prefer v2's comments, which
+describe the mechanism without the parenthetical, but the merge note should not accuse v3 of a
+falsehood it did not state.
+
+**Base-hygiene warning for the merging coder.** v2's branch is built on `1a1224be`, which is **not**
+an ancestor of `dev` (`70890fb3`). Its `git diff dev --stat` therefore shows 390 deleted lines in
+`plans/2026-10-13-gocpp/REVIEW-dev.md` and 44 in `TODO.md` — those are the *manager's* later
+commits appearing as reversals, not coder edits (v2's one commit, `acb587d0`, touches only
+`decls_more_test.go`). **Take the file, never `git merge` the branch**, or the job record and TODO
+are reverted.
+
+**Also noted by the PM, and true:** the PM's own full-package run of v2 hit `go test`'s 10-minute
+default timeout at 606s while the machine was at load ~246. That is the load, not a red version —
+the manager's own v2 runs above finished in 2.8s.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
@@ -303,7 +360,7 @@ Reviewer notes about things outside this job. They do not block; each is filed w
 
 ## Job dev.stalehints: four stale comments in the compiler
 
-**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.stalehints
+**Status:** `[~]` in_progress · **Merging coder:** 1 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.stalehints
 
 ### Brief
 
@@ -354,6 +411,95 @@ Consequences for the PM: **v2's removal of `flag` is factually wrong** — Go's 
 `flag`. v1's minimal edit is correct. v3's reframing is also true (PORT.md backs it) but changes what
 the comment is about; it is a legitimate style choice, not a correctness fix. The PM should decide
 between v1 and v3 on style, and must not take v2's list.
+
+**Second manager correction (2026-10-26), after the PM's plan.** The paragraph above is right about
+`flag` but draws too wide a conclusion: it says "v1's minimal edit is correct". **It is not.** v1's
+edit keeps the blanket clause "(sync, time, os, runtime, flag, strings, …) **are real packages now**",
+and that universal is false for two packages that Go's `testing` imports:
+
+- `fmt` — `tools/stubgen/main.go:126` has **no `Real: true`** and `stdlib/fmt/PORT.md:3` says
+  "**Not ported.**" (decision 9.7 = A, ADR-100: native engine kept).
+- `runtime/trace` — imported by Go's `testing` (confirmed with `go list -f '{{join .Imports "\n"}}'
+  testing`), and **`stdlib/runtime/trace` does not exist at all**.
+
+So of the version that keeps the imports framing, both v1 and v2 state something untrue; the PM is
+right that v3's reframing ("the packages whose functions these natives replace") is the one that
+avoids the false universal instead of patching around it. The manager had verified only that the
+listed six are real (`sync` 133, `time` 122, `os` 136, `runtime` 115, `flag` 138, `strconv` 129,
+`io` 121 — all `Real: true`) and generalised from that to the whole sentence; the ellipsis "…" was
+the hole. **Adjudication: v3 wins `testing.hpp`.** The list `flag` correction still stands as far as
+it goes — v2 must not drop `flag` — but it is not sufficient to save v1.
+
+**Manager verification of the PM's other two novel claims.** Both were re-checked and hold:
+
+- **`lookup_env` bullet is stale in v1.** `runtime/include/gocpp/testing.hpp:25` says
+  "lookup_env, set_env and unset_env are os.LookupEnv, Setenv and Unsetenv for T.Setenv", but
+  `stdlib/testing/native.gp:11-12` records that "T.Setenv uses os since step 9.10", and every
+  remaining caller of `lookup_env` is a C++ native test (`runtime/test/testing_natives_test.cpp:110,
+  227, 331, 594, 704`). v2 and v3 both fix it; see `native.gp:11-13` "have no caller".
+- **"when the interop mode is typed" is incomplete.** `internal/typedinterop/mode.go:52` is
+  `DefaultMode = Auto`, and `mode.go:190` returns `Decision{On: true}` for auto when clang++ is
+  usable. So typed code also runs under the default `auto` with clang++; the comment must say
+  "typed, or auto with clang++".
+
+**Manager verification of the PM's `expr.go` finding.** `internal/lower/expr.go:549-553`: a call whose
+signature is `Variadic()` (line 550) or whose single argument is a tuple (line 552) is given its
+callee **without** reaching `funcCallName`. So the doc's "Every call by the name of a function must
+go through here" — which v1 keeps in a new wording — is untrue of exactly the shapes this file
+handles, which is the same overclaim the ticket exists to remove. v2's wording is the accurate one.
+
+**Manager note on the PM's base choice.** The PM picks **v1** as base because two of the four files
+are final as written there. That is sound, but combined with the adjudications above the merged
+result is: `ops.go` v1 · `expr.go` v2 · `build.go` v1 + the auto/clang++ wording fix ·
+`testing.hpp` v3. Only `ops.go` survives unchanged from the base, so the merging coder should treat
+this as a four-file assembly, not a light patch.
+
+### PM merge plan (the PM's amended plan, recorded)
+
+**PM:** fresh read-only PM (amended once after the manager's `flag` correction) · **Merging coder:** 1
+
+> Base: **v1**, merging coder **1**. v1 is already in the canonical worktree
+> `~/worktrees/GoToCPP/dev.stalehints` on `job/dev.stalehints`, so no rename is needed. v1's own
+> commit touches only the four in-scope files, and two of the four are final as written there.
+>
+> | File | Take | Reason |
+> |---|---|---|
+> | `internal/lower/ops.go` ~565 | **v1** | Present tense, keeps every old fact, and keeps the `step 3.5` provenance, which is live house style (`ops.go:592`, `slices.go:13`, `order.go:63`) rather than stale future wording |
+> | `internal/lower/expr.go` ~668 | **v2** | Only version true of *every* call shape and that says why each shape is named elsewhere; v1's "Every call … goes through here" repeats the overclaim being fixed; v3 misnames a method as "named qualified already" |
+> | `cmd/gocpp/build.go` ~1035 | **v1**, one clause corrected | Its block comment is the only one naming all three sources in `ResolveMode`'s order and pointing at it; v2 drops the legacy spelling, v3 names no switch. Correct "when the interop mode is typed" → also true under `auto` + clang++ |
+> | `runtime/include/gocpp/testing.hpp` ~5 | **v3**, causal clause scoped | Naming the packages the natives *replace* is the accurate, PORT.md-checkable framing; but "a native is not there because a package is missing" is false for `libCPUName` |
+> | `testing.hpp` bullet 1 ~16 | **v3** | Drops the false "A test binary has no `time` and no `sync` yet"; its cheaper-int64-clock / one-lock reasons match `PORT.md:15-16` |
+> | `testing.hpp` `lookup_env` bullet ~27 | **v3** | v1 leaves "for T.Setenv" stale; `native.gp:11-12` says `T.Setenv` uses `os` since step 9.10 and the three C++ functions have no caller |
+> | test evidence | combine | g++ focused set, then `-cxx clang++`, plus `TestTestingNatives` and `TestTestingNativesDefined` by name |
+>
+> Dropped: v2's `testing.hpp` list (drops `flag`, which Go's `testing` imports), v1's blanket
+> "are real packages now" (false for `fmt` and `runtime/trace`), v1's `expr.go` universal, v3's
+> `expr.go`, v2's and v3's `build.go`, and v2's/v3's `ops.go` reflows.
+
+**Manager verification of the PM's remaining novel claims.** Each was re-checked on `dev`:
+
+| Claim | Check | Result |
+|---|---|---|
+| v3's "not there because a package is missing" is false for `libCPUName` | `PORT.md:21` maps `libCPUName` → `internal/sysinfo`; `stdlib/internal/sysinfo` is **absent** | **confirmed** |
+| v1's `lookup_env` bullet is stale | `testing.hpp:25` says "for T.Setenv"; `native.gp:11-12` says `T.Setenv` uses `os` since 9.10; callers are only `runtime/test/testing_natives_test.cpp:110,227,331,594,704` | **confirmed** |
+| "when the interop mode is typed" is incomplete | `mode.go:52` `DefaultMode = Auto`; `mode.go:190` returns `Decision{On: true}` for auto with clang++ | **confirmed** |
+| v1's `expr.go` universal is false | `expr.go:549-553`: `sig.Variadic()` and tuple-arg calls bypass `funcCallName` | **confirmed** |
+| v1's base is `d2f99ef5`, not `1a1224be` (PM's correction of the manager) | `git merge-base HEAD dev` in the v1 worktree | **confirmed — the manager had said otherwise** |
+
+### Merge handoffs (build phase)
+
+Recorded from the coders' own reports; the manager has not re-run them.
+
+- **c3 `d3423e13`**: all four sites, plus two neighbouring `testing.hpp` sentences it judged in scope
+  (the `time`/`sync` bullet and the `lookup_env` bullet). Its g++ `TestCXX` was killed under load at
+  ~97 (four groups re-run alone green, 270.9s); its **clang++ focused run was fully green** (482
+  TestCXX passed).
+- **c1 `c676f80c`**: all four sites, `build.go` moved to a block comment above the call, and the
+  `time`/`sync` bullet reworded. Its `TestCXX/g++/O0` re-run alone at load ~5 green (363.7s); the O2
+  half was **not** re-run. `TestTestingNatives` green under both g++ and clang++.
+- **c1 correctly caught a manager error:** the manager's wind-down message to it cited "your commit
+  `4ff62002`" and `.scratch/focused-final.log`, which belong to **c2**, not c1 — the manager mixed up
+  the two coders. c1 reported its own commit and did not "reconcile", which is the right response.
 
 ### Rounds
 
@@ -470,11 +616,45 @@ weakening it.
 > independently corroborated by v2 (`ad28e422`), which reached the same root cause through different
 > test cases (`#M(...)` Phase 10 syntax rather than `F!(g)`).
 
+### Merge result
+
+**Commit `143bf165`** on `job/dev.staleflag` · worktree now `~/worktrees/GoToCPP/dev.staleflag`.
+
+One file, 8 insertions / 6 deletions: `internal/lsp/server/completion_test.go`. It swaps v3's
+vacuous `F!(y)` row for v1's `F!(1)` row (byte-identical to `c65e0044`'s), rewrites the row comment
+to name both constructs, and adds v1's fixture rationale. `completion.go` needed no change: v3's
+version is byte-identical to v1's, and the blob is `6dec15da…` in both `143bf165` and `c65e0044`.
+
+Tags kept for every version: `staleflag-v1` = `c65e0044`, `staleflag-v2` = `ad28e422`,
+`staleflag-v3` = `8129beef`.
+
+**Manager re-measured the row table on the merged commit** (the same two reverts as before):
+
+| Revert | `F!(1)` row | `macro m()` row |
+|---|---|---|
+| nothing | pass | pass |
+| only `Mode: cache.ParseFull` removed from the struct literal | **FAIL** | **FAIL** |
+| only the fixture's `parser.ParseFile` mode → `ParseComments\|AllErrors` | pass | **FAIL** (`got=""`) |
+
+Matches the PM's table exactly, so no row needed fixing in the merge.
+
+**Manager process error (§7.3), corrected.** §7.3 says the manager renames the merging coder's
+branch and worktree to the canonical `job/<job>` name *before* sending the merge plan. The manager
+did not, so the merging coder built the merge in `dev.staleflag-c3`. Corrected afterwards: the
+v1-only canonical worktree (untracked `.scratch/` only, all content tagged) was removed, its branch
+deleted, and the c3 worktree moved and renamed with `git worktree move` + `git branch -m`. The
+canonical path now holds `143bf165` and re-runs green. Lesson for the remaining jobs: do the rename
+in the same step as dispatching the merging coder, not after the handoff.
+
+**Also noted, harmless:** the merge commit's parent `8129beef` has a commit message that still
+mentions the dropped `F!(y)` row. The coder declined to amend history, which is right; the merge
+commit supersedes it.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | fresh reviewer | `143bf165` | manager re-ran `^TestFixDangling$` ok 0.036s in the canonical worktree after the §7.3 rename; manager re-measured both revert rows (see the merge result above) | – |
 
 ### Findings
 
