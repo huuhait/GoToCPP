@@ -71,7 +71,7 @@ not.
 
 ## Job dev.evalorder: `m[s+"x"] = append(m[s+"x"], f())` reads the key before `f` (Go: after)
 
-**Status:** `[~]` in_progress · **Merging coder:** – · **Canonical worktree:** ~/worktrees/GoToCPP/dev.evalorder
+**Status:** `[~]` in_progress · **Merging coder:** 2 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.evalorder
 
 ### Brief
 
@@ -205,11 +205,51 @@ claimed here.
 
 ### PM merge plan
 
-**PM:** – · **Merging coder:** –
+**PM:** fresh read-only PM · **Merging coder:** 2
 
-> (The PM's merge plan, copied unchanged.)
+> **Base: v2** (`c764cdfb`), merging coder **2**. Fewest parts move: v2's `internal/lower/maps.go`
+> can be taken whole. v1 needs its ~150-line key-conversion layer *removed* before it is even
+> correct, and v3 needs v2's conversion/field work added on top.
+>
+> | Item or file | Take | Reason |
+> |---|---|---|
+> | `maps.go` `sameSafe` + `mapAppend` doc | **v2** | All of gc's post-typecheck `SameSafeExpr`; the only version with the promoted-field chain and the wider OCONVNOP set |
+> | `maps.go` helpers (`stripConvNop`, `convNopExpr`, `rounds`, `isUnnamed`, `isNillable`, `fieldPath`, `derefType`) | **v2** | Every one is reached by a row of its 11-row negative check; none is speculative |
+> | `maps.go` `CallExpr` case (OCONV → `types.IsSimple`) | **v2** | Equivalent to v1's/v3's larger helpers, and smaller |
+> | v1's `sameKey`/`keyInner`/`numericConv`/`assignNop`/`namedType`/`nopStrip`/`noCodeConv` | **drop** | Rejecting the fast path on `AssignConv` keys **regresses** `map[any]` field/index keys (measured below) and belongs in `order.go`, which the ticket excludes |
+> | `maps_test.go` (`TestMapAppendShape`) | **v3** | The only *unit* pin on the fast-path decision; verified to fail on `dev` and pass on v2's implementation, so it tests behaviour not one implementation |
+> | v1's `maps_test.go` (`TestNoCodeConv`/`TestIsSimple`/`TestNamedType`) | **drop** | They call functions that do not exist in v2 (`go vet`: `undefined: noCodeConv`) |
+> | `tests/diff` file | **v2's `maps_append_key_expr.gp`**, plus rows from v1/v3 | Largest row set (11), but see the gap below |
+> | Rows to **add** | combine | v2's file has **no `string(...)` conversion at all**, so r2/r3 — two of the three bugs the ticket names — are uncovered. Add `m[string(s)] = append(m[string(s)], f())`, `m[string(s)] = append(m[s], f())`, the float-split row, `int(MyInt)`, `S(s)`, `1+si`, `(*int)(p)` |
+> | v1's / v3's separate diff programs | **drop** | Their rows fold into the single merged file; near-duplicate programs cost a C++ run each for no new coverage |
+>
+> **v1's `0e3185cb` must not be used** (wrong on the float-split shape, already recorded above).
 
-**Merge result:** – · **Commit (state hash):** – · **Departures from the plan (from the merge handoff):** –
+**Manager verification of the PM's decisive claim — v1 regresses.** The PM's headline finding is that
+v1 changes behaviour that is already correct on `dev`, so v1 cannot be the base. The manager re-ran
+the PM's own probe (`probe22.gp`: a pre-seeded `map[any]` with a field key, an index key and a
+deref/name key) through `scripts/gp-repro` on all four trees:
+
+| Tree | field key | index key | deref/name key | vs Go |
+|---|---|---|---|---|
+| `dev` `19646648` | `[1 7] [99]` ✓ | `[1 7] [99]` ✓ | `[1] [99 7]` ✗ | 1 row differs (divergence (a)) |
+| **v1 `e1717e08`** | **`[1] [99 7]` ✗** | **`[1] [99 7]` ✗** | `[1] [99 7]` ✗ | **3 rows differ — two new** |
+| v2 `c764cdfb` | `[1 7] [99]` ✓ | `[1 7] [99]` ✓ | `[1] [99 7]` ✗ | 1 row differs — same as `dev` |
+| v3 `87d12c91` | `[1 7] [99]` ✓ | `[1 7] [99]` ✓ | `[1] [99 7]` ✗ | 1 row differs — same as `dev` |
+
+**Confirmed, independently of the PM.** v1 is the only version that breaks rows `dev` gets right, so
+it is out on correctness, not on taste. v2 and v3 are both byte-equivalent to `dev` on this probe.
+
+**This is the same defect the manager already recorded** (scope decision above): coder 3 built a
+`keyNop` gate, measured that the emitted C++ then built the interface twice and flipped `m[*p]` /
+`m[arr[i]]` on `map[any]` from correct to wrong, and reverted it. v1 shipped the same idea. The PM
+reached the same conclusion from a different direction, which is good corroboration — and it means the
+"drop v1's layer" decision rests on a measurement the job already made once.
+
+**Manager verification of the test-coverage gap.** `grep 'string(' ` and `grep 'ks['` over v2's
+`tests/diff/maps_append_key_expr.gp` (135 lines) return **nothing**: no string-conversion row exists,
+so r2 and r3 would be unpinned if v2's file were taken as is. The PM's added rows are necessary, not
+padding.
 
 ### Rounds
 
