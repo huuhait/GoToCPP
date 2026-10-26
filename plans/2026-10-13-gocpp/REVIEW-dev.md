@@ -856,13 +856,14 @@ commit supersedes it.
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
 | R1 | fresh reviewer | `143bf165` | manager re-ran `^TestFixDangling$` ok 0.036s in the canonical worktree after the §7.3 rename; manager re-measured both revert rows (see the merge result above) | `FINDINGS (1)` — 1 NIT |
-| R2 | – | `1b891f68` | manager: comment-only diff, gofmt clean, `^TestFixDangling$` ok 0.041s | – |
+| R2 | fresh reviewer | `1b891f68` | manager: comment-only diff, gofmt clean, `^TestFixDangling$` ok 0.041s; reviewer re-derived the whole revert matrix in three disposable copies and left the worktree untouched at `1b891f68` | `FINDINGS (1)` — 1 NIT |
 
 ### Findings
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `FIX` (`1b891f68`) | – | `FIXED-PENDING` |
+| S1 | R1 | NIT | `internal/lsp/server/completion_test.go:924-928` | The mode comment explains the *old* fixture's failure ("in mode 0 `F!(1)` is a syntax error whose recovery swallows the second `x.`", "a macro file … loses everything"), but the fixture below always parses with `cache.ParseFull`. A reader at that line cannot reproduce the failure the comment describes without inventing the revert. | §8 "comments explain what is not obvious" | `FIX` (`1b891f68`) | **FIX-VERIFIED by the R2 reviewer**: it re-derived the full revert matrix in disposable copies — (a) `Mode` only removed → both rows fail; (b) fixture parse reverted → macro row only; (c) both → both — matching the comment and the merge commit exactly, and it confirmed neither surviving row is vacuous. The original defect (a reader could not reproduce the described failure) is closed; the residual wording error is tracked separately as S2. | `CLOSED-FIXED` |
+| S2 | R2 | NIT | `internal/lsp/server/completion_test.go:926-930` | The rewritten comment says the macro file is "a syntax error **from its first line**". It is not: with `parser.ParseComments\|parser.AllErrors` (mode 36) the first error is `p.gp:3:1: expected declaration, found macro` — line 3, at the `macro` keyword. `"package p\n"` alone parses with `err=<nil>`. Only the "got `\"\"`" half is right. | §8 "comments explain what is not obvious" — the round-1 NIT's own substance: a reader at this line must be able to check the claim | TBD | **CONFIRMED — manager reproduced independently** in a throwaway Go program on mode 36: `a:3:1: expected declaration, found macro (and 2 more errors)`, versus the `F!(1)` file's `a:5:2: expected selector or type assertion, found 'var'`. The word "first" is the whole defect; the paragraph's structure and its row-attribution sentence are correct and the reviewer confirmed both are load-bearing. FIX: one clause. | OPEN |
 
 **Fix round 1.** Merging coder 3 answered S1 with `FIX` in **`1b891f68`** (on top of `143bf165`, not
 amended). The comment now names both reverts and which row each fails:
@@ -891,6 +892,24 @@ merging coder repairs the wording and no behaviour changes.
 has the same missing-`Mode` fixture shape. It hides nothing today (`repairText` reparses with a
 literal `cache.ParseFull`, `repair.go:297,326`, never `pf.Mode`), so it is a latent trap worth its own
 TODO line, not a patch here.
+
+**R2's own out-of-scope confirmations (recorded, no action):**
+- `repair_test.go:14-17` — same reasoning as above, re-derived by R2: `fixDangling` is the **only**
+  reader of `pf.Mode` in the tree (`completion.go:253`, grep-confirmed), so the trap is real but
+  dormant.
+- `8129beef`'s commit message still describes the dropped `F!(y)` row. History is not amended; R1
+  already accepted this as harmless.
+- The `.scratch/` `.bak` copies the reviewer listed **are** in the job worktree, at
+  `.scratch/x/` (`completion_test.go.mine`, `completion.go.bak`, `ct.now`,
+  `probe-staleflag_test.go.bak`, `zz_probe2_test.go.bak`). The manager's first check looked for them
+  at `.scratch/*.bak` and found nothing, concluded they were the reviewer's own scratch, and was
+  **wrong** — they are one directory deeper. Removed; `git status --short` is now `?? .scratch/`
+  only. This was coder scratch from an earlier round, all untracked, so nothing was ever committed.
+
+**R2 also independently re-checked item 1's cosiness** — the blank-line removal — by marshalling a
+`protocol.CompletionItem` in both layouts and getting byte-identical JSON. That is the proof the
+"cosmetic" claim needed, and it means neither half of the job is a behavioural change.
+
 
 ---
 
