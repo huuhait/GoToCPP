@@ -1375,7 +1375,7 @@ line will drop it when `TestGuideExamples` is fixed.
 
 ## Job dev.rtbugs: nine Runtime claims, one batch
 
-**Status:** `[~]` merging · **Merging coder:** 1 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.rtbugs · `job/dev.rtbugs` (machine: the user's
+**Status:** `[~]` merged, manager re-run · **Merging coder:** 1 · **Canonical worktree:** ~/worktrees/GoToCPP/dev.rtbugs · `job/dev.rtbugs` (machine: the user's
 local box; the five jobs above run on another machine and arrive here by `git pull`)
 
 ### Brief
@@ -1570,6 +1570,44 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 - Manager error: while stopping its own focused run to stay within the cap, `pkill -f` matched the
   manager's own shell; an orphaned `go test ./internal/check` was then killed by literal pid. No file
   was touched.
+- The fresh merging coder handed off at `95c0f130ea50` (three commits on `6b29cce0`: `1a19b016`,
+  `0a331dd2`, `95c0f130`; handoff `.scratch/mgr/handoffs/dev.rtbugs/merge.md`, main checkout). What it reports, not checked
+  by the manager:
+  - Plan-table gaps it fixed: `interop.hpp` reduced to v3's `keep_forever` hunk; coder 1's missing
+    `reflect_makeslice_zerosize` cases; the PM's `fmt.Println(h.p.inc())` shape in
+    `cvar_addr_raw_member_local.gp`; comment lines over 100 columns; one empty-class sentence written
+    for `cpp-mapping.md` (v3 had none to combine).
+  - Departures from the plan: `runtime/test/slice_test.cpp` and `os::testing::guarded_byte` from v3
+    (claim 6 runtime test, segfaults on dev with clang++); every `operator delete` form inlined in
+    `alloc.cpp` (alloc -O0 860 ms vs dev 854-862, `6b29cce0` 869-873, v1 938-943); new header marker
+    `// race: too deep` read by `tests/race/concurrency.sh` and `tools/sanitize/corpus.go` (tools/ is
+    outside the ticket's scope list) and a "Deep recursion" limit in `docs/guides/race.md`;
+    `release_stack_goroutine_deep` list 1M nodes (3M overflowed 512 MiB under `-asan -release`), count
+    still 3,000,000.
+  - Its runs: g++ and clang++ `gp-focused -x -cpus 32 -mem 32G` at `1a19b016`, 58 commands each,
+    exit 0 (2581 passed, 3 skipped); targeted checks only after that. clang++ deadlock TestCXX 3× ok
+    (58 / 129 / 105 s).
+  - Seen, out of scope: under `-race`, a recursion of about 68,000-75,000 frames sometimes hangs at 0%
+    CPU on this branch instead of crashing, not seen on dev at those depths (dev crashes at 200,000);
+    documented as "crashes, or may hang". Not tested: overcommit=2, mlockall.
+- Manager removed `~/worktrees/GoToCPP/dev.rtbugs-c2` / `-c3` and branches `job/dev.rtbugs-c2`
+  (`98cf2f11`) / `-c3` (`beac4b6f`); both were clean.
+- Hygiene check (`git diff --name-status --diff-filter=A dev...job/dev.rtbugs`): 16 added files, all
+  source or tests (`emptyclass.go`, `argkeep.go`, `alloc.cpp`, 2 tests/diff, 5 tests/interop,
+  6 tests/run); no scratch, binary or helper script. 95 files, +3563/−590. `git status --short` clean.
+- Manager re-run at `95c0f130ea50` (`-cpus 32 -mem 32G`, one after the other):
+  - g++ `scripts/gp-focused -x`: **green**, 60 commands, exit 0 (2714 passed, 16 skipped).
+  - clang++ `-cxx clang++`: **1 failure** of 61 commands: `TestCXX/clang++/O0/deadlock` (240 s), the
+    same `test_dump_churn` timeout as v2's (`deadlock_test.cpp:127: the wait timed out`, exit 97,
+    goroutines parked in `chan receive` at :572), in command 18 `go test -run
+    '^TestCXX$/^clang\+\+$/^(O0|O2)$' ./runtime`. Everything else passed (2675 passed, 16 skipped).
+  - Manager comparison: that command alone 3× on the branch and 3× on dev (`0beaa623`, code =
+    `70890fb3`), alternating, same cap. Branch: `O0/deadlock` PASS 110 s, **FAIL 190 s** (same
+    `deadlock_test.cpp:127` timeout, goroutines at :572), PASS 74 s. dev: PASS 95 s, 126 s, 72 s.
+    Totals with the earlier runs: branch 2 failures in 4 full-set runs; dev 0 in 3 full-set runs and
+    0 in 3 runs of the test alone; v2 (where `stack_release` comes from) 1 in 1 full-set run.
+  - The manager's clang++ run is **red**, so the hash cannot go to review as tested green: the failure
+    goes to the merging coder as finding M1 (below) before R1.
 
 ### Rounds
 
@@ -1581,4 +1619,4 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| – | – | – | – | – | – | – | – | – |
+| M1 | pre-R1 (manager test run) | – | runtime/test/deadlock_test.cpp:127 | `TestCXX/clang++/O0/deadlock` (`test_dump_churn`) times out on `95c0f130` in the full clang++ `TestCXX` command under `-cpus 32`: 2 of 4 runs on the branch, 0 of 6 on dev | focused tests green before review | – | – | OPEN |
