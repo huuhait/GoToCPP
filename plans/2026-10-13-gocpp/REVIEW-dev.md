@@ -1625,7 +1625,7 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
 |---|---|---|---|---|
-| R1 | – | – | – | – |
+| R1 | 1 | `fd6de2dc7096` (clean) | manager `gp-focused -x -cpus 32 -mem 32G`: g++ green, 60 commands, 2714 passed, 16 skipped; `-cxx clang++` green, 60 commands, 2714 passed, 16 skipped (`O0/deadlock` 14 s) | pending |
 
 ### Findings
 
