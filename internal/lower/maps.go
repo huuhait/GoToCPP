@@ -493,13 +493,14 @@ func (fg *funcGen) mapConversion(c *ast.CallExpr, to, from types.Type, x cppir.E
 }
 
 // mapAppend returns the append call of the assignment s if it is m[k] = append(m[k], ...), with
-// the same m and k on both sides (gc's ir.SameSafeExpr: variables, constants, *p, indexes,
-// operators and simple conversions of them, such as (*p)[k], ss[i][k] and m[k+1]), or nil. gc
-// takes the entry once for it (walk/assign.go reuses the mapassign): it evaluates m and k first
-// (the calls in them, then m and k themselves into temporaries unless they are names or
-// constants, so a nil *p or an index out of range panics there), then the other arguments, then
-// it takes the entry (inserting k) and appends to the slice that is there. The C++ does the same
-// (mapPre, mapSimple), with the slice moved into gp::append.
+// the same m and k on both sides (gc's ir.SameSafeExpr, sameSafe: variables, constants, *p,
+// indexes, fields, operators and simple conversions of them, such as (*p)[k], ss[i][k],
+// t.Inner.V for t.V and m[k+1] of a number, but not m[s+"x"], which gc's OADDSTR makes unsafe),
+// or nil. gc takes the entry once for it (walk/assign.go reuses the mapassign): it evaluates m
+// and k first (the calls in them, then m and k themselves into temporaries unless they are names
+// or constants, so a nil *p or an index out of range panics there), then the other arguments,
+// then it takes the entry (inserting k) and appends to the slice that is there. The C++ does the
+// same (mapPre, mapSimple), with the slice moved into gp::append.
 func (fg *funcGen) mapAppend(s ast.Stmt) *ast.CallExpr {
 	a, ok := s.(*ast.AssignStmt)
 	if !ok || a.Tok != token.ASSIGN || len(a.Lhs) != 1 || len(a.Rhs) != 1 {
@@ -654,12 +655,31 @@ func singleFast(t types.Type) bool {
 }
 
 // sameSafe reports whether a and b are the same expression that can be evaluated twice with the
-// same result and no effect but a panic (gc's ir.SameSafeExpr): the same variable or constant
-// (or nil), and *x, x[i], x.f (a field, also promoted through embedded fields: gc's ODOT and
-// ODOTPTR; a variable of another package, pkg.V), an operator or a conversion to a basic type
-// of such expressions.
+// same result and no effect but a panic (gc's ir.SameSafeExpr, ir/expr.go). It compares what gc
+// sees after typecheck, not the source, so:
+//   - a conversion that gc makes an OCONVNOP is looked through at the top of both sides first, so
+//     m[int(k)] is the same expression as m[k] (stripConvNop with convNopExpr, gc's convertOp and
+//     assignOp from typecheck/subr.go after tcConv: the identical and identical-underlying
+//     conversions, the rounding conversions of two floats or two complex numbers excepted, the
+//     integers of one SimType, pointers to unsafe.Pointer and back, nil to a nillable type; a
+//     conversion with an interface operand is OCONVIFACE in gc except where assignOp makes it an
+//     OCONVNOP, so convNopExpr stops at assignOp for those);
+//   - a string + is an AddStringExpr (OADDSTR) by then, and SameSafeExpr has no case for it, so
+//     m[s+"x"] is not safe while m[i+1] of a number is;
+//   - a conversion that survives as OCONV is safe only if its result is a simple type (gc's
+//     types.IsSimple: the integers, floats, complex and bool), so a conversion to a string, an
+//     interface or a pointer is not;
+//   - nil is safe (ONIL), and two constants are safe when they are equal.
+//
+// Then: a variable (the same one; gc's ONAME, which also covers a variable of another package,
+// pkg.V), *x, x[i] (an index of a map too, and of a pointer to an array, whose implicit deref
+// makes parr[i] and (*parr)[i] one expression: indexBase), x.f (gc's ODOT and ODOTPTR: the same
+// field, see fieldPath for the promoted ones), the operators !x, ^x, +x, -x and x+y, x-y, x|y,
+// x^y, x*y, x<<y, x>>y, x&y, x&^y, x/y, x%y (gc's ONOT, OBITNOT, OPLUS, ONEG and OADD, OSUB, OOR,
+// OXOR, OMUL, OLSH, ORSH, OAND, OANDNOT, ODIV, OMOD) of such expressions, and a conversion of one.
+// gc requires the two expressions to have one type first, and the same operation.
 func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
-	a, b = ast.Unparen(a), ast.Unparen(b)
+	a, b = fg.stripConvNop(a), fg.stripConvNop(b)
 	ta, tb := fg.g.info.Types[a], fg.g.info.Types[b]
 	if ta.Type == nil || tb.Type == nil || !types.Identical(ta.Type, tb.Type) {
 		return false
@@ -689,11 +709,20 @@ func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 			v, isVar := fg.g.qualifiedObj(x).(*types.Var)
 			return sx == nil && sy == nil && isVar && v == fg.g.qualifiedObj(y)
 		}
-		return sx.Kind() == types.FieldVal && sy.Kind() == types.FieldVal && sx.Obj() == sy.Obj() &&
-			slices.Equal(sx.Index(), sy.Index()) && fg.sameSafe(x.X, y.X)
+		if sx.Kind() != types.FieldVal || sy.Kind() != types.FieldVal {
+			return false
+		}
+		if bx, px, okx := fg.fieldPath(x); okx {
+			if by, py, oky := fg.fieldPath(y); oky {
+				return slices.Equal(px, py) && fg.sameSafe(bx, by)
+			}
+			return false
+		}
+		return sx.Obj() == sy.Obj() && slices.Equal(sx.Index(), sy.Index()) && fg.sameSafe(x.X, y.X)
 	case *ast.IndexExpr:
 		y, ok := b.(*ast.IndexExpr)
-		return ok && fg.sameSafe(x.X, y.X) && fg.sameSafe(x.Index, y.Index)
+		return ok && fg.sameSafe(fg.indexBase(x.X), fg.indexBase(y.X)) &&
+			fg.sameSafe(x.Index, y.Index)
 	case *ast.UnaryExpr:
 		y, ok := b.(*ast.UnaryExpr)
 		switch x.Op {
@@ -705,6 +734,11 @@ func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 		switch x.Op {
 		case token.ADD, token.SUB, token.OR, token.XOR, token.MUL, token.SHL, token.SHR, token.AND,
 			token.AND_NOT, token.QUO, token.REM:
+			// A string + is an OADDSTR in gc and has no case there, whatever the other side:
+			// the key would be read after the appended arguments.
+			if x.Op == token.ADD && isString(ta.Type) {
+				return false
+			}
 			return ok && x.Op == y.Op && fg.sameSafe(x.X, y.X) && fg.sameSafe(x.Y, y.Y)
 		}
 	case *ast.CallExpr:
@@ -716,6 +750,205 @@ func (fg *funcGen) sameSafe(a, b ast.Expr) bool {
 		return fg.sameSafe(x.Args[0], y.Args[0])
 	}
 	return false
+}
+
+// indexBase returns the base expression of the index e as gc's SameSafeExpr sees it. typecheck's
+// implicitstar (typecheck/typecheck.go, from tcIndex) wraps a base of pointer-to-array type in an
+// implicit ODEREF, so parr[i] and (*parr)[i] are the same ODEREF(ONAME) chain there while the
+// source nodes differ. The explicit star over a pointer to an array is dropped here, which leaves
+// both spellings as the pointer expression.
+func (fg *funcGen) indexBase(e ast.Expr) ast.Expr {
+	e = ast.Unparen(e)
+	if s, ok := e.(*ast.StarExpr); ok && isPtrToArray(fg.g.info.TypeOf(s.X)) {
+		return ast.Unparen(s.X)
+	}
+	return e
+}
+
+// isPtrToArray reports whether t is a pointer to an array, gc's implicitstar condition (the
+// pointer's element type has array underlying).
+func isPtrToArray(t types.Type) bool {
+	p, ok := under(t).(*types.Pointer)
+	if !ok {
+		return false
+	}
+	_, ok = under(p.Elem()).(*types.Array)
+	return ok
+}
+
+// fieldPath returns the base expression of the field selector e and the fields that it selects,
+// the innermost first: gc's chain of ODOT and ODOTPTR nodes, in which a promoted field (t.f of a
+// field of the embedded Inner) is the explicit t.Inner.f. gc's SameSafeExpr compares such a
+// chain node by node (l.Sel == r.Sel), so the two forms are one expression to it. The last
+// result is false for an expression that gc does not make such a chain for: a field of another
+// package (pkg.V, a name there), and a field of a type parameter, whose struct is not known.
+func (fg *funcGen) fieldPath(e ast.Expr) (ast.Expr, []*types.Var, bool) {
+	e = ast.Unparen(e)
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return e, nil, true
+	}
+	s := fg.g.info.Selections[sel]
+	if s == nil {
+		return e, nil, false // pkg.V
+	}
+	if s.Kind() != types.FieldVal {
+		return e, nil, false
+	}
+	base, fields, ok := fg.fieldPath(sel.X)
+	if !ok {
+		return e, nil, false
+	}
+	recv := fg.g.info.TypeOf(sel.X)
+	for _, i := range s.Index() {
+		st, ok := under(derefType(recv)).(*types.Struct)
+		if !ok {
+			return e, nil, false
+		}
+		f := st.Field(i)
+		fields = append(fields, f)
+		recv = f.Type()
+	}
+	return base, fields, true
+}
+
+// derefType returns the type that t points to if t is a pointer type, or t itself.
+func derefType(t types.Type) types.Type {
+	if p, ok := under(t).(*types.Pointer); ok {
+		return p.Elem()
+	}
+	return t
+}
+
+// stripConvNop returns e without the conversions that gc makes an OCONVNOP, which
+// ir.SameSafeExpr looks through at the top of both of its sides: int64(k) is k.
+//
+// There is no depth limit, as in gc (ir/expr.go SameSafeExpr loops while l.Op() == OCONVNOP):
+// the loop ends on the real condition, since it continues only while e is a one-argument call of
+// a type name that convNopExpr accepts, and every turn replaces e with that call's argument, a
+// strictly smaller subtree. A cap would make int(int(...(k)...)) a different key from k above
+// that depth, and silently lose the order.
+func (fg *funcGen) stripConvNop(e ast.Expr) ast.Expr {
+	for {
+		e = ast.Unparen(e)
+		c, ok := e.(*ast.CallExpr)
+		if !ok || len(c.Args) != 1 {
+			return e
+		}
+		tv, ok := fg.g.info.Types[c.Fun]
+		if !ok || !tv.IsType() || !fg.convNopExpr(fg.g.info.TypeOf(c.Args[0]), tv.Type) {
+			return e
+		}
+		e = c.Args[0]
+	}
+}
+
+// convNopExpr reports whether gc makes the explicit conversion of a value of type from to type
+// to an OCONVNOP: typecheck's convertOp, and then tcConv, which turns a conversion of a float or
+// a complex number of one kind back into an OCONV (it rounds). convNop (panicid.go) covers the
+// numeric rule (convertOp's rule 4, for the integers: a same-kind float conversion never
+// survives tcConv); these are the rest of gc's set for a conversion with no interface operand:
+//   - identical underlying types, struct tags ignored (rule 2; a defined type with the same
+//     underlying type as the other, which assignOp only covers when one of them is unnamed);
+//   - unnamed pointer types over types of identical underlying types with the tags ignored
+//     (rule 3);
+//   - a bidirectional channel to a channel of the same element type, when one of the two is
+//     unnamed (assignOp rule 4: a one-directional channel does not convert back);
+//   - nil to a nillable type (assignOp rule 5);
+//   - a pointer or a uintptr to unsafe.Pointer and back (rules 8 and 9).
+//
+// A conversion with an interface on either side is narrower: convertOp stops after assignOp
+// there ("the rules for interfaces are no different in conversions than assignments"), so an
+// interface to another interface, or a value to an interface, is an OCONVIFACE (rule 3) and not
+// an OCONVNOP, except where assignOp's own rules make it one: rule 1, identical types, and rule 2
+// when the source is an empty interface (a non-empty interface to another with the same methods
+// recomputes the itab, so it is not one).
+func (fg *funcGen) convNopExpr(from, to types.Type) bool {
+	if from == nil || to == nil {
+		return false
+	}
+	if fb, ok := under(from).(*types.Basic); ok && fb.Kind() == types.UntypedNil {
+		return isNillable(to)
+	}
+	if isInterface(from) || isInterface(to) {
+		// gc's assignOp, which is all convertOp does for an interface operand: rule 1, and rule
+		// 2 when the source is an empty interface.
+		return types.Identical(from, to) ||
+			types.Identical(from.Underlying(), to.Underlying()) && isEmptyInterface(from)
+	}
+	if convNop(from, to) {
+		return true
+	}
+	// tcConv turns a no-op conversion between two floats or two complex numbers of one kind back
+	// into an OCONV, because it rounds; gc's SameSafeExpr then applies its OCONV case to it.
+	if types.IdenticalIgnoreTags(under(from), under(to)) && !rounds(from) {
+		return true
+	}
+	fp, fok := under(from).(*types.Pointer)
+	tp, tok := under(to).(*types.Pointer)
+	if fok && tok && isUnnamed(from) && isUnnamed(to) {
+		return types.IdenticalIgnoreTags(fp.Elem().Underlying(), tp.Elem().Underlying())
+	}
+	// A bidirectional channel to a channel of the same element type, one way only (assignOp rule
+	// 4: neither Go nor gc converts a one-directional channel back to a bidirectional one), when
+	// one of the two is unnamed.
+	fc, fok := under(from).(*types.Chan)
+	tc, tok := under(to).(*types.Chan)
+	if fok && tok && fc.Dir() == types.SendRecv && types.Identical(fc.Elem(), tc.Elem()) &&
+		(isUnnamed(from) || isUnnamed(to)) {
+		return true
+	}
+	if isUnsafePointer(from) {
+		return isPointer(to) || isUintptr(to)
+	}
+	if isUnsafePointer(to) {
+		return isPointer(from) || isUintptr(from)
+	}
+	return false
+}
+
+// rounds reports whether a conversion between two types of one kind rounds, which gc's tcConv
+// keeps as an OCONV: two floats or two complex numbers of the same kind (float32 to float32,
+// complex64 to complex64).
+func rounds(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Info()&(types.IsFloat|types.IsComplex) != 0
+}
+
+// isUnnamed reports whether t has no type name: a type literal (a pointer, a slice, a map, a
+// channel, a func type, an unnamed struct or interface) or one of the predeclared basic types, as
+// opposed to a defined type or a type parameter. gc's Sym() == nil test is not the same set: the
+// predeclared basic types do carry a Sym (defBasic in types/universe.go sets typ.obj), so
+// Sym() == nil holds for compound types built with no object only. The test appears in convertOp's
+// rule 3, the unnamed-pointer rule, and in assignOp's rules 2 and 4, which convertOp reaches
+// through its own rule 1. This predicate is used for the pointer and channel rules alone, where a
+// basic type never arrives, so the difference never decides: the callers below check for a pointer
+// or a channel first, and gc's Sym() test sits behind the same check (convertOp rule 3 wants
+// src.IsPtr() && dst.IsPtr(), assignOp rule 4 wants src.IsChan() && dst.IsChan()).
+func isUnnamed(t types.Type) bool {
+	switch types.Unalias(t).(type) {
+	case *types.Named, *types.TypeParam:
+		return false
+	}
+	return true
+}
+
+// isNillable reports whether a nil value can be converted to t (assignOp rule 5).
+func isNillable(t types.Type) bool {
+	switch under(t).(type) {
+	case *types.Pointer, *types.Signature, *types.Map, *types.Chan, *types.Interface, *types.Slice:
+		return true
+	}
+	return false
+}
+
+// isEmptyInterface reports whether t is an interface type with no methods, gc's
+// IsEmptyInterface (a named one too: type E interface{}). The method set is completed first, so
+// an interface that only embeds a non-empty one (interface{ I }) is not empty, as in gc's
+// AllMethods.
+func isEmptyInterface(t types.Type) bool {
+	it, ok := under(t).(*types.Interface)
+	return ok && it.Complete().NumMethods() == 0
 }
 
 // mapShift reports whether the simple statement s is m[k] <<= n or m[k] >>= n whose count is not
