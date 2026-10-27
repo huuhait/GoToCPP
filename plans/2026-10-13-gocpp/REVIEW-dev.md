@@ -778,6 +778,17 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 >
 > - None was unusable as a whole. v2 is red only on TestFeatureMatrix (also red on dev) plus a clang++ deadlock timeout the manager could not reproduce; parts of v2 are taken. v3's runtime stack layer and its claim-9 "stale" verdict are not used, for the reasons above.
 
+### Merge
+
+- Coder 1 committed the merge `6b29cce0` (18:17) and was running focused tests when the user stopped
+  it to change the CPU cap (user, 2026-10-26: "make it cap 32 threads plz"; every run is now
+  `-cpus 32 -mem 32G`, extra checks share the 32). Its g++ run reached command 44 of ~51 with no
+  failure. A stopped agent cannot be resumed, so on the user's "go" a **fresh merging coder** took over
+  at `6b29cce0` with the PM plan, the three handoffs and the plan's risk list; it does not redo the merge.
+- Manager error: while stopping its own focused run to stay within the cap, `pkill -f` matched the
+  manager's own shell; an orphaned `go test ./internal/check` was then killed by literal pid. No file
+  was touched.
+
 ### Rounds
 
 | Round | Fresh reviewer # | Commit (state hash) | Manager test run | Verdict |
