@@ -1613,4 +1613,4 @@ local box; the five jobs above run on another machine and arrive here by `git pu
 
 | # | Round | Severity | file:line | Failure scenario | Violated rule | Coder response | Adjudication | State |
 |---|---|---|---|---|---|---|---|---|
-| – | – | – | – | – | – | – | – | – |
+| M1 | pre-R1 (manager test run) | – | runtime/test/deadlock_test.cpp:127 | `TestCXX/clang++/O0/deadlock` (`test_dump_churn`) times out on `95c0f130` in the full clang++ `TestCXX` command under `-cpus 32`: 2 of 4 runs on the branch, 0 of 6 on dev | focused tests green before review | – | – | OPEN |
